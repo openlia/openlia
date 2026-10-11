@@ -1,7 +1,7 @@
 ---
 name: workspace-organize
 description: Audit workspace integrity, detect orphan or stale items, and propose clean-up actions.
-version: 0.1.0
+version: 0.2.0
 platforms: [macos, linux]
 required_environment_variables: []
 required_credential_files: []
@@ -70,12 +70,43 @@ Read relevant sources across the workspace:
     - Check registered extension paths for a purpose, route/context tags, and a
       template/schema plan when structured records are expected.
    - Verify metadata consistency (e.g. numbering across learning tracks, dated ledgers vs standalone event notes).
+   - Review finance journal organization using the bounded inspection below.
+
+   **Finance journal organization**:
+   - Resolve the registered finance path and journal entry point (`LEDGER_FILE`
+     when set). Inspect include directives to distinguish the main journal from
+     its parts; do not guess when multiple entry points remain plausible.
+   - Use local line counts, a concise include inventory, and hledger date/year
+     summaries to inspect size and year coverage without loading the full
+     journal into model context. Bound error output and any transaction samples.
+     The static audit script does not detect journal organization; this is a
+     contextual review. If hledger is unavailable, record the limitation and do
+     not claim that journal validity or accounting equivalence was verified.
+   - A journal of roughly 2,000 or more lines is a signal to review its layout,
+     not an automatic splitting threshold or integrity error. Propose yearly
+     includes only when multi-year coverage and a concrete maintenance benefit
+     support them, such as separating historical records from current postings.
+   - Respect an existing include layout and prior rejected or resolved proposals.
+     Do not re-propose a split for a well-organized journal or a single-year file
+     solely because it is long. Scoped queries, rather than splitting alone,
+     control model context cost.
+   - For a `journal-organization` proposal, record the observed entry point,
+     line count, year coverage, and include structure; propose explicit yearly
+     paths within the registered finance domain, such as `finance/2025.hledger`
+     and `finance/2026.hledger`, included by the existing main entry point. Do
+     not invent a new folder without a registry proposal. Identify existing
+     target files or directive-order concerns that require review.
+   - Include a handoff to [Personal Finance](openlia://skills/personal-finance)
+     for authorized execution. Require preservation of whole transactions and
+     directive semantics, no new annual opening balances, and full-journal
+     validation and before/after count and report comparisons. The scout must
+     not split or edit journals during the audit.
 
 3. **Formulate Proposals**:
    - Assign a stable identifier: `O-YYYY-MM-DD-NNN`.
    - Specify:
      - **Area/file**: Target file path or directory.
-      - **Type**: `stray-root-file` | `unregistered-directory` | `workspace-registry` | `inbox-lifecycle` | `broken-link` | `evidence-provenance` | `duplicate-overlap` | `metadata-inconsistency` | `template-schema-conformance` | `completed-project`.
+      - **Type**: `stray-root-file` | `unregistered-directory` | `workspace-registry` | `inbox-lifecycle` | `broken-link` | `evidence-provenance` | `duplicate-overlap` | `metadata-inconsistency` | `template-schema-conformance` | `completed-project` | `journal-organization`.
      - **Observation**: Objective facts observed in specific files or lines.
      - **Inference**: Why this observation suggests an organizational issue.
      - **Suggested action**: Proposed concrete atomic action (for user review only).
@@ -107,6 +138,12 @@ Read relevant sources across the workspace:
       with scoped confirmation or `assistant-policy.yaml` delegates the matching
       `update_records` or `archive_records` action. Never apply an ambiguous
       proposal solely because it was listed in the report.
+    - Journal restructuring is a finance write: hand it to
+      [Personal Finance](openlia://skills/personal-finance) under a scoped direct
+      request or matching `record_financial_data` delegation. Generic
+      `update_records` or `archive_records` delegation alone does not authorize
+      rewriting journals. Apply the finance skill's validation and equivalence
+      checks to the full main journal and its includes.
 
 ## Verification
 

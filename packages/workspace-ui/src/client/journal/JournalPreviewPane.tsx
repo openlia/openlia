@@ -4,10 +4,15 @@ import { JournalTimeline } from "./JournalTimeline";
 import { MonthlyCashflowChart } from "./MonthlyCashflowChart";
 import {
   classifyTransaction,
+  computeAnnualCashflow,
   computeMonthlyCashflow,
+  computePeriodMetrics,
+  type DateRangeScope,
   formatCurrency,
+  getAvailableYears,
   parseHledgerJournal,
 } from "./parser";
+import { PeriodScopeSelector } from "./PeriodScopeSelector";
 import { SankeyDiagram } from "./SankeyDiagram";
 
 export function JournalPreviewPane({
@@ -31,14 +36,25 @@ export function JournalPreviewPane({
     "all" | "income" | "expense" | "transfer"
   >("all");
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [periodScope, setPeriodScope] = useState<DateRangeScope>({
+    type: "all",
+  });
 
   const parsed = useMemo(() => {
     return parseHledgerJournal(content);
   }, [content]);
 
-  const { transactions, accounts, highlightsByCurrency, sankeyByCurrency } =
-    parsed;
-  const currencies = parsed.currencies;
+  const { transactions, currencies } = parsed;
+  const availableYears = useMemo(
+    () => getAvailableYears(transactions),
+    [transactions],
+  );
+
+  const scopedParsed = useMemo(() => {
+    return computePeriodMetrics(parsed, periodScope);
+  }, [parsed, periodScope]);
+
+  const { accounts, highlightsByCurrency, sankeyByCurrency } = scopedParsed;
   const hasMultipleCurrencies = currencies.length > 1;
   const effectiveSelectedCurrency =
     selectedCurrency !== "all" && currencies.includes(selectedCurrency)
@@ -67,22 +83,30 @@ export function JournalPreviewPane({
       ? (currencies[0] ?? "VND")
       : effectiveSelectedCurrency;
 
+  const annualCashflow = useMemo(() => {
+    return computeAnnualCashflow(transactions, primaryViewCurrency);
+  }, [transactions, primaryViewCurrency]);
+
   const monthlyCashflow = useMemo(() => {
     const currencyTxs =
       effectiveSelectedCurrency === "all"
-        ? transactions
-        : transactions.filter((tx) =>
+        ? scopedParsed.transactions
+        : scopedParsed.transactions.filter((tx) =>
             tx.postings.some((p) => p.currency === effectiveSelectedCurrency),
           );
     return computeMonthlyCashflow(currencyTxs, primaryViewCurrency, "asc");
-  }, [transactions, effectiveSelectedCurrency, primaryViewCurrency]);
+  }, [
+    scopedParsed.transactions,
+    effectiveSelectedCurrency,
+    primaryViewCurrency,
+  ]);
 
   const filteredTransactions = useMemo(() => {
     const q = filterQuery.toLowerCase().trim();
     let res =
       effectiveSelectedCurrency === "all"
-        ? transactions
-        : transactions.filter((tx) =>
+        ? scopedParsed.transactions
+        : scopedParsed.transactions.filter((tx) =>
             tx.postings.some(
               (posting) => posting.currency === effectiveSelectedCurrency,
             ),
@@ -104,7 +128,7 @@ export function JournalPreviewPane({
         tx.postings.some((p) => p.account.toLowerCase().includes(q)),
     );
   }, [
-    transactions,
+    scopedParsed.transactions,
     effectiveSelectedCurrency,
     selectedMonth,
     typeFilter,
@@ -171,33 +195,53 @@ export function JournalPreviewPane({
 
   return (
     <div className="flex h-full flex-col overflow-y-auto p-4 md:p-6 gap-6">
-      {hasMultipleCurrencies && (
-        <div
-          aria-label="Journal currencies"
-          className="join self-start rounded-lg border border-base-content/10 bg-base-200/50 p-1"
-          role="tablist"
-        >
-          <button
-            aria-selected={effectiveSelectedCurrency === "all"}
-            className={`btn btn-sm join-item ${effectiveSelectedCurrency === "all" ? "btn-primary" : "btn-ghost"}`}
-            onClick={() => setSelectedCurrency("all")}
-            role="tab"
-            type="button"
-          >
-            All
-          </button>
-          {currencies.map((currency) => (
-            <button
-              aria-selected={effectiveSelectedCurrency === currency}
-              className={`btn btn-sm join-item ${effectiveSelectedCurrency === currency ? "btn-primary" : "btn-ghost"}`}
-              key={currency}
-              onClick={() => setSelectedCurrency(currency)}
-              role="tab"
-              type="button"
+      {/* Top Controls: Currency & Period Scope */}
+      {(hasMultipleCurrencies || availableYears.length > 1) && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {hasMultipleCurrencies ? (
+            <div
+              aria-label="Journal currencies"
+              className="join rounded-lg border border-base-content/10 bg-base-200/50 p-1"
+              role="tablist"
             >
-              {currency}
-            </button>
-          ))}
+              <button
+                aria-selected={effectiveSelectedCurrency === "all"}
+                className={`btn btn-sm join-item ${effectiveSelectedCurrency === "all" ? "btn-primary" : "btn-ghost"}`}
+                onClick={() => setSelectedCurrency("all")}
+                role="tab"
+                type="button"
+              >
+                All
+              </button>
+              {currencies.map((currency) => (
+                <button
+                  aria-selected={effectiveSelectedCurrency === currency}
+                  className={`btn btn-sm join-item ${effectiveSelectedCurrency === currency ? "btn-primary" : "btn-ghost"}`}
+                  key={currency}
+                  onClick={() => setSelectedCurrency(currency)}
+                  role="tab"
+                  type="button"
+                >
+                  {currency}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div />
+          )}
+
+          {availableYears.length > 1 && (
+            <PeriodScopeSelector
+              availableYears={availableYears}
+              onScopeChange={(newScope) => {
+                setPeriodScope(newScope);
+                setSelectedMonth(null);
+              }}
+              scope={periodScope}
+              scopedCount={scopedParsed.transactions.length}
+              totalCount={transactions.length}
+            />
+          )}
         </div>
       )}
 
@@ -235,14 +279,20 @@ export function JournalPreviewPane({
         <JournalHighlights highlights={activeHighlights} />
       </section>
 
-      {/* 3. Monthly Cashflow Trajectory */}
-      {monthlyCashflow.length > 0 && (
+      {/* 3. Monthly / Annual Cashflow Trajectory */}
+      {(monthlyCashflow.length > 0 || annualCashflow.length > 0) && (
         <section aria-label="Monthly Cashflow Trajectory">
           <MonthlyCashflowChart
+            annualData={annualCashflow}
             currency={primaryViewCurrency}
             data={monthlyCashflow}
             onSelectMonth={setSelectedMonth}
+            onSelectYear={(year) => {
+              setPeriodScope(year ? { type: "year", year } : { type: "all" });
+              setSelectedMonth(null);
+            }}
             selectedMonth={selectedMonth}
+            selectedYear={periodScope.type === "year" ? periodScope.year : null}
           />
         </section>
       )}

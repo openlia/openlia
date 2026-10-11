@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   classifyAccount,
   classifyTransaction,
+  computeAnnualCashflow,
   computeMonthlyCashflow,
+  computePeriodMetrics,
   formatCurrency,
+  getAvailableYears,
   groupTransactionsByMonth,
   parseAmountAndCurrency,
   parseHledgerJournal,
@@ -315,5 +318,86 @@ describe("groupTransactionsByMonth & computeMonthlyCashflow", () => {
     expect(points[1]?.income).toBe(65000000);
     expect(points[1]?.expenses).toBe(2000000);
     expect(points[1]?.net).toBe(63000000);
+  });
+});
+
+describe("Multi-year Scoping & Annual Cashflow", () => {
+  const multiYearJournal = `2024-05-01 * Old salary
+    assets:cash               40000000 VND
+    income:salary            -40000000 VND
+
+2024-05-10 * Old expense
+    expenses:rent             10000000 VND
+    assets:cash              -10000000 VND
+
+2025-06-01 * 2025 salary
+    assets:cash               50000000 VND
+    income:salary            -50000000 VND
+
+2025-06-15 * 2025 expense
+    expenses:rent             15000000 VND
+    assets:cash              -15000000 VND
+
+2026-07-01 * 2026 salary
+    assets:cash               60000000 VND
+    income:salary            -60000000 VND
+
+2026-07-20 * 2026 expense
+    expenses:rent             20000000 VND
+    assets:cash              -20000000 VND
+`;
+
+  it("extracts unique available years in descending order", () => {
+    const parsed = parseHledgerJournal(multiYearJournal);
+    const years = getAvailableYears(parsed.transactions);
+    expect(years).toEqual([2026, 2025, 2024]);
+  });
+
+  it("computes annual cashflow points across all years", () => {
+    const parsed = parseHledgerJournal(multiYearJournal);
+    const annualPoints = computeAnnualCashflow(parsed.transactions, "VND");
+
+    expect(annualPoints).toHaveLength(3);
+    expect(annualPoints[0]?.year).toBe(2024);
+    expect(annualPoints[0]?.income).toBe(40000000);
+    expect(annualPoints[0]?.expenses).toBe(10000000);
+    expect(annualPoints[0]?.net).toBe(30000000);
+
+    expect(annualPoints[1]?.year).toBe(2025);
+    expect(annualPoints[1]?.income).toBe(50000000);
+    expect(annualPoints[1]?.expenses).toBe(15000000);
+
+    expect(annualPoints[2]?.year).toBe(2026);
+    expect(annualPoints[2]?.income).toBe(60000000);
+    expect(annualPoints[2]?.expenses).toBe(20000000);
+  });
+
+  it("dynamically recalculates metrics and Sankey flows when scoped to a specific year", () => {
+    const parsed = parseHledgerJournal(multiYearJournal);
+
+    // All time totals
+    expect(parsed.transactions).toHaveLength(6);
+    expect(parsed.highlightsByCurrency.get("VND")?.totalIncome).toBe(150000000);
+    expect(parsed.highlightsByCurrency.get("VND")?.totalExpenses).toBe(
+      45000000,
+    );
+
+    // Scope to 2025 only
+    const scoped2025 = computePeriodMetrics(parsed, {
+      type: "year",
+      year: 2025,
+    });
+    expect(scoped2025.transactions).toHaveLength(2);
+
+    const vnd2025 = scoped2025.highlightsByCurrency.get("VND");
+    expect(vnd2025?.totalIncome).toBe(50000000);
+    expect(vnd2025?.totalExpenses).toBe(15000000);
+    expect(vnd2025?.netSavings).toBe(35000000);
+
+    // Sankey diagram nodes reflect only 2025 expenses
+    const sankey2025 = scoped2025.sankeyByCurrency.get("VND");
+    expect(sankey2025).toBeDefined();
+    const expenseNode = sankey2025?.nodes.find((n) => n.name === "rent");
+    expect(expenseNode?.value).toBe(15000000);
   });
 });

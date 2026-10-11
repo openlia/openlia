@@ -26,32 +26,48 @@ export function JournalTimeline({
   onSwitchToEdit,
   onFilterAccount,
 }: JournalTimelineProps) {
-  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const [userToggledMonths, setUserToggledMonths] = useState<
+    Map<string, boolean>
+  >(() => new Map());
+  const [visibleMonthCount, setVisibleMonthCount] = useState<number>(6);
 
   const groups = useMemo(() => {
     return groupTransactionsByMonth(transactions, order);
   }, [transactions, order]);
 
-  const toggleMonth = (monthKey: string) => {
-    setCollapsedMonths((prev) => {
-      const next = new Set(prev);
-      if (next.has(monthKey)) {
-        next.delete(monthKey);
-      } else {
-        next.add(monthKey);
-      }
+  // If search query is active, show all groups so matches aren't hidden
+  const effectiveVisibleCount = filterQuery ? groups.length : visibleMonthCount;
+  const visibleGroups = groups.slice(0, effectiveVisibleCount);
+
+  const isMonthCollapsed = (monthKey: string, index: number) => {
+    if (userToggledMonths.has(monthKey)) {
+      return Boolean(userToggledMonths.get(monthKey));
+    }
+    // Auto-collapse older months if there are more than 4 months
+    return groups.length > 4 && index >= 3;
+  };
+
+  const toggleMonth = (monthKey: string, index: number) => {
+    const current = isMonthCollapsed(monthKey, index);
+    setUserToggledMonths((prev) => {
+      const next = new Map(prev);
+      next.set(monthKey, !current);
       return next;
     });
   };
 
+  const anyExpanded = visibleGroups.some(
+    (g, i) => !isMonthCollapsed(g.monthKey, i),
+  );
+
   const toggleAll = () => {
-    if (collapsedMonths.size === groups.length) {
-      setCollapsedMonths(new Set());
-    } else {
-      setCollapsedMonths(new Set(groups.map((g) => g.monthKey)));
-    }
+    setUserToggledMonths((prev) => {
+      const next = new Map(prev);
+      for (const g of visibleGroups) {
+        next.set(g.monthKey, anyExpanded);
+      }
+      return next;
+    });
   };
 
   if (transactions.length === 0) {
@@ -64,9 +80,6 @@ export function JournalTimeline({
     );
   }
 
-  const allCollapsed =
-    groups.length > 0 && collapsedMonths.size === groups.length;
-
   return (
     <div className="flex flex-col gap-6">
       {groups.length > 1 && (
@@ -76,13 +89,13 @@ export function JournalTimeline({
             onClick={toggleAll}
             type="button"
           >
-            {allCollapsed ? "Expand all months" : "Collapse all months"}
+            {anyExpanded ? "Collapse all months" : "Expand all months"}
           </button>
         </div>
       )}
 
-      {groups.map((group) => {
-        const isCollapsed = collapsedMonths.has(group.monthKey);
+      {visibleGroups.map((group, index) => {
+        const isCollapsed = isMonthCollapsed(group.monthKey, index);
         const groupTotals = group.totalsByCurrency.get(currency) ?? {
           income: 0,
           expenses: 0,
@@ -101,7 +114,7 @@ export function JournalTimeline({
               <button
                 aria-expanded={!isCollapsed}
                 className="flex items-center gap-2.5 text-left font-semibold text-sm cursor-pointer"
-                onClick={() => toggleMonth(group.monthKey)}
+                onClick={() => toggleMonth(group.monthKey, index)}
                 type="button"
               >
                 <span className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary text-xs">
@@ -275,6 +288,21 @@ export function JournalTimeline({
           </div>
         );
       })}
+
+      {groups.length > effectiveVisibleCount && (
+        <div className="flex flex-col items-center justify-center pt-2 pb-4">
+          <button
+            className="btn btn-sm btn-outline gap-2 font-mono text-xs"
+            onClick={() => setVisibleMonthCount((prev) => prev + 6)}
+            type="button"
+          >
+            <span>Load earlier months</span>
+            <span className="badge badge-xs badge-neutral">
+              {groups.length - effectiveVisibleCount} remaining
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
