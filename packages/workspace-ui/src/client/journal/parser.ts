@@ -637,3 +637,236 @@ export function formatCurrency(amount: number, currency = "VND"): string {
   }
   return `${rounded.toLocaleString()} ${currency}`;
 }
+
+export interface TransactionSummary {
+  type: "income" | "expense" | "transfer";
+  totalIncome: number;
+  totalExpenses: number;
+  netImpact: number;
+  primaryCurrency: string;
+}
+
+export function classifyTransaction(
+  tx: JournalTransaction,
+): TransactionSummary {
+  let totalIncome = 0;
+  let totalExpenses = 0;
+  const currencyCounts = new Map<string, number>();
+
+  for (const post of tx.postings) {
+    if (post.hasAmount && post.currency) {
+      currencyCounts.set(
+        post.currency,
+        (currencyCounts.get(post.currency) ?? 0) + 1,
+      );
+      const accType = classifyAccount(post.account);
+      if (accType === "income") {
+        totalIncome += Math.abs(post.amount);
+      } else if (accType === "expenses") {
+        totalExpenses += Math.max(0, post.amount);
+      }
+    }
+  }
+
+  let primaryCurrency = "VND";
+  let maxCount = -1;
+  for (const [cur, count] of currencyCounts.entries()) {
+    if (count > maxCount) {
+      maxCount = count;
+      primaryCurrency = cur;
+    }
+  }
+
+  let type: "income" | "expense" | "transfer" = "transfer";
+  if (totalIncome > 0 && totalExpenses === 0) {
+    type = "income";
+  } else if (totalExpenses > 0 && totalIncome === 0) {
+    type = "expense";
+  } else if (totalIncome > 0 && totalExpenses > 0) {
+    type = totalIncome >= totalExpenses ? "income" : "expense";
+  } else {
+    type = "transfer";
+  }
+
+  let netImpact = 0;
+  if (type === "income") {
+    netImpact = totalIncome - totalExpenses;
+  } else if (type === "expense") {
+    netImpact = -(totalExpenses - totalIncome);
+  } else {
+    const positivePost = tx.postings.find((p) => p.amount > 0 && p.hasAmount);
+    netImpact = positivePost ? positivePost.amount : 0;
+  }
+
+  return {
+    type,
+    totalIncome,
+    totalExpenses,
+    netImpact,
+    primaryCurrency,
+  };
+}
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+export interface MonthTransactionGroup {
+  monthKey: string; // "YYYY-MM"
+  label: string; // e.g. "August 2026"
+  year: number;
+  month: number;
+  transactions: JournalTransaction[];
+  totalsByCurrency: Map<
+    string,
+    { income: number; expenses: number; net: number; count: number }
+  >;
+}
+
+export function formatMonthKeyLabel(monthKey: string): string {
+  const parts = monthKey.split("-");
+  const year = parseInt(parts[0] ?? "", 10);
+  const month = parseInt(parts[1] ?? "", 10);
+  if (
+    !Number.isNaN(year) &&
+    !Number.isNaN(month) &&
+    month >= 1 &&
+    month <= 12
+  ) {
+    return `${MONTH_NAMES[month - 1]} ${year}`;
+  }
+  return monthKey;
+}
+
+export function groupTransactionsByMonth(
+  transactions: JournalTransaction[],
+  order: "desc" | "asc" = "desc",
+): MonthTransactionGroup[] {
+  const groupsMap = new Map<string, JournalTransaction[]>();
+
+  for (const tx of transactions) {
+    const monthKey = tx.date.slice(0, 7);
+    const list = groupsMap.get(monthKey);
+    if (list) {
+      list.push(tx);
+    } else {
+      groupsMap.set(monthKey, [tx]);
+    }
+  }
+
+  const sortedMonthKeys = Array.from(groupsMap.keys()).sort((a, b) =>
+    order === "desc" ? b.localeCompare(a) : a.localeCompare(b),
+  );
+
+  return sortedMonthKeys.map((monthKey) => {
+    const parts = monthKey.split("-");
+    const year = parseInt(parts[0] ?? "0", 10);
+    const month = parseInt(parts[1] ?? "0", 10);
+    const rawTxs = groupsMap.get(monthKey) ?? [];
+
+    const sortedTxs = [...rawTxs].sort((a, b) => {
+      const cmp =
+        order === "desc"
+          ? b.date.localeCompare(a.date)
+          : a.date.localeCompare(b.date);
+      if (cmp !== 0) return cmp;
+      return order === "desc"
+        ? b.lineNumber - a.lineNumber
+        : a.lineNumber - b.lineNumber;
+    });
+
+    const totalsByCurrency = new Map<
+      string,
+      { income: number; expenses: number; net: number; count: number }
+    >();
+
+    for (const tx of sortedTxs) {
+      for (const p of tx.postings) {
+        if (!p.hasAmount || !p.currency) continue;
+        let tot = totalsByCurrency.get(p.currency);
+        if (!tot) {
+          tot = { income: 0, expenses: 0, net: 0, count: 0 };
+          totalsByCurrency.set(p.currency, tot);
+        }
+        tot.count += 1;
+        const root = classifyAccount(p.account);
+        if (root === "income") {
+          tot.income += Math.abs(p.amount);
+          tot.net += Math.abs(p.amount);
+        } else if (root === "expenses") {
+          tot.expenses += Math.max(0, p.amount);
+          tot.net -= Math.max(0, p.amount);
+        }
+      }
+    }
+
+    return {
+      monthKey,
+      label: formatMonthKeyLabel(monthKey),
+      year,
+      month,
+      transactions: sortedTxs,
+      totalsByCurrency,
+    };
+  });
+}
+
+export interface MonthlyCashflowPoint {
+  monthKey: string;
+  label: string;
+  shortLabel: string;
+  year: number;
+  month: number;
+  income: number;
+  expenses: number;
+  net: number;
+  currency: string;
+  txCount: number;
+}
+
+export function computeMonthlyCashflow(
+  transactions: JournalTransaction[],
+  currency: string,
+  order: "asc" | "desc" = "asc",
+): MonthlyCashflowPoint[] {
+  const groups = groupTransactionsByMonth(transactions, order);
+
+  return groups.map((g) => {
+    const curTotals = g.totalsByCurrency.get(currency) ?? {
+      income: 0,
+      expenses: 0,
+      net: 0,
+      count: 0,
+    };
+    const shortMonth =
+      g.month >= 1 && g.month <= 12
+        ? (MONTH_NAMES[g.month - 1]?.slice(0, 3) ?? g.monthKey)
+        : g.monthKey;
+    const shortLabel = `${shortMonth} '${g.year.toString().slice(2)}`;
+    return {
+      monthKey: g.monthKey,
+      label: g.label,
+      shortLabel,
+      year: g.year,
+      month: g.month,
+      income: curTotals.income,
+      expenses: curTotals.expenses,
+      net: curTotals.income - curTotals.expenses,
+      currency,
+      txCount: g.transactions.filter((tx) =>
+        tx.postings.some((p) => p.currency === currency),
+      ).length,
+    };
+  });
+}

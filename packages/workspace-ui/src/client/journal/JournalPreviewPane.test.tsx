@@ -92,4 +92,116 @@ describe("JournalPreviewPane", () => {
     expect(screen.queryByText("expenses:food:dining")).not.toBeInTheDocument();
     expect(screen.queryByText("15,000 ₫")).not.toBeInTheDocument();
   });
+
+  it("renders monthly cashflow trajectory and supports month scrubbing", () => {
+    const multiMonthJournal = `2026-07-01 Payslip 2026-07
+    assets:cash                                  60000000 VND
+    income:salary:talentnet                     -60000000 VND
+
+2026-07-15 * Phone installment
+    expenses:electronics:phone                    5000000 VND
+    assets:cash                                 -5000000 VND
+
+2026-08-01 Payslip 2026-08
+    assets:cash                                  65000000 VND
+    income:salary:talentnet                     -65000000 VND
+
+2026-08-10 * Dining
+    expenses:food:dining                          1500000 VND
+    assets:cash                                  -1500000 VND
+`;
+
+    render(
+      <JournalPreviewPane
+        content={multiMonthJournal}
+        filePath="finance/journal.hledger"
+      />,
+    );
+
+    // Monthly cashflow section exists
+    expect(
+      screen.getByRole("region", { name: "Monthly Cashflow Trajectory" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Monthly Cashflow Trajectory")).toBeInTheDocument();
+
+    // Timeline view displays both months
+    expect(screen.getByText("August 2026")).toBeInTheDocument();
+    expect(screen.getByText("July 2026")).toBeInTheDocument();
+    expect(screen.getByText("Transactions (4)")).toBeInTheDocument();
+
+    // Click on August bar button to scrub/filter to August only
+    const augBtn = screen.getByRole("button", { name: /Select August 2026/i });
+    fireEvent.click(augBtn);
+
+    expect(screen.getByText("Transactions (2)")).toBeInTheDocument();
+    expect(screen.getByText("Payslip 2026-08")).toBeInTheDocument();
+    expect(screen.queryByText("Payslip 2026-07")).not.toBeInTheDocument();
+
+    // Clicking it again clears the month filter
+    fireEvent.click(augBtn);
+    expect(screen.getByText("Transactions (4)")).toBeInTheDocument();
+    expect(screen.getByText("Payslip 2026-07")).toBeInTheDocument();
+  });
+
+  it("filters transactions by type (income, expense)", () => {
+    const journal = `2026-08-01 Payslip
+    assets:cash                                  65000000 VND
+    income:salary:talentnet                     -65000000 VND
+
+2026-08-10 * Dining
+    expenses:food:dining                          1500000 VND
+    assets:cash                                  -1500000 VND
+`;
+
+    render(
+      <JournalPreviewPane
+        content={journal}
+        filePath="finance/journal.hledger"
+      />,
+    );
+
+    expect(screen.getByText("Transactions (2)")).toBeInTheDocument();
+
+    // Filter to expense
+    fireEvent.click(screen.getByRole("button", { name: /^expense$/i }));
+    expect(screen.getByText("Transactions (1)")).toBeInTheDocument();
+    expect(screen.getByText("Dining")).toBeInTheDocument();
+    expect(screen.queryByText("Payslip")).not.toBeInTheDocument();
+
+    // Filter to income
+    fireEvent.click(screen.getByRole("button", { name: /^income$/i }));
+    expect(screen.getByText("Transactions (1)")).toBeInTheDocument();
+    expect(screen.getByText("Payslip")).toBeInTheDocument();
+    expect(screen.queryByText("Dining")).not.toBeInTheDocument();
+  });
+
+  it("toggles sort order and view mode", () => {
+    const journal = `2026-08-01 Payslip 1
+    assets:cash                                  10000000 VND
+    income:salary                               -10000000 VND
+
+2026-08-15 Payslip 2
+    assets:cash                                  10000000 VND
+    income:salary                               -10000000 VND
+`;
+
+    render(
+      <JournalPreviewPane
+        content={journal}
+        filePath="finance/journal.hledger"
+      />,
+    );
+
+    // Toggle sort order
+    const sortBtn = screen.getByRole("button", { name: /↓ Newest/i });
+    fireEvent.click(sortBtn);
+    expect(
+      screen.getByRole("button", { name: /↑ Oldest/i }),
+    ).toBeInTheDocument();
+
+    // Toggle view mode to compact
+    const compactBtn = screen.getByRole("button", { name: "Compact" });
+    fireEvent.click(compactBtn);
+    expect(compactBtn).toHaveClass("btn-neutral");
+  });
 });
