@@ -225,5 +225,13 @@ test.describe("mock visual catalog", () => {
     await expect(page.getByText("Money Flow (Sankey Diagram)")).toBeVisible();
     await expect(page.getByText("TOTAL INCOME")).toBeVisible();
     await captureScreenshot(page, testInfo, "journal-sankey-preview");
+
+    // Scroll to timeline and capture timeline view
+    const timelineHeading = page.getByRole("button", {
+      name: /📅 August 2026/i,
+    });
+    await expect(timelineHeading).toBeVisible();
+    await timelineHeading.scrollIntoViewIfNeeded();
+    await captureScreenshot(page, testInfo, "journal-timeline-view");
   });
 });

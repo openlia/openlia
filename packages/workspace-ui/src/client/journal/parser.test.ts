@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyAccount,
+  classifyTransaction,
+  computeMonthlyCashflow,
   formatCurrency,
+  groupTransactionsByMonth,
   parseAmountAndCurrency,
   parseHledgerJournal,
 } from "./parser";
@@ -209,5 +212,108 @@ describe("parseHledgerJournal", () => {
       currency: "USD",
       hasAmount: true,
     });
+  });
+});
+
+describe("classifyTransaction", () => {
+  it("classifies pure income transactions", () => {
+    const journal = parseHledgerJournal(`2026-08-01 Payslip
+    assets:cash              20000000 VND
+    income:salary           -20000000 VND
+`);
+    const tx = journal.transactions[0];
+    expect(tx).toBeDefined();
+    if (!tx) throw new Error("Transaction not found");
+    const summary = classifyTransaction(tx);
+    expect(summary.type).toBe("income");
+    expect(summary.totalIncome).toBe(20000000);
+    expect(summary.totalExpenses).toBe(0);
+    expect(summary.netImpact).toBe(20000000);
+    expect(summary.primaryCurrency).toBe("VND");
+  });
+
+  it("classifies pure expense transactions", () => {
+    const journal = parseHledgerJournal(`2026-08-05 * Coffee & Lunch
+    expenses:food:dining        75000 VND
+    assets:cash                -75000 VND
+`);
+    const tx = journal.transactions[0];
+    expect(tx).toBeDefined();
+    if (!tx) throw new Error("Transaction not found");
+    const summary = classifyTransaction(tx);
+    expect(summary.type).toBe("expense");
+    expect(summary.totalIncome).toBe(0);
+    expect(summary.totalExpenses).toBe(75000);
+    expect(summary.netImpact).toBe(-75000);
+    expect(summary.primaryCurrency).toBe("VND");
+  });
+
+  it("classifies transfer transactions", () => {
+    const journal = parseHledgerJournal(`2026-08-10 * ATM Withdrawal
+    assets:cash                1000000 VND
+    assets:bank               -1000000 VND
+`);
+    const tx = journal.transactions[0];
+    expect(tx).toBeDefined();
+    if (!tx) throw new Error("Transaction not found");
+    const summary = classifyTransaction(tx);
+    expect(summary.type).toBe("transfer");
+    expect(summary.totalIncome).toBe(0);
+    expect(summary.totalExpenses).toBe(0);
+    expect(summary.netImpact).toBe(1000000);
+  });
+});
+
+describe("groupTransactionsByMonth & computeMonthlyCashflow", () => {
+  const multiMonthJournal = `2026-07-01 Payslip
+    assets:cash               60000000 VND
+    income:salary            -60000000 VND
+
+2026-07-15 * Phone
+    expenses:tech              5000000 VND
+    assets:cash               -5000000 VND
+
+2026-08-01 Payslip
+    assets:cash               65000000 VND
+    income:salary            -65000000 VND
+
+2026-08-10 * Dining
+    expenses:food              2000000 VND
+    assets:cash               -2000000 VND
+`;
+
+  it("groups transactions by month in descending order by default", () => {
+    const parsed = parseHledgerJournal(multiMonthJournal);
+    const groups = groupTransactionsByMonth(parsed.transactions, "desc");
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]?.monthKey).toBe("2026-08");
+    expect(groups[0]?.label).toBe("August 2026");
+    expect(groups[0]?.transactions).toHaveLength(2);
+
+    expect(groups[1]?.monthKey).toBe("2026-07");
+    expect(groups[1]?.label).toBe("July 2026");
+    expect(groups[1]?.transactions).toHaveLength(2);
+
+    const augVnd = groups[0]?.totalsByCurrency.get("VND");
+    expect(augVnd?.income).toBe(65000000);
+    expect(augVnd?.expenses).toBe(2000000);
+    expect(augVnd?.net).toBe(63000000);
+  });
+
+  it("computes monthly cashflow data points chronologically", () => {
+    const parsed = parseHledgerJournal(multiMonthJournal);
+    const points = computeMonthlyCashflow(parsed.transactions, "VND", "asc");
+
+    expect(points).toHaveLength(2);
+    expect(points[0]?.monthKey).toBe("2026-07");
+    expect(points[0]?.income).toBe(60000000);
+    expect(points[0]?.expenses).toBe(5000000);
+    expect(points[0]?.net).toBe(55000000);
+
+    expect(points[1]?.monthKey).toBe("2026-08");
+    expect(points[1]?.income).toBe(65000000);
+    expect(points[1]?.expenses).toBe(2000000);
+    expect(points[1]?.net).toBe(63000000);
   });
 });

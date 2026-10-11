@@ -1,6 +1,13 @@
 import { useMemo, useState } from "react";
 import { JournalHighlights } from "./JournalHighlights";
-import { classifyAccount, formatCurrency, parseHledgerJournal } from "./parser";
+import { JournalTimeline } from "./JournalTimeline";
+import { MonthlyCashflowChart } from "./MonthlyCashflowChart";
+import {
+  classifyTransaction,
+  computeMonthlyCashflow,
+  formatCurrency,
+  parseHledgerJournal,
+} from "./parser";
 import { SankeyDiagram } from "./SankeyDiagram";
 
 export function JournalPreviewPane({
@@ -18,6 +25,12 @@ export function JournalPreviewPane({
   const [filterQuery, setFilterQuery] = useState("");
   const [selectedCurrency, setSelectedCurrency] = useState("all");
   const [sankeyCurrency, setSankeyCurrency] = useState<string | null>(null);
+  const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
+  const [viewMode, setViewMode] = useState<"timeline" | "compact">("timeline");
+  const [typeFilter, setTypeFilter] = useState<
+    "all" | "income" | "expense" | "transfer"
+  >("all");
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
 
   const parsed = useMemo(() => {
     return parseHledgerJournal(content);
@@ -49,9 +62,24 @@ export function JournalPreviewPane({
     ? sankeyByCurrency.get(displayedSankeyCurrency)
     : undefined;
 
+  const primaryViewCurrency =
+    effectiveSelectedCurrency === "all"
+      ? (currencies[0] ?? "VND")
+      : effectiveSelectedCurrency;
+
+  const monthlyCashflow = useMemo(() => {
+    const currencyTxs =
+      effectiveSelectedCurrency === "all"
+        ? transactions
+        : transactions.filter((tx) =>
+            tx.postings.some((p) => p.currency === effectiveSelectedCurrency),
+          );
+    return computeMonthlyCashflow(currencyTxs, primaryViewCurrency, "asc");
+  }, [transactions, effectiveSelectedCurrency, primaryViewCurrency]);
+
   const filteredTransactions = useMemo(() => {
     const q = filterQuery.toLowerCase().trim();
-    const currencyTransactions =
+    let res =
       effectiveSelectedCurrency === "all"
         ? transactions
         : transactions.filter((tx) =>
@@ -59,14 +87,29 @@ export function JournalPreviewPane({
               (posting) => posting.currency === effectiveSelectedCurrency,
             ),
           );
-    if (!q) return currencyTransactions;
-    return currencyTransactions.filter(
+
+    if (selectedMonth) {
+      res = res.filter((tx) => tx.date.startsWith(selectedMonth));
+    }
+
+    if (typeFilter !== "all") {
+      res = res.filter((tx) => classifyTransaction(tx).type === typeFilter);
+    }
+
+    if (!q) return res;
+    return res.filter(
       (tx) =>
         tx.description.toLowerCase().includes(q) ||
         tx.date.includes(q) ||
         tx.postings.some((p) => p.account.toLowerCase().includes(q)),
     );
-  }, [transactions, filterQuery, effectiveSelectedCurrency]);
+  }, [
+    transactions,
+    effectiveSelectedCurrency,
+    selectedMonth,
+    typeFilter,
+    filterQuery,
+  ]);
 
   const accountRows = useMemo(
     () =>
@@ -192,7 +235,19 @@ export function JournalPreviewPane({
         <JournalHighlights highlights={activeHighlights} />
       </section>
 
-      {/* 3. Detailed Data Breakdown (Transactions / Accounts) */}
+      {/* 3. Monthly Cashflow Trajectory */}
+      {monthlyCashflow.length > 0 && (
+        <section aria-label="Monthly Cashflow Trajectory">
+          <MonthlyCashflowChart
+            currency={primaryViewCurrency}
+            data={monthlyCashflow}
+            onSelectMonth={setSelectedMonth}
+            selectedMonth={selectedMonth}
+          />
+        </section>
+      )}
+
+      {/* 4. Detailed Data Breakdown (Transactions / Accounts) */}
       <section
         aria-label="Ledger Data Breakdown"
         className="flex flex-col gap-3"
@@ -216,92 +271,85 @@ export function JournalPreviewPane({
           </div>
 
           {activeTab === "transactions" && (
-            <div className="w-full sm:w-64">
-              <input
-                className="input input-sm input-bordered w-full text-xs"
-                onChange={(e) => setFilterQuery(e.target.value)}
-                placeholder="Search transactions or accounts..."
-                type="search"
-                value={filterQuery}
-              />
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Type filter */}
+              <div className="join">
+                {(["all", "income", "expense", "transfer"] as const).map(
+                  (t) => (
+                    <button
+                      className={`btn btn-xs join-item capitalize ${
+                        typeFilter === t ? "btn-neutral" : "btn-ghost"
+                      }`}
+                      key={t}
+                      onClick={() => setTypeFilter(t)}
+                      type="button"
+                    >
+                      {t}
+                    </button>
+                  ),
+                )}
+              </div>
+
+              {/* Sort order toggle */}
+              <button
+                className="btn btn-xs btn-ghost gap-1 font-mono"
+                onClick={() =>
+                  setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"))
+                }
+                title="Toggle sort direction"
+                type="button"
+              >
+                {sortOrder === "desc" ? "↓ Newest" : "↑ Oldest"}
+              </button>
+
+              {/* View mode toggle */}
+              <div className="join">
+                <button
+                  className={`btn btn-xs join-item ${
+                    viewMode === "timeline" ? "btn-neutral" : "btn-ghost"
+                  }`}
+                  onClick={() => setViewMode("timeline")}
+                  title="Timeline View"
+                  type="button"
+                >
+                  Timeline
+                </button>
+                <button
+                  className={`btn btn-xs join-item ${
+                    viewMode === "compact" ? "btn-neutral" : "btn-ghost"
+                  }`}
+                  onClick={() => setViewMode("compact")}
+                  title="Compact View"
+                  type="button"
+                >
+                  Compact
+                </button>
+              </div>
+
+              {/* Search input */}
+              <div className="w-full sm:w-48">
+                <input
+                  className="input input-xs input-bordered w-full"
+                  onChange={(e) => setFilterQuery(e.target.value)}
+                  placeholder="Search transactions..."
+                  type="search"
+                  value={filterQuery}
+                />
+              </div>
             </div>
           )}
         </div>
 
         {activeTab === "transactions" ? (
-          <div className="flex flex-col gap-2.5">
-            {filteredTransactions.map((tx) => (
-              <div
-                key={tx.id}
-                className="rounded-lg border border-base-content/10 bg-base-100 p-3 shadow-2xs hover:border-base-content/20 transition-colors"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-semibold text-base-content/70">
-                      {tx.date}
-                    </span>
-                    {tx.status && (
-                      <span className="badge badge-xs badge-success">
-                        {tx.status}
-                      </span>
-                    )}
-                    <span className="text-xs font-medium text-base-content">
-                      {tx.description}
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-mono text-base-content/40">
-                    Line {tx.lineNumber}
-                  </span>
-                </div>
-
-                <div className="mt-2 divide-y divide-base-content/5 rounded bg-base-200/40 font-mono text-[11px]">
-                  {(effectiveSelectedCurrency === "all"
-                    ? tx.postings
-                    : tx.postings.filter(
-                        (posting) =>
-                          posting.currency === effectiveSelectedCurrency,
-                      )
-                  ).map((p) => {
-                    const accType = classifyAccount(p.account);
-                    const isCredit = p.amount < 0;
-                    return (
-                      <div
-                        key={`${tx.id}-${p.account}-${p.amount}-${p.currency}`}
-                        className="flex items-center justify-between px-2.5 py-1"
-                      >
-                        <span
-                          className={`truncate ${
-                            accType === "income"
-                              ? "text-emerald-600 dark:text-emerald-400 font-medium"
-                              : accType === "expenses"
-                                ? "text-rose-600 dark:text-rose-400"
-                                : "text-sky-600 dark:text-sky-400"
-                          }`}
-                        >
-                          {p.account}
-                        </span>
-                        <span
-                          className={`font-semibold shrink-0 ml-4 ${
-                            isCredit
-                              ? "text-emerald-600 dark:text-emerald-400"
-                              : "text-base-content/80"
-                          }`}
-                        >
-                          {formatCurrency(p.amount, p.currency)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-
-            {filteredTransactions.length === 0 && (
-              <div className="p-4 text-center text-xs text-base-content/50">
-                No transactions match "{filterQuery}".
-              </div>
-            )}
-          </div>
+          <JournalTimeline
+            currency={primaryViewCurrency}
+            filterQuery={filterQuery}
+            onFilterAccount={(acc) => setFilterQuery(acc)}
+            onSwitchToEdit={onSwitchToEdit}
+            order={sortOrder}
+            transactions={filteredTransactions}
+            viewMode={viewMode}
+          />
         ) : (
           <div className="overflow-x-auto rounded-lg border border-base-content/10 bg-base-100 shadow-2xs">
             <table className="table table-sm text-xs">
