@@ -112,10 +112,6 @@ export function MonthlyCashflowChart({
               <span className="h-2.5 w-2.5 rounded-xs bg-rose-500" />
               <span>Expenses</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-violet-400" />
-              <span>Net Surplus</span>
-            </div>
           </div>
         </div>
       </div>
@@ -138,7 +134,7 @@ export function MonthlyCashflowChart({
             return (
               <button
                 aria-label={`Select Year ${point.year}`}
-                className={`group flex min-w-[80px] flex-1 flex-col items-center rounded-lg p-2 transition-all cursor-pointer ${
+                className={`group flex min-w-[88px] flex-1 flex-col items-center rounded-lg px-1.5 py-2 transition-all cursor-pointer ${
                   isSelected
                     ? "bg-primary/10 ring-2 ring-primary"
                     : "hover:bg-base-200/60"
@@ -162,23 +158,14 @@ export function MonthlyCashflowChart({
                   />
                 </div>
 
-                {/* Net indicator dot */}
-                <div className="my-1.5 flex items-center justify-center">
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      isSurplus ? "bg-violet-400" : "bg-rose-400"
-                    }`}
-                  />
-                </div>
-
                 {/* Year label */}
-                <span className="font-mono text-xs font-bold text-base-content/90">
+                <span className="mt-2 font-mono text-xs font-bold text-base-content/90">
                   {point.year}
                 </span>
 
                 {/* Net balance text */}
                 <span
-                  className={`mt-0.5 font-mono text-[10px] font-medium ${
+                  className={`mt-0.5 whitespace-nowrap font-mono text-[10px] font-medium ${
                     isSurplus
                       ? "text-emerald-600 dark:text-emerald-400"
                       : "text-rose-600 dark:text-rose-400"
@@ -208,7 +195,7 @@ export function MonthlyCashflowChart({
             return (
               <button
                 aria-label={`Select ${point.label}`}
-                className={`group flex min-w-[72px] flex-1 flex-col items-center rounded-lg p-2 transition-all cursor-pointer ${
+                className={`group flex min-w-[80px] flex-1 flex-col items-center rounded-lg px-1.5 py-2 transition-all cursor-pointer ${
                   isSelected
                     ? "bg-primary/10 ring-2 ring-primary"
                     : "hover:bg-base-200/60"
@@ -234,23 +221,14 @@ export function MonthlyCashflowChart({
                   />
                 </div>
 
-                {/* Net indicator dot */}
-                <div className="my-1.5 flex items-center justify-center">
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      isSurplus ? "bg-violet-400" : "bg-rose-400"
-                    }`}
-                  />
-                </div>
-
                 {/* Month label */}
-                <span className="font-mono text-[11px] font-semibold text-base-content/80">
+                <span className="mt-2 font-mono text-[11px] font-semibold text-base-content/80">
                   {point.shortLabel}
                 </span>
 
                 {/* Net balance text */}
                 <span
-                  className={`mt-0.5 font-mono text-[10px] font-medium ${
+                  className={`mt-0.5 whitespace-nowrap font-mono text-[10px] font-medium ${
                     isSurplus
                       ? "text-emerald-600 dark:text-emerald-400"
                       : "text-rose-600 dark:text-rose-400"
