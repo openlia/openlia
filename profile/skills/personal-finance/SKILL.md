@@ -1,7 +1,7 @@
 ---
 name: personal-finance
 description: Use hledger and structured finance records to organize, validate, reconcile, and review personal finances.
-version: 0.2.0
+version: 0.3.0
 platforms: [macos, linux]
 required_environment_variables: []
 required_credential_files: []
@@ -58,6 +58,60 @@ included files only when the journal is large enough to benefit from that
 organization. The journal is authoritative for transactions and holdings;
 Markdown records are configuration, intake, review, and research context.
 
+### Journal Organization
+
+For a multi-year journal that benefits from smaller editing units, prefer one
+main entry point with explicit yearly includes within the registered finance
+path. For example:
+
+```text
+finance/
+  journal.hledger
+  2024.hledger
+  2025.hledger
+  2026.hledger
+```
+
+The main journal may contain shared directives followed by:
+
+```hledger
+include 2024.hledger
+include 2025.hledger
+include 2026.hledger
+```
+
+Resolve include paths relative to the file containing them. Keep `LEDGER_FILE`
+and report commands pointed at the main entry point. Yearly files are parts of
+one journal, not independent ledgers; validate and report through the main
+journal so prior balances, prices, and shared directives remain available.
+For authorized postings, use the appropriate transaction-year file and add its
+include when needed within the same authorized scope.
+
+Splitting is an organizational choice, not a token optimization by itself.
+Respect existing layouts; do not split solely because a line threshold was
+crossed. An approved organization proposal must be handled as a scoped finance
+write under this skill's authority rules, not generic workspace cleanup:
+
+- Record the original main entry point, include structure, and proposed paths.
+  Do not overwrite existing yearly files or create unregistered folders.
+- Establish a baseline with `hledger -f JOURNAL check`, transaction counts,
+  and representative scoped balance and transaction reports. If hledger is
+  unavailable or validation fails, defer restructuring.
+- Move complete transaction blocks by their primary transaction date without
+  changing postings, dates, or amounts. Preserve comments, secondary dates,
+  prices, balance assertions, and non-transaction directives, including periodic
+  and automated rules. Preserve effective directive scope and parsing order;
+  defer splitting when year grouping would change either or same-date ordering.
+- Do not add annual opening balances or reset accounts merely to split files.
+  Keep historical includes available for reports and reconciliation.
+- Validate the proposed complete include tree and compare transaction counts
+  and the same reports against the baseline before completing the change.
+  Inspect the concise diff for missing, duplicated, or unrelated changes. A
+  passing `check` alone does not prove equivalence; resolve differences before
+  treating the restructuring as complete.
+
+### Accounts and Supporting Records
+
 Use conventional account groups when they fit the person's records:
 
 - `assets:` for cash, banks, savings, brokerages, exchanges, and investments.
@@ -84,8 +138,9 @@ Use the registered records as follows:
 1. **Resolve the workspace.** Read the registry, policy, relevant finance
    template and schema, and any existing records. Use `LEDGER_FILE` when set.
    Otherwise inspect `finance/` for one unambiguous journal. If multiple
-   journals are plausible, ask which one to use. Never expose the complete
-   journal unless specifically requested.
+   journals are plausible, inspect include directives to distinguish the main
+   entry point from its included files; ask if the entry point remains ambiguous.
+   Never expose the complete journal unless specifically requested.
 2. **Create the journal only for an approved write.** If no journal exists, do
    not create one for a read-only request. When the person explicitly approves
    a specific journal change, create `finance/journal.hledger` in the runtime
@@ -159,6 +214,25 @@ Use the registered records as follows:
 Choose reports based on the question rather than presenting every available
 number. Every figure must include the journal path, date range, account scope,
 currencies, and source command.
+
+### Efficient Journal Access
+
+- Prefer scoped hledger queries over loading the full journal into model
+  context. hledger may read the full include tree locally; return only the
+  validation result or relevant report to the model.
+- Use aggregate reports for broad questions. Bound detailed `register` or
+  `print` output by date and account, and narrow or page large results rather
+  than returning an unbounded transaction dump. State the scope and any omitted
+  detail; do not derive totals from truncated output.
+- For edits, duplicate checks, or error diagnosis, locate relevant transactions
+  with hledger or local searches, then read complete matching blocks and nearby
+  directives. Expand inspection only as necessary; do not repeatedly read the
+  whole journal as a default discovery step.
+- Run checks and reports against the main entry point, even when editing a
+  yearly include. A date-filtered report can still need prior transactions;
+  selecting a single yearly file is not equivalent to filtering the main journal.
+
+### Report Selection
 
 - **Spending:** query `expenses:` with `balance` or `register`, bounded by a
   requested period.

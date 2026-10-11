@@ -264,6 +264,22 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
 2026-08-25 * Dining & Utilities
     expenses:food:dining                          4200000 VND
     assets:cash                                 -4200000 VND
+
+2025-11-01 Payslip 2025-11
+    assets:cash                                  58000000 VND
+    income:salary:talentnet                     -58000000 VND
+
+2025-11-15 * Family Support
+    expenses:household:family                    20000000 VND
+    assets:cash                                -20000000 VND
+
+2024-12-01 Payslip 2024-12
+    assets:cash                                  50000000 VND
+    income:salary:talentnet                     -50000000 VND
+
+2024-12-15 * Family Support
+    expenses:household:family                    15000000 VND
+    assets:cash                                -15000000 VND
 `,
     "projects/project.md": "# Project\n\nA sample project.\n",
     "tasks/task.md": "# Task\n\nA sample task.\n",

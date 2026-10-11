@@ -268,6 +268,19 @@ export function parseHledgerJournal(content: string): ParsedJournal {
   }
 
   const currencies = Array.from(currencyCounts.keys());
+  const metrics = buildJournalMetrics(transactions, currencies);
+
+  return {
+    transactions,
+    currencies,
+    ...metrics,
+  };
+}
+
+export function buildJournalMetrics(
+  transactions: JournalTransaction[],
+  currencies: string[],
+): Omit<ParsedJournal, "transactions" | "currencies"> {
   const primaryCurrency = currencies[0] ?? "VND";
 
   // Calculate account summaries without combining different commodities.
@@ -414,14 +427,12 @@ export function parseHledgerJournal(content: string): ParsedJournal {
   };
 
   return {
-    transactions,
     accounts,
     highlightsByCurrency,
     highlights,
     sankeyByCurrency,
     sankeyNodes: primarySankey.nodes,
     sankeyLinks: primarySankey.links,
-    currencies,
   };
 }
 
@@ -867,6 +878,108 @@ export function computeMonthlyCashflow(
       txCount: g.transactions.filter((tx) =>
         tx.postings.some((p) => p.currency === currency),
       ).length,
+    };
+  });
+}
+
+export interface DateRangeScope {
+  type: "all" | "year" | "custom";
+  year?: number | undefined;
+  startDate?: string | undefined;
+  endDate?: string | undefined;
+}
+
+export function getAvailableYears(
+  transactions: JournalTransaction[],
+): number[] {
+  const years = new Set<number>();
+  for (const tx of transactions) {
+    const y = parseInt(tx.date.slice(0, 4), 10);
+    if (!Number.isNaN(y)) {
+      years.add(y);
+    }
+  }
+  return Array.from(years).sort((a, b) => b - a);
+}
+
+export function filterTransactionsByScope(
+  transactions: JournalTransaction[],
+  scope: DateRangeScope,
+): JournalTransaction[] {
+  if (scope.type === "all") return transactions;
+  if (scope.type === "year" && scope.year) {
+    const prefix = `${scope.year}-`;
+    return transactions.filter((tx) => tx.date.startsWith(prefix));
+  }
+  if (scope.type === "custom") {
+    return transactions.filter((tx) => {
+      if (scope.startDate && tx.date < scope.startDate) return false;
+      if (scope.endDate && tx.date > scope.endDate) return false;
+      return true;
+    });
+  }
+  return transactions;
+}
+
+export function computePeriodMetrics(
+  parsed: ParsedJournal,
+  scope: DateRangeScope,
+): ParsedJournal {
+  if (scope.type === "all") return parsed;
+  const filteredTxs = filterTransactionsByScope(parsed.transactions, scope);
+  const metrics = buildJournalMetrics(filteredTxs, parsed.currencies);
+  return {
+    transactions: filteredTxs,
+    currencies: parsed.currencies,
+    ...metrics,
+  };
+}
+
+export interface AnnualCashflowPoint {
+  year: number;
+  label: string;
+  income: number;
+  expenses: number;
+  net: number;
+  currency: string;
+  txCount: number;
+}
+
+export function computeAnnualCashflow(
+  transactions: JournalTransaction[],
+  currency: string,
+): AnnualCashflowPoint[] {
+  const years = getAvailableYears(transactions).sort((a, b) => a - b);
+  return years.map((year) => {
+    const yearTxs = transactions.filter((tx) => tx.date.startsWith(`${year}-`));
+    let income = 0;
+    let expenses = 0;
+    let txCount = 0;
+
+    for (const tx of yearTxs) {
+      let hasCurrency = false;
+      for (const p of tx.postings) {
+        if (p.hasAmount && p.currency === currency) {
+          hasCurrency = true;
+          const root = classifyAccount(p.account);
+          if (root === "income") {
+            income += Math.abs(p.amount);
+          } else if (root === "expenses") {
+            expenses += Math.max(0, p.amount);
+          }
+        }
+      }
+      if (hasCurrency) txCount++;
+    }
+
+    return {
+      year,
+      label: `${year}`,
+      income,
+      expenses,
+      net: income - expenses,
+      currency,
+      txCount,
     };
   });
 }

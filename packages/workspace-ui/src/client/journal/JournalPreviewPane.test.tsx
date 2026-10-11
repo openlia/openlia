@@ -204,4 +204,49 @@ describe("JournalPreviewPane", () => {
     fireEvent.click(compactBtn);
     expect(compactBtn).toHaveClass("btn-neutral");
   });
+
+  it("dynamically scopes highlights, Sankey diagram, and timeline when year is selected", () => {
+    const multiYearJournal = `2024-05-01 * Old salary
+    assets:cash                                  40000000 VND
+    income:salary                               -40000000 VND
+
+2024-05-15 * Old rent
+    expenses:housing:rent                        10000000 VND
+    assets:cash                                 -10000000 VND
+
+2025-06-01 * 2025 salary
+    assets:cash                                  50000000 VND
+    income:salary                               -50000000 VND
+
+2025-06-10 * 2025 rent
+    expenses:housing:rent                        15000000 VND
+    assets:cash                                 -15000000 VND
+`;
+
+    render(
+      <JournalPreviewPane
+        content={multiYearJournal}
+        filePath="finance/journal.hledger"
+      />,
+    );
+
+    // Initial All Time state
+    expect(screen.getByText("Period:")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "2025" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "2024" })).toBeInTheDocument();
+    expect(screen.getByText("Transactions (4)")).toBeInTheDocument();
+
+    // Select 2025
+    fireEvent.click(screen.getByRole("button", { name: "2025" }));
+
+    // Scoped transactions
+    expect(screen.getByText("Transactions (2)")).toBeInTheDocument();
+    expect(screen.getByText("2025 salary")).toBeInTheDocument();
+    expect(screen.queryByText("Old salary")).not.toBeInTheDocument();
+
+    // Reset back to All Time
+    fireEvent.click(screen.getByRole("button", { name: "All Time" }));
+    expect(screen.getByText("Transactions (4)")).toBeInTheDocument();
+    expect(screen.getByText("Old salary")).toBeInTheDocument();
+  });
 });
