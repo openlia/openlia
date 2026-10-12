@@ -247,28 +247,6 @@ export function CodeEditor({
     });
   }, [readOnly]);
 
-  function handleInput(event: React.FormEvent<HTMLDivElement>): void {
-    const target = event.target;
-    if (
-      !(target instanceof HTMLElement) ||
-      !target.classList.contains("cm-content")
-    ) {
-      return;
-    }
-    const nextValue = target.textContent ?? "";
-    const view = viewRef.current;
-    if (view && view.state.doc.toString() !== nextValue) {
-      view.dispatch({
-        changes: { from: 0, insert: nextValue, to: view.state.doc.length },
-      });
-      return;
-    }
-    if (nextValue !== valueRef.current) {
-      valueRef.current = nextValue;
-      onChangeRef.current(nextValue);
-    }
-  }
-
   const lineCount = value.split("\n").length;
 
   return (
@@ -300,7 +278,6 @@ export function CodeEditor({
       </div>
       <div
         className="workspace-codemirror min-h-0 flex-1 overflow-hidden"
-        onInput={handleInput}
         ref={parentRef}
       />
     </div>
