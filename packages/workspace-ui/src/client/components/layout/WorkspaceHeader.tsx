@@ -193,7 +193,9 @@ export function WorkspaceHeader({
                   : activeTab === "configuration"
                     ? "CONFIGURATION"
                     : file
-                      ? "WORKSPACE"
+                      ? file.source === "memory"
+                        ? "ASSISTANT MEMORY"
+                        : "WORKSPACE"
                       : "ACTIVITY"}
         </p>
         <div className="flex items-center gap-1.5">
@@ -221,7 +223,9 @@ export function WorkspaceHeader({
         </div>
         {file?.path?.includes("/") && (
           <p className="workspace-path" title={file.path}>
-            {file.path}
+            {file.source === "memory"
+              ? `Assistant memory / ${file.path.split("/").at(-1)}`
+              : file.path}
           </p>
         )}
       </div>

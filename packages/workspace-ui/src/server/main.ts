@@ -29,6 +29,9 @@ const authRequired = process.env.OPENLIA_WORKSPACE_UI_AUTH_REQUIRED === "true";
 const passwordHashFile = process.env.OPENLIA_WORKSPACE_UI_PASSWORD_HASH_FILE;
 const handler = createWorkspaceHandler({
   authRequired,
+  ...(process.env.OPENLIA_MEMORIES_ROOT
+    ? { memoriesRoot: resolve(process.env.OPENLIA_MEMORIES_ROOT) }
+    : {}),
   ...(ingestionRoot ? { ingestionRoot } : {}),
   ...(migrationsRoot ? { migrationsRoot } : {}),
   passwordHashFile,

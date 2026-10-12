@@ -1,4 +1,9 @@
 import type { SkillSummary, WorkspaceTreeEntry } from "../shared/api";
+import {
+  isMemoryDocument,
+  memoryDocumentPath,
+  memoryFilename,
+} from "../shared/memory";
 
 export type ResolvedTarget =
   | {
@@ -235,8 +240,11 @@ export function resolveLinkTarget(
       const rawPath = safeDecode(url.pathname.replace(/^\/+/, ""));
       const querySkillFile = url.searchParams.get("skillFile")?.trim();
 
-      if (host === "workspace") {
-        const path = rawPath.replace(/^\/+/, "");
+      if (host === "workspace" || host === "memory") {
+        const path =
+          host === "memory"
+            ? memoryDocumentPath(rawPath)
+            : rawPath.replace(/^\/+/, "");
         if (!path) return null;
         const matched = findMatchingWorkspaceFile(path, files);
         const resolvedPath = matched ? matched.path : path;
@@ -327,6 +335,20 @@ export function resolveLinkTarget(
     } catch {
       // ignore
     }
+  }
+
+  if (candidate.startsWith("/memory/") || candidate.startsWith("memory/")) {
+    const name = safeDecode(
+      candidate.replace(/^\/?memory\//, "").split("?")[0] ?? "",
+    );
+    if (!name) return null;
+    const path = memoryDocumentPath(name);
+    return {
+      kind: "workspace",
+      path,
+      label: `Assistant memory / ${name}`,
+      exists: knownDocPaths.has(path),
+    };
   }
 
   // /files/... or /file/... or files/... or file/...
@@ -559,6 +581,7 @@ export function filterGoToSuggestions(
 }
 
 export function buildCanonicalWorkspaceUri(path: string): string {
+  if (isMemoryDocument(path)) return `openlia://memory/${memoryFilename(path)}`;
   const cleanPath = path.replace(/^\/+/, "");
   return `openlia://workspace/${cleanPath}`;
 }
@@ -583,7 +606,9 @@ export function buildWorkspaceLink(path: string, baseOrigin?: string): string {
       : typeof window !== "undefined" && window.location?.origin
         ? window.location.origin
         : "";
-  return `${origin}/files/${cleanPath}`;
+  return isMemoryDocument(cleanPath)
+    ? `${origin}/memory/${encodeURIComponent(memoryFilename(cleanPath))}`
+    : `${origin}/files/${cleanPath}`;
 }
 
 export function buildSkillLink(

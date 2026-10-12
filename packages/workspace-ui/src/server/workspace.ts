@@ -34,12 +34,14 @@ import type {
 } from "../shared/api";
 import { validateEntireWorkspace, validateRecordContent } from "./validator";
 import YAML from "yaml";
+import { MEMORY_DOCUMENT_PREFIX } from "../shared/memory";
 
 export const DEFAULT_MAX_EDITABLE_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
 export const DEFAULT_MAX_TREE_ENTRIES = 10_000;
 export const WORKSPACE_SETTINGS_FILE = "workspace-ui.yaml";
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
+  enable_memory_editing: false,
   hide_configuration_files: true,
   hide_template_schema_files: true,
   schema: 1,
@@ -135,6 +137,8 @@ export function protectedPath(path: string): boolean {
   const parts = lowerPath.split("/");
   const basename = parts.at(-1) ?? "";
   return (
+    lowerPath === MEMORY_DOCUMENT_PREFIX.slice(0, -1) ||
+    lowerPath.startsWith(MEMORY_DOCUMENT_PREFIX) ||
     lowerPath === "sources/document-passwords.toml" ||
     lowerPath === ".env" ||
     lowerPath.startsWith(".env.") ||
@@ -266,6 +270,7 @@ export class WorkspaceService {
       ) {
         const values = parsed as Record<string, unknown>;
         return {
+          enable_memory_editing: values.enable_memory_editing === true,
           hide_configuration_files: values.hide_configuration_files as boolean,
           hide_template_schema_files:
             values.hide_template_schema_files as boolean,
@@ -286,6 +291,8 @@ export class WorkspaceService {
     }
     const values = value as Record<string, unknown>;
     if (
+      (values.enable_memory_editing !== undefined &&
+        typeof values.enable_memory_editing !== "boolean") ||
       typeof values.hide_template_schema_files !== "boolean" ||
       typeof values.hide_configuration_files !== "boolean"
     ) {
@@ -297,6 +304,9 @@ export class WorkspaceService {
     }
 
     const next: WorkspaceSettings = {
+      enable_memory_editing:
+        (values.enable_memory_editing as boolean | undefined) ??
+        this.settings().enable_memory_editing,
       hide_configuration_files: values.hide_configuration_files,
       hide_template_schema_files: values.hide_template_schema_files,
       schema: 1,

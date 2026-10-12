@@ -1,5 +1,10 @@
 import type { WorkspaceView } from "./components";
 import { parseSkillRemainder } from "./openliaLinks";
+import {
+  isMemoryDocument,
+  memoryDocumentPath,
+  memoryFilename,
+} from "../shared/memory";
 
 export type MainTab =
   | "documents"
@@ -58,7 +63,10 @@ export function parseRoute(
   if (url.protocol === "openlia:") {
     const host = url.host.toLowerCase();
     const raw = pathname.replace(/^\/+/, "");
-    if (host === "workspace") {
+    if (host === "memory") {
+      if (raw) path = memoryDocumentPath(safeDecodeURIComponent(raw));
+      tab = "documents";
+    } else if (host === "workspace") {
       if (raw) path = safeDecodeURIComponent(raw);
       tab = "documents";
     } else if (host === "skills") {
@@ -80,6 +88,11 @@ export function parseRoute(
     } else if (host === "configuration") {
       tab = "configuration";
     }
+  } else if (pathname.startsWith("/memory/")) {
+    path = memoryDocumentPath(
+      safeDecodeURIComponent(pathname.slice("/memory/".length)),
+    );
+    tab = "documents";
   } else if (pathname.startsWith("/files/")) {
     const raw = pathname.slice("/files/".length);
     if (raw) path = safeDecodeURIComponent(raw);
@@ -208,6 +221,8 @@ export function buildRouteUrl(route: WorkspaceRoute): string {
     pathname = route.migrationId
       ? `/migration/${encodeURIComponent(route.migrationId)}`
       : "/migration";
+  } else if (route.path && isMemoryDocument(route.path)) {
+    pathname = `/memory/${encodeURIComponent(memoryFilename(route.path))}`;
   } else if (route.path) {
     const segments = route.path
       .replace(/^\/+/, "")

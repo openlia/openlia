@@ -6,6 +6,46 @@ afterEach(() => {
 });
 
 describe("HTTP workspace API", () => {
+  test("routes memory reads and writes through the dedicated API", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            schema: 1,
+            path: "@memories/USER.md",
+            source: "memory",
+            editable: true,
+            modified_at: "2026-09-22T00:00:00.000Z",
+            size: 5,
+            content: "Hello",
+            revision: "sha256:after",
+            ok: true,
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await httpWorkspaceApi.loadFile("@memories/USER.md");
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/memory/file?name=USER.md",
+      undefined,
+    );
+    await httpWorkspaceApi.saveFile(
+      "@memories/USER.md",
+      "Hello",
+      "sha256:before",
+    );
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/memory/file",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          content: "Hello",
+          expected_revision: "sha256:before",
+          name: "USER.md",
+        }),
+      }),
+    );
+  });
   test("rejects a successful response that does not match the contract", async () => {
     vi.stubGlobal(
       "fetch",

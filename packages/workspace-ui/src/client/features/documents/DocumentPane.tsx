@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { isMemoryDocument, memoryFilename } from "../../../shared/memory";
 import type {
   WorkspaceActivityResponse,
   WorkspaceDiagnosticsResponse,
@@ -343,6 +344,7 @@ export function DocumentPane({
 }) {
   const dirty = file !== null && file.content !== draft;
   const canEdit = Boolean(file?.editable);
+  const isMemory = Boolean(file && isMemoryDocument(file.path));
   const isMarkdown = file !== null && isMarkdownPath(file.path);
   const isJournal = file !== null && isJournalPath(file.path);
   const isRemind = file !== null && isRemindPath(file.path);
@@ -362,7 +364,9 @@ export function DocumentPane({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <p className="workspace-document-name" title={file.path}>
-                  {file.path}
+                  {isMemory
+                    ? `Assistant memory / ${memoryFilename(file.path)}`
+                    : file.path}
                 </p>
               </div>
               {!canEdit && <p className="text-xs text-warning">Read only</p>}
@@ -427,7 +431,7 @@ export function DocumentPane({
             </div>
             <button
               className={`btn btn-sm shrink-0 ${dirty ? "btn-primary" : "btn-ghost text-base-content/60"}`}
-              disabled={!canEdit || !dirty || saving}
+              disabled={!canEdit || (!dirty && !file.missing) || saving}
               onClick={onSave}
               type="button"
             >
@@ -439,7 +443,7 @@ export function DocumentPane({
                   />
                   <span>Saving...</span>
                 </>
-              ) : dirty ? (
+              ) : dirty || file.missing ? (
                 "Save"
               ) : (
                 <>
@@ -543,7 +547,7 @@ export function DocumentPane({
                     title={`Copy URI (${buildCanonicalWorkspaceUri(file.path)})`}
                   />
                 </li>
-                {onRename && file.editable && (
+                {onRename && file.editable && !isMemory && (
                   <li>
                     <button onClick={onRename} type="button">
                       <svg
@@ -564,7 +568,7 @@ export function DocumentPane({
                     </button>
                   </li>
                 )}
-                {onMove && file.editable && (
+                {onMove && file.editable && !isMemory && (
                   <li>
                     <button onClick={onMove} type="button">
                       <svg
@@ -604,34 +608,47 @@ export function DocumentPane({
                     <span>Download</span>
                   </button>
                 </li>
-                <li className="border-t border-base-content/10 pt-1 mt-1">
-                  <button
-                    aria-label="Delete file"
-                    className="text-error hover:bg-error/10 hover:text-error"
-                    disabled={deleting}
-                    onClick={onDelete}
-                    type="button"
-                  >
-                    <svg
-                      aria-hidden="true"
-                      className="h-3.5 w-3.5 opacity-70"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      viewBox="0 0 24 24"
+                {!isMemory && (
+                  <li className="border-t border-base-content/10 pt-1 mt-1">
+                    <button
+                      aria-label="Delete file"
+                      className="text-error hover:bg-error/10 hover:text-error"
+                      disabled={deleting}
+                      onClick={onDelete}
+                      type="button"
                     >
-                      <path
-                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    <span>Delete</span>
-                  </button>
-                </li>
+                      <svg
+                        aria-hidden="true"
+                        className="h-3.5 w-3.5 opacity-70"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                      <span>Delete</span>
+                    </button>
+                  </li>
+                )}
               </ul>
             </div>
           </div>
+          {isMemory && (
+            <div className="workspace-inline-status">
+              {file.missing
+                ? "This file has not been created yet. Save to create it. "
+                : ""}
+              {memoryFilename(file.path) === "USER.md"
+                ? "Your profile and preferences."
+                : "Durable assistant notes."}{" "}
+              Changes are loaded into new assistant sessions.
+            </div>
+          )}
           {fileLoading && (
             <div className="workspace-inline-status" role="status">
               Loading document...

@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { WorkspaceTreeEntry } from "../../../shared/api";
+import {
+  isMemoryDocument,
+  MEMORY_DOCUMENT_PREFIX,
+} from "../../../shared/memory";
 import { buildWorkspaceLink, copyToClipboard } from "../../openliaLinks";
 
 export interface TreeNode {
@@ -30,7 +34,10 @@ export function buildTree(entries: WorkspaceTreeEntry[]): TreeNode[] {
         const createdNode: TreeNode = {
           children: [],
           kind: index === parts.length - 1 ? entry.kind : "directory",
-          name: part,
+          name:
+            currentPath === MEMORY_DOCUMENT_PREFIX.slice(0, -1)
+              ? "Assistant memory"
+              : part,
           path: currentPath,
         };
         if (entry.kind === "file") createdNode.editable = entry.editable;
@@ -199,6 +206,15 @@ export function FileNavigator({
   const query = filter.trim().toLowerCase();
   const totalFiles = countFiles(nodes);
   const visibleFiles = query ? matchedFiles(nodes, query) : totalFiles;
+  const memoryRootPath = MEMORY_DOCUMENT_PREFIX.slice(0, -1);
+  const memoryNode = nodes.find((node) => node.path === memoryRootPath);
+  const workspaceNodes = nodes.filter((node) => node.path !== memoryRootPath);
+  const showMemorySection = Boolean(
+    memoryNode && nodeMatches(memoryNode, query),
+  );
+  const showWorkspaceSection = workspaceNodes.some((node) =>
+    nodeMatches(node, query),
+  );
 
   function renderNodes(nodesToRender: TreeNode[], depth = 0): ReactNode {
     return (
@@ -318,34 +334,42 @@ export function FileNavigator({
                         </svg>
                       </button>
                       <ul className="dropdown-content menu z-30 rounded-box border border-base-content/10 bg-base-100 p-1 shadow-lg text-xs w-36">
-                        {onRenameFile && node.editable && (
-                          <li>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                (document.activeElement as HTMLElement)?.blur();
-                                onRenameFile(node.path);
-                              }}
-                              type="button"
-                            >
-                              Rename...
-                            </button>
-                          </li>
-                        )}
-                        {onMoveFile && node.editable && (
-                          <li>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                (document.activeElement as HTMLElement)?.blur();
-                                onMoveFile(node.path);
-                              }}
-                              type="button"
-                            >
-                              Move...
-                            </button>
-                          </li>
-                        )}
+                        {onRenameFile &&
+                          node.editable &&
+                          !isMemoryDocument(node.path) && (
+                            <li>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  (
+                                    document.activeElement as HTMLElement
+                                  )?.blur();
+                                  onRenameFile(node.path);
+                                }}
+                                type="button"
+                              >
+                                Rename...
+                              </button>
+                            </li>
+                          )}
+                        {onMoveFile &&
+                          node.editable &&
+                          !isMemoryDocument(node.path) && (
+                            <li>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  (
+                                    document.activeElement as HTMLElement
+                                  )?.blur();
+                                  onMoveFile(node.path);
+                                }}
+                                type="button"
+                              >
+                                Move...
+                              </button>
+                            </li>
+                          )}
                         {!node.editable && rawUrl && downloadUrl && (
                           <>
                             <li>
@@ -383,21 +407,25 @@ export function FileNavigator({
                             Copy Link
                           </button>
                         </li>
-                        {onDeleteFile && node.editable && (
-                          <li>
-                            <button
-                              className="text-error"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                (document.activeElement as HTMLElement)?.blur();
-                                onDeleteFile(node.path);
-                              }}
-                              type="button"
-                            >
-                              Delete...
-                            </button>
-                          </li>
-                        )}
+                        {onDeleteFile &&
+                          node.editable &&
+                          !isMemoryDocument(node.path) && (
+                            <li>
+                              <button
+                                className="text-error"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  (
+                                    document.activeElement as HTMLElement
+                                  )?.blur();
+                                  onDeleteFile(node.path);
+                                }}
+                                type="button"
+                              >
+                                Delete...
+                              </button>
+                            </li>
+                          )}
                       </ul>
                     </div>
                   )}
@@ -515,7 +543,38 @@ export function FileNavigator({
               </p>
             </div>
           ) : (
-            <div className="mt-4">{renderNodes(nodes)}</div>
+            <div className="mt-4">
+              {showMemorySection && memoryNode && (
+                <section aria-labelledby="assistant-memory-heading">
+                  <h3
+                    className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-base-content/50"
+                    id="assistant-memory-heading"
+                  >
+                    Assistant memory
+                  </h3>
+                  {renderNodes(memoryNode.children)}
+                </section>
+              )}
+              {showMemorySection && showWorkspaceSection && (
+                <div
+                  aria-hidden="true"
+                  className="my-4 border-t border-base-content/10"
+                />
+              )}
+              {showWorkspaceSection && (
+                <section aria-labelledby="workspace-files-heading">
+                  {showMemorySection && (
+                    <h3
+                      className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-base-content/50"
+                      id="workspace-files-heading"
+                    >
+                      Workspace files
+                    </h3>
+                  )}
+                  {renderNodes(workspaceNodes)}
+                </section>
+              )}
+            </div>
           )}
         </div>
       </aside>

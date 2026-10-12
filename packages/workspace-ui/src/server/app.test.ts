@@ -160,6 +160,7 @@ describe("workspace HTTP handler", () => {
 
     const initial = await request("/api/workspace/settings");
     expect(await initial.json()).toEqual({
+      enable_memory_editing: false,
       hide_configuration_files: true,
       hide_template_schema_files: true,
       schema: 1,

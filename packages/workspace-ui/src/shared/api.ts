@@ -1,4 +1,6 @@
 export interface WorkspaceFileMetadata {
+  source?: "memory";
+  missing?: boolean;
   path: string;
   size: number;
   modified_at: string;
@@ -137,6 +139,7 @@ export interface WorkspaceDiagnosticsResponse {
 
 export interface WorkspaceSettings {
   schema: 1;
+  enable_memory_editing: boolean;
   hide_template_schema_files: boolean;
   hide_configuration_files: boolean;
 }

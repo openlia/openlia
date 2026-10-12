@@ -1061,6 +1061,11 @@ func TestGeneratedAttachmentsContainWorkspaceUIWhenEnabled(t *testing.T) {
 				t.Fatal(err)
 			}
 			text := string(data)
+			for _, expected := range []string{"OPENLIA_MEMORIES_ROOT: /memories", "target: /memories", filepath.Join(config.DataRoot, "memories")} {
+				if !strings.Contains(text, expected) {
+					t.Fatalf("generated Compose missing memory mount %q:\n%s", expected, text)
+				}
+			}
 			for _, expected := range []string{"workspace-ui:", "docker/workspace-ui.Dockerfile", test.published, fmt.Sprintf("OPENLIA_WORKSPACE_UI_PORT: \"%d\"", test.port), "OPENLIA_SKILLS_ROOT: /skills", "OPENLIA_INGESTION_ROOT: /ingestion", "target: /workspace", "target: /skills", "target: /ingestion", fmt.Sprintf("user: \"%d:%d\"", config.RuntimeUID, config.RuntimeGID), "cap_drop: [ALL]"} {
 				if !strings.Contains(text, expected) {
 					t.Fatalf("generated Compose missing %q:\n%s", expected, text)
