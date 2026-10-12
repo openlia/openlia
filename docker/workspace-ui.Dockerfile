@@ -34,4 +34,11 @@ RUN find /opt/openlia/workspace-ui -type d -exec chmod 0755 {} + \
     && find /opt/openlia/workspace-ui -type f -exec chmod 0644 {} + \
     && chmod 0755 /opt/openlia /opt/openlia/workspace-ui
 
+COPY --chmod=0755 operator/linux-amd64/openlia-operator /usr/local/lib/openlia/openlia-operator-amd64
+COPY --chmod=0755 operator/linux-arm64/openlia-operator /usr/local/lib/openlia/openlia-operator-arm64
+RUN printf '#!/bin/sh\ncase "$(uname -m)" in\n  x86_64|amd64) exec /usr/local/lib/openlia/openlia-operator-amd64 "$@" ;;\n  aarch64|arm64) exec /usr/local/lib/openlia/openlia-operator-arm64 "$@" ;;\n  *) echo "unsupported architecture $(uname -m)" >&2; exit 1 ;;\nesac\n' > /usr/local/bin/openlia-operator \
+    && chmod 0755 /usr/local/bin/openlia-operator \
+    && ln -s /usr/local/bin/openlia-operator /usr/local/bin/openlia
+
 USER openlia
+

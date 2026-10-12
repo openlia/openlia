@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -612,6 +613,15 @@ func stringFlag(args []string, name string) (string, []string, error) {
 	return value, remaining, nil
 }
 
+func intFlag(args []string, name string) (int, []string, error) {
+	strVal, remaining, err := stringFlag(args, name)
+	if err != nil || strVal == "" {
+		return 0, remaining, err
+	}
+	val, err := strconv.Atoi(strVal)
+	return val, remaining, err
+}
+
 func consumeOptionalValue(args []string, name string) ([]string, string, error) {
 	value, remaining, err := stringFlag(args, name)
 	return remaining, value, err
@@ -646,25 +656,98 @@ func runWorkspaceMigrate(ctx context.Context, config Config, args []string, outp
 	migrationID, args, _ := stringFlag(args, "--migration-id")
 	chunkID, args, _ := stringFlag(args, "--chunk-id")
 
+	revisionID, args, _ := stringFlag(args, "--revision")
+	revisionNum, args, _ := intFlag(args, "--revision")
+	fromRev, args, _ := intFlag(args, "--from-revision")
+	toRev, args, _ := intFlag(args, "--to-revision")
+	patchHash, args, _ := stringFlag(args, "--patch-hash")
+
 	switch action {
+	case "init":
+		if migrationID == "" {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("init requires --migration-id"))
+		}
+		mig, err := InitMigrationV2(config, migrationID)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, mig, jsonOutput, fmt.Sprintf("openlia workspace-migrate: initialized %s", migrationID))
+
 	case "worker":
 		if migrationID == "" {
 			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("worker requires --migration-id"))
+		}
+		migDir := MigrationRoot(config, migrationID)
+		if _, err := os.Stat(filepath.Join(migDir, "migration.sqlite")); err == nil {
+			if err := RunMigrationSupervisor(ctx, config, migrationID); err != nil {
+				return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+			}
+			return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "status": "completed"}, jsonOutput, "openlia workspace-migrate: worker finished")
 		}
 		if err := RunMigrationWorker(ctx, config, migrationID); err != nil {
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
 		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "status": "completed"}, jsonOutput, "openlia workspace-migrate: worker finished")
 
+	case "stop":
+		if migrationID == "" {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("stop requires --migration-id"))
+		}
+		if err := StopMigration(config, migrationID); err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "state": "stopped"}, jsonOutput, fmt.Sprintf("openlia workspace-migrate: migration %s stopped", migrationID))
+
+	case "resume":
+		if migrationID == "" {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("resume requires --migration-id"))
+		}
+		if err := ResumeMigration(ctx, config, migrationID); err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "state": "resumed"}, jsonOutput, fmt.Sprintf("openlia workspace-migrate: migration %s resumed", migrationID))
+
+	case "discard":
+		if migrationID == "" {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("discard requires --migration-id"))
+		}
+		if err := DiscardMigration(config, migrationID); err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "state": "discarded"}, jsonOutput, fmt.Sprintf("openlia workspace-migrate: migration %s discarded", migrationID))
+
+	case "diff":
+		if migrationID == "" {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("diff requires --migration-id"))
+		}
+		targetToRev := toRev
+		if targetToRev == 0 && revisionNum > 0 {
+			targetToRev = revisionNum
+		}
+		diffText, err := GetMigrationDiffV2(config, migrationID, fromRev, targetToRev)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "diff": diffText}, jsonOutput, diffText)
+
+	case "apply":
+		if migrationID == "" || revisionID == "" {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("apply requires --migration-id and --revision"))
+		}
+		if err := ApplyRevision(config, migrationID, revisionID, patchHash); err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "revision_id": revisionID, "state": "applied"}, jsonOutput, fmt.Sprintf("openlia workspace-migrate: revision %s applied", revisionID))
+
 	case "status":
 		if migrationID == "" {
 			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("status requires --migration-id"))
 		}
-		status, err := GetMigrationStatus(config, migrationID)
+		status, err := GetMigrationStatusV2(config, migrationID)
 		if err != nil {
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
-		return emit(output, status, jsonOutput, fmt.Sprintf("openlia workspace-migrate: status=%s phase=%s", status.Status, status.Phase))
+		return emit(output, status, jsonOutput, fmt.Sprintf("openlia workspace-migrate: status for %s", migrationID))
 
 	case "plan":
 		if migrationID == "" {

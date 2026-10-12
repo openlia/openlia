@@ -17,12 +17,14 @@ import type {
 import { Authenticator } from "./auth";
 import { exportArchive } from "./export";
 import { IngestionService } from "./ingestion";
+import { MigrationService } from "./migration";
 import { SkillService } from "./skills";
 import { WorkspaceError, WorkspaceService } from "./workspace";
 
 export interface WorkspaceHandlerOptions {
   workspaceRoot: string;
   ingestionRoot?: string;
+  migrationsRoot?: string;
   skillsRoot?: string;
   staticRoot?: string;
   maxEditableBytes?: number;
@@ -236,6 +238,7 @@ export function createWorkspaceHandler(
 ): (request: Request, clientKey?: string) => Promise<Response> {
   const service = new WorkspaceService(options);
   const ingestionService = new IngestionService(options);
+  const migrationService = new MigrationService(options);
   const systemInfo: WorkspaceSystemInfo = {
     hermes_version: options.systemInfo?.hermes_version ?? "Unavailable",
     locho_version: options.systemInfo?.locho_version ?? "Unavailable",
@@ -287,6 +290,8 @@ export function createWorkspaceHandler(
           url.pathname === "/skills" ||
           url.pathname.startsWith("/ingestion/") ||
           url.pathname === "/ingestion" ||
+          url.pathname.startsWith("/migration/") ||
+          url.pathname === "/migration" ||
           url.pathname.startsWith("/git-activity/") ||
           url.pathname === "/git-activity" ||
           url.pathname === "/configuration")
@@ -503,6 +508,234 @@ export function createWorkspaceHandler(
           }
           return json(
             { schema: 1, ok: false, error: "invalid_ingestion" },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname === "/api/workspace/migration"
+      ) {
+        return json(migrationService.list());
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname.startsWith("/api/workspace/migration/")
+      ) {
+        try {
+          const migrationId = decodeURIComponent(
+            url.pathname.slice("/api/workspace/migration/".length),
+          );
+          return json(migrationService.detail(migrationId));
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("not found")) {
+            return json({ schema: 2, ok: false, error: "not_found" }, 404);
+          }
+          return json(
+            { schema: 2, ok: false, error: "invalid_migration" },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/workspace/migration/") &&
+        url.pathname.endsWith("/feedback")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 2, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/workspace/migration/";
+        const suffix = "/feedback";
+        const migrationId = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        const bodyResult = await readJson(request, 65536);
+        if (bodyResult.tooLarge || !bodyResult.value) {
+          return json(
+            { schema: 2, ok: false, error: "invalid_request_body" },
+            400,
+          );
+        }
+        try {
+          return json(
+            migrationService.addFeedback(migrationId, bodyResult.value as any),
+          );
+        } catch (error) {
+          return json(
+            {
+              schema: 2,
+              ok: false,
+              error: error instanceof Error ? error.message : "feedback_error",
+            },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/workspace/migration/") &&
+        url.pathname.endsWith("/approve")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 2, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/workspace/migration/";
+        const suffix = "/approve";
+        const migrationId = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        const bodyResult = await readJson(request, 4096);
+        const revisionId = (bodyResult.value as any)?.revision_id;
+        if (!revisionId) {
+          return json(
+            { schema: 2, ok: false, error: "missing_revision_id" },
+            400,
+          );
+        }
+        try {
+          return json(migrationService.approve(migrationId, revisionId));
+        } catch (error) {
+          return json(
+            {
+              schema: 2,
+              ok: false,
+              error: error instanceof Error ? error.message : "approve_error",
+            },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/workspace/migration/") &&
+        url.pathname.endsWith("/discard")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 2, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/workspace/migration/";
+        const suffix = "/discard";
+        const migrationId = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        try {
+          return json(migrationService.discard(migrationId));
+        } catch (error) {
+          return json(
+            {
+              schema: 2,
+              ok: false,
+              error: error instanceof Error ? error.message : "discard_error",
+            },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/workspace/migration/") &&
+        url.pathname.endsWith("/stop")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 2, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/workspace/migration/";
+        const suffix = "/stop";
+        const migrationId = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        try {
+          return json(migrationService.stop(migrationId));
+        } catch (error) {
+          return json(
+            {
+              schema: 2,
+              ok: false,
+              error: error instanceof Error ? error.message : "stop_error",
+            },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/workspace/migration/") &&
+        url.pathname.endsWith("/resume")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 2, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/workspace/migration/";
+        const suffix = "/resume";
+        const migrationId = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        try {
+          return json(migrationService.resume(migrationId));
+        } catch (error) {
+          return json(
+            {
+              schema: 2,
+              ok: false,
+              error: error instanceof Error ? error.message : "resume_error",
+            },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/workspace/migration/") &&
+        url.pathname.endsWith("/wake")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 2, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/workspace/migration/";
+        const suffix = "/wake";
+        const migrationId = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        try {
+          return json(migrationService.wake(migrationId));
+        } catch (error) {
+          return json(
+            {
+              schema: 2,
+              ok: false,
+              error: error instanceof Error ? error.message : "wake_error",
+            },
             400,
           );
         }

@@ -373,3 +373,117 @@ export interface SkillSuccessResponse {
   ok: true;
   id?: string | undefined;
 }
+
+export interface MigrationSourceItem {
+  id: string;
+  relative_path: string;
+  byte_size: number;
+  encoding: string;
+  detected_type: string;
+  eligibility: "eligible" | "skipped" | "blocked" | "unsupported";
+  reason?: string | undefined;
+  dependencies?: string[] | undefined;
+  order_index: number;
+}
+
+export interface MigrationChangedFile {
+  path: string;
+  status: "added" | "modified" | "deleted";
+  source_ids?: string[] | undefined;
+  old_hash?: string | undefined;
+  new_hash?: string | undefined;
+  additions?: number | undefined;
+  deletions?: number | undefined;
+}
+
+export interface MigrationValidationFinding {
+  severity: "error" | "warning" | "info";
+  domain: string;
+  file?: string | undefined;
+  line?: number | undefined;
+  message: string;
+}
+
+export interface MigrationRevisionSummary {
+  id: string;
+  migration_id: string;
+  revision_num: number;
+  baseline_hash: string;
+  commit_hash: string;
+  tree_hash: string;
+  patch_hash: string;
+  summary: string;
+  changed_files: MigrationChangedFile[];
+  findings?: MigrationValidationFinding[] | undefined;
+  created_at: string;
+}
+
+export interface MigrationFeedbackItem {
+  id: string;
+  migration_id: string;
+  revision_id: string;
+  target_path?: string | undefined;
+  source_id?: string | undefined;
+  line_number?: number | undefined;
+  comment: string;
+  status: "draft" | "submitted" | "addressed" | "declined";
+  created_at: string;
+}
+
+export interface MigrationProgress {
+  total: number;
+  completed: number;
+  succeeded: number;
+  running: number;
+  pending: number;
+  failed: number;
+  percent: number;
+  current_file?: string | undefined;
+  avg_duration_sec?: number | undefined;
+  eta_seconds?: number | undefined;
+  estimated_finish_at?: string | undefined;
+}
+
+export interface MigrationSummary {
+  id: string;
+  schema: number;
+  state: string;
+  stop_intent: boolean;
+  baseline_manifest?: string | undefined;
+  active_revision_id?: string | undefined;
+  job_summary?: Record<string, number> | undefined;
+  progress?: MigrationProgress | undefined;
+  total_sources: number;
+  total_revisions: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MigrationDetailResponse {
+  schema: 2;
+  migration: MigrationSummary;
+  sources: MigrationSourceItem[];
+  revisions: MigrationRevisionSummary[];
+  active_diff?: string | undefined;
+  feedback: MigrationFeedbackItem[];
+  worker_status: "sleeping" | "starting" | "running" | "stopping" | "failed";
+}
+
+export interface MigrationFeedbackRequest {
+  revision_id: string;
+  comment: string;
+  target_path?: string | undefined;
+  line_number?: number | undefined;
+}
+export interface MigrationListResponse {
+  schema: 2;
+  migrations: MigrationSummary[];
+}
+
+export interface MigrationActionResponse {
+  ok: boolean;
+  migration_id: string;
+  state?: string;
+  revision_id?: string;
+  error?: string;
+}

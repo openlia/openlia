@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { JournalPreviewPane } from "./JournalPreviewPane";
 
 describe("JournalPreviewPane", () => {
@@ -248,5 +248,41 @@ describe("JournalPreviewPane", () => {
     fireEvent.click(screen.getByRole("button", { name: "All Time" }));
     expect(screen.getByText("Transactions (4)")).toBeInTheDocument();
     expect(screen.getByText("Old salary")).toBeInTheDocument();
+  });
+
+  it("loads and displays transactions from included journal files", async () => {
+    const rootJournal = `
+; Master journal
+include ../sources/artifacts/income_payslips.journal
+`;
+
+    const includedJournal = `
+2026-06-01 * Payslip May 2026
+    assets:bank:vcb      30000000 VND
+    income:salary       -30000000 VND
+`;
+
+    const mockLoadInclude = vi.fn().mockImplementation(async (path: string) => {
+      if (path === "sources/artifacts/income_payslips.journal") {
+        return includedJournal;
+      }
+      return null;
+    });
+
+    render(
+      <JournalPreviewPane
+        content={rootJournal}
+        filePath="finance/journal.hledger"
+        onLoadInclude={mockLoadInclude}
+      />,
+    );
+
+    // After async include loads, transactions should be visible
+    expect(await screen.findByText("Transactions (1)")).toBeInTheDocument();
+    expect(screen.getByText("Payslip May 2026")).toBeInTheDocument();
+    expect(screen.getByText(/Includes 1 journal file/i)).toBeInTheDocument();
+    expect(mockLoadInclude).toHaveBeenCalledWith(
+      "sources/artifacts/income_payslips.journal",
+    );
   });
 });

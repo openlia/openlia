@@ -13,6 +13,8 @@ import type {
   SkillSummary,
   IngestionDetailResponse,
   IngestionOverviewResponse,
+  MigrationDetailResponse,
+  MigrationSummary,
   WorkspaceActivityResponse,
   WorkspaceDiagnosticsResponse,
   WorkspaceFile,
@@ -39,6 +41,7 @@ import {
   WorkspaceHeader,
   type WorkspaceView,
 } from "./components";
+import { MigrationSection } from "./migration/MigrationSection";
 import { GoToModal } from "./GoToModal";
 import { diffLines } from "./markdown";
 import {
@@ -54,7 +57,12 @@ import "./styles.css";
 type PendingAction =
   | { kind: "open"; path: string; view?: WorkspaceView | undefined }
   | { kind: "openSkill"; id: string; skillFile?: string | undefined }
-  | { kind: "switchTab"; tab: MainTab; ingestionId?: string | undefined }
+  | {
+      kind: "switchTab";
+      tab: MainTab;
+      ingestionId?: string | undefined;
+      migrationId?: string | undefined;
+    }
   | { kind: "signout" }
   | null;
 
@@ -285,6 +293,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
           skillFile: undefined,
           tab: undefined,
           ingestionId: undefined,
+          migrationId: undefined,
           view: undefined,
         },
   );
@@ -321,6 +330,13 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     useState<IngestionDetailResponse | null>(null);
   const [ingestionLoading, setIngestionLoading] = useState(false);
   const [ingestionDetailLoading, setIngestionDetailLoading] = useState(false);
+  const [migrationsList, setMigrationsList] = useState<MigrationSummary[]>([]);
+  const [migrationDetail, setMigrationDetail] =
+    useState<MigrationDetailResponse | null>(null);
+  const [migrationLoading, setMigrationLoading] = useState(false);
+  const [selectedMigrationId, setSelectedMigrationId] = useState<string | null>(
+    () => initialRoute.current.migrationId ?? null,
+  );
   const [exporting, setExporting] = useState(false);
   const [settings, setSettings] = useState<WorkspaceSettings>({
     hide_configuration_files: true,
@@ -381,6 +397,18 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
       cancelled = true;
     };
   }, [file, tree, api]);
+
+  const handleLoadInclude = useCallback(
+    async (resolvedPath: string): Promise<string | null> => {
+      try {
+        const loaded = await api.loadFile(resolvedPath);
+        return loaded.content;
+      } catch {
+        return null;
+      }
+    },
+    [api],
+  );
 
   const [pendingRename, setPendingRename] = useState<{
     path: string;
@@ -533,6 +561,47 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     [api],
   );
 
+  const loadMigrationDetail = useCallback(
+    async (id: string) => {
+      setMigrationLoading(true);
+      try {
+        const detail = await api.loadMigrationDetail(id);
+        setMigrationDetail(detail);
+        setSelectedMigrationId(id);
+      } catch {
+        setMigrationDetail(null);
+      } finally {
+        setMigrationLoading(false);
+      }
+    },
+    [api],
+  );
+
+  const refreshMigrations = useCallback(
+    async (overrideMigrationId?: string | null) => {
+      setMigrationLoading(true);
+      try {
+        const list = await api.loadMigrations();
+        setMigrationsList(list);
+        const targetId =
+          overrideMigrationId !== undefined
+            ? overrideMigrationId
+            : selectedMigrationId;
+        if (targetId) {
+          const detail = await api.loadMigrationDetail(targetId);
+          setMigrationDetail(detail);
+        } else {
+          setMigrationDetail(null);
+        }
+      } catch {
+        // ignore
+      } finally {
+        setMigrationLoading(false);
+      }
+    },
+    [api, selectedMigrationId],
+  );
+
   const loadWorkspace = useCallback(
     async (isActive?: () => boolean) => {
       setAuthReady(false);
@@ -558,6 +627,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
           settingsResponse,
           systemInfoResponse,
           ingestionResponse,
+          migrationsResponse,
         ] = await Promise.all([
           api.loadTree(),
           api.loadGitStatus().catch(() => null),
@@ -571,6 +641,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
           api.loadSettings().catch(() => null),
           api.loadSystemInfo().catch(() => null),
           api.loadIngestion().catch(() => null),
+          api.loadMigrations().catch(() => []),
         ]);
         if (isActive && !isActive()) return;
 
@@ -584,6 +655,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
         if (settingsResponse) setSettings(settingsResponse);
         setSystemInfo(systemInfoResponse);
         setIngestion(ingestionResponse);
+        setMigrationsList(migrationsResponse);
         setNeedsLogin(false);
         setAuthReady(true);
 
@@ -601,6 +673,11 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
             }
           } else if (route.tab === "configuration") {
             setActiveTab("configuration");
+          } else if (route.tab === "migration" || route.migrationId) {
+            setActiveTab("migration");
+            if (route.migrationId) {
+              void loadMigrationDetail(route.migrationId);
+            }
           } else if (route.tab === "ingestion" || route.ingestionId) {
             setActiveTab("ingestion");
             if (route.ingestionId) void loadIngestionDetail(route.ingestionId);
@@ -622,7 +699,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
         }
       }
     },
-    [api, loadIngestionDetail],
+    [api, loadIngestionDetail, loadMigrationDetail],
   );
 
   const syncWorkspace = useCallback(async () => {
@@ -846,6 +923,12 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
             kind: "switchTab",
             tab: "ingestion",
           });
+        } else if (route.tab === "migration" || route.migrationId) {
+          setPendingAction({
+            kind: "switchTab",
+            migrationId: route.migrationId,
+            tab: "migration",
+          });
         } else if (route.tab === "configuration") {
           setPendingAction({ kind: "switchTab", tab: "configuration" });
         } else {
@@ -890,6 +973,18 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
         setConflict("");
         setDocumentError("");
         if (route.ingestionId) void loadIngestionDetail(route.ingestionId);
+      } else if (route.tab === "migration" || route.migrationId) {
+        setActiveTab("migration");
+        setFile(null);
+        setArtifact(null);
+        setDraft("");
+        setConflict("");
+        setDocumentError("");
+        if (route.migrationId) {
+          void loadMigrationDetail(route.migrationId);
+        } else {
+          void refreshMigrations();
+        }
       } else if (route.tab === "configuration") {
         setActiveTab("configuration");
       } else if (route.path) {
@@ -911,7 +1006,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [loadIngestionDetail]);
+  }, [loadIngestionDetail, loadMigrationDetail, refreshMigrations]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -1085,6 +1180,10 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
   }
 
   function requestTabChange(nextTab: MainTab) {
+    if (nextTab === "migration") {
+      requestMigration(undefined);
+      return;
+    }
     if (nextTab === activeTab) return;
     if (dirty) {
       setPendingAction({ kind: "switchTab", tab: nextTab });
@@ -1099,6 +1198,29 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
       if (nextTab === "ingestion") {
         setIngestionDetail(null);
       }
+    }
+  }
+
+  function requestMigration(migId?: string) {
+    if (dirty) {
+      setPendingAction({
+        kind: "switchTab",
+        migrationId: migId,
+        tab: "migration",
+      });
+      return;
+    }
+    setActiveTab("migration");
+    setFile(null);
+    setArtifact(null);
+    setDraft("");
+    navigateRoute({ migrationId: migId, tab: "migration" });
+    if (migId) {
+      void loadMigrationDetail(migId);
+    } else {
+      setSelectedMigrationId(null);
+      setMigrationDetail(null);
+      void refreshMigrations(null);
     }
   }
 
@@ -1684,7 +1806,11 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     } else if (action.kind === "switchTab") {
       setActiveTab(action.tab);
       setIngestionDetail(null);
-      navigateRoute({ ingestionId: action.ingestionId, tab: action.tab });
+      navigateRoute({
+        ingestionId: action.ingestionId,
+        migrationId: action.migrationId,
+        tab: action.tab,
+      });
       if (action.ingestionId) void loadIngestionDetail(action.ingestionId);
     } else {
       void performSignOut();
@@ -1716,7 +1842,11 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     } else if (action.kind === "switchTab") {
       setActiveTab(action.tab);
       setIngestionDetail(null);
-      navigateRoute({ ingestionId: action.ingestionId, tab: action.tab });
+      navigateRoute({
+        ingestionId: action.ingestionId,
+        migrationId: action.migrationId,
+        tab: action.tab,
+      });
       if (action.ingestionId) void loadIngestionDetail(action.ingestionId);
     } else {
       void performSignOut();
@@ -1950,6 +2080,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
             file={file}
             fileLoading={fileLoading}
             otherCalendarFiles={otherCalendarFiles}
+            onLoadInclude={handleLoadInclude}
             onCloseFiles={() => setFilesOpen(true)}
             onDelete={() => requestDelete()}
             onDownload={() => {
@@ -2008,7 +2139,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
       ) : activeTab === "skills" ? (
         <div className="workspace-layout xl:grid-cols-[clamp(18rem,22vw,22rem)_minmax(0,1fr)]">
           <div
-            className={`fixed inset-y-0 left-0 z-30 w-72 transform bg-base-100 transition-transform xl:static xl:w-full xl:translate-x-0 ${
+            className={`fixed inset-y-0 left-0 z-30 min-h-0 min-w-0 w-72 transform bg-base-100 transition-transform xl:static xl:w-full xl:translate-x-0 ${
               filesOpen ? "translate-x-0" : "-translate-x-full"
             }`}
           >
@@ -2062,7 +2193,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
               view={view}
             />
           ) : (
-            <div className="flex h-full flex-col items-center justify-center p-8 text-center bg-base-100">
+            <div className="workspace-document items-center justify-center overflow-auto p-8 text-center">
               <div className="max-w-md space-y-3">
                 <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-primary">
                   <svg
@@ -2121,6 +2252,69 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
             onSelect={requestIngestion}
             overview={ingestion}
             rawUrl={api.rawUrl}
+          />
+        </div>
+      ) : activeTab === "migration" ? (
+        <div className="workspace-layout xl:grid-cols-1">
+          <MigrationSection
+            migrationDetail={migrationDetail}
+            migrationsList={migrationsList}
+            loading={migrationLoading}
+            onSelectMigration={(id) => requestMigration(id)}
+            onBack={() => requestMigration()}
+            onRefresh={refreshMigrations}
+            onWakeWorker={async () => {
+              if (!selectedMigrationId) return;
+              try {
+                await api.wakeMigration(selectedMigrationId);
+                await refreshMigrations(selectedMigrationId);
+              } catch (err) {
+                console.error("Wake error", err);
+              }
+            }}
+            onStop={async () => {
+              if (!selectedMigrationId) return;
+              try {
+                await api.stopMigration(selectedMigrationId);
+                await refreshMigrations(selectedMigrationId);
+              } catch (err) {
+                console.error("Stop error", err);
+              }
+            }}
+            onResume={async () => {
+              if (!selectedMigrationId) return;
+              try {
+                await api.resumeMigration(selectedMigrationId);
+                await refreshMigrations(selectedMigrationId);
+              } catch (err) {
+                console.error("Resume error", err);
+              }
+            }}
+            onApprove={async (revId) => {
+              if (!selectedMigrationId) return;
+              try {
+                await api.approveMigration(selectedMigrationId, revId);
+                await refreshMigrations();
+              } catch (err) {
+                console.error("Approve error", err);
+                throw err;
+              }
+            }}
+            onDiscard={async () => {
+              if (!selectedMigrationId) return;
+              try {
+                await api.discardMigration(selectedMigrationId);
+                await refreshMigrations();
+              } catch (err) {
+                console.error("Discard error", err);
+                throw err;
+              }
+            }}
+            onSubmitFeedback={async (req) => {
+              if (!selectedMigrationId) return;
+              await api.submitMigrationFeedback(selectedMigrationId, req);
+              await refreshMigrations();
+            }}
           />
         </div>
       ) : (

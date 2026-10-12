@@ -16,6 +16,11 @@ import type {
   WorkspaceGitStatus,
   IngestionDetailResponse,
   IngestionOverviewResponse,
+  MigrationActionResponse,
+  MigrationDetailResponse,
+  MigrationFeedbackRequest,
+  MigrationListResponse,
+  MigrationSummary,
   WorkspaceMoveResponse,
   WorkspaceRenameResponse,
   WorkspaceSettings,
@@ -73,6 +78,20 @@ export interface WorkspaceApi {
     options?: { query?: string; status?: string; limit?: number } | undefined,
   ): Promise<IngestionOverviewResponse>;
   loadIngestionDetail(intakeId: string): Promise<IngestionDetailResponse>;
+  loadMigrations(): Promise<MigrationSummary[]>;
+  loadMigrationDetail(id: string): Promise<MigrationDetailResponse>;
+  submitMigrationFeedback(
+    id: string,
+    req: MigrationFeedbackRequest,
+  ): Promise<MigrationActionResponse>;
+  approveMigration(
+    id: string,
+    revisionId: string,
+  ): Promise<MigrationActionResponse>;
+  discardMigration(id: string): Promise<MigrationActionResponse>;
+  stopMigration(id: string): Promise<MigrationActionResponse>;
+  resumeMigration(id: string): Promise<MigrationActionResponse>;
+  wakeMigration(id: string): Promise<MigrationActionResponse>;
   downloadUrl(path: string): string;
   rawUrl(path: string): string;
   exportWorkspaceUrl(): string;
@@ -520,6 +539,86 @@ export const httpWorkspaceApi: WorkspaceApi = {
     requestJson<IngestionDetailResponse>(
       `/api/workspace/ingestion/${encodeURIComponent(intakeId)}`,
       isIngestionDetailResponse,
+    ),
+  loadMigrations: async () => {
+    const res = await requestJson<MigrationListResponse>(
+      "/api/workspace/migration",
+      (val): val is MigrationListResponse =>
+        isObject(val) && Array.isArray((val as any).migrations),
+    );
+    return res.migrations;
+  },
+  loadMigrationDetail: (id) =>
+    requestJson<MigrationDetailResponse>(
+      `/api/workspace/migration/${encodeURIComponent(id)}`,
+      (val): val is MigrationDetailResponse =>
+        isObject(val) && isObject((val as any).migration),
+    ),
+  submitMigrationFeedback: (id, req) =>
+    requestJson<MigrationActionResponse>(
+      `/api/workspace/migration/${encodeURIComponent(id)}/feedback`,
+      (val): val is MigrationActionResponse =>
+        isObject(val) && typeof (val as any).ok === "boolean",
+      {
+        body: JSON.stringify(req),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  approveMigration: (id, revisionId) =>
+    requestJson<MigrationActionResponse>(
+      `/api/workspace/migration/${encodeURIComponent(id)}/approve`,
+      (val): val is MigrationActionResponse =>
+        isObject(val) && typeof (val as any).ok === "boolean",
+      {
+        body: JSON.stringify({ revision_id: revisionId }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  discardMigration: (id) =>
+    requestJson<MigrationActionResponse>(
+      `/api/workspace/migration/${encodeURIComponent(id)}/discard`,
+      (val): val is MigrationActionResponse =>
+        isObject(val) && typeof (val as any).ok === "boolean",
+      {
+        body: JSON.stringify({}),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  stopMigration: (id) =>
+    requestJson<MigrationActionResponse>(
+      `/api/workspace/migration/${encodeURIComponent(id)}/stop`,
+      (val): val is MigrationActionResponse =>
+        isObject(val) && typeof (val as any).ok === "boolean",
+      {
+        body: JSON.stringify({}),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  resumeMigration: (id) =>
+    requestJson<MigrationActionResponse>(
+      `/api/workspace/migration/${encodeURIComponent(id)}/resume`,
+      (val): val is MigrationActionResponse =>
+        isObject(val) && typeof (val as any).ok === "boolean",
+      {
+        body: JSON.stringify({}),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  wakeMigration: (id) =>
+    requestJson<MigrationActionResponse>(
+      `/api/workspace/migration/${encodeURIComponent(id)}/wake`,
+      (val): val is MigrationActionResponse =>
+        isObject(val) && typeof (val as any).ok === "boolean",
+      {
+        body: JSON.stringify({}),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
     ),
   downloadUrl: (path) =>
     `/api/workspace/download?${new URLSearchParams({ path })}`,

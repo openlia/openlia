@@ -910,6 +910,8 @@ describe("workspace HTTP handler", () => {
         "/file/tasks/todo.md",
         "/skills",
         "/git-activity",
+        "/migration",
+        "/migration/mig-20261011-075346",
       ]) {
         const response = await spaHandler(
           new Request(`http://localhost${spaPath}`),

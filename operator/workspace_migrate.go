@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"openlia/operator/migration"
 )
 
 const (
@@ -108,6 +110,9 @@ type MigrationSummary struct {
 
 // MigrationRoot returns the directory on host/container where migration data is stored.
 func MigrationRoot(config Config, migrationID string) string {
+	if migRoot := os.Getenv("OPENLIA_MIGRATIONS_ROOT"); migRoot != "" {
+		return filepath.Join(migRoot, migrationID)
+	}
 	return filepath.Join(config.DataRoot, ".openlia", "workspace-migrations", migrationID)
 }
 
@@ -138,32 +143,26 @@ func IsIgnoredPath(relPath string) bool {
 		}
 	}
 
-	// 2. Foreign agent operations, personas, and system files at root
+	// 2. Foreign agent operations and personas at root (AGENTS.md, SOUL.md are excluded, README.md is allowed as notes)
 	if len(parts) == 1 {
-		if base == "AGENTS.md" || base == "README.md" || base == "SOUL.md" ||
-			base == "IDENTITY.md" || base == "DREAMS.md" {
+		if base == "SOUL.md" || base == "IDENTITY.md" || base == "DREAMS.md" {
 			return true
 		}
 	}
 
-	// 3. Subdirectory folder guide README files (templates)
-	if len(parts) > 1 && base == "README.md" {
-		return true
-	}
-
-	// 4. Foreign agent skills, tools, and prompts directories
+	// 3. Foreign agent skills, tools, and prompts directories
 	if len(parts) > 0 && (parts[0] == "skills" || parts[0] == "tools" || parts[0] == "prompts" || parts[0] == "agents") {
 		return true
 	}
 
-	// 5. Foreign agent internal memory / dreaming runtime directories
+	// 4. Foreign agent internal memory / dreaming runtime directories
 	if strings.Contains(clean, ".dreams") || strings.Contains(clean, "/dreaming/") || strings.HasPrefix(clean, "dreaming/") {
 		return true
 	}
 
-	// 6. Foreign scripts, code, and configs
+	// 5. Foreign executable scripts and code (JSON, YAML, CSV, Markdown, text are allowed)
 	if ext == ".sh" || ext == ".py" || ext == ".js" || ext == ".mjs" || ext == ".cjs" ||
-		ext == ".ts" || ext == ".json" || ext == ".css" || ext == ".go" || ext == ".rb" {
+		ext == ".ts" || ext == ".css" || ext == ".go" || ext == ".rb" {
 		return true
 	}
 
@@ -874,7 +873,26 @@ func ListMigrations(config Config) ([]MigrationSummary, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		statusPath := filepath.Join(baseDir, entry.Name(), "status.json")
+		dirPath := filepath.Join(baseDir, entry.Name())
+		sqlitePath := filepath.Join(dirPath, "migration.sqlite")
+		if _, err := os.Stat(sqlitePath); err == nil {
+			db, err := migration.OpenDB(dirPath)
+			if err == nil {
+				mig, err := db.GetMigration(entry.Name())
+				db.Close()
+				if err == nil && mig != nil {
+					results = append(results, MigrationSummary{
+						ID:        mig.ID,
+						Status:    mig.State,
+						CreatedAt: mig.CreatedAt.Format(time.RFC3339),
+						UpdatedAt: mig.UpdatedAt.Format(time.RFC3339),
+					})
+					continue
+				}
+			}
+		}
+
+		statusPath := filepath.Join(dirPath, "status.json")
 		if data, err := os.ReadFile(statusPath); err == nil {
 			var st MigrationStatus
 			if err := json.Unmarshal(data, &st); err == nil {

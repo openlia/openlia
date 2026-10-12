@@ -105,7 +105,7 @@ Usage:
   openlia workspace serve [<path>] [--port 8089] [--bind 127.0.0.1] [--open] [--skills PATH]
   openlia workspace export [PATH.zip]
   openlia workspace git setup|status
-  openlia workspace migrate [<path>|upload <path>|status [id]|merge [id]|list] [--dry-run]
+  openlia workspace migrate [<path>|upload <path>|status [id]|merge [id]|list] [--dry-run]  (beta)
   openlia instructions status [NAME]
   openlia instructions diff|merge|keep|reset NAME
   openlia workspace-ui password

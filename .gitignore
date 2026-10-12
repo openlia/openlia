@@ -31,6 +31,7 @@ locho/hosts/*/*.secret.toml
 locho/relay.toml
 locho/relay.env
 docker/compose.generated.yaml
+openlia-attachments.toml
 
 # Go build and test artifacts
 /openlia

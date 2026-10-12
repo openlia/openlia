@@ -6,7 +6,8 @@ export type MainTab =
   | "skills"
   | "ingestion"
   | "git-activity"
-  | "configuration";
+  | "configuration"
+  | "migration";
 
 export interface WorkspaceRoute {
   tab?: MainTab | undefined;
@@ -17,6 +18,7 @@ export interface WorkspaceRoute {
   skill?: string | undefined;
   skillFile?: string | undefined;
   ingestionId?: string | undefined;
+  migrationId?: string | undefined;
 }
 
 const validViews: ReadonlySet<string> = new Set(["edit", "preview", "info"]);
@@ -51,6 +53,7 @@ export function parseRoute(
   let tab: MainTab | undefined;
   let parsedSkillFile: string | undefined;
   let ingestionId: string | undefined;
+  let migrationId: string | undefined;
 
   if (url.protocol === "openlia:") {
     const host = url.host.toLowerCase();
@@ -71,6 +74,9 @@ export function parseRoute(
     } else if (host === "ingestion") {
       if (raw) ingestionId = safeDecodeURIComponent(raw);
       tab = "ingestion";
+    } else if (host === "migration") {
+      if (raw) migrationId = safeDecodeURIComponent(raw);
+      tab = "migration";
     } else if (host === "configuration") {
       tab = "configuration";
     }
@@ -101,6 +107,12 @@ export function parseRoute(
     tab = "ingestion";
   } else if (pathname === "/ingestion") {
     tab = "ingestion";
+  } else if (pathname.startsWith("/migration/")) {
+    const raw = pathname.slice("/migration/".length);
+    if (raw) migrationId = safeDecodeURIComponent(raw);
+    tab = "migration";
+  } else if (pathname === "/migration") {
+    tab = "migration";
   } else if (
     pathname === "/git-activity" ||
     pathname.startsWith("/git-activity/")
@@ -116,7 +128,8 @@ export function parseRoute(
     tabParam === "documents" ||
     tabParam === "ingestion" ||
     tabParam === "git-activity" ||
-    tabParam === "configuration"
+    tabParam === "configuration" ||
+    tabParam === "migration"
   ) {
     tab = tabParam;
   }
@@ -132,6 +145,9 @@ export function parseRoute(
 
   const ingestionParam = url.searchParams.get("ingestion");
   if (ingestionParam) ingestionId = ingestionParam.trim();
+
+  const migrationParam = url.searchParams.get("migration");
+  if (migrationParam) migrationId = migrationParam.trim();
 
   if (!path) {
     const fallbackPath =
@@ -158,6 +174,7 @@ export function parseRoute(
   return {
     filter,
     ingestionId: ingestionId || undefined,
+    migrationId: migrationId || undefined,
     path: path || undefined,
     scenario,
     skill: skill || undefined,
@@ -187,6 +204,10 @@ export function buildRouteUrl(route: WorkspaceRoute): string {
     pathname = route.ingestionId
       ? `/ingestion/${encodeURIComponent(route.ingestionId)}`
       : "/ingestion";
+  } else if (route.tab === "migration") {
+    pathname = route.migrationId
+      ? `/migration/${encodeURIComponent(route.migrationId)}`
+      : "/migration";
   } else if (route.path) {
     const segments = route.path
       .replace(/^\/+/, "")

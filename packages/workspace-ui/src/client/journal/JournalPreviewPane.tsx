@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { resolveRelativePath } from "../openliaLinks";
 import { JournalHighlights } from "./JournalHighlights";
 import { JournalTimeline } from "./JournalTimeline";
 import { MonthlyCashflowChart } from "./MonthlyCashflowChart";
@@ -8,21 +9,28 @@ import {
   computeMonthlyCashflow,
   computePeriodMetrics,
   type DateRangeScope,
+  extractJournalIncludes,
   formatCurrency,
   getAvailableYears,
-  parseHledgerJournal,
+  parseHledgerJournalWithFiles,
 } from "./parser";
 import { PeriodScopeSelector } from "./PeriodScopeSelector";
 import { SankeyDiagram } from "./SankeyDiagram";
 
 export function JournalPreviewPane({
   content,
-  filePath: _filePath,
+  filePath,
   onSwitchToEdit,
+  onLoadInclude,
+  onNavigateLink,
 }: {
   content: string;
   filePath: string;
-  onSwitchToEdit?: () => void;
+  onSwitchToEdit?: (() => void) | undefined;
+  onLoadInclude?:
+    | ((resolvedPath: string) => Promise<string | null>)
+    | undefined;
+  onNavigateLink?: ((path: string) => void) | undefined;
 }) {
   const [activeTab, setActiveTab] = useState<"transactions" | "accounts">(
     "transactions",
@@ -40,9 +48,85 @@ export function JournalPreviewPane({
     type: "all",
   });
 
+  const [includedFilesMap, setIncludedFilesMap] = useState<Map<string, string>>(
+    () => new Map(),
+  );
+  const [_includesLoading, setIncludesLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAllIncludes() {
+      if (!onLoadInclude) {
+        setIncludedFilesMap(new Map());
+        return;
+      }
+
+      setIncludesLoading(true);
+      const loadedMap = new Map<string, string>();
+      const queue: Array<{ relPath: string; fromFile: string }> = [];
+      const visited = new Set<string>([filePath]);
+
+      // Seed queue with root content's includes
+      const rootIncludes = extractJournalIncludes(content);
+      for (const inc of rootIncludes) {
+        queue.push({ relPath: inc, fromFile: filePath });
+      }
+
+      const MAX_DEPTH = 50;
+      let iterations = 0;
+
+      while (queue.length > 0 && iterations < MAX_DEPTH) {
+        iterations++;
+        const item = queue.shift();
+        if (!item) break;
+
+        const resolved = resolveRelativePath(item.relPath, item.fromFile);
+        if (visited.has(resolved)) continue;
+        visited.add(resolved);
+
+        try {
+          const loadedContent = await onLoadInclude(resolved);
+          if (cancelled) return;
+          if (loadedContent !== null) {
+            loadedMap.set(resolved, loadedContent);
+            // Discover transitive includes
+            const nested = extractJournalIncludes(loadedContent);
+            for (const n of nested) {
+              queue.push({ relPath: n, fromFile: resolved });
+            }
+          }
+        } catch {
+          // Ignore missing or unreadable files gracefully
+        }
+      }
+
+      if (!cancelled) {
+        setIncludedFilesMap(loadedMap);
+        setIncludesLoading(false);
+      }
+    }
+
+    loadAllIncludes();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [content, filePath, onLoadInclude]);
+
+  const allFiles = useMemo(() => {
+    const list: Array<{ content: string; filePath: string }> = [
+      { content, filePath },
+    ];
+    for (const [incPath, incContent] of includedFilesMap.entries()) {
+      list.push({ content: incContent, filePath: incPath });
+    }
+    return list;
+  }, [content, filePath, includedFilesMap]);
+
   const parsed = useMemo(() => {
-    return parseHledgerJournal(content);
-  }, [content]);
+    return parseHledgerJournalWithFiles(allFiles);
+  }, [allFiles]);
 
   const { transactions, currencies } = parsed;
   const availableYears = useMemo(
@@ -195,6 +279,27 @@ export function JournalPreviewPane({
 
   return (
     <div className="flex h-full flex-col overflow-y-auto p-4 md:p-6 gap-6">
+      {/* Included Journals Indicator */}
+      {includedFilesMap.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-base-200/60 px-3 py-2 text-xs text-base-content/70 border border-base-content/5">
+          <span className="font-semibold text-primary">
+            🔗 Includes {includedFilesMap.size} journal file
+            {includedFilesMap.size > 1 ? "s" : ""}:
+          </span>
+          {Array.from(includedFilesMap.keys()).map((incPath) => (
+            <button
+              key={incPath}
+              className="badge badge-sm badge-outline font-mono hover:badge-primary cursor-pointer"
+              onClick={() => onNavigateLink?.(incPath)}
+              title={`Open ${incPath}`}
+              type="button"
+            >
+              {incPath}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Top Controls: Currency & Period Scope */}
       {(hasMultipleCurrencies || availableYears.length > 1) && (
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -393,8 +498,10 @@ export function JournalPreviewPane({
         {activeTab === "transactions" ? (
           <JournalTimeline
             currency={primaryViewCurrency}
+            currentFilePath={filePath}
             filterQuery={filterQuery}
             onFilterAccount={(acc) => setFilterQuery(acc)}
+            onNavigateLink={onNavigateLink}
             onSwitchToEdit={onSwitchToEdit}
             order={sortOrder}
             transactions={filteredTransactions}

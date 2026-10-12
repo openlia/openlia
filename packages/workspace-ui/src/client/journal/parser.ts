@@ -13,6 +13,7 @@ export interface JournalTransaction {
   description: string;
   postings: JournalPosting[];
   lineNumber: number;
+  sourceFile?: string | undefined;
 }
 
 export type RootAccountType =
@@ -163,13 +164,44 @@ export function parseAmountAndCurrency(
   return { amount: parsedVal, currency: currency.trim() || defaultCurrency };
 }
 
-export function parseHledgerJournal(content: string): ParsedJournal {
+export function extractJournalIncludes(content: string): string[] {
+  const lines = content.split(/\r?\n/);
+  const includes: string[] = [];
+  const includeRegex = /^\s*include\s+(.+)$/i;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith(";") || trimmed.startsWith("#")) {
+      continue;
+    }
+    const match = trimmed.match(includeRegex);
+    if (match?.[1]) {
+      let target = match[1].trim();
+      // Remove inline comments
+      const commentIdx = target.search(/[;#]/);
+      if (commentIdx >= 0) {
+        target = target.slice(0, commentIdx).trim();
+      }
+      // Remove surrounding quotes if present
+      target = target.replace(/^["']|["']$/g, "").trim();
+      if (target) {
+        includes.push(target);
+      }
+    }
+  }
+
+  return includes;
+}
+
+export function parseJournalTransactions(
+  content: string,
+  sourceFile?: string,
+  startTxIndex = 0,
+): { transactions: JournalTransaction[]; nextTxIndex: number } {
   const lines = content.split(/\r?\n/);
   const transactions: JournalTransaction[] = [];
-  const currencyCounts = new Map<string, number>();
-
   let currentTx: JournalTransaction | null = null;
-  let txIndex = 0;
+  let txIndex = startTxIndex;
 
   // Header regex: YYYY[-/.]MM[-/.]DD [*|!]? [Description]
   const dateHeaderRegex = /^(\d{4}[-/.]\d{2}[-/.]\d{2})\s*(?:([*!])\s*)?(.*)$/;
@@ -180,6 +212,11 @@ export function parseHledgerJournal(content: string): ParsedJournal {
 
     if (!trimmed || trimmed.startsWith(";") || trimmed.startsWith("#")) {
       // Empty or full comment line
+      continue;
+    }
+
+    // Ignore include directive lines during transaction parsing
+    if (/^\s*include\s+/i.test(trimmed)) {
       continue;
     }
 
@@ -245,6 +282,7 @@ export function parseHledgerJournal(content: string): ParsedJournal {
           description: description || "Untitled transaction",
           postings: [],
           lineNumber: i + 1,
+          ...(sourceFile ? { sourceFile } : {}),
         };
       }
     }
@@ -253,6 +291,22 @@ export function parseHledgerJournal(content: string): ParsedJournal {
   if (currentTx) {
     finalizeTransaction(currentTx);
     transactions.push(currentTx);
+  }
+
+  return { transactions, nextTxIndex: txIndex };
+}
+
+export function parseHledgerJournalWithFiles(
+  files: Array<{ content: string; filePath?: string }>,
+): ParsedJournal {
+  const transactions: JournalTransaction[] = [];
+  const currencyCounts = new Map<string, number>();
+  let txIndex = 0;
+
+  for (const file of files) {
+    const res = parseJournalTransactions(file.content, file.filePath, txIndex);
+    transactions.push(...res.transactions);
+    txIndex = res.nextTxIndex;
   }
 
   // Count currencies after balancing so inferred postings are included.
@@ -275,6 +329,15 @@ export function parseHledgerJournal(content: string): ParsedJournal {
     currencies,
     ...metrics,
   };
+}
+
+export function parseHledgerJournal(
+  content: string,
+  filePath?: string,
+): ParsedJournal {
+  return parseHledgerJournalWithFiles([
+    filePath !== undefined ? { content, filePath } : { content },
+  ]);
 }
 
 export function buildJournalMetrics(

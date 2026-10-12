@@ -311,4 +311,36 @@ describe("route helpers", () => {
       "/ingestion/intake_123",
     );
   });
+
+  test("parses and builds migration routes", () => {
+    expect(parseRoute("/migration")).toMatchObject({
+      tab: "migration",
+      migrationId: undefined,
+    });
+    expect(parseRoute("/migration/mig-20261011-075346")).toMatchObject({
+      migrationId: "mig-20261011-075346",
+      tab: "migration",
+    });
+    expect(parseRoute("openlia://migration")).toMatchObject({
+      tab: "migration",
+    });
+    expect(parseRoute("openlia://migration/mig-123")).toMatchObject({
+      migrationId: "mig-123",
+      tab: "migration",
+    });
+    expect(parseRoute("/?tab=migration")).toMatchObject({
+      tab: "migration",
+    });
+    expect(parseRoute("/?tab=migration&migration=mig-456")).toMatchObject({
+      migrationId: "mig-456",
+      tab: "migration",
+    });
+    expect(buildRouteUrl({ tab: "migration" })).toBe("/migration");
+    expect(
+      buildRouteUrl({
+        migrationId: "mig-20261011-075346",
+        tab: "migration",
+      }),
+    ).toBe("/migration/mig-20261011-075346");
+  });
 });

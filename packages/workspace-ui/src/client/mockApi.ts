@@ -964,5 +964,86 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
       mockSkillRevisions[key] = "sha256:mock-created";
       return { id, ok: true, schema: 1 };
     },
+    async loadMigrations() {
+      return [
+        {
+          id: "mig-mock-1",
+          schema: 2,
+          state: "ready_for_review",
+          stop_intent: false,
+          total_revisions: 1,
+          total_sources: 2,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ];
+    },
+    async loadMigrationDetail(id: string) {
+      return {
+        schema: 2 as const,
+        migration: {
+          id,
+          schema: 2,
+          state: "ready_for_review",
+          stop_intent: false,
+          total_revisions: 1,
+          total_sources: 2,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        sources: [
+          {
+            id: "src-1",
+            relative_path: "notes.md",
+            byte_size: 100,
+            encoding: "utf-8",
+            detected_type: "markdown",
+            eligibility: "eligible" as const,
+            order_index: 1,
+          },
+        ],
+        revisions: [
+          {
+            id: "rev-1",
+            migration_id: id,
+            revision_num: 1,
+            baseline_hash: "base-1",
+            commit_hash: "commit-1",
+            tree_hash: "tree-1",
+            patch_hash: "patch-1",
+            summary: "Mock initial revision",
+            changed_files: [{ path: "notes.md", status: "added" as const }],
+            created_at: new Date().toISOString(),
+          },
+        ],
+        active_diff:
+          "diff --git a/notes.md b/notes.md\nnew file mode 100644\n--- /dev/null\n+++ b/notes.md\n@@ -0,0 +1,1 @@\n+# Mock Note\n",
+        feedback: [],
+        worker_status: "sleeping" as const,
+      };
+    },
+    async submitMigrationFeedback(id: string, req) {
+      return { ok: true, migration_id: id };
+    },
+    async approveMigration(id: string, revisionId: string) {
+      return {
+        ok: true,
+        migration_id: id,
+        revision_id: revisionId,
+        state: "applied",
+      };
+    },
+    async discardMigration(id: string) {
+      return { ok: true, migration_id: id, state: "discarded" };
+    },
+    async stopMigration(id: string) {
+      return { ok: true, migration_id: id, state: "stopped" };
+    },
+    async resumeMigration(id: string) {
+      return { ok: true, migration_id: id, state: "processing" };
+    },
+    async wakeMigration(id: string) {
+      return { ok: true, migration_id: id };
+    },
   };
 }

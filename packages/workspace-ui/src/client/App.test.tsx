@@ -679,7 +679,14 @@ messages:
       within(screen.getByRole("navigation", { name: "Workspace navigation" }))
         .getAllByRole("button")
         .map((btn) => btn.textContent?.trim()),
-    ).toEqual(["Documents", "Calendar", "Ingestion", "Skills", "Git"]);
+    ).toEqual([
+      "Documents",
+      "Calendar",
+      "Ingestion",
+      "Skills",
+      "Migrations",
+      "Git",
+    ]);
 
     for (const tab of ["Skills", "Configuration"]) {
       fireEvent.click(screen.getByRole("button", { name: tab }));
@@ -930,5 +937,38 @@ messages:
     expect(screen.getByRole("button", { name: "Edit" })).toHaveClass(
       "btn-primary",
     );
+  });
+
+  test("navigates to migrations list and allows returning to list from migration detail", async () => {
+    window.history.replaceState(null, "", "/migration/mig-mock-1");
+    render(<App api={createMockWorkspaceApi()} />);
+
+    // Renders migration detail
+    expect(
+      await screen.findByRole("button", { name: /Back to migrations list/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("mig-mock-1")).toBeInTheDocument();
+
+    // Clicking Back breadcrumb returns to migration list
+    fireEvent.click(
+      screen.getByRole("button", { name: /Back to migrations list/i }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Workspace Migrations" }),
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/migration");
+
+    // Click inspect on mig-mock-1
+    fireEvent.click(screen.getByRole("button", { name: "Inspect" }));
+    expect(
+      await screen.findByRole("button", { name: /Back to migrations list/i }),
+    ).toBeInTheDocument();
+
+    // Clicking top navigation [Migrations] button also returns to list
+    fireEvent.click(screen.getByRole("button", { name: "Migrations" }));
+    expect(
+      await screen.findByRole("heading", { name: "Workspace Migrations" }),
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/migration");
   });
 });

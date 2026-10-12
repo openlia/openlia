@@ -233,6 +233,8 @@ func remoteOperationReadOnly(script string, args []string) bool {
 		return len(args) > 0 && (args[0] == "status" || args[0] == "diff")
 	case "workspace-git":
 		return len(args) > 0 && args[0] == "status"
+	case "workspace-migrate":
+		return len(args) > 0 && (args[0] == "status" || args[0] == "diff" || args[0] == "list" || args[0] == "stop")
 	default:
 		return false
 	}

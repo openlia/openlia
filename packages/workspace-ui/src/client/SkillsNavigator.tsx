@@ -72,9 +72,9 @@ export function SkillsNavigator({
   return (
     <aside
       aria-label="Skills navigator"
-      className="flex h-full w-full flex-col border-r border-base-content/10 bg-base-100"
+      className="workspace-navigator flex h-full w-full overflow-hidden"
     >
-      <div className="flex items-center justify-between border-b border-base-content/10 p-3">
+      <div className="flex shrink-0 items-center justify-between border-b border-base-content/10 p-3">
         <h2 className="text-sm font-semibold tracking-wide uppercase text-base-content/70">
           Skills ({skills.length})
         </h2>
@@ -101,7 +101,7 @@ export function SkillsNavigator({
         </button>
       </div>
 
-      <div className="border-b border-base-content/10 p-2">
+      <div className="shrink-0 border-b border-base-content/10 p-2">
         <label className="sr-only" htmlFor={searchId}>
           Search skills
         </label>
@@ -145,7 +145,7 @@ export function SkillsNavigator({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {loading ? (
           <div className="flex items-center justify-center p-8 text-sm text-base-content/50">
             Loading skills...

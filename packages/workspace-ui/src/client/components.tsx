@@ -230,6 +230,7 @@ export function WorkspaceHeader({
     | "ingestion"
     | "git-activity"
     | "configuration"
+    | "migration"
     | undefined;
   authRequired: boolean;
   currentLink?: string | undefined;
@@ -248,7 +249,8 @@ export function WorkspaceHeader({
           | "skills"
           | "ingestion"
           | "git-activity"
-          | "configuration",
+          | "configuration"
+          | "migration",
       ) => void)
     | undefined;
 }) {
@@ -347,6 +349,23 @@ export function WorkspaceHeader({
           )}
           {onTabChange && (
             <button
+              aria-current={activeTab === "migration" ? "page" : undefined}
+              className={`btn btn-xs join-item ${
+                activeTab === "migration"
+                  ? "btn-primary shadow-xs"
+                  : "btn-ghost text-base-content/70"
+              }`}
+              onClick={() => onTabChange("migration")}
+              type="button"
+            >
+              <span>Migrations</span>
+              <span className="badge badge-xs badge-warning/80 font-mono text-[9px] uppercase px-1 py-0 ml-1">
+                Beta
+              </span>
+            </button>
+          )}
+          {onTabChange && (
+            <button
               aria-current={activeTab === "git-activity" ? "page" : undefined}
               className={`btn btn-xs join-item ${
                 activeTab === "git-activity"
@@ -371,11 +390,13 @@ export function WorkspaceHeader({
               ? "GIT ACTIVITY"
               : activeTab === "ingestion"
                 ? "INGESTION RUNTIME"
-                : activeTab === "configuration"
-                  ? "CONFIGURATION"
-                  : file
-                    ? "WORKSPACE"
-                    : "ACTIVITY"}
+                : activeTab === "migration"
+                  ? "MIGRATION"
+                  : activeTab === "configuration"
+                    ? "CONFIGURATION"
+                    : file
+                      ? "WORKSPACE"
+                      : "ACTIVITY"}
         </p>
         <div className="flex items-center gap-1.5">
           <h1 className="workspace-title" title={file?.path}>
@@ -1449,6 +1470,7 @@ export function DocumentPane({
   downloadUrl,
   totalDocuments,
   otherCalendarFiles,
+  onLoadInclude,
 }: {
   conflict: string;
   detailsOpen?: boolean;
@@ -1484,6 +1506,9 @@ export function DocumentPane({
   downloadUrl?: ((path: string) => string) | undefined;
   totalDocuments?: number | undefined;
   otherCalendarFiles?: Array<{ path: string; content: string }> | undefined;
+  onLoadInclude?:
+    | ((resolvedPath: string) => Promise<string | null>)
+    | undefined;
 }) {
   const dirty = file !== null && file.content !== draft;
   const canEdit = Boolean(file?.editable);
@@ -1850,6 +1875,8 @@ export function DocumentPane({
                 <JournalPreviewPane
                   content={draft}
                   filePath={file.path}
+                  onLoadInclude={onLoadInclude}
+                  onNavigateLink={onNavigateLink}
                   onSwitchToEdit={() => onViewChange("edit")}
                 />
               </section>

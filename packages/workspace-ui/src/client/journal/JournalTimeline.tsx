@@ -15,6 +15,8 @@ export interface JournalTimelineProps {
   filterQuery?: string | undefined;
   onSwitchToEdit?: (() => void) | undefined;
   onFilterAccount?: ((account: string) => void) | undefined;
+  onNavigateLink?: ((path: string) => void) | undefined;
+  currentFilePath?: string | undefined;
 }
 
 export function JournalTimeline({
@@ -25,6 +27,8 @@ export function JournalTimeline({
   filterQuery,
   onSwitchToEdit,
   onFilterAccount,
+  onNavigateLink,
+  currentFilePath,
 }: JournalTimelineProps) {
   const [userToggledMonths, setUserToggledMonths] = useState<
     Map<string, boolean>
@@ -224,8 +228,28 @@ export function JournalTimeline({
                               )}
                             </span>
 
-                            {/* Line number link */}
-                            {onSwitchToEdit ? (
+                            {/* Source and Line number link */}
+                            {tx.sourceFile &&
+                            currentFilePath &&
+                            tx.sourceFile !== currentFilePath ? (
+                              <button
+                                className="btn btn-ghost btn-xs font-mono text-[10px] text-base-content/60 hover:text-primary cursor-pointer flex items-center gap-1"
+                                onClick={() => {
+                                  if (onNavigateLink && tx.sourceFile) {
+                                    onNavigateLink(tx.sourceFile);
+                                  } else if (onSwitchToEdit) {
+                                    onSwitchToEdit();
+                                  }
+                                }}
+                                title={`From ${tx.sourceFile} (Line ${tx.lineNumber}) - click to open file`}
+                                type="button"
+                              >
+                                <span className="opacity-70 max-w-[120px] truncate">
+                                  {tx.sourceFile.split("/").pop()}
+                                </span>
+                                <span>:{tx.lineNumber} ↗</span>
+                              </button>
+                            ) : onSwitchToEdit ? (
                               <button
                                 className="btn btn-ghost btn-xs font-mono text-[10px] text-base-content/50 hover:text-primary cursor-pointer"
                                 onClick={onSwitchToEdit}

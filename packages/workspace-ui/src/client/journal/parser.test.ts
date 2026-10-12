@@ -5,11 +5,13 @@ import {
   computeAnnualCashflow,
   computeMonthlyCashflow,
   computePeriodMetrics,
+  extractJournalIncludes,
   formatCurrency,
   getAvailableYears,
   groupTransactionsByMonth,
   parseAmountAndCurrency,
   parseHledgerJournal,
+  parseHledgerJournalWithFiles,
 } from "./parser";
 
 describe("classifyAccount", () => {
@@ -399,5 +401,73 @@ describe("Multi-year Scoping & Annual Cashflow", () => {
     expect(sankey2025).toBeDefined();
     const expenseNode = sankey2025?.nodes.find((n) => n.name === "rent");
     expect(expenseNode?.value).toBe(15000000);
+  });
+});
+
+describe("extractJournalIncludes", () => {
+  it("extracts simple and quoted include directives while ignoring comments", () => {
+    const journalText = `
+; Main finance journal
+# Global configurations
+include ../sources/artifacts/income_payslips.journal
+include "2024.journal" ; inline comment
+include 'expenses/sub.journal' # another comment
+; include commented_out.journal
+
+2026-01-01 * Opening
+  assets:cash  100 VND
+  equity:open
+`;
+
+    const includes = extractJournalIncludes(journalText);
+    expect(includes).toEqual([
+      "../sources/artifacts/income_payslips.journal",
+      "2024.journal",
+      "expenses/sub.journal",
+    ]);
+  });
+
+  it("returns empty array when no includes are present", () => {
+    expect(extractJournalIncludes("; comment only\n\n")).toEqual([]);
+  });
+});
+
+describe("parseHledgerJournalWithFiles", () => {
+  it("merges transactions across multiple files and preserves sourceFile attribution", () => {
+    const rootFile = {
+      filePath: "finance/journal.hledger",
+      content: `
+include ../sources/artifacts/income_payslips.journal
+
+2026-06-02 * Coffee
+  expenses:food  50000 VND
+  assets:cash   -50000 VND
+`,
+    };
+
+    const includedFile = {
+      filePath: "sources/artifacts/income_payslips.journal",
+      content: `
+2026-06-01 * Payslip May 2026
+  assets:bank:vcb      30000000 VND
+  income:salary       -30000000 VND
+`,
+    };
+
+    const parsed = parseHledgerJournalWithFiles([rootFile, includedFile]);
+
+    expect(parsed.transactions).toHaveLength(2);
+    expect(parsed.transactions[0]?.sourceFile).toBe("finance/journal.hledger");
+    expect(parsed.transactions[0]?.description).toBe("Coffee");
+    expect(parsed.transactions[1]?.sourceFile).toBe(
+      "sources/artifacts/income_payslips.journal",
+    );
+    expect(parsed.transactions[1]?.description).toBe("Payslip May 2026");
+
+    // Metrics reflect both files
+    const vnd = parsed.highlightsByCurrency.get("VND");
+    expect(vnd?.totalIncome).toBe(30000000);
+    expect(vnd?.totalExpenses).toBe(50000);
+    expect(vnd?.netSavings).toBe(29950000);
   });
 });
