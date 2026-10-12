@@ -44,6 +44,8 @@ openlia-attachments.toml
 /packages/workspace-ui/.preview-workspace/
 /packages/workspace-ui/.dev-skills/
 /packages/workspace-ui/.preview-skills/
+/packages/workspace-ui/.dev-memories/
+/packages/workspace-ui/.preview-memories/
 /packages/workspace-ui/.playwright/
 node_modules/
 *.test

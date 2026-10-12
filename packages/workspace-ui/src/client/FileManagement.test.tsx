@@ -128,6 +128,94 @@ describe("MoveFileDialog", () => {
 });
 
 describe("FileNavigator Action Menu", () => {
+  test("separates assistant memory above workspace files when present", () => {
+    render(
+      <FileNavigator
+        entries={[
+          {
+            editable: true,
+            kind: "file",
+            modified_at: "",
+            path: "@memories/USER.md",
+            size: 10,
+            source: "memory",
+          },
+          {
+            editable: true,
+            kind: "file",
+            modified_at: "",
+            path: "notes.md",
+            size: 10,
+          },
+        ]}
+        filter=""
+        loading={false}
+        mobileOpen={false}
+        onClose={() => {}}
+        onFilterChange={() => {}}
+        onOpenFile={() => {}}
+        onRetry={() => {}}
+        selectedPath="notes.md"
+        truncated={false}
+        workspaceError=""
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Assistant memory" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Workspace files" }),
+    ).toBeInTheDocument();
+    expect(
+      screen
+        .getByRole("heading", { name: "Assistant memory" })
+        .compareDocumentPosition(
+          screen.getByRole("heading", { name: "Workspace files" }),
+        ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Assistant memory" }).parentElement
+        ?.parentElement,
+    ).toContainElement(screen.getByText("USER.md"));
+  });
+
+  test("does not show section headings for workspace-only files", () => {
+    render(
+      <FileNavigator
+        entries={[
+          {
+            editable: true,
+            kind: "file",
+            modified_at: "",
+            path: "notes.md",
+            size: 10,
+          },
+        ]}
+        filter=""
+        loading={false}
+        mobileOpen={false}
+        onClose={() => {}}
+        onFilterChange={() => {}}
+        onOpenFile={() => {}}
+        onRetry={() => {}}
+        selectedPath="notes.md"
+        truncated={false}
+        workspaceError=""
+      />,
+    );
+
+    expect(
+      screen.queryByRole("heading", { name: "Assistant memory" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "Workspace files" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "notes.md" }),
+    ).toBeInTheDocument();
+  });
+
   test("exposes rename, move, and delete actions for files", () => {
     const onRenameFile = vi.fn();
     const onMoveFile = vi.fn();

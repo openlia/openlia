@@ -18,11 +18,13 @@ import { Authenticator } from "./auth";
 import { exportArchive } from "./export";
 import { IngestionService } from "./ingestion";
 import { MigrationService } from "./migration";
+import { MemoryFileService } from "./memory";
 import { SkillService } from "./skills";
 import { WorkspaceError, WorkspaceService } from "./workspace";
 
 export interface WorkspaceHandlerOptions {
   workspaceRoot: string;
+  memoriesRoot?: string;
   ingestionRoot?: string;
   migrationsRoot?: string;
   skillsRoot?: string;
@@ -237,6 +239,7 @@ export function createWorkspaceHandler(
   options: WorkspaceHandlerOptions,
 ): (request: Request, clientKey?: string) => Promise<Response> {
   const service = new WorkspaceService(options);
+  const memoryService = new MemoryFileService(service, options.memoriesRoot);
   const ingestionService = new IngestionService(options);
   const migrationService = new MigrationService(options);
   const systemInfo: WorkspaceSystemInfo = {
@@ -283,6 +286,7 @@ export function createWorkspaceHandler(
         (url.pathname === "/" ||
           url.pathname === "/index.html" ||
           url.pathname.startsWith("/files/") ||
+          url.pathname.startsWith("/memory/") ||
           url.pathname === "/files" ||
           url.pathname.startsWith("/file/") ||
           url.pathname === "/file" ||
@@ -350,6 +354,7 @@ export function createWorkspaceHandler(
       }
       if (
         (url.pathname.startsWith("/api/workspace/") ||
+          url.pathname.startsWith("/api/memory/") ||
           url.pathname.startsWith("/api/skills/") ||
           url.pathname.startsWith("/api/system/")) &&
         !authenticator.isAuthenticated(request)
@@ -377,13 +382,74 @@ export function createWorkspaceHandler(
         const body = await readJson(request, maxLoginRequestBytes);
         if (body.tooLarge || !isObject(body.value))
           return json({ schema: 1, ok: false, error: "invalid_settings" }, 400);
+        if (
+          body.value.enable_memory_editing === true &&
+          !service.settings().enable_memory_editing &&
+          !memoryService.available()
+        ) {
+          return json(
+            { schema: 1, ok: false, error: "memory_unavailable" },
+            503,
+          );
+        }
         return json(service.updateSettings(body.value));
       }
       if (request.method === "GET" && url.pathname === "/api/system/info") {
         return json(systemInfo);
       }
       if (request.method === "GET" && url.pathname === "/api/workspace/tree") {
-        return json(service.tree());
+        const tree = service.tree();
+        return json({
+          ...tree,
+          entries: [...tree.entries, ...memoryService.entries()],
+        });
+      }
+      if (request.method === "GET" && url.pathname === "/api/memory/file") {
+        return json(memoryService.read(url.searchParams.get("name")));
+      }
+      if (request.method === "GET" && url.pathname === "/api/memory/metadata") {
+        return json(memoryService.metadata(url.searchParams.get("name")));
+      }
+      if (
+        request.method === "GET" &&
+        (url.pathname === "/api/memory/download" ||
+          url.pathname === "/api/memory/raw")
+      ) {
+        const name = url.searchParams.get("name");
+        const file = memoryService.read(name);
+        return new Response(file.content, {
+          headers: {
+            ...securityHeaders(),
+            "Content-Type": "text/plain; charset=utf-8",
+            "Content-Disposition": `${url.pathname.endsWith("download") ? "attachment" : "inline"}; filename="${name}"`,
+          },
+        });
+      }
+      if (request.method === "PUT" && url.pathname === "/api/memory/file") {
+        if (!sameOrigin(request, url, publicOrigin)) {
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        }
+        const body = await readJson(
+          request,
+          service.maxEditableBytes * 6 + maxDeleteRequestBytes,
+        );
+        if (body.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        if (!isObject(body.value))
+          return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
+        return json(
+          memoryService.write(
+            body.value.name,
+            body.value.content,
+            body.value.expected_revision,
+          ),
+        );
       }
       if (request.method === "GET" && url.pathname === "/api/workspace/file") {
         return json(service.read(url.searchParams.get("path")));

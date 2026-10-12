@@ -1,3 +1,4 @@
+import { isMemoryDocument, memoryFilename } from "../shared/memory";
 import type {
   AuthLoginResponse,
   AuthSessionResponse,
@@ -345,6 +346,7 @@ function isWorkspaceSettings(value: unknown): value is WorkspaceSettings {
     isObject(value) &&
     value.schema === 1 &&
     typeof value.hide_template_schema_files === "boolean" &&
+    typeof value.enable_memory_editing === "boolean" &&
     typeof value.hide_configuration_files === "boolean"
   );
 }
@@ -429,23 +431,29 @@ export const httpWorkspaceApi: WorkspaceApi = {
     }),
   loadFile: (path) =>
     requestJson<WorkspaceFile>(
-      `/api/workspace/file?${new URLSearchParams({ path })}`,
+      isMemoryDocument(path)
+        ? `/api/memory/file?${new URLSearchParams({ name: memoryFilename(path) })}`
+        : `/api/workspace/file?${new URLSearchParams({ path })}`,
       isWorkspaceFile,
     ),
   loadFileMetadata: (path) =>
     requestJson<WorkspaceFileMetadata>(
-      `/api/workspace/metadata?${new URLSearchParams({ path })}`,
+      isMemoryDocument(path)
+        ? `/api/memory/metadata?${new URLSearchParams({ name: memoryFilename(path) })}`
+        : `/api/workspace/metadata?${new URLSearchParams({ path })}`,
       isWorkspaceFileMetadataResponse,
     ),
   saveFile: (path, content, expectedRevision) =>
     requestJson<WorkspaceWriteResponse>(
-      "/api/workspace/file",
+      isMemoryDocument(path) ? "/api/memory/file" : "/api/workspace/file",
       isWorkspaceWriteResponse,
       {
         body: JSON.stringify({
           content,
           expected_revision: expectedRevision,
-          path,
+          ...(isMemoryDocument(path)
+            ? { name: memoryFilename(path) }
+            : { path }),
         }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -621,8 +629,13 @@ export const httpWorkspaceApi: WorkspaceApi = {
       },
     ),
   downloadUrl: (path) =>
-    `/api/workspace/download?${new URLSearchParams({ path })}`,
-  rawUrl: (path) => `/api/workspace/raw?${new URLSearchParams({ path })}`,
+    isMemoryDocument(path)
+      ? `/api/memory/download?${new URLSearchParams({ name: memoryFilename(path) })}`
+      : `/api/workspace/download?${new URLSearchParams({ path })}`,
+  rawUrl: (path) =>
+    isMemoryDocument(path)
+      ? `/api/memory/raw?${new URLSearchParams({ name: memoryFilename(path) })}`
+      : `/api/workspace/raw?${new URLSearchParams({ path })}`,
   exportWorkspaceUrl: () => "/api/workspace/export",
   downloadWorkspaceExport: async () => {
     const res = await fetch("/api/workspace/export");

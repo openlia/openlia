@@ -8,6 +8,12 @@ const workspaceRoot = resolve(
 const skillsRoot = resolve(
   process.env.OPENLIA_SKILLS_ROOT ?? join(packageRoot, ".dev-skills"),
 );
+const memoriesRoot = resolve(
+  process.env.OPENLIA_MEMORIES_ROOT ??
+    (process.env.HERMES_HOME
+      ? join(process.env.HERMES_HOME, "memories")
+      : join(packageRoot, ".dev-memories")),
+);
 const backendPort = process.env.OPENLIA_WORKSPACE_UI_PORT ?? "8089";
 const frontendPort = process.env.OPENLIA_WORKSPACE_UI_DEV_PORT ?? "5173";
 const backendUrl = `http://127.0.0.1:${backendPort}`;
@@ -26,6 +32,17 @@ if (!existsSync(examplePath))
   );
 
 mkdirSync(skillsRoot, { recursive: true });
+mkdirSync(memoriesRoot, { recursive: true });
+if (!process.env.OPENLIA_MEMORIES_ROOT && !process.env.HERMES_HOME) {
+  for (const name of ["USER.md", "MEMORY.md"]) {
+    const path = join(memoriesRoot, name);
+    if (!existsSync(path))
+      writeFileSync(
+        path,
+        `# ${name === "USER.md" ? "User profile" : "Assistant memory"}\n\nSample memory for local development.\n`,
+      );
+  }
+}
 const sampleSkillDir = join(skillsRoot, "sample-skill");
 mkdirSync(sampleSkillDir, { recursive: true });
 const sampleSkillMd = join(sampleSkillDir, "SKILL.md");
@@ -39,6 +56,7 @@ if (!existsSync(sampleSkillMd)) {
 const environment = {
   ...process.env,
   OPENLIA_SKILLS_ROOT: skillsRoot,
+  OPENLIA_MEMORIES_ROOT: memoriesRoot,
   ...(ingestionRoot ? { OPENLIA_INGESTION_ROOT: ingestionRoot } : {}),
   OPENLIA_WORKSPACE_ROOT: workspaceRoot,
   OPENLIA_WORKSPACE_UI_AUTH_REQUIRED: "false",

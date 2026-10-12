@@ -4,7 +4,7 @@ export interface ConfigurationPageProps {
   exporting: boolean;
   onExport: () => void;
   onSettingsChange: (
-    key: "hide_template_schema_files" | "hide_configuration_files",
+    key: Exclude<keyof WorkspaceSettings, "schema">,
     value: boolean,
   ) => void;
   savingSettings: boolean;
@@ -72,8 +72,8 @@ export function ConfigurationPage({
             Workspace configuration
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-base-content/60">
-            Control which workspace scaffolding appears in the navigator and
-            review the versions running this Personal Assistant OS.
+            Customize your document navigator, enable advanced memory editing,
+            and manage workspace exports.
           </p>
         </header>
 
@@ -88,7 +88,7 @@ export function ConfigurationPage({
                 className="mt-1 text-xl font-bold"
                 id="workspace-settings-heading"
               >
-                Visibility and export
+                Workspace appearance
               </h3>
             </div>
             {savingSettings && (
@@ -122,13 +122,51 @@ export function ConfigurationPage({
               }
             />
           </div>
+        </section>
 
-          {error && (
-            <div className="alert alert-error text-sm" role="alert">
-              {error}
-            </div>
-          )}
+        <section
+          aria-labelledby="advanced-editing-heading"
+          className="grid gap-4"
+        >
+          <div>
+            <p className="workspace-eyebrow">ASSISTANT</p>
+            <h3
+              className="mt-1 text-xl font-bold"
+              id="advanced-editing-heading"
+            >
+              Advanced editing
+            </h3>
+          </div>
+          <VisibilitySetting
+            checked={settings.enable_memory_editing}
+            description="Show USER.md (your profile and preferences) and MEMORY.md (durable assistant notes) in the Assistant memory group in Documents. Changes are loaded into new assistant sessions."
+            disabled={savingSettings}
+            label="Enable user profile and memory editing"
+            onChange={(value) =>
+              onSettingsChange("enable_memory_editing", value)
+            }
+          />
+        </section>
 
+        {error && (
+          <div className="alert alert-error text-sm" role="alert">
+            {error}
+          </div>
+        )}
+
+        <section
+          aria-labelledby="workspace-export-heading"
+          className="grid gap-4"
+        >
+          <div>
+            <p className="workspace-eyebrow">DATA</p>
+            <h3
+              className="mt-1 text-xl font-bold"
+              id="workspace-export-heading"
+            >
+              Export
+            </h3>
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
             <div>
               <p className="font-semibold">Export Workspace</p>

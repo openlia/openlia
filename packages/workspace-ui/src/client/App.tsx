@@ -28,6 +28,7 @@ import { ApiError, httpWorkspaceApi, type WorkspaceApi } from "./api";
 import { isJournalPath, isMarkdownPath, isRemindPath } from "./CodeEditor";
 import { CreateSkillModal } from "./CreateSkillModal";
 import { ConfigurationPage } from "./ConfigurationPage";
+import { isMemoryDocument } from "../shared/memory";
 import {
   DeleteFileDialog,
   DirtyDraftDialog,
@@ -156,6 +157,7 @@ function areTreesEqual(
     if (itemA.kind === "file" && itemB.kind === "file") {
       if (
         itemA.size !== itemB.size ||
+        itemA.missing !== itemB.missing ||
         itemA.modified_at !== itemB.modified_at ||
         itemA.editable !== itemB.editable
       ) {
@@ -182,6 +184,7 @@ function areGitEqual(
 
 function areSettingsEqual(a: WorkspaceSettings, b: WorkspaceSettings): boolean {
   return (
+    a.enable_memory_editing === b.enable_memory_editing &&
     a.hide_configuration_files === b.hide_configuration_files &&
     a.hide_template_schema_files === b.hide_template_schema_files
   );
@@ -339,6 +342,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
   );
   const [exporting, setExporting] = useState(false);
   const [settings, setSettings] = useState<WorkspaceSettings>({
+    enable_memory_editing: false,
     hide_configuration_files: true,
     hide_template_schema_files: true,
     schema: 1,
@@ -470,6 +474,10 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
   const skillRequestSequence = useRef(0);
   const initialPathOpened = useRef(false);
   const isSyncingRef = useRef(false);
+  const memoryDraftRecoveryRef = useRef<{
+    file: WorkspaceFile;
+    draft: string;
+  } | null>(null);
 
   const docDirty = file !== null && file.content !== draft;
   const skillDirty =
@@ -526,6 +534,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     saveSkillFile,
     selectedSkillFile,
     settings,
+    draft,
     skillDirty,
     view,
   });
@@ -542,6 +551,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     saveSkillFile,
     selectedSkillFile,
     settings,
+    draft,
     skillDirty,
     view,
   };
@@ -709,7 +719,6 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     try {
       const {
         activeTab,
-        docDirty,
         file,
         settings: currentSettings,
       } = appStateRef.current;
@@ -752,20 +761,76 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
         if (file) {
           try {
             const nextFile = await api.loadFile(file.path);
-            if (nextFile.revision !== file.revision) {
-              if (!docDirty) {
+            const current = appStateRef.current;
+            if (
+              !current.file ||
+              current.file.path !== file.path ||
+              current.file.revision !== file.revision
+            ) {
+              return;
+            }
+            if (
+              nextFile.revision !== file.revision ||
+              nextFile.missing !== file.missing ||
+              nextFile.editable !== file.editable
+            ) {
+              if (!current.docDirty) {
                 setFile(nextFile);
                 setDraft(nextFile.content);
                 setConflict("");
               } else {
+                if (nextFile.editable !== file.editable) {
+                  setFile({ ...current.file, editable: nextFile.editable });
+                }
                 setConflict(
-                  "The file changed on disk. Your unsaved draft is preserved; review before saving.",
+                  nextFile.revision !== file.revision ||
+                    nextFile.missing !== file.missing
+                    ? "The file changed on disk. Your unsaved draft is preserved; review before saving."
+                    : "",
                 );
               }
             }
           } catch (caught) {
+            if (
+              isMemoryDocument(file.path) &&
+              latestSettings &&
+              !latestSettings.enable_memory_editing
+            ) {
+              const current = appStateRef.current;
+              if (
+                !current.file ||
+                current.file.path !== file.path ||
+                current.file.revision !== file.revision
+              ) {
+                return;
+              }
+              if (current.docDirty) {
+                const disabledFile = { ...current.file, editable: false };
+                memoryDraftRecoveryRef.current = {
+                  draft: current.draft,
+                  file: disabledFile,
+                };
+                setFile(disabledFile);
+                setConflict(
+                  "Memory editing was disabled. Your unsaved draft is preserved; enable it in Configuration to save.",
+                );
+              } else {
+                setFile(null);
+                setDraft("");
+                navigateRoute({ tab: "documents" }, { replace: true });
+              }
+              return;
+            }
             if (caught instanceof ApiError && caught.status === 404) {
-              if (!docDirty) {
+              const current = appStateRef.current;
+              if (
+                !current.file ||
+                current.file.path !== file.path ||
+                current.file.revision !== file.revision
+              ) {
+                return;
+              }
+              if (!current.docDirty) {
                 setFile(null);
                 setDraft("");
                 setConflict("");
@@ -854,7 +919,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
         event.preventDefault();
         void saveSkillFile();
       } else {
-        if (!docDirty || !file?.editable) return;
+        if ((!docDirty && !file?.missing) || !file?.editable) return;
         event.preventDefault();
         void save();
       }
@@ -1151,7 +1216,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
 
   function requestDelete(path?: string) {
     const targetPath = path ?? file?.path;
-    if (!targetPath || deleting) return;
+    if (!targetPath || deleting || isMemoryDocument(targetPath)) return;
     setPendingDelete({
       dirty: file?.path === targetPath ? docDirty : false,
       path: targetPath,
@@ -1161,7 +1226,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
 
   function requestRename(path?: string) {
     const targetPath = path ?? file?.path;
-    if (!targetPath || renaming) return;
+    if (!targetPath || renaming || isMemoryDocument(targetPath)) return;
     setRenameError("");
     setPendingRename({
       path: targetPath,
@@ -1171,7 +1236,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
 
   function requestMove(path?: string) {
     const targetPath = path ?? file?.path;
-    if (!targetPath || moving) return;
+    if (!targetPath || moving || isMemoryDocument(targetPath)) return;
     setMoveError("");
     setPendingMove({
       path: targetPath,
@@ -1185,7 +1250,35 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
       return;
     }
     if (nextTab === activeTab) return;
-    if (dirty) {
+    const canRecoverMemoryDraft =
+      nextTab === "configuration" &&
+      ((file?.source === "memory" && file.editable === false) ||
+        memoryDraftRecoveryRef.current !== null);
+    const protectedMemoryDraft =
+      activeTab === "configuration" &&
+      ((file?.source === "memory" && docDirty) ||
+        memoryDraftRecoveryRef.current !== null);
+    if (nextTab === "documents" && memoryDraftRecoveryRef.current) {
+      setActiveTab("documents");
+      navigateRoute({
+        path: memoryDraftRecoveryRef.current.file.path,
+        tab: "documents",
+        view,
+      });
+      return;
+    }
+    if (
+      nextTab === "documents" &&
+      activeTab === "configuration" &&
+      file?.source === "memory" &&
+      docDirty
+    ) {
+      memoryDraftRecoveryRef.current = { draft, file };
+      setActiveTab("documents");
+      navigateRoute({ path: file.path, tab: "documents", view });
+      return;
+    }
+    if ((dirty || protectedMemoryDraft) && !canRecoverMemoryDraft) {
       setPendingAction({ kind: "switchTab", tab: nextTab });
     } else {
       setActiveTab(nextTab);
@@ -1364,6 +1457,17 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     else void openFile(path);
   }
 
+  function requestOpenDocuments() {
+    if (
+      memoryDraftRecoveryRef.current ||
+      (activeTab === "configuration" && file?.source === "memory" && docDirty)
+    ) {
+      requestTabChange("documents");
+      return;
+    }
+    requestOpenFile("");
+  }
+
   async function openSkill(id: string, skillFilePath = "SKILL.md") {
     const requestSequence = ++skillRequestSequence.current;
     setSkillsLoading(true);
@@ -1456,12 +1560,15 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
 
   async function save(): Promise<boolean> {
     if (!file?.editable || saving) return false;
+    if (isMemoryDocument(file.path) && !settings.enable_memory_editing)
+      return false;
     setSaving(true);
     setDocumentError("");
     setConflict("");
     try {
       const response = await api.saveFile(file.path, draft, file.revision);
       setFile({ ...file, ...response, content: draft });
+      if (isMemoryDocument(file.path)) memoryDraftRecoveryRef.current = null;
       const [treeResponse, nextGit, nextActivity, nextDiag] = await Promise.all(
         [
           api.loadTree(),
@@ -1826,6 +1933,9 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
       setSkillDraft(selectedSkillFile?.content ?? "");
     } else {
       setDraft(file?.content ?? "");
+      if (file && isMemoryDocument(file.path)) {
+        memoryDraftRecoveryRef.current = null;
+      }
     }
 
     if (action.kind === "open") {
@@ -1939,7 +2049,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
   }, [api, exporting]);
 
   async function handleSettingsChange(
-    key: "hide_template_schema_files" | "hide_configuration_files",
+    key: Exclude<keyof WorkspaceSettings, "schema">,
     value: boolean,
   ) {
     if (settingsSaving) return;
@@ -1948,6 +2058,34 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     try {
       const next = await api.updateSettings({ ...settings, [key]: value });
       setSettings(next);
+      if (
+        next.enable_memory_editing &&
+        ((file?.source === "memory" && !file.editable) ||
+          memoryDraftRecoveryRef.current)
+      ) {
+        const recovery = memoryDraftRecoveryRef.current;
+        if (recovery) {
+          setFile({ ...recovery.file, editable: true });
+          setDraft(recovery.draft);
+          memoryDraftRecoveryRef.current = null;
+        } else if (file) {
+          setFile({ ...file, editable: true });
+        }
+      }
+      if (!next.enable_memory_editing && file && isMemoryDocument(file.path)) {
+        if (docDirty) {
+          const disabledFile = { ...file, editable: false };
+          memoryDraftRecoveryRef.current = { draft, file: disabledFile };
+          setFile(disabledFile);
+          setConflict(
+            "Memory editing was disabled. Your unsaved draft is preserved; enable it in Configuration to save.",
+          );
+        } else {
+          setFile(null);
+          setDraft("");
+          setConflict("");
+        }
+      }
       const [treeResponse, activityResponse] = await Promise.all([
         api.loadTree().catch(() => null),
         api.loadActivity().catch(() => null),
@@ -1962,9 +2100,12 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
         handleUnauthorized();
       } else {
         setConfigurationError(
-          caught instanceof Error
-            ? caught.message
-            : "Workspace settings could not be saved.",
+          caught instanceof ApiError &&
+            caught.payload?.error === "memory_unavailable"
+            ? "Memory editing could not be enabled because the Hermes memories directory is unavailable."
+            : caught instanceof Error
+              ? caught.message
+              : "Workspace settings could not be saved.",
         );
       }
     } finally {
@@ -2009,7 +2150,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
         filesButtonRef={filesButtonRef}
         git={git}
         onOpenFiles={() => setFilesOpen(true)}
-        onOpenDocuments={() => requestOpenFile("")}
+        onOpenDocuments={requestOpenDocuments}
         onOpenCalendar={() => requestOpenFile("calendar/reminders.rem")}
         onOpenGoTo={() => setIsGoToOpen(true)}
         onSignOut={requestSignOut}

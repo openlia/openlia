@@ -298,6 +298,26 @@ describe("route helpers", () => {
     expect(buildRouteUrl({ tab: "configuration" })).toBe("/configuration");
   });
 
+  test("keeps assistant memory links distinct from workspace documents", () => {
+    for (const name of ["USER.md", "MEMORY.md"]) {
+      const route = {
+        tab: "documents" as const,
+        path: `@memories/${name}`,
+        view: "edit" as const,
+      };
+      expect(buildRouteUrl(route)).toBe(`/memory/${name}?view=edit`);
+      expect(parseRoute(buildRouteUrl(route))).toMatchObject(route);
+      expect(parseRoute(`openlia://memory/${name}`)).toMatchObject({
+        tab: "documents",
+        path: route.path,
+      });
+      expect(parseRoute(`/files/${name}`)).toMatchObject({
+        tab: "documents",
+        path: name,
+      });
+    }
+  });
+
   test("parses and builds ingestion routes", () => {
     expect(parseRoute("/ingestion/intake_123")).toMatchObject({
       ingestionId: "intake_123",

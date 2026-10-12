@@ -9,6 +9,9 @@ const skillsRoot = resolve(
   process.env.OPENLIA_SKILLS_ROOT ?? join(packageRoot, ".preview-skills"),
 );
 const port = process.env.OPENLIA_WORKSPACE_UI_PORT ?? "8089";
+const memoriesRoot = resolve(
+  process.env.OPENLIA_MEMORIES_ROOT ?? join(packageRoot, ".preview-memories"),
+);
 
 mkdirSync(workspaceRoot, { recursive: true });
 const examplePath = join(workspaceRoot, "notes.md");
@@ -19,12 +22,14 @@ if (!existsSync(examplePath))
   );
 
 mkdirSync(skillsRoot, { recursive: true });
+mkdirSync(memoriesRoot, { recursive: true });
 
 const server = Bun.spawn(["bun", "dist/server.js"], {
   cwd: packageRoot,
   env: {
     ...process.env,
     OPENLIA_SKILLS_ROOT: skillsRoot,
+    OPENLIA_MEMORIES_ROOT: memoriesRoot,
     OPENLIA_WORKSPACE_ROOT: workspaceRoot,
     OPENLIA_WORKSPACE_UI_AUTH_REQUIRED: "false",
     OPENLIA_WORKSPACE_UI_BIND: "127.0.0.1",

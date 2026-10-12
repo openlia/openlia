@@ -53,6 +53,35 @@ extension; unsupported extensions use plain text. Files under
 `knowledge/chatgpt/` follow the same ordinary YAML behavior as every other
 workspace file.
 
+### User profile and assistant memory
+
+In **Configuration → Advanced editing**, enable **Enable user profile and memory
+editing** to show `USER.md` and `MEMORY.md` in the **Assistant memory** group in
+Documents. These use the same Markdown editor, save shortcuts, and draft/conflict
+handling as workspace documents. Missing files are created on the first explicit
+save. The files have fixed names and cannot be renamed, moved, or deleted here.
+
+These are the live files under Hermes' `memories/` directory, not copies inside
+the workspace. Production Compose mounts that directory at `/memories`; standalone
+servers should set `OPENLIA_MEMORIES_ROOT` to the directory containing the two
+files. Editing is disabled by default and persisted in `workspace-ui.yaml` as
+`enable_memory_editing`. Changes are loaded into new assistant sessions.
+
+The editor enforces Hermes' default direct-file budgets: `USER.md` is limited to
+1,375 characters and `MEMORY.md` to 2,200 characters. Hermes-compatible memory
+file locks (`USER.md.lock` and `MEMORY.md.lock`) are honored during saves, and a
+busy lock fails after a bounded wait rather than overwriting a concurrent update.
+
+The mock includes sample memories. `dev:real` uses `.dev-memories/` unless
+`OPENLIA_MEMORIES_ROOT` or `HERMES_HOME` supplies a real directory; `preview`
+uses `.preview-memories/` by default. Memory links use `/memory/USER.md` and
+`openlia://memory/USER.md` (likewise for `MEMORY.md`).
+
+For an existing deployment, regenerate the generated Compose attachment and
+recreate `workspace-ui` after upgrading so the `/memories` bind mount is added.
+If the memories directory is unavailable, enabling the setting is rejected and
+ordinary workspace documents remain usable.
+
 ## Real Backend Development
 
 To exercise the actual Bun filesystem server against a disposable workspace:

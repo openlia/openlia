@@ -33,7 +33,11 @@ export function DocumentInspector({
                 Status
               </dt>
               <dd className="mt-1 font-medium">
-                {dirty ? "Unsaved draft" : "Saved"}
+                {dirty
+                  ? "Unsaved draft"
+                  : file.missing
+                    ? "Not created yet"
+                    : "Saved"}
               </dd>
             </div>
             <div>
@@ -60,7 +64,9 @@ export function DocumentInspector({
                 Last modified
               </dt>
               <dd className="mt-1 font-medium">
-                {new Date(file.modified_at).toLocaleString()}
+                {file.missing
+                  ? "Not created yet"
+                  : new Date(file.modified_at).toLocaleString()}
               </dd>
             </div>
             <div>

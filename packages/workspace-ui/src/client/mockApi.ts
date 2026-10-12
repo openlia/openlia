@@ -20,6 +20,11 @@ import type {
   IngestionOverviewResponse,
 } from "../shared/api";
 import { ApiError, type WorkspaceApi } from "./api";
+import {
+  isMemoryDocument,
+  MEMORY_FILENAMES,
+  memoryDocumentPath,
+} from "../shared/memory";
 
 export type MockWorkspaceScenario =
   | "default"
@@ -51,6 +56,7 @@ function error(
 
 function metadata(path: string, content: string): WorkspaceFileMetadata {
   return {
+    ...(isMemoryDocument(path) ? { source: "memory" as const } : {}),
     editable: true,
     modified_at: modifiedAt,
     path,
@@ -68,6 +74,7 @@ export function createMockWorkspaceApi({
   let authenticated = scenario !== "auth";
   let conflictPending = scenario === "conflict";
   let settings: WorkspaceSettings = {
+    enable_memory_editing: false,
     hide_configuration_files: true,
     hide_template_schema_files: true,
     schema: 1,
@@ -215,6 +222,10 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
   ];
 
   const fileContents: Record<string, string> = {
+    [memoryDocumentPath("USER.md")]:
+      "# User profile\n\nPrefer concise, practical answers.\n",
+    [memoryDocumentPath("MEMORY.md")]:
+      "# Assistant memory\n\nDurable notes for future sessions.\n",
     "calendar/event.md":
       "# Calendar event\n\nA sample event for UI development.\n",
     "workspace.yaml": "domains:\n  - inbox\n",
@@ -468,6 +479,9 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
   }
 
   function fileResponse(filePath: string): WorkspaceFile {
+    if (isMemoryDocument(filePath) && !settings.enable_memory_editing) {
+      throw error(403, "memory_editing_disabled");
+    }
     const current = fileContents[filePath];
     if (current === undefined) throw error(404, "not_found");
     return {
@@ -480,7 +494,18 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
 
   function treeResponse(): WorkspaceTreeResponse {
     return {
-      entries,
+      entries: [
+        ...entries,
+        ...(settings.enable_memory_editing
+          ? MEMORY_FILENAMES.map((name): WorkspaceTreeEntry => {
+              const memoryPath = memoryDocumentPath(name);
+              return {
+                ...metadata(memoryPath, fileContents[memoryPath] ?? ""),
+                kind: "file",
+              };
+            })
+          : []),
+      ],
       schema: 1,
       truncated: false,
     };
@@ -517,6 +542,7 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     },
     async loadFileMetadata(requestedPath) {
       requireAuthentication();
+      if (isMemoryDocument(requestedPath)) return fileResponse(requestedPath);
       const entry = entries.find(
         (item) => item.kind === "file" && item.path === requestedPath,
       );
@@ -525,6 +551,8 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     },
     async saveFile(requestedPath, nextContent, expectedRevision) {
       requireAuthentication();
+      if (isMemoryDocument(requestedPath) && !settings.enable_memory_editing)
+        throw error(403, "memory_editing_disabled");
       if (!(requestedPath in fileContents)) throw error(404, "not_found");
       if (requestedPath === path && conflictPending) {
         conflictPending = false;
@@ -551,6 +579,7 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
       expectedRevision,
     ): Promise<WorkspaceDeleteResponse> {
       requireAuthentication();
+      if (isMemoryDocument(requestedPath)) throw error(403, "protected_path");
       const currentContent = fileContents[requestedPath];
       if (currentContent === undefined) throw error(404, "not_found");
       const currentRevision = fileRevisions[requestedPath] ?? revision;
@@ -570,6 +599,7 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
       expectedRevision,
     ): Promise<WorkspaceRenameResponse> {
       requireAuthentication();
+      if (isMemoryDocument(requestedPath)) throw error(403, "protected_path");
       const currentContent = fileContents[requestedPath];
       if (currentContent === undefined) throw error(404, "not_found");
       const currentRev = fileRevisions[requestedPath] ?? revision;
@@ -606,6 +636,8 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
       expectedRevision,
     ): Promise<WorkspaceMoveResponse> {
       requireAuthentication();
+      if (isMemoryDocument(sourcePath) || isMemoryDocument(destinationPath))
+        throw error(403, "protected_path");
       const currentContent = fileContents[sourcePath];
       if (currentContent === undefined) throw error(404, "not_found");
       const currentRev = fileRevisions[sourcePath] ?? revision;

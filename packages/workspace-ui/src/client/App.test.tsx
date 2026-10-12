@@ -148,6 +148,170 @@ describe("workspace application", () => {
     expect(editor).toHaveTextContent("draft");
   });
 
+  test("enables memory documents, edits both live identities, and disables their visibility", async () => {
+    const api = createMockWorkspaceApi();
+    render(<App api={api} />);
+    expect(
+      screen.queryByRole("heading", { name: "Assistant memory" }),
+    ).toBeNull();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Configuration" }),
+    );
+    const toggle = await screen.findByLabelText(
+      "Enable user profile and memory editing",
+    );
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toBeChecked());
+    fireEvent.click(screen.getByRole("button", { name: "Documents" }));
+    await screen.findByRole("heading", {
+      name: "Assistant memory",
+    });
+    for (const name of ["USER.md", "MEMORY.md"]) {
+      fireEvent.click(await screen.findByRole("button", { name }));
+      await waitFor(() =>
+        expect(window.location.pathname).toBe(`/memory/${name}`),
+      );
+      const pane = screen.getByRole("region", { name: "Document workspace" });
+      expect(
+        within(pane).queryByRole("button", { name: "Delete file" }),
+      ).toBeNull();
+      expect(
+        within(pane).queryByRole("button", { name: "Rename..." }),
+      ).toBeNull();
+      expect(
+        within(pane).queryByRole("button", { name: "Move..." }),
+      ).toBeNull();
+      fireEvent.click(within(pane).getByRole("button", { name: "Edit" }));
+      const editor = await screen.findByRole("textbox", {
+        name: "Code editor",
+      });
+      setEditorText(editor, `# Updated ${name}`);
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled(),
+      );
+      expect((await api.loadFile(`@memories/${name}`)).content).toBe(
+        `# Updated ${name}`,
+      );
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Configuration" }));
+    fireEvent.click(
+      await screen.findByLabelText("Enable user profile and memory editing"),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText("Enable user profile and memory editing"),
+      ).not.toBeChecked(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Documents" }));
+    expect(
+      screen.queryByRole("heading", { name: "Assistant memory" }),
+    ).toBeNull();
+    await expect(api.loadFile("@memories/USER.md")).rejects.toMatchObject({
+      status: 403,
+    });
+  });
+
+  test("opens a memory deep link and protects its draft when navigating away", async () => {
+    const api = createMockWorkspaceApi();
+    await api.updateSettings({
+      ...(await api.loadSettings()),
+      enable_memory_editing: true,
+    });
+    window.history.replaceState(null, "", "/memory/USER.md?view=edit");
+    render(<App api={api} />);
+    const editor = await screen.findByRole("textbox", { name: "Code editor" });
+    setEditorText(editor, "Unsaved user profile");
+    fireEvent.click(screen.getByRole("button", { name: "Configuration" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(editor).toHaveTextContent("Unsaved user profile");
+    expect(window.location.pathname).toBe("/memory/USER.md");
+  });
+
+  test("shows a missing memory file and creates it on an explicit save", async () => {
+    const base = createMockWorkspaceApi();
+    await base.updateSettings({
+      ...(await base.loadSettings()),
+      enable_memory_editing: true,
+    });
+    let missing = true;
+    const saveFile = vi.fn(
+      async (...args: Parameters<WorkspaceApi["saveFile"]>) => {
+        const saved = await base.saveFile(...args);
+        missing = false;
+        return { ...saved, missing: false };
+      },
+    );
+    const api: WorkspaceApi = {
+      ...base,
+      saveFile,
+      async loadFile(path) {
+        const file = await base.loadFile(path);
+        return path === "@memories/MEMORY.md" && missing
+          ? { ...file, missing: true, content: "", size: 0, modified_at: "" }
+          : file;
+      },
+    };
+    window.history.replaceState(null, "", "/memory/MEMORY.md");
+    render(<App api={api} />);
+    expect(
+      await screen.findByText(/This file has not been created yet/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled(),
+    );
+    expect(saveFile).toHaveBeenCalledWith(
+      "@memories/MEMORY.md",
+      "",
+      expect.any(String),
+    );
+    expect(screen.queryByText(/This file has not been created yet/)).toBeNull();
+  });
+
+  test("preserves a memory draft across external disabling and re-enabling", async () => {
+    const api = createMockWorkspaceApi();
+    const settings = {
+      ...(await api.loadSettings()),
+      enable_memory_editing: true,
+    };
+    await api.updateSettings(settings);
+    window.history.replaceState(null, "", "/memory/USER.md?view=edit");
+    render(<App api={api} />);
+    const editor = await screen.findByRole("textbox", { name: "Code editor" });
+    setEditorText(editor, "My unsaved profile");
+    await api.updateSettings({ ...settings, enable_memory_editing: false });
+    fireEvent(window, new Event("focus"));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Memory editing was disabled",
+      ),
+    );
+    expect(editor).toHaveTextContent("My unsaved profile");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Configuration" }));
+    const toggle = await screen.findByLabelText(
+      "Enable user profile and memory editing",
+    );
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toBeChecked());
+    fireEvent.click(screen.getByRole("button", { name: "Documents" }));
+    const recoveredEditor = await screen.findByRole("textbox", {
+      name: "Code editor",
+    });
+    expect(recoveredEditor).toHaveTextContent("My unsaved profile");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled(),
+    );
+    expect((await api.loadFile("@memories/USER.md")).content).toBe(
+      "My unsaved profile",
+    );
+  });
+
   test("confirms and deletes the selected document", async () => {
     render(<App api={createMockWorkspaceApi()} />);
     fireEvent.click(await screen.findByRole("button", { name: "notes.md" }));
