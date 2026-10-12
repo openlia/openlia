@@ -684,7 +684,7 @@ messages:
       "Calendar",
       "Ingestion",
       "Skills",
-      "Migrations",
+      "MigrationsBeta",
       "Git",
     ]);
 
