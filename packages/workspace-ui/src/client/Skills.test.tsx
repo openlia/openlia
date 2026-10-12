@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { EditorView } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
 import type { SkillDetail, SkillSummary } from "../shared/api";
 import { CreateSkillModal } from "./CreateSkillModal";
@@ -195,8 +196,17 @@ describe("SkillDetailPane", () => {
     );
 
     const editor = screen.getByRole("textbox");
-    editor.textContent = "# Changed Instructions";
-    fireEvent.input(editor, { bubbles: true, inputType: "insertText" });
+    const view = EditorView.findFromDOM(editor);
+    if (!view) throw new Error("CodeMirror view was not found");
+    act(() => {
+      view.dispatch({
+        changes: {
+          from: 0,
+          insert: "# Changed Instructions",
+          to: view.state.doc.length,
+        },
+      });
+    });
     expect(handleDraftChange).toHaveBeenCalledWith("# Changed Instructions");
 
     const saveBtn = screen.getByText("Save");

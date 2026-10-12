@@ -1,10 +1,12 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
+import { EditorView } from "@codemirror/view";
 import { describe, expect, test } from "vitest";
 import type { WorkspaceTreeEntry } from "../shared/api";
 import {
@@ -134,8 +136,17 @@ The **original** message.
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     const editor = screen.getByRole("textbox", { name: "Code editor" });
     expect(editor).toHaveTextContent("enabled: true");
-    editor.textContent = "enabled: false";
-    fireEvent.input(editor, { bubbles: true, inputType: "insertText" });
+    const view = EditorView.findFromDOM(editor);
+    if (!view) throw new Error("CodeMirror view was not found");
+    act(() => {
+      view.dispatch({
+        changes: {
+          from: 0,
+          insert: "enabled: false",
+          to: view.state.doc.length,
+        },
+      });
+    });
     expect(changed).toBe("enabled: false");
   });
 

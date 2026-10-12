@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -6,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { ApiError, type WorkspaceApi } from "./api";
@@ -20,8 +22,13 @@ afterEach(() => {
 });
 
 function setEditorText(editor: HTMLElement, value: string): void {
-  editor.textContent = value;
-  fireEvent.input(editor, { bubbles: true, inputType: "insertText" });
+  const view = EditorView.findFromDOM(editor);
+  if (!view) throw new Error("CodeMirror view was not found");
+  act(() => {
+    view.dispatch({
+      changes: { from: 0, insert: value, to: view.state.doc.length },
+    });
+  });
 }
 
 describe("workspace application", () => {
