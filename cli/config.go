@@ -87,10 +87,15 @@ type Config struct {
 	LochoARM64SHA256           string
 	APIEnabled                 bool
 	APIHost                    string
-	WorkspaceUIHost            string
-	WorkspaceUIPort            int
-	WorkspaceUIPublicOrigin    string
-	WorkspaceUIPasswordHash    string
+	WorkspaceUIHost               string
+	WorkspaceUIPort               int
+	WorkspaceUIPublicOrigin       string
+	WorkspaceUIPasswordHash       string
+	WorkspaceUIAllowedEmail       string
+	WorkspaceUIFirebaseProjectID  string
+	WorkspaceUIFirebaseAPIKey     string
+	WorkspaceUIFirebaseAuthDomain string
+	WorkspaceUIFirebaseAppID      string
 	OpenWebUIHost              string
 	OpenWebUIPort              int
 	OpenWebUIImage             string
@@ -426,6 +431,16 @@ func parseConfigUnchecked(data string) (Config, error) {
 				config.WorkspaceUIPublicOrigin, err = parseString(value)
 			case "workspace-ui.password_hash":
 				config.WorkspaceUIPasswordHash, err = parseString(value)
+			case "workspace-ui.allowed_email":
+				config.WorkspaceUIAllowedEmail, err = parseString(value)
+			case "workspace-ui.firebase_project_id":
+				config.WorkspaceUIFirebaseProjectID, err = parseString(value)
+			case "workspace-ui.firebase_api_key":
+				config.WorkspaceUIFirebaseAPIKey, err = parseString(value)
+			case "workspace-ui.firebase_auth_domain":
+				config.WorkspaceUIFirebaseAuthDomain, err = parseString(value)
+			case "workspace-ui.firebase_app_id":
+				config.WorkspaceUIFirebaseAppID, err = parseString(value)
 			case "open-webui.host":
 				config.OpenWebUIHost, err = parseString(value)
 			case "open-webui.port":
@@ -659,7 +674,7 @@ func validateConfig(config Config) error {
 	if config.APIHost != "127.0.0.1" {
 		return errors.New("API host must remain 127.0.0.1; use SSH or a private network for access")
 	}
-	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIPublicOrigin, config.WorkspaceUIPasswordHash, config.LochoHostEnabled); err != nil {
+	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIPublicOrigin, config.WorkspaceUIPasswordHash, config.WorkspaceUIAllowedEmail, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain, config.LochoHostEnabled); err != nil {
 		return err
 	}
 	if config.OpenWebUIHost != "" {
@@ -813,7 +828,7 @@ func validateBackupDestinations(destinations []BackupDestinationConfig) error {
 	return nil
 }
 
-func validateWorkspaceUI(host string, port int, publicOrigin, passwordHash string, authRequired bool) error {
+func validateWorkspaceUI(host string, port int, publicOrigin, passwordHash, allowedEmail, firebaseProjectID, firebaseAPIKey, firebaseAuthDomain string, authRequired bool) error {
 	if host != "" && (net.ParseIP(host) == nil || host != "127.0.0.1" && host != "0.0.0.0") {
 		return errors.New("workspace-ui.host must be 127.0.0.1 or 0.0.0.0")
 	}
@@ -823,6 +838,24 @@ func validateWorkspaceUI(host string, port int, publicOrigin, passwordHash strin
 	if err := validateWorkspaceUIPublicOrigin(publicOrigin); err != nil {
 		return err
 	}
+
+	isFirebase := firebaseProjectID != "" || allowedEmail != ""
+	if isFirebase {
+		if allowedEmail == "" || !strings.Contains(allowedEmail, "@") || strings.HasPrefix(allowedEmail, "@") || strings.HasSuffix(allowedEmail, "@") {
+			return errors.New("workspace-ui.allowed_email must be a valid email address")
+		}
+		if firebaseProjectID == "" {
+			return errors.New("workspace-ui.firebase_project_id is required when Firebase Auth is configured")
+		}
+		if firebaseAPIKey == "" {
+			return errors.New("workspace-ui.firebase_api_key is required when Firebase Auth is configured")
+		}
+		if firebaseAuthDomain == "" {
+			return errors.New("workspace-ui.firebase_auth_domain is required when Firebase Auth is configured")
+		}
+		return nil
+	}
+
 	if passwordHash != "" {
 		if err := validateWorkspaceUIPasswordHash(passwordHash); err != nil {
 			return err
@@ -1087,6 +1120,21 @@ func renderConfig(config Config) string {
 		}
 		if config.WorkspaceUIPasswordHash != "" {
 			fmt.Fprintf(&builder, "password_hash = %q\n", config.WorkspaceUIPasswordHash)
+		}
+		if config.WorkspaceUIAllowedEmail != "" {
+			fmt.Fprintf(&builder, "allowed_email = %q\n", config.WorkspaceUIAllowedEmail)
+		}
+		if config.WorkspaceUIFirebaseProjectID != "" {
+			fmt.Fprintf(&builder, "firebase_project_id = %q\n", config.WorkspaceUIFirebaseProjectID)
+		}
+		if config.WorkspaceUIFirebaseAPIKey != "" {
+			fmt.Fprintf(&builder, "firebase_api_key = %q\n", config.WorkspaceUIFirebaseAPIKey)
+		}
+		if config.WorkspaceUIFirebaseAuthDomain != "" {
+			fmt.Fprintf(&builder, "firebase_auth_domain = %q\n", config.WorkspaceUIFirebaseAuthDomain)
+		}
+		if config.WorkspaceUIFirebaseAppID != "" {
+			fmt.Fprintf(&builder, "firebase_app_id = %q\n", config.WorkspaceUIFirebaseAppID)
 		}
 		builder.WriteString("\n")
 	}

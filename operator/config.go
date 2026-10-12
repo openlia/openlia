@@ -66,12 +66,17 @@ type Config struct {
 	ExternalNetwork             string
 	APIEnabled                  bool
 	APIHost                     string
-	WorkspaceUIHost             string
-	WorkspaceUIPort             int
-	WorkspaceUIPublicOrigin     string
-	WorkspaceUIAuthRequired     bool
-	WorkspaceUIPasswordHashFile string
-	OpenWebUIHost               string
+	WorkspaceUIHost               string
+	WorkspaceUIPort               int
+	WorkspaceUIPublicOrigin       string
+	WorkspaceUIAuthRequired       bool
+	WorkspaceUIPasswordHashFile   string
+	WorkspaceUIAllowedEmail       string
+	WorkspaceUIFirebaseProjectID  string
+	WorkspaceUIFirebaseAPIKey     string
+	WorkspaceUIFirebaseAuthDomain string
+	WorkspaceUIFirebaseAppID      string
+	OpenWebUIHost                 string
 	OpenWebUIPort               int
 	OpenWebUIImage              string
 	OpenWebUIAuth               bool
@@ -277,10 +282,15 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 		return Config{}, err
 	}
 	config.WorkspaceUIPasswordHashFile = getOr(values, "OPENLIA_WORKSPACE_UI_PASSWORD_HASH_FILE", filepath.Join(runtimeRoot, "secrets", "workspace-ui-password.hash"))
+	config.WorkspaceUIAllowedEmail = values["OPENLIA_WORKSPACE_UI_ALLOWED_EMAIL"]
+	config.WorkspaceUIFirebaseProjectID = values["OPENLIA_WORKSPACE_UI_FIREBASE_PROJECT_ID"]
+	config.WorkspaceUIFirebaseAPIKey = values["OPENLIA_WORKSPACE_UI_FIREBASE_API_KEY"]
+	config.WorkspaceUIFirebaseAuthDomain = values["OPENLIA_WORKSPACE_UI_FIREBASE_AUTH_DOMAIN"]
+	config.WorkspaceUIFirebaseAppID = values["OPENLIA_WORKSPACE_UI_FIREBASE_APP_ID"]
 	if err := validateWorkspaceUIPublicOrigin(config.WorkspaceUIPublicOrigin); err != nil {
 		return Config{}, err
 	}
-	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIAuthRequired, config.WorkspaceUIPasswordHashFile); err != nil {
+	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIAuthRequired, config.WorkspaceUIPasswordHashFile, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIAllowedEmail, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain); err != nil {
 		return Config{}, err
 	}
 	openWebUIPort := 8090
@@ -372,12 +382,28 @@ func validateOutputLanguage(value string) error {
 	return nil
 }
 
-func validateWorkspaceUI(host string, port int, authRequired bool, passwordHashFile string) error {
+func validateWorkspaceUI(host string, port int, authRequired bool, passwordHashFile, firebaseProjectID, allowedEmail, firebaseAPIKey, firebaseAuthDomain string) error {
 	if host != "" && host != "127.0.0.1" && host != "0.0.0.0" {
 		return fmt.Errorf("workspace-ui.host must be 127.0.0.1 or 0.0.0.0")
 	}
 	if port < 1 || port > 65535 {
 		return fmt.Errorf("workspace-ui.port must be between 1 and 65535")
+	}
+	isFirebase := firebaseProjectID != "" || allowedEmail != ""
+	if isFirebase {
+		if allowedEmail == "" || !strings.Contains(allowedEmail, "@") || strings.HasPrefix(allowedEmail, "@") || strings.HasSuffix(allowedEmail, "@") {
+			return fmt.Errorf("workspace-ui.allowed_email must be a valid email address")
+		}
+		if firebaseProjectID == "" {
+			return fmt.Errorf("workspace-ui.firebase_project_id is required when Firebase Auth is configured")
+		}
+		if firebaseAPIKey == "" {
+			return fmt.Errorf("workspace-ui.firebase_api_key is required when Firebase Auth is configured")
+		}
+		if firebaseAuthDomain == "" {
+			return fmt.Errorf("workspace-ui.firebase_auth_domain is required when Firebase Auth is configured")
+		}
+		return nil
 	}
 	if host == "0.0.0.0" && !authRequired {
 		return fmt.Errorf("workspace-ui authentication is required when host is 0.0.0.0")
@@ -528,7 +554,7 @@ func (c Config) ValidatePaths() error {
 	if err := validateWorkspaceUIPublicOrigin(c.WorkspaceUIPublicOrigin); err != nil {
 		return err
 	}
-	if err := validateWorkspaceUI(c.WorkspaceUIHost, c.WorkspaceUIPort, c.WorkspaceUIAuthRequired, c.WorkspaceUIPasswordHashFile); err != nil {
+	if err := validateWorkspaceUI(c.WorkspaceUIHost, c.WorkspaceUIPort, c.WorkspaceUIAuthRequired, c.WorkspaceUIPasswordHashFile, c.WorkspaceUIFirebaseProjectID, c.WorkspaceUIAllowedEmail, c.WorkspaceUIFirebaseAPIKey, c.WorkspaceUIFirebaseAuthDomain); err != nil {
 		return err
 	}
 	if err := validateOpenWebUI(c.OpenWebUIHost, c.OpenWebUIPort); err != nil {
@@ -538,7 +564,7 @@ func (c Config) ValidatePaths() error {
 		if c.WorkspaceUIHost != "127.0.0.1" || c.OpenWebUIHost != "127.0.0.1" {
 			return fmt.Errorf("locho-host requires workspace-ui and open-webui to bind to 127.0.0.1")
 		}
-		if !c.WorkspaceUIAuthRequired {
+		if !c.WorkspaceUIAuthRequired && c.WorkspaceUIFirebaseProjectID == "" {
 			return fmt.Errorf("locho-host requires Workspace UI authentication")
 		}
 		if c.WorkspaceUIPort == c.OpenWebUIPort {

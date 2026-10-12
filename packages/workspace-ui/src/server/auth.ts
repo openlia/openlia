@@ -28,8 +28,17 @@ interface Attempt {
   blockedUntil: number;
 }
 
+import type { FirebaseClientConfig } from "../shared/api";
+import { verifyFirebaseIdToken } from "./firebaseAuth";
+
+export type AuthProvider = "password" | "firebase" | "none";
+
 export interface AuthenticatorOptions {
   required: boolean;
+  authProvider?: AuthProvider | undefined;
+  allowedEmail?: string | undefined;
+  firebaseConfig?: FirebaseClientConfig | undefined;
+  firebaseJwksUrl?: string | undefined;
   passwordHash?: string | undefined;
   passwordHashFile?: string | undefined;
   secureCookies?: boolean | undefined;
@@ -41,11 +50,18 @@ export interface AuthenticatorOptions {
 export type LoginResult =
   | { kind: "ok"; cookie: string }
   | { kind: "invalid" }
-  | { kind: "rate_limited" };
+  | { kind: "rate_limited" }
+  | { kind: "disabled" }
+  | { kind: "forbidden_user"; email?: string | undefined }
+  | { kind: "unverified_email" };
 
 export class Authenticator {
   readonly required: boolean;
   readonly secureCookies: boolean;
+  readonly authProvider: AuthProvider;
+  readonly allowedEmail?: string | undefined;
+  readonly firebaseConfig?: FirebaseClientConfig | undefined;
+  private readonly firebaseJwksUrl?: string | undefined;
   private readonly passwordHash: string;
   private readonly database: Database | undefined;
   private readonly idleTimeoutMs: number;
@@ -56,6 +72,11 @@ export class Authenticator {
   constructor(options: AuthenticatorOptions) {
     this.required = options.required;
     this.secureCookies = options.secureCookies ?? false;
+    this.authProvider =
+      options.authProvider ?? (options.required ? "password" : "none");
+    this.allowedEmail = options.allowedEmail?.trim();
+    this.firebaseConfig = options.firebaseConfig;
+    this.firebaseJwksUrl = options.firebaseJwksUrl;
     this.idleTimeoutMs = positiveTimeout(
       options.idleTimeoutMs ?? defaultIdleTimeoutMs,
       "idle session timeout",
@@ -69,10 +90,21 @@ export class Authenticator {
       (options.passwordHashFile
         ? readFileSync(options.passwordHashFile, "utf8").trim()
         : "");
-    if (this.required && !isSupportedArgon2idHash(this.passwordHash)) {
+    if (
+      this.required &&
+      this.authProvider === "password" &&
+      !isSupportedArgon2idHash(this.passwordHash)
+    ) {
       throw new Error(
         "workspace-ui password verifier is missing or unsupported",
       );
+    }
+    if (this.required && this.authProvider === "firebase") {
+      if (!this.allowedEmail || !this.firebaseConfig?.projectId) {
+        throw new Error(
+          "workspace-ui firebase authentication requires allowedEmail and firebaseConfig.projectId",
+        );
+      }
     }
     if (this.required) {
       const databasePath = options.sessionDatabasePath ?? ":memory:";
@@ -105,6 +137,12 @@ export class Authenticator {
       schema: 1 as const,
       auth_required: this.required,
       authenticated: !this.required || this.isAuthenticated(request),
+      auth_provider: this.authProvider,
+      ...(this.authProvider === "firebase"
+        ? {
+            firebase_config: this.firebaseConfig,
+          }
+        : {}),
     };
   }
 
@@ -145,6 +183,7 @@ export class Authenticator {
     secureCookies = this.secureCookies,
   ): Promise<LoginResult> {
     if (!this.required) return { kind: "ok", cookie: "" };
+    if (this.authProvider === "firebase") return { kind: "disabled" };
     const now = Date.now();
     let attempt = this.attempts.get(clientKey);
     if (attempt && attempt.blockedUntil > now) return { kind: "rate_limited" };
@@ -174,6 +213,61 @@ export class Authenticator {
       };
     }
     this.attempts.delete(clientKey);
+    return this.createSession(now, secureCookies);
+  }
+
+  async loginWithFirebase(
+    idToken: string,
+    clientKey: string,
+    secureCookies = this.secureCookies,
+  ): Promise<LoginResult> {
+    if (!this.required) return { kind: "ok", cookie: "" };
+    if (
+      this.authProvider !== "firebase" ||
+      !this.firebaseConfig?.projectId ||
+      !this.allowedEmail
+    ) {
+      return { kind: "disabled" };
+    }
+    const now = Date.now();
+    let attempt = this.attempts.get(clientKey);
+    if (attempt && attempt.blockedUntil > now) return { kind: "rate_limited" };
+    if (attempt && now - attempt.firstFailureAt >= attemptWindowMs) {
+      this.attempts.delete(clientKey);
+      attempt = undefined;
+    }
+
+    let payload: import("./firebaseAuth").FirebaseTokenPayload;
+    try {
+      payload = await verifyFirebaseIdToken(
+        idToken,
+        this.firebaseConfig.projectId,
+        this.firebaseJwksUrl,
+      );
+    } catch {
+      this.recordFailure(clientKey, now);
+      const blockedUntil = this.attempts.get(clientKey)?.blockedUntil ?? 0;
+      return { kind: blockedUntil > now ? "rate_limited" : "invalid" };
+    }
+
+    const tokenEmail = payload.email?.toLowerCase().trim();
+    const expectedEmail = this.allowedEmail.toLowerCase().trim();
+
+    if (!tokenEmail || tokenEmail !== expectedEmail) {
+      this.recordFailure(clientKey, now);
+      return { kind: "forbidden_user", email: payload.email };
+    }
+
+    if (!payload.email_verified) {
+      this.recordFailure(clientKey, now);
+      return { kind: "unverified_email" };
+    }
+
+    this.attempts.delete(clientKey);
+    return this.createSession(now, secureCookies);
+  }
+
+  private createSession(now: number, secureCookies: boolean): LoginResult {
     const database = this.database;
     if (!database) return { kind: "invalid" };
     const token = randomBytes(32).toString("base64url");
@@ -209,7 +303,11 @@ export class Authenticator {
   private reconcileVerifier(): void {
     const database = this.database;
     if (!database) return;
-    const verifierHash = digestToken(this.passwordHash);
+    const verifierString =
+      this.authProvider === "firebase"
+        ? `firebase:${this.firebaseConfig?.projectId}:${this.allowedEmail}`
+        : this.passwordHash;
+    const verifierHash = digestToken(verifierString);
     const current = database
       .query("SELECT verifier_hash FROM auth_state WHERE id = 1")
       .get() as AuthStateRow | null;

@@ -17,9 +17,18 @@ external_network = ""
 [workspace-ui]
 host = "127.0.0.1"
 port = 8089
-# Argon2id password hash for Workspace UI authentication.
+# Authentication options (choose one):
+# Option A: Password authentication (Argon2id hash)
 # Generate via: ./openlia workspace-ui password
 password_hash = ""
+
+# Option B: Firebase Authentication (Google Sign-In only, single user)
+# When configured, password authentication is disabled.
+# allowed_email = "user@example.com"
+# firebase_project_id = "your-firebase-project-id"
+# firebase_api_key = "AIzaSy..."
+# firebase_auth_domain = "your-firebase-project-id.firebaseapp.com"
+# firebase_app_id = "1:...:web:..." # optional
 
 [open-webui]
 host = "127.0.0.1"

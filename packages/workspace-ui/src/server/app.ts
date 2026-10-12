@@ -33,6 +33,17 @@ export interface WorkspaceHandlerOptions {
   maxDownloadBytes?: number;
   maxTreeEntries?: number;
   authRequired?: boolean;
+  authProvider?: "password" | "firebase" | "none";
+  allowedEmail?: string | undefined;
+  firebaseConfig?:
+    | {
+        apiKey: string;
+        authDomain: string;
+        projectId: string;
+        appId?: string | undefined;
+      }
+    | undefined;
+  firebaseJwksUrl?: string | undefined;
   passwordHash?: string | undefined;
   passwordHashFile?: string | undefined;
   sessionDatabasePath?: string | undefined;
@@ -111,11 +122,21 @@ const inlineContentTypes = new Set([
 const maxLoginRequestBytes = 16 * 1024;
 const maxDeleteRequestBytes = 8 * 1024;
 
-function securityHeaders(cspNonce?: string): Record<string, string> {
+function securityHeaders(
+  cspNonce?: string,
+  isFirebase = false,
+): Record<string, string> {
   const styleSource = cspNonce ? `'self' 'nonce-${cspNonce}'` : "'self'";
+  const extraConnect = isFirebase
+    ? " https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.firebaseio.com"
+    : "";
+  const extraFrame = isFirebase
+    ? " https://*.firebaseapp.com https://accounts.google.com"
+    : "";
+  const extraScript = isFirebase ? " https://apis.google.com" : "";
   return {
     "Cache-Control": "no-store",
-    "Content-Security-Policy": `default-src 'self'; script-src 'self'; style-src ${styleSource}; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`,
+    "Content-Security-Policy": `default-src 'self'; script-src 'self'${extraScript}; style-src ${styleSource}; img-src 'self' data: blob: https://*.googleusercontent.com; connect-src 'self'${extraConnect}; frame-src 'self'${extraFrame}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`,
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
   };
@@ -153,6 +174,7 @@ function errorResponse(error: unknown): Response {
 async function staticFile(
   staticRoot: string,
   pathname: string,
+  isFirebase = false,
 ): Promise<Response | undefined> {
   const relativePath = pathname === "/" ? "index.html" : pathname.slice(1);
   if (relativePath !== "index.html" && !relativePath.startsWith("assets/"))
@@ -171,7 +193,7 @@ async function staticFile(
   const isIndex = relativePath === "index.html";
   const cspNonce = isIndex ? randomBytes(18).toString("base64") : undefined;
   const headers = {
-    ...securityHeaders(cspNonce),
+    ...securityHeaders(cspNonce, isFirebase),
     "Cache-Control":
       relativePath === "index.html"
         ? "no-store"
@@ -261,7 +283,14 @@ export function createWorkspaceHandler(
   const publicOrigin = normalizeOrigin(options.publicOrigin);
   if (options.publicOrigin && !publicOrigin)
     throw new Error("workspace-ui public origin is invalid");
+  const isFirebase =
+    options.authProvider === "firebase" ||
+    Boolean(options.firebaseConfig?.projectId && options.allowedEmail);
   const authenticator = new Authenticator({
+    allowedEmail: options.allowedEmail,
+    authProvider: options.authProvider ?? (isFirebase ? "firebase" : undefined),
+    firebaseConfig: options.firebaseConfig,
+    firebaseJwksUrl: options.firebaseJwksUrl,
     passwordHash: options.passwordHash,
     passwordHashFile: options.passwordHashFile,
     required: options.authRequired ?? false,
@@ -277,7 +306,7 @@ export function createWorkspaceHandler(
       }
       if (request.method === "GET" && url.pathname.startsWith("/assets/")) {
         return (
-          (await staticFile(staticRoot, url.pathname)) ??
+          (await staticFile(staticRoot, url.pathname, isFirebase)) ??
           json({ schema: 1, ok: false, error: "not_found" }, 404)
         );
       }
@@ -301,7 +330,7 @@ export function createWorkspaceHandler(
           url.pathname === "/configuration")
       ) {
         return (
-          (await staticFile(staticRoot, "/")) ??
+          (await staticFile(staticRoot, "/", isFirebase)) ??
           json({ schema: 1, ok: false, error: "not_found" }, 404)
         );
       }
@@ -328,6 +357,11 @@ export function createWorkspaceHandler(
           clientKey,
           secureRequest(request, url, publicOrigin),
         );
+        if (result.kind === "disabled")
+          return json(
+            { schema: 1, ok: false, error: "password_auth_disabled" },
+            400,
+          );
         if (result.kind === "rate_limited")
           return json({ schema: 1, ok: false, error: "rate_limited" }, 429);
         if (result.kind === "invalid")
@@ -336,7 +370,58 @@ export function createWorkspaceHandler(
         return json(
           payload,
           200,
-          result.cookie ? { "Set-Cookie": result.cookie } : {},
+          result.kind === "ok" && result.cookie
+            ? { "Set-Cookie": result.cookie }
+            : {},
+        );
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/auth/firebase-login"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, maxLoginRequestBytes);
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        const body: unknown = bodyResult.value;
+        if (
+          !isObject(body) ||
+          typeof body.idToken !== "string" ||
+          !body.idToken.trim()
+        )
+          return json({ schema: 1, ok: false, error: "invalid_login" }, 400);
+        const result = await authenticator.loginWithFirebase(
+          body.idToken,
+          clientKey,
+          secureRequest(request, url, publicOrigin),
+        );
+        if (result.kind === "disabled")
+          return json(
+            { schema: 1, ok: false, error: "firebase_auth_disabled" },
+            400,
+          );
+        if (result.kind === "rate_limited")
+          return json({ schema: 1, ok: false, error: "rate_limited" }, 429);
+        if (result.kind === "forbidden_user")
+          return json({ schema: 1, ok: false, error: "forbidden_user" }, 403);
+        if (result.kind === "unverified_email")
+          return json({ schema: 1, ok: false, error: "unverified_email" }, 403);
+        if (result.kind === "invalid")
+          return json({ schema: 1, ok: false, error: "invalid_login" }, 401);
+        const payload: AuthLoginResponse = { schema: 1, ok: true };
+        return json(
+          payload,
+          200,
+          result.kind === "ok" && result.cookie
+            ? { "Set-Cookie": result.cookie }
+            : {},
         );
       }
       if (request.method === "POST" && url.pathname === "/api/auth/logout") {

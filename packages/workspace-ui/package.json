@@ -43,6 +43,7 @@
     "ajv": "8",
     "ajv-formats": "3",
     "d3-sankey": "^0.12.3",
+    "firebase": "^13.0.0",
     "prismjs": "^1.30.0",
     "react": "19.1.1",
     "react-dom": "19.1.1",

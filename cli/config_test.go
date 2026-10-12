@@ -263,6 +263,48 @@ func TestPublicWorkspaceUIRequiresSupportedPasswordHash(t *testing.T) {
 	}
 }
 
+func TestPublicWorkspaceUISupportsFirebaseAuth(t *testing.T) {
+	config := defaultConfig()
+	config.WorkspaceUIHost = "0.0.0.0"
+	config.WorkspaceUIAllowedEmail = "alice@example.com"
+	config.WorkspaceUIFirebaseProjectID = "demo-project"
+	config.WorkspaceUIFirebaseAPIKey = "AIzaSyFakeKey123"
+	config.WorkspaceUIFirebaseAuthDomain = "demo-project.firebaseapp.com"
+	config.WorkspaceUIFirebaseAppID = "1:12345:web:67890"
+
+	if err := validateConfig(config); err != nil {
+		t.Fatalf("valid Firebase config was rejected: %v", err)
+	}
+
+	rendered := renderConfig(config)
+	parsed, err := parseConfig(rendered)
+	if err != nil {
+		t.Fatalf("parse rendered config failed: %v", err)
+	}
+	if parsed.WorkspaceUIAllowedEmail != "alice@example.com" ||
+		parsed.WorkspaceUIFirebaseProjectID != "demo-project" ||
+		parsed.WorkspaceUIFirebaseAPIKey != "AIzaSyFakeKey123" ||
+		parsed.WorkspaceUIFirebaseAuthDomain != "demo-project.firebaseapp.com" ||
+		parsed.WorkspaceUIFirebaseAppID != "1:12345:web:67890" {
+		t.Fatalf("Firebase config did not round trip properly: %+v", parsed)
+	}
+
+	// Missing required fields
+	invalidConfigs := []func(*Config){
+		func(c *Config) { c.WorkspaceUIAllowedEmail = "invalid-email" },
+		func(c *Config) { c.WorkspaceUIFirebaseProjectID = "" },
+		func(c *Config) { c.WorkspaceUIFirebaseAPIKey = "" },
+		func(c *Config) { c.WorkspaceUIFirebaseAuthDomain = "" },
+	}
+	for i, modify := range invalidConfigs {
+		bad := config
+		modify(&bad)
+		if err := validateConfig(bad); err == nil {
+			t.Fatalf("invalid Firebase config case %d was unexpectedly accepted", i)
+		}
+	}
+}
+
 func TestLochoHostConfigRoundTripRequiresProtectedLocalUIs(t *testing.T) {
 	config := defaultConfig()
 	config.LochoHostEnabled = true

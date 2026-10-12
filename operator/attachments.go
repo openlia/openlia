@@ -213,7 +213,7 @@ func generateAttachmentsWithCompose(ctx context.Context, config Config, compose 
 }
 
 func generateAttachmentsFile(config Config) error {
-	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIAuthRequired, config.WorkspaceUIPasswordHashFile); err != nil {
+	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIAuthRequired, config.WorkspaceUIPasswordHashFile, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIAllowedEmail, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain); err != nil {
 		return err
 	}
 	if err := validateOpenWebUI(config.OpenWebUIHost, config.OpenWebUIPort); err != nil {
@@ -340,7 +340,17 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("      OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN: ")
 		builder.Write(quotedPublicOrigin)
 		builder.WriteString("\n")
-		if config.WorkspaceUIAuthRequired {
+		isFirebase := config.WorkspaceUIFirebaseProjectID != ""
+		if isFirebase {
+			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_ALLOWED_EMAIL: %q\n", config.WorkspaceUIAllowedEmail))
+			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_FIREBASE_PROJECT_ID: %q\n", config.WorkspaceUIFirebaseProjectID))
+			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_FIREBASE_API_KEY: %q\n", config.WorkspaceUIFirebaseAPIKey))
+			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_FIREBASE_AUTH_DOMAIN: %q\n", config.WorkspaceUIFirebaseAuthDomain))
+			if config.WorkspaceUIFirebaseAppID != "" {
+				builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_FIREBASE_APP_ID: %q\n", config.WorkspaceUIFirebaseAppID))
+			}
+			builder.WriteString("      OPENLIA_WORKSPACE_UI_SESSION_DB: /var/lib/openlia/sessions.sqlite\n")
+		} else if config.WorkspaceUIAuthRequired {
 			builder.WriteString("      OPENLIA_WORKSPACE_UI_AUTH_REQUIRED: \"true\"\n      OPENLIA_WORKSPACE_UI_PASSWORD_HASH_FILE: /run/openlia-secrets/workspace-ui-password.hash\n      OPENLIA_WORKSPACE_UI_SESSION_DB: /var/lib/openlia/sessions.sqlite\n")
 		}
 		builder.WriteString("    volumes:\n      - type: bind\n        source: ")
@@ -354,10 +364,12 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("\n        target: /ingestion\n        read_only: true\n      - type: bind\n        source: ")
 		builder.Write(migrations)
 		builder.WriteString("\n        target: /migrations")
-		if config.WorkspaceUIAuthRequired {
+		if !isFirebase && config.WorkspaceUIAuthRequired {
 			builder.WriteString("\n      - type: bind\n        source: ")
 			builder.Write(passwordHashFile)
 			builder.WriteString("\n        target: /run/openlia-secrets/workspace-ui-password.hash\n        read_only: true")
+		}
+		if isFirebase || config.WorkspaceUIAuthRequired {
 			builder.WriteString("\n      - type: bind\n        source: ")
 			builder.Write(sessionDir)
 			builder.WriteString("\n        target: /var/lib/openlia")

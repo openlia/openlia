@@ -241,7 +241,7 @@ func commandInit(options Options, args []string, assets fs.FS) int {
 			}
 		}
 	}
-	if config.LochoHostEnabled && config.WorkspaceUIPasswordHash == "" {
+	if config.LochoHostEnabled && config.WorkspaceUIPasswordHash == "" && config.WorkspaceUIFirebaseProjectID == "" {
 		if options.NonInteractive {
 			return fail(options, ExitUsage, "--locho-host requires an interactive Workspace UI password setup", nil)
 		}
