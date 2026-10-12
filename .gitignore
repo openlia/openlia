@@ -36,6 +36,7 @@ openlia-attachments.toml
 # Go build and test artifacts
 /openlia
 /dist/
+/operator/linux-*/
 
 # Generated Bun runtime and frontend artifacts
 /packages/*/dist/

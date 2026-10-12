@@ -36,12 +36,14 @@ build-host build-cli: bun-install bun-build
 build-operator: build-operator-linux-amd64 build-operator-linux-arm64
 
 build-operator-linux-amd64:
-	mkdir -p "$(BUILD_DIR)"
+	mkdir -p "$(BUILD_DIR)" "operator/linux-amd64"
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -o "$(BUILD_DIR)/openlia-operator-linux-amd64" ./cmd/operator
+	cp "$(BUILD_DIR)/openlia-operator-linux-amd64" "operator/linux-amd64/openlia-operator"
 
 build-operator-linux-arm64:
-	mkdir -p "$(BUILD_DIR)"
+	mkdir -p "$(BUILD_DIR)" "operator/linux-arm64"
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -o "$(BUILD_DIR)/openlia-operator-linux-arm64" ./cmd/operator
+	cp "$(BUILD_DIR)/openlia-operator-linux-arm64" "operator/linux-arm64/openlia-operator"
 
 venv:
 	@if command -v uv >/dev/null 2>&1; then \
