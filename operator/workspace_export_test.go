@@ -13,6 +13,7 @@ func TestWorkspaceExport(t *testing.T) {
 	dataRoot := filepath.Join(tempDir, "hermes")
 	wsDir := filepath.Join(dataRoot, "workspace")
 	skDir := filepath.Join(dataRoot, "skills")
+	memDir := filepath.Join(dataRoot, "memories")
 
 	if err := os.MkdirAll(filepath.Join(wsDir, "inbox"), 0o755); err != nil {
 		t.Fatal(err)
@@ -34,6 +35,18 @@ func TestWorkspaceExport(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(skDir, "my-skill", "SKILL.md"), []byte("# Skill\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(memDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(memDir, "USER.md"), []byte("# User\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(memDir, "MEMORY.md"), []byte("# Memory\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(memDir, "private.txt"), []byte("not exported"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	exportFile := filepath.Join(tempDir, "export.zip")
 	config := Config{
@@ -48,8 +61,8 @@ func TestWorkspaceExport(t *testing.T) {
 	if !result.OK {
 		t.Errorf("result.OK = false, want true")
 	}
-	if result.FilesCount != 3 {
-		t.Errorf("result.FilesCount = %d, want 3 (workspace.yaml, inbox/note.md, my-skill/SKILL.md)", result.FilesCount)
+	if result.FilesCount != 5 {
+		t.Errorf("result.FilesCount = %d, want 5 (workspace, skills, and two memory files)", result.FilesCount)
 	}
 	if result.SizeBytes <= 0 {
 		t.Errorf("result.SizeBytes = %d, want > 0", result.SizeBytes)
@@ -87,5 +100,14 @@ func TestWorkspaceExport(t *testing.T) {
 	}
 	if found["skills/my-skill/SKILL.md"] != "# Skill\n" {
 		t.Errorf("skills/my-skill/SKILL.md content mismatch: got %q", found["skills/my-skill/SKILL.md"])
+	}
+	if found["memories/USER.md"] != "# User\n" {
+		t.Errorf("memories/USER.md content mismatch: got %q", found["memories/USER.md"])
+	}
+	if found["memories/MEMORY.md"] != "# Memory\n" {
+		t.Errorf("memories/MEMORY.md content mismatch: got %q", found["memories/MEMORY.md"])
+	}
+	if _, exported := found["memories/private.txt"]; exported {
+		t.Error("zip contains private memory file, which should be omitted")
 	}
 }

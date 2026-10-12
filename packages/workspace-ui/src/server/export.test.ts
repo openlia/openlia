@@ -16,13 +16,16 @@ describe("export archive", () => {
   let tempDir: string;
   let workspaceRoot: string;
   let skillsRoot: string;
+  let memoriesRoot: string;
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "openlia-export-test-"));
     workspaceRoot = join(tempDir, "workspace");
     skillsRoot = join(tempDir, "skills");
+    memoriesRoot = join(tempDir, "memories");
     mkdirSync(workspaceRoot, { recursive: true });
     mkdirSync(skillsRoot, { recursive: true });
+    mkdirSync(memoriesRoot, { recursive: true });
   });
 
   afterEach(() => {
@@ -81,8 +84,12 @@ describe("export archive", () => {
       join(skillsRoot, ".usage.json"),
       JSON.stringify({ "web-search": { pinned: true } }),
     );
+    writeFileSync(join(memoriesRoot, "USER.md"), "# User\n");
+    writeFileSync(join(memoriesRoot, "MEMORY.md"), "# Memory\n");
+    writeFileSync(join(memoriesRoot, "private.txt"), "not exported");
+    writeFileSync(join(memoriesRoot, "USER.md.lock"), "not exported");
 
-    const zipBytes = exportArchive({ skillsRoot, workspaceRoot });
+    const zipBytes = exportArchive({ memoriesRoot, skillsRoot, workspaceRoot });
     const testZipPath = join(tempDir, "export-verify.zip");
     writeFileSync(testZipPath, zipBytes);
 
@@ -95,6 +102,10 @@ describe("export archive", () => {
     expect(listResult.stdout).toContain("skills/web-search/SKILL.md");
     expect(listResult.stdout).toContain("skills/productivity/notion/SKILL.md");
     expect(listResult.stdout).toContain("skills/.usage.json");
+    expect(listResult.stdout).toContain("memories/USER.md");
+    expect(listResult.stdout).toContain("memories/MEMORY.md");
+    expect(listResult.stdout).not.toContain("memories/private.txt");
+    expect(listResult.stdout).not.toContain("memories/USER.md.lock");
   });
 
   test("exportArchive excludes protected files and system noise", () => {

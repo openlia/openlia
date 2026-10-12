@@ -7,6 +7,7 @@ import {
   protectedPath,
   WorkspaceError,
 } from "./workspace";
+import { MEMORY_FILENAMES } from "../shared/memory";
 
 export interface ZipArchiveEntry {
   path: string;
@@ -17,6 +18,7 @@ export interface ZipArchiveEntry {
 export interface ExportArchiveOptions {
   workspaceRoot: string;
   skillsRoot: string;
+  memoriesRoot?: string | undefined;
   maxDownloadBytes?: number | undefined;
 }
 
@@ -226,8 +228,48 @@ export function exportArchive(options: ExportArchiveOptions): Uint8Array {
     visit(rootDir);
   };
 
+  const collectMemoryFiles = (rootDir: string | undefined): void => {
+    if (!rootDir || !existsSync(rootDir)) return;
+
+    const resolvedRoot = resolve(rootDir);
+    for (const name of MEMORY_FILENAMES) {
+      const absolute = join(resolvedRoot, name);
+      let info: Stats;
+      try {
+        info = lstatSync(absolute);
+      } catch {
+        continue;
+      }
+
+      if (!info.isFile() || info.isSymbolicLink()) continue;
+
+      totalUncompressedBytes += info.size;
+      if (totalUncompressedBytes > maxDownloadBytes) {
+        throw new WorkspaceError(
+          "export exceeds maximum allowed size",
+          413,
+          "export_too_large",
+        );
+      }
+
+      let fileData: Uint8Array;
+      try {
+        fileData = readFileSync(absolute);
+      } catch {
+        continue;
+      }
+
+      entries.push({
+        data: fileData,
+        mtime: info.mtime,
+        path: `memories/${name}`,
+      });
+    }
+  };
+
   collectFiles(workspaceRoot, "workspace");
   collectFiles(skillsRoot, "skills");
+  collectMemoryFiles(options.memoriesRoot);
 
   entries.sort((a, b) => a.path.localeCompare(b.path));
   return createZipArchive(entries);

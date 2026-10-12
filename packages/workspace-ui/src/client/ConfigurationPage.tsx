@@ -171,7 +171,8 @@ export function ConfigurationPage({
             <div>
               <p className="font-semibold">Export Workspace</p>
               <p className="mt-1 text-sm text-base-content/60">
-                Download workspace documents and skills as a ZIP archive.
+                Download workspace documents, skills, and assistant memory as a
+                ZIP archive.
               </p>
             </div>
             <button

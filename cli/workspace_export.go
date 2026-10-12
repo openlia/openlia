@@ -66,7 +66,7 @@ func commandWorkspaceExport(options Options, args []string) int {
 		sizeBytes = info.Size()
 	}
 
-	humanMsg := fmt.Sprintf("Exported workspace to %s (%s).\n\nTo unpack and serve locally:\n  unzip %s -d ./my-workspace\n  openlia workspace serve ./my-workspace/workspace",
+	humanMsg := fmt.Sprintf("Exported workspace, skills, and assistant memory to %s (%s).\n\nTo unpack and serve locally:\n  unzip %s -d ./my-workspace\n  openlia workspace serve ./my-workspace/workspace",
 		destPath, formatExportBytes(sizeBytes), destPath)
 
 	return writeResult(options, map[string]any{
