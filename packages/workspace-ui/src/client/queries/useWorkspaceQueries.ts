@@ -11,14 +11,18 @@ export const workspaceKeys = {
   settings: () => [...workspaceKeys.all, "settings"] as const,
   systemInfo: () => [...workspaceKeys.all, "systemInfo"] as const,
   file: (path: string) => [...workspaceKeys.all, "file", path] as const,
-  fileMetadata: (path: string) => [...workspaceKeys.all, "fileMetadata", path] as const,
+  fileMetadata: (path: string) =>
+    [...workspaceKeys.all, "fileMetadata", path] as const,
   skills: () => [...workspaceKeys.all, "skills"] as const,
   skillDetail: (id: string) => [...workspaceKeys.all, "skill", id] as const,
-  skillFile: (id: string, path: string) => [...workspaceKeys.all, "skillFile", id, path] as const,
+  skillFile: (id: string, path: string) =>
+    [...workspaceKeys.all, "skillFile", id, path] as const,
   migrations: () => [...workspaceKeys.all, "migrations"] as const,
-  migrationDetail: (id: string) => [...workspaceKeys.all, "migration", id] as const,
+  migrationDetail: (id: string) =>
+    [...workspaceKeys.all, "migration", id] as const,
   ingestion: () => [...workspaceKeys.all, "ingestion"] as const,
-  ingestionDetail: (id: string) => [...workspaceKeys.all, "ingestion", id] as const,
+  ingestionDetail: (id: string) =>
+    [...workspaceKeys.all, "ingestion", id] as const,
 };
 
 export function useWorkspaceTree(options?: { enabled?: boolean }) {
