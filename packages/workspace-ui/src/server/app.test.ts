@@ -926,8 +926,9 @@ describe("workspace HTTP handler", () => {
     }
   });
 
-  test("exports workspace and skills as a downloadable zip archive", async () => {
+  test("exports workspace, skills, and memory as a downloadable zip archive", async () => {
     const skillsDir = mkdtempSync(join(tmpdir(), "openlia-skills-export-"));
+    const memoriesDir = mkdtempSync(join(tmpdir(), "openlia-memories-export-"));
     try {
       writeFileSync(join(root, "notes.md"), "# Hello Notes");
       mkdirSync(join(skillsDir, "test-skill"), { recursive: true });
@@ -935,8 +936,11 @@ describe("workspace HTTP handler", () => {
         join(skillsDir, "test-skill", "SKILL.md"),
         "---\nname: test-skill\n---",
       );
+      writeFileSync(join(memoriesDir, "USER.md"), "# User\n");
+      writeFileSync(join(memoriesDir, "MEMORY.md"), "# Memory\n");
 
       const customHandler = createWorkspaceHandler({
+        memoriesRoot: memoriesDir,
         skillsRoot: skillsDir,
         workspaceRoot: root,
       });
@@ -959,8 +963,11 @@ describe("workspace HTTP handler", () => {
       const output = new TextDecoder().decode(proc.stdout);
       expect(output).toContain("workspace/notes.md");
       expect(output).toContain("skills/test-skill/SKILL.md");
+      expect(output).toContain("memories/USER.md");
+      expect(output).toContain("memories/MEMORY.md");
     } finally {
       rmSync(skillsDir, { force: true, recursive: true });
+      rmSync(memoriesDir, { force: true, recursive: true });
     }
   });
 

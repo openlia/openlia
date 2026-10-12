@@ -31,9 +31,52 @@ func TestWorkspaceServeRejectsMissingDirectory(t *testing.T) {
 	}
 }
 
+func TestDetectWorkspaceServeRootsFromExport(t *testing.T) {
+	exportRoot := t.TempDir()
+	for _, name := range []string{"workspace", "skills", "memories"} {
+		if err := os.Mkdir(filepath.Join(exportRoot, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	workspaceRoot, skillsRoot, memoriesRoot := detectWorkspaceServeRoots(exportRoot, "")
+	if workspaceRoot != filepath.Join(exportRoot, "workspace") {
+		t.Fatalf("workspace root = %q, want unpacked workspace directory", workspaceRoot)
+	}
+	if skillsRoot != filepath.Join(exportRoot, "skills") {
+		t.Fatalf("skills root = %q, want unpacked skills directory", skillsRoot)
+	}
+	if memoriesRoot != filepath.Join(exportRoot, "memories") {
+		t.Fatalf("memories root = %q, want unpacked memories directory", memoriesRoot)
+	}
+
+	workspaceRoot, skillsRoot, memoriesRoot = detectWorkspaceServeRoots(filepath.Join(exportRoot, "workspace"), "")
+	if workspaceRoot != filepath.Join(exportRoot, "workspace") {
+		t.Fatalf("direct workspace root = %q, want workspace directory", workspaceRoot)
+	}
+	if skillsRoot != filepath.Join(exportRoot, "skills") {
+		t.Fatalf("direct skills root = %q, want sibling skills directory", skillsRoot)
+	}
+	if memoriesRoot != filepath.Join(exportRoot, "memories") {
+		t.Fatalf("direct memories root = %q, want sibling memories directory", memoriesRoot)
+	}
+}
+
+func TestDetectWorkspaceServeRootsDoesNotRequireMemories(t *testing.T) {
+	exportRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(exportRoot, "workspace"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, memoriesRoot := detectWorkspaceServeRoots(exportRoot, "")
+	if memoriesRoot != "" {
+		t.Fatalf("memories root = %q, want empty when memories directory is absent", memoriesRoot)
+	}
+}
+
 func TestExtractWorkspaceUIBundle(t *testing.T) {
 	fakeAssets := fstest.MapFS{
-		"packages/workspace-ui/dist/server.js":        &fstest.MapFile{Data: []byte("console.log('test');")},
+		"packages/workspace-ui/dist/server.js":         &fstest.MapFile{Data: []byte("console.log('test');")},
 		"packages/workspace-ui/dist/public/index.html": &fstest.MapFile{Data: []byte("<!DOCTYPE html><html></html>")},
 	}
 

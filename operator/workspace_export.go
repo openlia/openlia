@@ -84,6 +84,61 @@ func addDirectoryToZip(w *zip.Writer, rootDir, archivePrefix string) (int, error
 	return count, err
 }
 
+func addMemoryFilesToZip(w *zip.Writer, rootDir string) (int, error) {
+	info, err := os.Stat(rootDir)
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if !info.IsDir() {
+		return 0, nil
+	}
+
+	count := 0
+	for _, name := range []string{"USER.md", "MEMORY.md"} {
+		path := filepath.Join(rootDir, name)
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return count, err
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return count, err
+		}
+		header.Name = "memories/" + name
+		header.Method = zip.Deflate
+
+		writer, err := w.CreateHeader(header)
+		if err != nil {
+			return count, err
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			return count, err
+		}
+		_, copyErr := io.Copy(writer, file)
+		closeErr := file.Close()
+		if copyErr != nil {
+			return count, copyErr
+		}
+		if closeErr != nil {
+			return count, closeErr
+		}
+		count++
+	}
+	return count, nil
+}
+
 func WorkspaceExport(config Config, outputFile string) (WorkspaceExportResult, error) {
 	if err := os.MkdirAll(filepath.Dir(outputFile), 0o700); err != nil {
 		return WorkspaceExportResult{}, fmt.Errorf("create export parent directory: %w", err)
@@ -109,6 +164,12 @@ func WorkspaceExport(config Config, outputFile string) (WorkspaceExportResult, e
 		return WorkspaceExportResult{}, fmt.Errorf("archive skills: %w", err)
 	}
 
+	memoryDir := filepath.Join(config.DataRoot, "memories")
+	memoryCount, err := addMemoryFilesToZip(zipWriter, memoryDir)
+	if err != nil {
+		return WorkspaceExportResult{}, fmt.Errorf("archive memories: %w", err)
+	}
+
 	if err := zipWriter.Close(); err != nil {
 		return WorkspaceExportResult{}, fmt.Errorf("close zip writer: %w", err)
 	}
@@ -121,7 +182,7 @@ func WorkspaceExport(config Config, outputFile string) (WorkspaceExportResult, e
 	return WorkspaceExportResult{
 		OK:         true,
 		OutputFile: outputFile,
-		FilesCount: wsCount + skCount,
+		FilesCount: wsCount + skCount + memoryCount,
 		SizeBytes:  info.Size(),
 	}, nil
 }

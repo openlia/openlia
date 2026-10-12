@@ -74,23 +74,7 @@ func commandWorkspaceServe(options Options, args []string, assets fs.FS) int {
 		return fail(options, ExitUsage, fmt.Sprintf("%s is not an existing directory", targetPath), nil)
 	}
 
-	workspaceRoot := absPath
-	skillsRoot := *skillsPath
-
-	// Detect if user pointed to the root of an unpacked archive (which contains workspace/ and skills/)
-	if wsSub, err := os.Stat(filepath.Join(absPath, "workspace")); err == nil && wsSub.IsDir() {
-		workspaceRoot = filepath.Join(absPath, "workspace")
-		if skillsRoot == "" {
-			if skSub, err := os.Stat(filepath.Join(absPath, "skills")); err == nil && skSub.IsDir() {
-				skillsRoot = filepath.Join(absPath, "skills")
-			}
-		}
-	} else if skillsRoot == "" {
-		siblingSkills := filepath.Join(absPath, "..", "skills")
-		if skSub, err := os.Stat(siblingSkills); err == nil && skSub.IsDir() {
-			skillsRoot = siblingSkills
-		}
-	}
+	workspaceRoot, skillsRoot, memoriesRoot := detectWorkspaceServeRoots(absPath, *skillsPath)
 
 	bunPath, bunErr := findBunExecutable()
 	dockerPath, dockerErr := findDockerExecutable()
@@ -119,6 +103,9 @@ func commandWorkspaceServe(options Options, args []string, assets fs.FS) int {
 		if skillsRoot != "" {
 			env = append(env, "OPENLIA_SKILLS_ROOT="+skillsRoot)
 		}
+		if memoriesRoot != "" {
+			env = append(env, "OPENLIA_MEMORIES_ROOT="+memoriesRoot)
+		}
 		cmd.Env = env
 		cmd.Dir = distDir
 	} else {
@@ -132,6 +119,9 @@ func commandWorkspaceServe(options Options, args []string, assets fs.FS) int {
 		}
 		if skillsRoot != "" {
 			dockerArgs = append(dockerArgs, "-v", fmt.Sprintf("%s:/skills", skillsRoot), "-e", "OPENLIA_SKILLS_ROOT=/skills")
+		}
+		if memoriesRoot != "" {
+			dockerArgs = append(dockerArgs, "-v", fmt.Sprintf("%s:/memories", memoriesRoot), "-e", "OPENLIA_MEMORIES_ROOT=/memories")
 		}
 		dockerArgs = append(dockerArgs, "ghcr.io/openlia/workspace-ui:latest")
 		cmd = exec.Command(dockerPath, dockerArgs...)
@@ -174,6 +164,9 @@ func commandWorkspaceServe(options Options, args []string, assets fs.FS) int {
 	if skillsRoot != "" {
 		fmt.Printf("  Skills:    %s\n", skillsRoot)
 	}
+	if memoriesRoot != "" {
+		fmt.Printf("  Memories:  %s\n", memoriesRoot)
+	}
 	fmt.Printf("  URL:       %s\n\n", uiURL)
 	fmt.Println("Press Ctrl+C to stop.")
 
@@ -202,6 +195,37 @@ func commandWorkspaceServe(options Options, args []string, assets fs.FS) int {
 		}
 		return ExitOK
 	}
+}
+
+func detectWorkspaceServeRoots(absPath, configuredSkillsRoot string) (workspaceRoot, skillsRoot, memoriesRoot string) {
+	workspaceRoot = absPath
+	skillsRoot = configuredSkillsRoot
+
+	// An unpacked export has workspace/, skills/, and optionally memories/ at its root.
+	if wsSub, err := os.Stat(filepath.Join(absPath, "workspace")); err == nil && wsSub.IsDir() {
+		workspaceRoot = filepath.Join(absPath, "workspace")
+		if skillsRoot == "" {
+			if skSub, err := os.Stat(filepath.Join(absPath, "skills")); err == nil && skSub.IsDir() {
+				skillsRoot = filepath.Join(absPath, "skills")
+			}
+		}
+		if memorySub, err := os.Stat(filepath.Join(absPath, "memories")); err == nil && memorySub.IsDir() {
+			memoriesRoot = filepath.Join(absPath, "memories")
+		}
+		return workspaceRoot, skillsRoot, memoriesRoot
+	}
+
+	if skillsRoot == "" {
+		siblingSkills := filepath.Join(absPath, "..", "skills")
+		if skSub, err := os.Stat(siblingSkills); err == nil && skSub.IsDir() {
+			skillsRoot = siblingSkills
+		}
+	}
+	siblingMemories := filepath.Join(absPath, "..", "memories")
+	if memorySub, err := os.Stat(siblingMemories); err == nil && memorySub.IsDir() {
+		memoriesRoot = siblingMemories
+	}
+	return workspaceRoot, skillsRoot, memoriesRoot
 }
 
 func findBunExecutable() (string, error) {

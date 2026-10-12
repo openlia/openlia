@@ -510,6 +510,7 @@ export function createWorkspaceHandler(
       ) {
         const zipBytes = exportArchive({
           maxDownloadBytes: options.maxDownloadBytes,
+          memoriesRoot: options.memoriesRoot,
           skillsRoot,
           workspaceRoot: options.workspaceRoot,
         });
