@@ -986,4 +986,167 @@ describe("workspace HTTP handler", () => {
       error: "authentication_required",
     });
   });
+
+  test("Firebase auth exposes configuration, restricts to single user, and disables password login", async () => {
+    const keyPair = await crypto.subtle.generateKey(
+      {
+        name: "RSASSA-PKCS1-v1_5",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: "SHA-256",
+      },
+      true,
+      ["sign", "verify"],
+    );
+    const kid = "test-firebase-kid";
+    const exportedJwk = (await crypto.subtle.exportKey(
+      "jwk",
+      keyPair.publicKey,
+    )) as Record<string, unknown>;
+    exportedJwk.kid = kid;
+    exportedJwk.alg = "RS256";
+    exportedJwk.use = "sig";
+
+    const mockJwksServer = Bun.serve({
+      fetch() {
+        return new Response(JSON.stringify({ keys: [exportedJwk] }), {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "public, max-age=3600",
+          },
+        });
+      },
+      port: 0,
+    });
+    const jwksUrl = `http://127.0.0.1:${mockJwksServer.port}/jwks.json`;
+
+    async function makeToken(email: string, emailVerified = true) {
+      const header = { alg: "RS256", kid, typ: "JWT" };
+      const now = Math.floor(Date.now() / 1000);
+      const payload = {
+        aud: "test-firebase-proj",
+        iss: "https://securetoken.google.com/test-firebase-proj",
+        sub: "user-abc-123",
+        email,
+        email_verified: emailVerified,
+        iat: now - 5,
+        exp: now + 3600,
+      };
+      const b64 = (s: string) =>
+        btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const headerPart = b64(JSON.stringify(header));
+      const payloadPart = b64(JSON.stringify(payload));
+      const signedData = new TextEncoder().encode(
+        `${headerPart}.${payloadPart}`,
+      );
+      const sig = await crypto.subtle.sign(
+        "RSASSA-PKCS1-v1_5",
+        keyPair.privateKey,
+        signedData,
+      );
+      let binarySig = "";
+      const sigBytes = new Uint8Array(sig);
+      for (let i = 0; i < sigBytes.length; i++) {
+        binarySig += String.fromCharCode(sigBytes[i]!);
+      }
+      return `${headerPart}.${payloadPart}.${btoa(binarySig).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+    }
+
+    try {
+      const firebaseHandler = createWorkspaceHandler({
+        allowedEmail: "owner@example.com",
+        authProvider: "firebase",
+        authRequired: true,
+        firebaseConfig: {
+          apiKey: "test-api-key",
+          authDomain: "test.firebaseapp.com",
+          projectId: "test-firebase-proj",
+        },
+        firebaseJwksUrl: jwksUrl,
+        workspaceRoot: root,
+      });
+
+      // 1. Session endpoint returns auth_provider and client config
+      const sessionRes = await firebaseHandler(
+        new Request("http://localhost/api/auth/session"),
+      );
+      expect(sessionRes.status).toBe(200);
+      const sessionData = (await sessionRes.json()) as Record<string, unknown>;
+      expect(sessionData).toMatchObject({
+        auth_provider: "firebase",
+        auth_required: true,
+        authenticated: false,
+        firebase_config: {
+          apiKey: "test-api-key",
+          authDomain: "test.firebaseapp.com",
+          projectId: "test-firebase-proj",
+        },
+      });
+      expect(sessionData["allowed_email"]).toBeUndefined();
+
+      // 2. Password login is rejected when Firebase Auth is active
+      const passwordRes = await firebaseHandler(
+        new Request("http://localhost/api/auth/login", {
+          body: JSON.stringify({ password: "some-password" }),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        }),
+      );
+      expect(passwordRes.status).toBe(400);
+      expect(await passwordRes.json()).toMatchObject({
+        error: "password_auth_disabled",
+      });
+
+      // 3. Firebase login with unauthorized email is rejected
+      const wrongEmailToken = await makeToken("intruder@example.com");
+      const wrongRes = await firebaseHandler(
+        new Request("http://localhost/api/auth/firebase-login", {
+          body: JSON.stringify({ idToken: wrongEmailToken }),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        }),
+      );
+      expect(wrongRes.status).toBe(403);
+      expect(await wrongRes.json()).toMatchObject({
+        error: "forbidden_user",
+      });
+
+      // 4. Firebase login with unverified email is rejected
+      const unverifiedToken = await makeToken("owner@example.com", false);
+      const unverifiedRes = await firebaseHandler(
+        new Request("http://localhost/api/auth/firebase-login", {
+          body: JSON.stringify({ idToken: unverifiedToken }),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        }),
+      );
+      expect(unverifiedRes.status).toBe(403);
+      expect(await unverifiedRes.json()).toMatchObject({
+        error: "unverified_email",
+      });
+
+      // 5. Firebase login with authorized email succeeds and sets session cookie
+      const validToken = await makeToken("owner@example.com", true);
+      const loginRes = await firebaseHandler(
+        new Request("http://localhost/api/auth/firebase-login", {
+          body: JSON.stringify({ idToken: validToken }),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        }),
+      );
+      expect(loginRes.status).toBe(200);
+      const cookie = loginRes.headers.get("set-cookie")?.split(";")[0] ?? "";
+      expect(cookie).toContain("openlia_workspace_session=");
+
+      // 6. Accessing protected endpoint with session cookie works
+      const treeRes = await firebaseHandler(
+        new Request("http://localhost/api/workspace/tree", {
+          headers: { Cookie: cookie },
+        }),
+      );
+      expect(treeRes.status).toBe(200);
+    } finally {
+      mockJwksServer.stop();
+    }
+  });
 });

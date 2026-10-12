@@ -270,10 +270,19 @@ export interface IngestionDetailResponse {
   artifacts: IngestionArtifact[];
 }
 
+export interface FirebaseClientConfig {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  appId?: string | undefined;
+}
+
 export interface AuthSessionResponse {
   schema: 1;
   auth_required: boolean;
   authenticated: boolean;
+  auth_provider?: "password" | "firebase" | "none";
+  firebase_config?: FirebaseClientConfig;
 }
 
 export interface AuthLoginResponse {

@@ -71,7 +71,8 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 	if err := ensureRuntimeOwner(filepath.Join(config.DataRoot, "ingestion"), config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
 		return BootstrapResult{}, err
 	}
-	if config.WorkspaceUIAuthRequired {
+	isFirebase := config.WorkspaceUIFirebaseProjectID != ""
+	if isFirebase || config.WorkspaceUIAuthRequired {
 		sessionDir := filepath.Join(config.RuntimeRoot, "workspace-ui")
 		if err := EnsureDir(sessionDir, 0o700); err != nil {
 			return BootstrapResult{}, err
@@ -79,9 +80,11 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 		if err := ensureRuntimeOwner(sessionDir, config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
 			return BootstrapResult{}, err
 		}
-		info, err := os.Stat(config.WorkspaceUIPasswordHashFile)
-		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o444 {
-			return BootstrapResult{}, fmt.Errorf("workspace-ui password verifier must be a regular mode-0444 file")
+		if !isFirebase && config.WorkspaceUIAuthRequired {
+			info, err := os.Stat(config.WorkspaceUIPasswordHashFile)
+			if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o444 {
+				return BootstrapResult{}, fmt.Errorf("workspace-ui password verifier must be a regular mode-0444 file")
+			}
 		}
 	}
 	if config.OpenWebUIHost != "" {

@@ -266,3 +266,31 @@ func TestOpenWebUIHostValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceUIFirebaseAuthValidation(t *testing.T) {
+	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
+	config.WorkspaceUIHost = "0.0.0.0"
+	config.WorkspaceUIAllowedEmail = "alice@example.com"
+	config.WorkspaceUIFirebaseProjectID = "demo-project"
+	config.WorkspaceUIFirebaseAPIKey = "AIzaSyFakeKey123"
+	config.WorkspaceUIFirebaseAuthDomain = "demo-project.firebaseapp.com"
+	config.WorkspaceUIFirebaseAppID = "1:12345:web:67890"
+
+	if err := config.ValidatePaths(); err != nil {
+		t.Fatalf("valid Firebase config was rejected: %v", err)
+	}
+
+	invalidConfigs := []func(*Config){
+		func(c *Config) { c.WorkspaceUIAllowedEmail = "invalid-email" },
+		func(c *Config) { c.WorkspaceUIFirebaseProjectID = "" },
+		func(c *Config) { c.WorkspaceUIFirebaseAPIKey = "" },
+		func(c *Config) { c.WorkspaceUIFirebaseAuthDomain = "" },
+	}
+	for i, modify := range invalidConfigs {
+		bad := config
+		modify(&bad)
+		if err := bad.ValidatePaths(); err == nil {
+			t.Fatalf("invalid Firebase config case %d was unexpectedly accepted", i)
+		}
+	}
+}

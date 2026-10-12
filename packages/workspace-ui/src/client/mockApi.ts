@@ -532,6 +532,11 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
       authenticated = true;
       return { ok: true, schema: 1 };
     },
+    async loginWithFirebase(idToken): Promise<AuthLoginResponse> {
+      if (!idToken) throw error(401, "invalid_login");
+      authenticated = true;
+      return { ok: true, schema: 1 };
+    },
     async logout(): Promise<AuthLoginResponse> {
       authenticated = false;
       return { ok: true, schema: 1 };

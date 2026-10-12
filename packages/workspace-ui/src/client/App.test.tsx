@@ -391,6 +391,43 @@ describe("workspace application", () => {
     expect(screen.queryByLabelText("Password")).toBeNull();
   });
 
+  test("shows Google Sign-In and hides password form when Firebase Auth is configured without exposing authorized email", async () => {
+    const baseApi = createMockWorkspaceApi({ scenario: "auth" });
+    const api: WorkspaceApi = {
+      ...baseApi,
+      async loadSession() {
+        return {
+          auth_provider: "firebase",
+          auth_required: true,
+          authenticated: false,
+          firebase_config: {
+            apiKey: "dummy-key",
+            authDomain: "dummy.firebaseapp.com",
+            projectId: "dummy-project",
+          },
+          schema: 1,
+        };
+      },
+      async loginWithFirebase(_idToken) {
+        return { ok: true, schema: 1 };
+      },
+    };
+
+    render(<App api={api} />);
+
+    expect(
+      await screen.findByRole("button", { name: "Sign in with Google" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Only the authorized account can access this workspace\./,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Authorized User")).toBeNull();
+    expect(screen.queryByText(/@/)).toBeNull();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+  });
+
   test("keeps workspace files visible when Git status is unavailable", async () => {
     const baseApi = createMockWorkspaceApi();
     const api: WorkspaceApi = {

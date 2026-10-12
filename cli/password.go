@@ -109,6 +109,9 @@ func provisionWorkspaceUIPassword(ctx context.Context, deployment deployment, co
 }
 
 func workspaceUIPasswordRequired(config Config) bool {
+	if config.WorkspaceUIFirebaseProjectID != "" {
+		return false
+	}
 	return config.WorkspaceUIHost == "0.0.0.0" || config.LochoHostEnabled
 }
 

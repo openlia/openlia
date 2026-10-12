@@ -47,6 +47,7 @@ export interface WorkspaceApi {
   loadTree(): Promise<WorkspaceTreeResponse>;
   loadSession(): Promise<AuthSessionResponse>;
   login(password: string): Promise<AuthLoginResponse>;
+  loginWithFirebase(idToken: string): Promise<AuthLoginResponse>;
   logout(): Promise<AuthLoginResponse>;
   loadFile(path: string): Promise<WorkspaceFile>;
   loadFileMetadata(path: string): Promise<WorkspaceFileMetadata>;
@@ -424,6 +425,16 @@ export const httpWorkspaceApi: WorkspaceApi = {
       headers: { "Content-Type": "application/json" },
       method: "POST",
     }),
+  loginWithFirebase: (idToken) =>
+    requestJson<AuthLoginResponse>(
+      "/api/auth/firebase-login",
+      isAuthLoginResponse,
+      {
+        body: JSON.stringify({ idToken }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
   logout: () =>
     requestJson<AuthLoginResponse>("/api/auth/logout", isAuthLoginResponse, {
       headers: { "Content-Type": "application/json" },

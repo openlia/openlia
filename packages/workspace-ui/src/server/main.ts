@@ -27,8 +27,35 @@ const bind = process.env.OPENLIA_WORKSPACE_UI_BIND ?? "127.0.0.1";
 const port = portFromEnvironment(process.env.OPENLIA_WORKSPACE_UI_PORT);
 const authRequired = process.env.OPENLIA_WORKSPACE_UI_AUTH_REQUIRED === "true";
 const passwordHashFile = process.env.OPENLIA_WORKSPACE_UI_PASSWORD_HASH_FILE;
+const allowedEmail = process.env.OPENLIA_WORKSPACE_UI_ALLOWED_EMAIL;
+const firebaseProjectId = process.env.OPENLIA_WORKSPACE_UI_FIREBASE_PROJECT_ID;
+const firebaseApiKey = process.env.OPENLIA_WORKSPACE_UI_FIREBASE_API_KEY;
+const firebaseAuthDomain =
+  process.env.OPENLIA_WORKSPACE_UI_FIREBASE_AUTH_DOMAIN;
+const firebaseAppId = process.env.OPENLIA_WORKSPACE_UI_FIREBASE_APP_ID;
+
+const isFirebase = Boolean(firebaseProjectId && allowedEmail);
+const authProvider = isFirebase
+  ? "firebase"
+  : authRequired
+    ? "password"
+    : "none";
+
+const firebaseConfig =
+  firebaseProjectId && firebaseApiKey && firebaseAuthDomain
+    ? {
+        apiKey: firebaseApiKey,
+        authDomain: firebaseAuthDomain,
+        projectId: firebaseProjectId,
+        ...(firebaseAppId ? { appId: firebaseAppId } : {}),
+      }
+    : undefined;
+
 const handler = createWorkspaceHandler({
-  authRequired,
+  allowedEmail,
+  authProvider,
+  authRequired: authRequired || isFirebase,
+  ...(firebaseConfig ? { firebaseConfig } : {}),
   ...(process.env.OPENLIA_MEMORIES_ROOT
     ? { memoriesRoot: resolve(process.env.OPENLIA_MEMORIES_ROOT) }
     : {}),
