@@ -249,17 +249,6 @@ func (p *ProfileOperator) Sync() (ProfileSyncResult, error) {
 			}
 		}
 	}
-	memoriesDir := filepath.Join(p.Config.DataRoot, "memories")
-	userSource := filepath.Join(p.Config.RepositoryRoot, "profile", "USER.md")
-	userDest := filepath.Join(memoriesDir, "USER.md")
-	if _, err := os.Stat(userSource); err == nil {
-		if err := EnsureDir(memoriesDir, 0o700); err == nil {
-			_ = ensureRuntimeOwner(memoriesDir, p.Config.RuntimeUID, p.Config.RuntimeGID, 0o700)
-			if err := copyOnce(userSource, userDest, 0o600); err == nil {
-				_ = ensureRuntimeOwner(userDest, p.Config.RuntimeUID, p.Config.RuntimeGID, 0o600)
-			}
-		}
-	}
 	result := ProfileSyncResult{OK: true, Action: "profile-sync", Workspace: "preserved", Instructions: instructions, Skills: ProfileSkillStats{
 		CustomizedNames: []string{}, UnmanagedNames: []string{}, Results: []SkillResult{},
 	}}

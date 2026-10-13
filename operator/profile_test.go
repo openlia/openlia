@@ -198,7 +198,6 @@ func TestProfileSyncSeedsMissingWorkspaceTemplatesPreservingExistingFiles(t *tes
 	for path, contents := range map[string]string{
 		filepath.Join(repo, "profile", "SOUL.md"):                                                      "soul\n",
 		filepath.Join(repo, "profile", "AGENTS.md"):                                                    "agents\n",
-		filepath.Join(repo, "profile", "USER.md"):                                                      "# User Profile\n",
 		filepath.Join(repo, "profile", "config.yaml"):                                                  "config\n",
 		filepath.Join(repo, "release", "manifest.json"):                                                `{"openlia":"test"}`,
 		filepath.Join(repo, "workspace-template", "knowledge", "claims", "claim-template.md"):          "new claim template\n",
@@ -221,6 +220,14 @@ func TestProfileSyncSeedsMissingWorkspaceTemplatesPreservingExistingFiles(t *tes
 		t.Fatal(err)
 	}
 	config := testConfig(repo, runtime)
+	memoriesDir := filepath.Join(config.DataRoot, "memories")
+	if err := os.MkdirAll(memoriesDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	userMemFile := filepath.Join(memoriesDir, "USER.md")
+	if err := os.WriteFile(userMemFile, []byte("Name: Existing User.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	workspace := filepath.Join(config.DataRoot, "workspace")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
@@ -300,13 +307,12 @@ func TestProfileSyncSeedsMissingWorkspaceTemplatesPreservingExistingFiles(t *tes
 		t.Fatalf("existing user file was overwritten! got: %q", string(existingData))
 	}
 
-	// 3. Newly introduced USER.md should be seeded into memories/USER.md
-	userMemFile := filepath.Join(config.DataRoot, "memories", "USER.md")
+	// 3. Hermes owns runtime memory; profile sync must not seed USER.md.
 	userData, err := os.ReadFile(userMemFile)
 	if err != nil {
-		t.Fatalf("missing seeded user memory file: %v", err)
+		t.Fatalf("user memory file was not preserved: %v", err)
 	}
-	if string(userData) != "# User Profile\n" {
-		t.Fatalf("unexpected user memory data: %q", string(userData))
+	if string(userData) != "Name: Existing User.\n" {
+		t.Fatalf("profile sync changed Hermes-owned USER.md: %q", string(userData))
 	}
 }

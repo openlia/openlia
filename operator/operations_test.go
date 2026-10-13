@@ -193,6 +193,46 @@ func TestProtectedSkillRefreshRecreatesOnlyRunningHermes(t *testing.T) {
 	}
 }
 
+func TestSyncProfileAndRefreshRecreatesHermesAfterProtectedSkillSync(t *testing.T) {
+	repo := t.TempDir()
+	runtime := filepath.Join(t.TempDir(), "runtime")
+	config := testConfig(repo, runtime)
+	files := map[string]string{
+		filepath.Join(repo, "profile", "SOUL.md"):                                                                               "soul\n",
+		filepath.Join(repo, "profile", "AGENTS.md"):                                                                             "agents\n",
+		filepath.Join(repo, "profile", "config.yaml"):                                                                           "model: {}\n",
+		filepath.Join(repo, "profile", "skills", ".gitkeep"):                                                                    "",
+		filepath.Join(repo, "profile", "system-skills", "openlia-skill-migration", "SKILL.md"):                                  "migration\n",
+		filepath.Join(repo, "profile", "system-skills", "workspace-template-customization", "SKILL.md"):                         "customization\n",
+		filepath.Join(repo, "profile", "system-skills", "workspace-template-customization", "scripts", "workspace_registry.py"): "helper\n",
+		filepath.Join(repo, "release", "manifest.json"):                                                                         `{"openlia":"test"}`,
+	}
+	for path, contents := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(config.MetaRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteState(config, stateRunning); err != nil {
+		t.Fatal(err)
+	}
+	runner := &recordedRunner{}
+	if _, err := syncProfileAndRefresh(context.Background(), config, NewCompose(config, runner)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(config.SystemSkillsRoot, "workspace-template-customization", "scripts", "workspace_registry.py")); err != nil {
+		t.Fatalf("protected helper was not synchronized: %v", err)
+	}
+	if !strings.Contains(strings.Join(runner.calls, "\n"), "up -d --no-deps --force-recreate hermes") {
+		t.Fatalf("running Hermes was not refreshed after profile sync: %v", runner.calls)
+	}
+}
+
 func TestDeployRestartRecreatesFullStack(t *testing.T) {
 	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
 	for _, directory := range []string{config.DataRoot, config.BackupRoot, config.MetaRoot, config.LochoRoot, config.SecretDir} {
