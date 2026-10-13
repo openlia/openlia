@@ -25,7 +25,10 @@ const firebaseMocks = vi.hoisted(() => {
     signInWithGoogle: vi.fn(),
     signOutFirebase: vi.fn(async () => undefined),
     subscribeToFirebaseAuth: vi.fn(
-      (_config: unknown, onAccountChange: (account: Account | null) => void) => {
+      (
+        _config: unknown,
+        onAccountChange: (account: Account | null) => void,
+      ) => {
         onAccountChange(initialAccount);
         return () => undefined;
       },
@@ -545,16 +548,16 @@ describe("workspace application", () => {
     let attempts = 0;
     const baseApi = createMockWorkspaceApi({ scenario: "auth" });
     const api = createFirebaseApi(baseApi, async (idToken) => {
-        attempts += 1;
-        if (attempts === 1) {
-          throw new ApiError(403, {
-            error: "forbidden_user",
-            ok: false,
-            schema: 1,
-          });
-        }
-        return baseApi.loginWithFirebase(idToken);
-      });
+      attempts += 1;
+      if (attempts === 1) {
+        throw new ApiError(403, {
+          error: "forbidden_user",
+          ok: false,
+          schema: 1,
+        });
+      }
+      return baseApi.loginWithFirebase(idToken);
+    });
     firebaseMocks.signInWithGoogle
       .mockResolvedValueOnce({
         account: { displayName: "Alex Johnson", email: "alex@example.com" },
@@ -586,7 +589,9 @@ describe("workspace application", () => {
     });
 
     render(
-      <App api={createFirebaseApi(createMockWorkspaceApi({ scenario: "auth" }))} />,
+      <App
+        api={createFirebaseApi(createMockWorkspaceApi({ scenario: "auth" }))}
+      />,
     );
 
     expect(await screen.findByText("Taylor Smith")).toBeInTheDocument();
@@ -601,7 +606,9 @@ describe("workspace application", () => {
       new Error("auth/popup-closed-by-user"),
     );
     render(
-      <App api={createFirebaseApi(createMockWorkspaceApi({ scenario: "auth" }))} />,
+      <App
+        api={createFirebaseApi(createMockWorkspaceApi({ scenario: "auth" }))}
+      />,
     );
 
     fireEvent.click(
@@ -610,7 +617,9 @@ describe("workspace application", () => {
 
     await waitFor(() => {
       expect(firebaseMocks.signInWithGoogle).toHaveBeenCalledOnce();
-      expect(screen.queryByText(/Google sign-in could not be completed/)).toBeNull();
+      expect(
+        screen.queryByText(/Google sign-in could not be completed/),
+      ).toBeNull();
     });
   });
 
@@ -642,7 +651,9 @@ describe("workspace application", () => {
     );
 
     expect(
-      await screen.findByText("Google sign-out could not be completed. Try again."),
+      await screen.findByText(
+        "Google sign-out could not be completed. Try again.",
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("alex@example.com")).toBeInTheDocument();
   });
