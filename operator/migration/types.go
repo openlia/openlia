@@ -51,17 +51,17 @@ const (
 
 // Migration represents a complete folder import lifecycle.
 type Migration struct {
-	ID               string    `json:"id"`
-	Schema           int       `json:"schema"` // 2 for durable workflow
-	State            string    `json:"state"`
-	SavedPhase       string    `json:"saved_phase,omitempty"` // phase to restore when resumed from stopped
-	StopIntent       bool      `json:"stop_intent"`
-	BaselineManifest string    `json:"baseline_manifest,omitempty"`
-	ActiveRevisionID string    `json:"active_revision_id,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID               string     `json:"id"`
+	Schema           int        `json:"schema"` // 2 for durable workflow
+	State            string     `json:"state"`
+	SavedPhase       string     `json:"saved_phase,omitempty"` // phase to restore when resumed from stopped
+	StopIntent       bool       `json:"stop_intent"`
+	BaselineManifest string     `json:"baseline_manifest,omitempty"`
+	ActiveRevisionID string     `json:"active_revision_id,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 	CompletedAt      *time.Time `json:"completed_at,omitempty"`
-	ErrorMessage     string    `json:"error_message,omitempty"`
+	ErrorMessage     string     `json:"error_message,omitempty"`
 }
 
 // SourceEntry represents an uploaded file in the source snapshot manifest.
@@ -102,29 +102,29 @@ type Job struct {
 
 // ReviewRevision is an immutable review checkpoint.
 type ReviewRevision struct {
-	ID           string               `json:"id"`
-	MigrationID  string               `json:"migration_id"`
-	RevisionNum  int                  `json:"revision_num"`
-	BaselineHash string               `json:"baseline_hash"`
-	CommitHash   string               `json:"commit_hash"`
-	TreeHash     string               `json:"tree_hash"`
-	PatchHash    string               `json:"patch_hash"`
-	ParentRevID  string               `json:"parent_rev_id,omitempty"`
-	Summary      string               `json:"summary,omitempty"`
-	ChangedFiles []ChangedFileEntry   `json:"changed_files"`
-	Findings     []ValidationFinding  `json:"findings,omitempty"`
-	CreatedAt    time.Time            `json:"created_at"`
+	ID           string              `json:"id"`
+	MigrationID  string              `json:"migration_id"`
+	RevisionNum  int                 `json:"revision_num"`
+	BaselineHash string              `json:"baseline_hash"`
+	CommitHash   string              `json:"commit_hash"`
+	TreeHash     string              `json:"tree_hash"`
+	PatchHash    string              `json:"patch_hash"`
+	ParentRevID  string              `json:"parent_rev_id,omitempty"`
+	Summary      string              `json:"summary,omitempty"`
+	ChangedFiles []ChangedFileEntry  `json:"changed_files"`
+	Findings     []ValidationFinding `json:"findings,omitempty"`
+	CreatedAt    time.Time           `json:"created_at"`
 }
 
 // ChangedFileEntry records file status in a review revision.
 type ChangedFileEntry struct {
-	Path        string   `json:"path"`
-	Status      string   `json:"status"` // added, modified, deleted
-	SourceIDs   []string `json:"source_ids"`
-	OldHash     string   `json:"old_hash,omitempty"`
-	NewHash     string   `json:"new_hash,omitempty"`
-	Additions   int      `json:"additions"`
-	Deletions   int      `json:"deletions"`
+	Path      string   `json:"path"`
+	Status    string   `json:"status"` // added, modified, deleted
+	SourceIDs []string `json:"source_ids"`
+	OldHash   string   `json:"old_hash,omitempty"`
+	NewHash   string   `json:"new_hash,omitempty"`
+	Additions int      `json:"additions"`
+	Deletions int      `json:"deletions"`
 }
 
 // ValidationFinding captures issues discovered during domain validation (hledger check, remind, etc.)
@@ -155,7 +155,7 @@ type ApplyJournal struct {
 	MigrationID  string    `json:"migration_id"`
 	RevisionID   string    `json:"revision_id"`
 	PatchHash    string    `json:"patch_hash"`
-	Status       string    `json:"status"` // preparing, applying, applied, rolling_back, rolled_back, failed
+	Status       string    `json:"status"`     // preparing, applying, applied, rolling_back, rolled_back, failed
 	Operations   string    `json:"operations"` // JSON list of file write/delete operations
 	ErrorMessage string    `json:"error_message,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`

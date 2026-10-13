@@ -18,54 +18,54 @@ import (
 // Config is the typed view of the OPENLIA_* settings consumed by the
 // operator. Secret values are deliberately not part of Config.
 type Config struct {
-	RepositoryRoot              string
-	RuntimeRoot                 string
-	InstallRoot                 string
-	ProjectName                 string
-	Timezone                    string
-	NetworkName                 string
-	ComposeFile                 string
-	ComposeProjectDir           string
-	GeneratedCompose            string
-	DataRoot                    string
-	SystemSkillsRoot            string
-	LochoRoot                   string
-	SecretDir                   string
-	SecretFile                  string
-	BackupRoot                  string
-	BackupRetention             int
-	BackupRecipient             string
-	BackupSchedule              string
-	BackupScheduleEnabled       bool
-	WorkspaceGitSchedule        string
-	WorkspaceGitEnabled         bool
-	BackupRemoteRetention       int
-	BackupDestinations          []BackupDestination
-	BackupNamespaceRoot         string
-	OperatorConfigFile          string
-	MetaRoot                    string
-	StateFile                   string
-	LocalMode                   bool
-	Provider                    string
-	Model                       string
-	OutputLanguage              string
-	OpenLiaVersion              string
-	OpenLiaRevision             string
-	FallbackProviders           []FallbackProviderConfig
-	HermesImage                 string
-	HermesVersion               string
-	LochoImage                  string
-	LochoVersion                string
-	LochoX8664SHA256            string
-	LochoARM64SHA256            string
-	LochoRelayConfig            string
-	LochoRelaySecrets           string
-	EnabledSkills               []string
-	IngestionMaxConcurrentJobs  int
-	SkillsConfigured            bool
-	ExternalNetwork             string
-	APIEnabled                  bool
-	APIHost                     string
+	RepositoryRoot                string
+	RuntimeRoot                   string
+	InstallRoot                   string
+	ProjectName                   string
+	Timezone                      string
+	NetworkName                   string
+	ComposeFile                   string
+	ComposeProjectDir             string
+	GeneratedCompose              string
+	DataRoot                      string
+	SystemSkillsRoot              string
+	LochoRoot                     string
+	SecretDir                     string
+	SecretFile                    string
+	BackupRoot                    string
+	BackupRetention               int
+	BackupRecipient               string
+	BackupSchedule                string
+	BackupScheduleEnabled         bool
+	WorkspaceGitSchedule          string
+	WorkspaceGitEnabled           bool
+	BackupRemoteRetention         int
+	BackupDestinations            []BackupDestination
+	BackupNamespaceRoot           string
+	OperatorConfigFile            string
+	MetaRoot                      string
+	StateFile                     string
+	LocalMode                     bool
+	Provider                      string
+	Model                         string
+	OutputLanguage                string
+	OpenLiaVersion                string
+	OpenLiaRevision               string
+	FallbackProviders             []FallbackProviderConfig
+	HermesImage                   string
+	HermesVersion                 string
+	LochoImage                    string
+	LochoVersion                  string
+	LochoX8664SHA256              string
+	LochoARM64SHA256              string
+	LochoRelayConfig              string
+	LochoRelaySecrets             string
+	EnabledSkills                 []string
+	IngestionMaxConcurrentJobs    int
+	SkillsConfigured              bool
+	ExternalNetwork               string
+	APIEnabled                    bool
+	APIHost                       string
 	WorkspaceUIHost               string
 	WorkspaceUIPort               int
 	WorkspaceUIPublicOrigin       string
@@ -87,14 +87,14 @@ type Config struct {
 	OpenWebUIAllowedEmails        []string
 	OpenWebUIEnableOAuthSignup    bool
 	OpenWebUIDataRoot             string
-	LochoHostEnabled            bool
-	LochoHostRoot               string
-	LochoHostConfig             string
-	LochoHostStateRoot          string
-	RuntimeUID                  int
-	RuntimeGID                  int
-	ServiceRoles                map[string]string
-	ConfiguredHosts             []string
+	LochoHostEnabled              bool
+	LochoHostRoot                 string
+	LochoHostConfig               string
+	LochoHostStateRoot            string
+	RuntimeUID                    int
+	RuntimeGID                    int
+	ServiceRoles                  map[string]string
+	ConfiguredHosts               []string
 }
 
 // BackupDestination describes a target-side remote backup store. Credentials

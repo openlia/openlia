@@ -17,10 +17,10 @@ import (
 
 // ApplyOperation describes a single file action in the atomic apply sequence.
 type ApplyOperation struct {
-	Type     string `json:"type"` // write, delete
-	Path     string `json:"path"` // relative path
-	OldHash  string `json:"old_hash,omitempty"`
-	NewHash  string `json:"new_hash,omitempty"`
+	Type    string `json:"type"` // write, delete
+	Path    string `json:"path"` // relative path
+	OldHash string `json:"old_hash,omitempty"`
+	NewHash string `json:"new_hash,omitempty"`
 }
 
 // StoredApplyJournal is the persisted on-disk format for crash recovery.

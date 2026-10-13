@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -53,13 +52,7 @@ func validateBackupCredentialReferences(destination BackupDestinationConfig) err
 }
 
 func validateAWSProfile(profile string) error {
-	if profile == "" {
-		return nil
-	}
-	if len(profile) > 128 || strings.TrimSpace(profile) != profile || strings.ContainsAny(profile, "\r\n[]") {
-		return fmt.Errorf("AWS profile must be a non-empty name without control characters or brackets")
-	}
-	return nil
+	return awscredentials.ValidateProfile(profile)
 }
 
 func loadS3AWSConfig(ctx context.Context, region, credentialsFile, profile, label string) (aws.Config, error) {

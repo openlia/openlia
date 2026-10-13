@@ -12,6 +12,17 @@ type Values struct {
 	SessionToken    string
 }
 
+// ValidateProfile validates an AWS profile name against injection and control characters.
+func ValidateProfile(profile string) error {
+	if profile == "" {
+		return nil
+	}
+	if len(profile) > 128 || strings.TrimSpace(profile) != profile || strings.ContainsAny(profile, "\r\n[]") {
+		return fmt.Errorf("AWS profile must be a non-empty name without control characters or brackets")
+	}
+	return nil
+}
+
 func Read(path, profile string) (Values, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
