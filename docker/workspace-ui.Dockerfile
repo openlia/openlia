@@ -30,8 +30,9 @@ RUN apt-get update \
     && useradd --system --uid 10000 --gid 10000 --home-dir /nonexistent --shell /usr/sbin/nologin openlia
 
 COPY packages/workspace-ui/dist/ /opt/openlia/workspace-ui/
+COPY release.sha256 /opt/openlia/release.sha256
 RUN find /opt/openlia/workspace-ui -type d -exec chmod 0755 {} + \
-    && find /opt/openlia/workspace-ui -type f -exec chmod 0644 {} + \
+    && find /opt/openlia -type f -exec chmod 0644 {} + \
     && chmod 0755 /opt/openlia /opt/openlia/workspace-ui
 
 COPY --chmod=0755 operator/linux-amd64/openlia-operator /usr/local/lib/openlia/openlia-operator-amd64
@@ -41,4 +42,3 @@ RUN printf '#!/bin/sh\ncase "$(uname -m)" in\n  x86_64|amd64) exec /usr/local/li
     && ln -s /usr/local/bin/openlia-operator /usr/local/bin/openlia
 
 USER openlia
-

@@ -32,6 +32,7 @@ export interface WorkspaceHandlerOptions {
   maxEditableBytes?: number;
   maxDownloadBytes?: number;
   maxTreeEntries?: number;
+  releaseSha256?: string | undefined;
   authRequired?: boolean;
   authProvider?: "password" | "firebase" | "none";
   allowedEmails?: string[] | undefined;
@@ -281,6 +282,7 @@ export function createWorkspaceHandler(
   });
   const staticRoot = options.staticRoot ?? join(import.meta.dir, "public");
   const publicOrigin = normalizeOrigin(options.publicOrigin);
+  const releaseSha256 = options.releaseSha256?.trim() || undefined;
   if (options.publicOrigin && !publicOrigin)
     throw new Error("workspace-ui public origin is invalid");
   const hasAllowedEmails = Boolean(
@@ -305,7 +307,12 @@ export function createWorkspaceHandler(
     try {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/health") {
-        return json({ schema: 1, ok: true, service: "workspace-ui" });
+        return json({
+          schema: 1,
+          ok: true,
+          service: "workspace-ui",
+          ...(releaseSha256 ? { release_sha256: releaseSha256 } : {}),
+        });
       }
       if (request.method === "GET" && url.pathname.startsWith("/assets/")) {
         return (

@@ -34,6 +34,8 @@ type deployment interface {
 	removeFile(ctx context.Context, destination string) error
 	uploadRelease(ctx context.Context, archive []byte, digest string) error
 	activateRelease(ctx context.Context) error
+	releaseDigest(ctx context.Context) (string, error)
+	workspaceUIReleaseDigest(ctx context.Context) (string, error)
 	bootstrap(ctx context.Context) ([]byte, error)
 	deploy(ctx context.Context, action string, start bool, component string) ([]byte, error)
 	health(ctx context.Context, allowStopped, providerCheck bool) ([]byte, error)
@@ -61,6 +63,43 @@ func (remote Remote) rootPath(parts ...string) string {
 
 func (remote Remote) releasePath() string {
 	return remote.rootPath("releases", remote.Config.Version)
+}
+
+func (remote Remote) releaseDigest(ctx context.Context) (string, error) {
+	path := remote.rootPath("current", "release.sha256")
+	command := "if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then sudo -n cat -- " + shellQuote(path) + "; else cat -- " + shellQuote(path) + "; fi"
+	raw, err := remote.ssh(ctx, command, nil)
+	if err != nil {
+		return "", err
+	}
+	return normalizeReleaseDigest(raw)
+}
+
+func (remote Remote) workspaceUIReleaseDigest(ctx context.Context) (string, error) {
+	if remote.Config.WorkspaceUIHost == "" {
+		return "", nil
+	}
+	root := remote.rootPath("current")
+	base := filepath.Join(root, "docker", "compose.yaml")
+	generated := filepath.Join(root, "docker", "compose.generated.yaml")
+	compose := remote.composeEnvironment() + " docker compose --project-name " + shellQuote(remote.Config.Project) + " --project-directory " + shellQuote(filepath.Join(root, "docker")) + " -f " + shellQuote(base)
+	probe := "bun -e " + shellQuote(fmt.Sprintf("fetch('http://127.0.0.1:%d/health').then(async response => { if (!response.ok) process.exit(1); console.log(await response.text()) })", remote.Config.WorkspaceUIPort))
+	command := "set -eu; if [ -f " + shellQuote(generated) + " ]; then " + compose + " -f " + shellQuote(generated) + " exec -T workspace-ui " + probe + "; else " + compose + " exec -T workspace-ui " + probe + "; fi"
+	raw, err := remote.ssh(ctx, command, nil)
+	if err != nil {
+		return "", err
+	}
+	return parseWorkspaceUIReleaseDigest(raw)
+}
+
+func parseWorkspaceUIReleaseDigest(raw []byte) (string, error) {
+	var payload struct {
+		ReleaseSHA256 string `json:"release_sha256"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(raw))), &payload); err != nil {
+		return "", fmt.Errorf("parse workspace UI health response: %w", err)
+	}
+	return normalizeReleaseDigest([]byte(payload.ReleaseSHA256))
 }
 
 func (remote Remote) ssh(ctx context.Context, command string, input []byte) ([]byte, error) {
@@ -841,6 +880,36 @@ func (local Local) workspaceGit(ctx context.Context, action string) ([]byte, err
 
 func (local Local) releasePath() string {
 	return local.rootPath("releases", local.Config.Version)
+}
+
+func (local Local) releaseDigest(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	raw, err := os.ReadFile(local.rootPath("current", "release.sha256"))
+	if err != nil {
+		return "", err
+	}
+	return normalizeReleaseDigest(raw)
+}
+
+func (local Local) workspaceUIReleaseDigest(ctx context.Context) (string, error) {
+	if local.Config.WorkspaceUIHost == "" {
+		return "", nil
+	}
+	root := local.rootPath("current")
+	base := filepath.Join(root, "docker", "compose.yaml")
+	generated := filepath.Join(root, "docker", "compose.generated.yaml")
+	args := []string{"docker", "compose", "--project-name", local.Config.Project, "--project-directory", filepath.Join(root, "docker"), "-f", base}
+	if _, err := os.Stat(generated); err == nil {
+		args = append(args, "-f", generated)
+	}
+	args = append(args, "exec", "-T", "workspace-ui", "bun", "-e", fmt.Sprintf("fetch('http://127.0.0.1:%d/health').then(async response => { if (!response.ok) process.exit(1); console.log(await response.text()) })", local.Config.WorkspaceUIPort))
+	raw, err := local.run(ctx, args...)
+	if err != nil {
+		return "", err
+	}
+	return parseWorkspaceUIReleaseDigest(raw)
 }
 
 func (local Local) uploadRelease(ctx context.Context, archive []byte, digest string) error {

@@ -17,6 +17,21 @@ func TestOperationCommandIncludesTimezone(t *testing.T) {
 	}
 }
 
+func TestParseWorkspaceUIReleaseDigest(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	got, err := parseWorkspaceUIReleaseDigest([]byte(`{"schema":1,"ok":true,"release_sha256":"` + digest + `"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != digest {
+		t.Fatalf("release digest = %q, want %q", got, digest)
+	}
+
+	if _, err := parseWorkspaceUIReleaseDigest([]byte(`{"schema":1,"ok":true}`)); err == nil {
+		t.Fatal("missing Workspace UI release digest was accepted")
+	}
+}
+
 func TestOperationCommandPropagatesBackupCredentialInputs(t *testing.T) {
 	config := defaultConfig()
 	config.Target = "operator@example.test"
