@@ -216,7 +216,7 @@ func generateAttachmentsFile(config Config) error {
 	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIAuthRequired, config.WorkspaceUIPasswordHashFile, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIAllowedEmails, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain); err != nil {
 		return err
 	}
-	if err := validateOpenWebUI(config.OpenWebUIHost, config.OpenWebUIPort); err != nil {
+	if err := validateOpenWebUI(config.OpenWebUIHost, config.OpenWebUIPort, config.OpenWebUIGoogleClientID, config.OpenWebUIGoogleClientSecret, config.OpenWebUIURL, config.OpenWebUIAllowedDomains, config.OpenWebUIAllowedEmails, config.OpenWebUIEnableOAuthSignup); err != nil {
 		return err
 	}
 	if config.LochoHostEnabled {
@@ -400,6 +400,21 @@ func generateAttachmentsFile(config Config) error {
 			builder.WriteString("      WEBUI_AUTH: \"True\"\n")
 		} else {
 			builder.WriteString("      WEBUI_AUTH: \"False\"\n")
+		}
+		if config.OpenWebUIGoogleClientID != "" {
+			builder.WriteString("      ENABLE_OAUTH: \"True\"\n")
+			builder.WriteString(fmt.Sprintf("      GOOGLE_CLIENT_ID: %q\n", config.OpenWebUIGoogleClientID))
+			builder.WriteString(fmt.Sprintf("      WEBUI_URL: %q\n", config.OpenWebUIURL))
+			if config.OpenWebUIEnableOAuthSignup {
+				builder.WriteString("      ENABLE_OAUTH_SIGNUP: \"True\"\n")
+			} else {
+				builder.WriteString("      ENABLE_OAUTH_SIGNUP: \"False\"\n")
+			}
+			builder.WriteString("      OAUTH_MERGE_ACCOUNTS_BY_EMAIL: \"True\"\n")
+			builder.WriteString("      ENABLE_LOGIN_FORM: \"False\"\n")
+			if len(config.OpenWebUIAllowedDomains) > 0 {
+				builder.WriteString(fmt.Sprintf("      OAUTH_ALLOWED_DOMAINS: %q\n", strings.Join(config.OpenWebUIAllowedDomains, ",")))
+			}
 		}
 		builder.WriteString("    networks:\n      - openlia-private\n")
 		fmt.Fprintf(&builder, "    healthcheck:\n      test: [\"CMD\", \"python3\", \"-c\", %q]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n", openWebUIHealthProbe)
@@ -1003,7 +1018,13 @@ func EnsureOpenWebUISecrets(config Config) error {
 	}
 
 	content := fmt.Sprintf("OPENAI_API_KEY=%s\nWEBUI_SECRET_KEY=%s\n", apiKey, webuiSecret)
+	if config.OpenWebUIGoogleClientSecret != "" {
+		content += fmt.Sprintf("GOOGLE_CLIENT_SECRET=%s\n", config.OpenWebUIGoogleClientSecret)
+	}
 	syncWebUIDatabaseKey(filepath.Join(config.OpenWebUIDataRoot, "webui.db"), apiKey)
+	if len(config.OpenWebUIAllowedEmails) > 0 {
+		syncWebUIAllowedUsers(filepath.Join(config.OpenWebUIDataRoot, "webui.db"), config.OpenWebUIAllowedEmails)
+	}
 	if err := AtomicWriteFile(openWebUIEnvPath, []byte(content), 0o600); err != nil {
 		return err
 	}
@@ -1025,5 +1046,87 @@ func syncWebUIDatabaseKey(dbPath, apiKey string) {
 		}
 	}
 	pyScript := fmt.Sprintf("import sqlite3, json; conn = sqlite3.connect(%q); conn.execute('UPDATE config SET value = ? WHERE key = \"openai.api_keys\"', (json.dumps([%q]),)); conn.commit(); conn.close()", dbPath, apiKey)
+	_ = exec.Command("python3", "-c", pyScript).Run()
+}
+
+func syncWebUIAllowedUsers(dbPath string, allowedEmails []string) {
+	if len(allowedEmails) == 0 {
+		return
+	}
+	encoded, err := json.Marshal(allowedEmails)
+	if err != nil {
+		return
+	}
+	pyScript := fmt.Sprintf(`import sqlite3, json, time, uuid
+
+db_path = %q
+allowed_emails = json.loads(%q)
+
+conn = sqlite3.connect(db_path)
+cursor = conn.cursor()
+
+# Ensure user and auth tables exist
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS "user" (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'pending',
+    profile_image_url TEXT NOT NULL DEFAULT '/user.png',
+    api_key TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_active_at INTEGER NOT NULL,
+    settings TEXT,
+    info TEXT,
+    oauth_sub TEXT
+);
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS "auth" (
+    id VARCHAR NOT NULL PRIMARY KEY,
+    email VARCHAR,
+    password TEXT,
+    active BOOLEAN
+);
+""")
+
+now = int(time.time())
+
+for index, email in enumerate(allowed_emails):
+    clean_email = email.strip()
+    if not clean_email:
+        continue
+    target_role = "admin" if index == 0 else "user"
+    cursor.execute('SELECT id, role FROM "user" WHERE email = ?', (clean_email,))
+    existing = cursor.fetchone()
+    if existing:
+        user_id, current_role = existing
+        if current_role != target_role:
+            cursor.execute('UPDATE "user" SET role = ?, updated_at = ? WHERE id = ?', (target_role, now, user_id))
+    else:
+        user_id = str(uuid.uuid4())
+        name = clean_email.split("@")[0]
+        cursor.execute(
+            'INSERT INTO "user" (id, name, email, role, profile_image_url, created_at, updated_at, last_active_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            (user_id, name, clean_email, target_role, "/user.png", now, now, now),
+        )
+
+    # Ensure corresponding auth table row exists and is active
+    cursor.execute('SELECT id FROM "auth" WHERE id = ?', (user_id,))
+    if cursor.fetchone():
+        cursor.execute('UPDATE "auth" SET email = ?, active = 1 WHERE id = ?', (clean_email, user_id))
+    else:
+        cursor.execute('INSERT INTO "auth" (id, email, password, active) VALUES (?, ?, ?, ?)', (user_id, clean_email, "", 1))
+
+# Demote any users whose email is not in allowed_emails to pending
+placeholders = ",".join("?" for _ in allowed_emails)
+cursor.execute(f'UPDATE "user" SET role = "pending", updated_at = ? WHERE email NOT IN ({placeholders}) AND role != "pending"', [now] + allowed_emails)
+
+conn.commit()
+conn.close()
+`, dbPath, string(encoded))
+
 	_ = exec.Command("python3", "-c", pyScript).Run()
 }

@@ -1170,6 +1170,191 @@ func TestGeneratedAttachmentsContainOpenWebUI(t *testing.T) {
 	}
 }
 
+func TestGeneratedAttachmentsContainOpenWebUIGoogleOAuth(t *testing.T) {
+	repo := t.TempDir()
+	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
+	config := testConfig(repo, runtimeRoot)
+	config.OpenWebUIHost = "127.0.0.1"
+	config.OpenWebUIPort = 8090
+	config.OpenWebUIImage = "ghcr.io/open-webui/open-webui:main"
+	config.OpenWebUIAuth = true
+	config.OpenWebUIGoogleClientID = "test-client-id.apps.googleusercontent.com"
+	config.OpenWebUIGoogleClientSecret = "test-client-secret-12345"
+	config.OpenWebUIURL = "http://127.0.0.1:8090"
+	config.OpenWebUIAllowedDomains = []string{"example.com", "company.org"}
+	config.OpenWebUIAllowedEmails = []string{"admin@example.com", "user@company.org"}
+	config.OpenWebUIEnableOAuthSignup = false
+
+	if err := os.MkdirAll(filepath.Join(repo, "docker"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(config.SecretDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.SecretFile, []byte("COPILOT_GITHUB_TOKEN=gho_testtoken\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateAttachments(config); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(config.GeneratedCompose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+
+	for _, expected := range []string{
+		"ENABLE_OAUTH: \"True\"",
+		"GOOGLE_CLIENT_ID: \"test-client-id.apps.googleusercontent.com\"",
+		"WEBUI_URL: \"http://127.0.0.1:8090\"",
+		"ENABLE_OAUTH_SIGNUP: \"False\"",
+		"OAUTH_MERGE_ACCOUNTS_BY_EMAIL: \"True\"",
+		"ENABLE_LOGIN_FORM: \"False\"",
+		"OAUTH_ALLOWED_DOMAINS: \"example.com,company.org\"",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("generated Compose missing %q:\n%s", expected, text)
+		}
+	}
+
+	// Secret MUST NOT be leaked in Compose
+	if strings.Contains(text, "test-client-secret-12345") {
+		t.Fatalf("Google client secret leaked into generated compose file:\n%s", text)
+	}
+
+	// Secret MUST be present in open-webui.env with 0600 permissions
+	openWebUIEnvPath := filepath.Join(config.SecretDir, "open-webui.env")
+	envData, err := os.ReadFile(openWebUIEnvPath)
+	if err != nil {
+		t.Fatalf("open-webui.env missing: %v", err)
+	}
+	envText := string(envData)
+	if !strings.Contains(envText, "GOOGLE_CLIENT_SECRET=test-client-secret-12345") {
+		t.Fatalf("open-webui.env missing GOOGLE_CLIENT_SECRET:\n%s", envText)
+	}
+	if info, err := os.Stat(openWebUIEnvPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("open-webui.env has unsafe permissions: %v", err)
+	}
+
+	// Verify database users and auth credentials were seeded
+	dbPath := filepath.Join(config.OpenWebUIDataRoot, "webui.db")
+	verifyCmd := exec.Command("python3", "-c", fmt.Sprintf(`import sqlite3
+conn = sqlite3.connect(%q)
+c = conn.cursor()
+c.execute("SELECT email, role FROM \"user\" ORDER BY email")
+rows = c.fetchall()
+assert ("admin@example.com", "admin") in rows, f"missing admin: {rows}"
+assert ("user@company.org", "user") in rows, f"missing user: {rows}"
+
+c.execute("SELECT email, active FROM \"auth\" ORDER BY email")
+auth_rows = c.fetchall()
+assert ("admin@example.com", 1) in auth_rows, f"missing auth admin: {auth_rows}"
+assert ("user@company.org", 1) in auth_rows, f"missing auth user: {auth_rows}"
+conn.close()
+`, dbPath))
+	if output, err := verifyCmd.CombinedOutput(); err != nil {
+		t.Fatalf("webui user seeding verification failed: %v\nOutput: %s", err, string(output))
+	}
+}
+
+func TestOpenWebUILifecycleToggleOffAndReenable(t *testing.T) {
+	repo := t.TempDir()
+	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
+	config := testConfig(repo, runtimeRoot)
+	if err := os.MkdirAll(filepath.Join(repo, "docker"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(config.SecretDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.SecretFile, []byte("COPILOT_GITHUB_TOKEN=gho_testtoken\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Initial deployment with Open WebUI enabled and Google OAuth
+	config.OpenWebUIHost = "127.0.0.1"
+	config.OpenWebUIPort = 8090
+	config.OpenWebUIImage = "ghcr.io/open-webui/open-webui:main"
+	config.OpenWebUIAuth = true
+	config.OpenWebUIGoogleClientID = "client-id-1"
+	config.OpenWebUIGoogleClientSecret = "client-secret-1"
+	config.OpenWebUIURL = "http://127.0.0.1:8090"
+	config.OpenWebUIAllowedEmails = []string{"initial@example.com"}
+
+	if err := GenerateAttachments(config); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(config.GeneratedCompose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "open-webui:") {
+		t.Fatal("generated compose missing open-webui when enabled")
+	}
+
+	dbPath := filepath.Join(config.OpenWebUIDataRoot, "webui.db")
+	verifyInitial := exec.Command("python3", "-c", fmt.Sprintf(`import sqlite3
+conn = sqlite3.connect(%q)
+c = conn.cursor()
+c.execute("SELECT email, role FROM \"user\" WHERE email = 'initial@example.com'")
+row = c.fetchone()
+assert row == ("initial@example.com", "admin"), f"unexpected row: {row}"
+conn.close()
+`, dbPath))
+	if output, err := verifyInitial.CombinedOutput(); err != nil {
+		t.Fatalf("initial user verification failed: %v\nOutput: %s", err, string(output))
+	}
+
+	// 2. Turning feature off: host is empty
+	configDisabled := config
+	configDisabled.OpenWebUIHost = ""
+	if err := GenerateAttachments(configDisabled); err != nil {
+		t.Fatal(err)
+	}
+	dataDisabled, err := os.ReadFile(configDisabled.GeneratedCompose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(dataDisabled), "open-webui:") {
+		t.Fatal("open-webui still present in generated compose when disabled")
+	}
+	// Verify persistent data directory remains intact
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("webui.db was unexpectedly deleted when feature turned off: %v", err)
+	}
+
+	// 3. Re-enabling with Google Sign In and updated allowed emails
+	configReenabled := config
+	configReenabled.OpenWebUIHost = "127.0.0.1"
+	configReenabled.OpenWebUIAllowedEmails = []string{"newowner@example.com", "initial@example.com", "family@example.com"}
+	if err := GenerateAttachments(configReenabled); err != nil {
+		t.Fatal(err)
+	}
+	dataReenabled, err := os.ReadFile(configReenabled.GeneratedCompose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dataReenabled), "open-webui:") {
+		t.Fatal("open-webui missing from compose when re-enabled")
+	}
+
+	// Verify database was reconciled: newowner is admin, initial and family are user
+	verifyReenabled := exec.Command("python3", "-c", fmt.Sprintf(`import sqlite3
+conn = sqlite3.connect(%q)
+c = conn.cursor()
+c.execute("SELECT email, role FROM \"user\" ORDER BY email")
+rows = dict(c.fetchall())
+assert rows.get("newowner@example.com") == "admin", f"newowner role incorrect: {rows}"
+assert rows.get("initial@example.com") == "user", f"initial role incorrect: {rows}"
+assert rows.get("family@example.com") == "user", f"family role incorrect: {rows}"
+conn.close()
+`, dbPath))
+	if output, err := verifyReenabled.CombinedOutput(); err != nil {
+		t.Fatalf("re-enabled user verification failed: %v\nOutput: %s", err, string(output))
+	}
+}
+
 func TestGeneratedAttachmentsContainLochoHostForBothUIs(t *testing.T) {
 	repo := t.TempDir()
 	runtimeRoot := filepath.Join(t.TempDir(), "runtime")

@@ -34,6 +34,13 @@ password_hash = ""
 host = "127.0.0.1"
 port = 8090
 auth = true
+# Google Sign-In (OAuth 2.0):
+# google_client_id = "your-google-client-id.apps.googleusercontent.com"
+# google_client_secret = "your-google-client-secret"
+# url = "http://127.0.0.1:8090"
+# allowed_emails = ["owner@example.com", "family@example.com"]
+# allowed_domains = ["example.com"] # optional domain restriction
+# enable_oauth_signup = false # false enforces only pre-seeded allowed_emails can login
 
 [locho-host]
 # Set to true to start the private locho-host sidecar container on the server

@@ -495,7 +495,7 @@ func Healthcheck(ctx context.Context, config Config, compose Compose, allowStopp
 					}
 				} else if service == "open-webui" {
 					expectedHost, expectedPort := config.OpenWebUIHost, config.OpenWebUIPort
-					endpointErr := validateOpenWebUI(expectedHost, expectedPort)
+					endpointErr := validateOpenWebUI(expectedHost, expectedPort, config.OpenWebUIGoogleClientID, config.OpenWebUIGoogleClientSecret, config.OpenWebUIURL, config.OpenWebUIAllowedDomains, config.OpenWebUIAllowedEmails, config.OpenWebUIEnableOAuthSignup)
 					published, portErr := compose.Run(ctx, "port", service, "8080")
 					binding := strings.TrimSpace(string(published.Stdout))
 					expectedBinding := fmt.Sprintf("%s:%d", expectedHost, expectedPort)
