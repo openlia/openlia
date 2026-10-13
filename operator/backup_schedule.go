@@ -228,7 +228,8 @@ func waitForBackupScheduler(ctx context.Context, compose Compose) error {
 		result, err := compose.Run(ctx, "--profile", "backup", "ps", "--format", "{{.State}} {{.Health}}", "backup-scheduler")
 		if err == nil {
 			status := strings.TrimSpace(string(result.Stdout))
-			if strings.HasPrefix(status, "running") && strings.Contains(status, "healthy") {
+			fields := strings.Fields(status)
+			if len(fields) == 2 && fields[0] == "running" && fields[1] == "healthy" {
 				return nil
 			}
 		}

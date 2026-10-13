@@ -37,6 +37,9 @@ chmod 0644 "$config_copy"
 
 exec 9>/run/openlia/operation.lock
 if ! flock -n 9; then
+    # Another OpenLia operation owns the shared lock. The scheduler is alive;
+    # let its healthcheck reflect that without racing the active operation.
+    touch /run/openlia/last-success
     exit 0
 fi
 
