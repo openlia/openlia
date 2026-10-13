@@ -442,16 +442,16 @@ func (d *DB) GetJobSummary(migrationID string) (map[string]int, error) {
 
 // MigrationProgressInfo represents live progress metrics and ETA.
 type MigrationProgressInfo struct {
-	Total             int       `json:"total"`
-	Completed         int       `json:"completed"`
-	Succeeded         int       `json:"succeeded"`
-	Running           int       `json:"running"`
-	Pending           int       `json:"pending"`
-	Failed            int       `json:"failed"`
-	Percent           int       `json:"percent"`
-	CurrentFile       string    `json:"current_file,omitempty"`
-	AvgDurationSec    int       `json:"avg_duration_sec,omitempty"`
-	ETASec            int       `json:"eta_seconds,omitempty"`
+	Total             int        `json:"total"`
+	Completed         int        `json:"completed"`
+	Succeeded         int        `json:"succeeded"`
+	Running           int        `json:"running"`
+	Pending           int        `json:"pending"`
+	Failed            int        `json:"failed"`
+	Percent           int        `json:"percent"`
+	CurrentFile       string     `json:"current_file,omitempty"`
+	AvgDurationSec    int        `json:"avg_duration_sec,omitempty"`
+	ETASec            int        `json:"eta_seconds,omitempty"`
 	EstimatedFinishAt *time.Time `json:"estimated_finish_at,omitempty"`
 }
 

@@ -31,18 +31,18 @@ var (
 	}
 
 	ignoredDirs = map[string]bool{
-		".git":         true,
-		".svn":         true,
-		".hg":          true,
-		"node_modules": true,
-		"__pycache__":  true,
-		".venv":        true,
-		"venv":         true,
-		".tox":         true,
+		".git":          true,
+		".svn":          true,
+		".hg":           true,
+		"node_modules":  true,
+		"__pycache__":   true,
+		".venv":         true,
+		"venv":          true,
+		".tox":          true,
 		".pytest_cache": true,
-		".cache":       true,
-		"dist":         true,
-		"build":        true,
+		".cache":        true,
+		"dist":          true,
+		"build":         true,
 	}
 )
 

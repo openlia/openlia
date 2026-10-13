@@ -66,27 +66,27 @@ func ValidateServiceRole(role string) error {
 }
 
 type Config struct {
-	Schema                     int
-	Version                    string
-	Mode                       string
-	Target                     string
-	InstallRoot                string
-	Project                    string
-	Model                      string
-	OutputLanguage             string
-	FallbackProviders          []FallbackProviderConfig
-	Timezone                   string
-	Provider                   string
-	ExternalNetwork            string
-	HermesImage                string
-	HermesTag                  string
-	HermesDigest               string
-	LochoImage                 string
-	LochoVersion               string
-	LochoX8664SHA256           string
-	LochoARM64SHA256           string
-	APIEnabled                 bool
-	APIHost                    string
+	Schema                        int
+	Version                       string
+	Mode                          string
+	Target                        string
+	InstallRoot                   string
+	Project                       string
+	Model                         string
+	OutputLanguage                string
+	FallbackProviders             []FallbackProviderConfig
+	Timezone                      string
+	Provider                      string
+	ExternalNetwork               string
+	HermesImage                   string
+	HermesTag                     string
+	HermesDigest                  string
+	LochoImage                    string
+	LochoVersion                  string
+	LochoX8664SHA256              string
+	LochoARM64SHA256              string
+	APIEnabled                    bool
+	APIHost                       string
 	WorkspaceUIHost               string
 	WorkspaceUIPort               int
 	WorkspaceUIPublicOrigin       string
@@ -107,23 +107,23 @@ type Config struct {
 	OpenWebUIAllowedEmails        []string
 	OpenWebUIEnableOAuthSignup    bool
 	LochoHostEnabled              bool
-	LochoRelayConfigSource     string
-	LochoRelaySecretsSource    string
-	SecretSource               string
-	ReleaseSource              string
-	EnabledSkills              []string
-	IngestionMaxConcurrentJobs int
-	BackupIdentityFile         string
-	BackupKnownHosts           string
-	BackupRecipient            string
-	BackupSchedule             string
-	BackupScheduleEnabled      bool
-	BackupRemoteRetention      int
-	BackupDestinations         []BackupDestinationConfig
-	WorkspaceGitSchedule       string
-	WorkspaceGitEnabled        bool
-	Services                   []ServiceHostConfig
-	OpenLiaBrowser             OpenLiaBrowserConfig
+	LochoRelayConfigSource        string
+	LochoRelaySecretsSource       string
+	SecretSource                  string
+	ReleaseSource                 string
+	EnabledSkills                 []string
+	IngestionMaxConcurrentJobs    int
+	BackupIdentityFile            string
+	BackupKnownHosts              string
+	BackupRecipient               string
+	BackupSchedule                string
+	BackupScheduleEnabled         bool
+	BackupRemoteRetention         int
+	BackupDestinations            []BackupDestinationConfig
+	WorkspaceGitSchedule          string
+	WorkspaceGitEnabled           bool
+	Services                      []ServiceHostConfig
+	OpenLiaBrowser                OpenLiaBrowserConfig
 }
 
 type BackupDestinationConfig struct {

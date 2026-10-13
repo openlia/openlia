@@ -3,7 +3,7 @@ GO ?= go
 VENV ?= .venv
 PYTHON ?= $(shell if [ -f "$(VENV)/bin/python3" ]; then echo "$(VENV)/bin/python3"; else echo "python3"; fi)
 
-.PHONY: help build build-host build-cli build-operator build-operator-linux-amd64 build-operator-linux-arm64 test lint compose-config venv bun-install bun-check bun-build skills-test skills-verify workspace-templates-test clean-logs smoke smoke-local smoke-local-live
+.PHONY: help build build-host build-cli build-operator build-operator-linux-amd64 build-operator-linux-arm64 test test-go lint lint-go format-go compose-config venv bun-install bun-check bun-build skills-test skills-verify workspace-templates-test clean-logs smoke smoke-local smoke-local-live
 
 help:
 	@printf '%s\n' \
@@ -14,6 +14,9 @@ help:
 		'build-operator-linux-amd64  Build the Linux amd64 operator artifact' \
 		'build-operator-linux-arm64  Build the Linux arm64 operator artifact' \
 		'test               Run Go, Python, skill, and operator tests' \
+		'test-go            Run Go unit and integration tests with race detector' \
+		'format-go          Format all Go source files' \
+		'lint-go            Run go vet and formatting checks on Go source files' \
 		'venv               Create local virtualenv and install dependencies from requirements-dev.txt' \
 		'skills-test        Run offline skill self-tests' \
 		'workspace-templates-test  Validate bundled workspace and skill templates' \
@@ -58,12 +61,22 @@ venv:
 test:
 	$(MAKE) workspace-templates-test
 	$(MAKE) bun-install bun-check bun-build
-	go test ./...
-	go vet ./...
+	$(MAKE) test-go
 	$(PYTHON) -m py_compile tests/smoke.py
 	$(PYTHON) -m unittest tests.test_openlia_policy_plugin
 	$(PYTHON) -m unittest tests.test_openlia_ingestion
 	for script in profile/skills/*/scripts/*.py; do $(PYTHON) "$$script" --self-test; done
+
+test-go:
+	$(GO) test -race ./...
+	$(GO) vet ./...
+
+format-go:
+	gofmt -s -w main.go cli operator cmd internal
+
+lint-go:
+	gofmt -d main.go cli operator cmd internal
+	$(GO) vet ./...
 
 bun-install:
 	bun install --frozen-lockfile --ignore-scripts

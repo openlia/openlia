@@ -42,10 +42,10 @@ func DecodeTextWithBOM(data []byte) (string, error) {
 
 // CSVTable describes a parsed CSV/TSV with header and row counts.
 type CSVTable struct {
-	Delimiter   rune
-	Header      []string
-	RowCount    int
-	SampleRows  [][]string
+	Delimiter    rune
+	Header       []string
+	RowCount     int
+	SampleRows   [][]string
 	HasMultiline bool
 }
 
@@ -101,10 +101,10 @@ func ParseCSV(data []byte, maxSampleRows int) (*CSVTable, error) {
 	}
 
 	return &CSVTable{
-		Delimiter:   delimiter,
-		Header:      header,
-		RowCount:    rowCount,
-		SampleRows:  sampleRows,
+		Delimiter:    delimiter,
+		Header:       header,
+		RowCount:     rowCount,
+		SampleRows:   sampleRows,
 		HasMultiline: hasMultiline,
 	}, nil
 }
