@@ -481,7 +481,7 @@ func commandLifecycle(options Options, action string, args []string, assets fs.F
 		if _, err := deployment.operation(ctx, "attachments", nil, "generate", "--json"); err != nil {
 			return fail(options, ExitFailure, "attachment Compose generation failed: "+err.Error(), nil)
 		}
-		if _, err := deployment.operation(ctx, "profile", nil, "deploy", "--json"); err != nil {
+		if _, err := deployment.operation(ctx, "deploy", nil, "profile", "--json"); err != nil {
 			return fail(options, ExitFailure, "profile deployment failed: "+err.Error(), nil)
 		}
 	}

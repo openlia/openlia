@@ -31,6 +31,10 @@ installation may contain only starter data.
   personal claims. Hermes runtime memory is a cache or context layer, not an
   authority. Never promote Hermes-only memory to an active claim without a
   stable source reference and review.
+- Treat Hermes-managed `memories/USER.md` and `memories/MEMORY.md` as compact
+  entry lists owned by Hermes. Do not seed Markdown templates, fill blank
+  profile fields, or rewrite their delimiters from OpenLia; use Hermes' memory
+  tool for runtime memory changes.
 - Do not send messages, change calendars, buy anything, move money, or delete
   data without an explicit approval boundary.
 - When referencing or linking to workspace documents or skills, format them using canonical URIs (`openlia://workspace/<path>` and `openlia://skills/<path>`). Inside workspace markdown files, document-relative paths (`./sub.md`) are also supported. Never embed environment-specific HTTP origins in workspace files.

@@ -131,22 +131,6 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 	if err := ensureRuntimeOwner(memoriesDir, config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
 		return BootstrapResult{}, err
 	}
-	userSource := filepath.Join(profileRoot, "USER.md")
-	userDest := filepath.Join(memoriesDir, "USER.md")
-	if _, err := os.Stat(userSource); err == nil {
-		if err := copyOnce(userSource, userDest, 0o600); err != nil {
-			return BootstrapResult{}, err
-		}
-		if _, err := os.Stat(userDest); err == nil {
-			if err := ensureRuntimeOwner(userDest, config.RuntimeUID, config.RuntimeGID, 0o600); err != nil {
-				return BootstrapResult{}, err
-			}
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return BootstrapResult{}, err
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return BootstrapResult{}, err
-	}
 	workspace := filepath.Join(config.DataRoot, "workspace")
 	if err := EnsureDir(workspace, 0o700); err != nil {
 		return BootstrapResult{}, err
@@ -208,8 +192,11 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 		return BootstrapResult{}, err
 	}
 	if _, err := os.Stat(filepath.Join(profileRoot, "skills")); err == nil {
-		profile := NewProfileOperator(config)
-		if _, err := profile.Sync(); err != nil {
+		if len(composers) > 0 {
+			if _, err := syncProfileAndRefresh(ctx, config, composers[0]); err != nil {
+				return BootstrapResult{}, err
+			}
+		} else if _, err := NewProfileOperator(config).Sync(); err != nil {
 			return BootstrapResult{}, err
 		}
 	}

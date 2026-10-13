@@ -61,7 +61,7 @@ func RunContext(ctx context.Context, args []string, input io.Reader, output, err
 		if len(args) > 1 || (len(args) == 1 && args[0] != "sync") {
 			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("profile accepts sync"))
 		}
-		result, err := NewProfileOperator(config).Sync()
+		result, err := syncProfileAndRefresh(ctx, config, NewCompose(config, nil))
 		if err != nil {
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
@@ -405,13 +405,9 @@ func runDeploy(ctx context.Context, config Config, args []string, output, errorO
 		if err != nil {
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
-		result, err := NewProfileOperator(config).Sync()
+		result, err := syncProfileAndRefresh(ctx, config, NewCompose(config, nil))
 		if err != nil {
 			_ = RecordChange(config, "profile", "failed", backup.Archive, "profile synchronization failed", now)
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		if err := refreshProtectedSkillRuntime(ctx, config, NewCompose(config, nil)); err != nil {
-			_ = RecordChange(config, "profile", "failed", backup.Archive, "protected skill reload failed", now)
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
 		if err := RecordChange(config, "profile", "ok", backup.Archive, "profile assets synchronized", now); err != nil {
@@ -426,6 +422,17 @@ func runDeploy(ctx context.Context, config Config, args []string, output, errorO
 		return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 	}
 	return emit(output, result, jsonOutput, fmt.Sprintf("openlia deploy: action=%s state=%s", result.Action, result.State))
+}
+
+func syncProfileAndRefresh(ctx context.Context, config Config, compose Compose) (ProfileSyncResult, error) {
+	result, err := NewProfileOperator(config).Sync()
+	if err != nil {
+		return ProfileSyncResult{}, err
+	}
+	if err := refreshProtectedSkillRuntime(ctx, config, compose); err != nil {
+		return ProfileSyncResult{}, err
+	}
+	return result, nil
 }
 
 func refreshProtectedSkillRuntime(ctx context.Context, config Config, compose Compose) error {
