@@ -14,11 +14,36 @@ import { ApiError, type WorkspaceApi } from "./api";
 import { createMockWorkspaceApi } from "./mockApi";
 import { buildCanonicalWorkspaceUri } from "./openliaLinks";
 
+const firebaseMocks = vi.hoisted(() => {
+  type Account = { displayName: string | null; email: string | null };
+  let initialAccount: Account | null = null;
+
+  return {
+    setInitialAccount(account: Account | null) {
+      initialAccount = account;
+    },
+    signInWithGoogle: vi.fn(),
+    signOutFirebase: vi.fn(async () => undefined),
+    subscribeToFirebaseAuth: vi.fn(
+      (_config: unknown, onAccountChange: (account: Account | null) => void) => {
+        onAccountChange(initialAccount);
+        return () => undefined;
+      },
+    ),
+  };
+});
+
+vi.mock("./firebase", () => firebaseMocks);
+
 afterEach(() => {
   cleanup();
   window.history.replaceState(null, "", "/");
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  firebaseMocks.signInWithGoogle.mockReset();
+  firebaseMocks.signOutFirebase.mockReset();
+  firebaseMocks.signOutFirebase.mockResolvedValue(undefined);
+  firebaseMocks.setInitialAccount(null);
 });
 
 function setEditorText(editor: HTMLElement, value: string): void {
@@ -29,6 +54,32 @@ function setEditorText(editor: HTMLElement, value: string): void {
       changes: { from: 0, insert: value, to: view.state.doc.length },
     });
   });
+}
+
+function createFirebaseApi(
+  baseApi: WorkspaceApi,
+  loginWithFirebase: WorkspaceApi["loginWithFirebase"] = async () => ({
+    ok: true,
+    schema: 1,
+  }),
+): WorkspaceApi {
+  return {
+    ...baseApi,
+    async loadSession() {
+      return {
+        auth_provider: "firebase",
+        auth_required: true,
+        authenticated: false,
+        firebase_config: {
+          apiKey: "dummy-key",
+          authDomain: "dummy.firebaseapp.com",
+          projectId: "dummy-project",
+        },
+        schema: 1,
+      };
+    },
+    loginWithFirebase,
+  };
 }
 
 describe("workspace application", () => {
@@ -426,6 +477,174 @@ describe("workspace application", () => {
     expect(screen.queryByText("Authorized User")).toBeNull();
     expect(screen.queryByText(/@/)).toBeNull();
     expect(screen.queryByLabelText("Password")).toBeNull();
+  });
+
+  test("shows the denied Google account and lets the user sign it out", async () => {
+    const baseApi = createMockWorkspaceApi({ scenario: "auth" });
+    const api: WorkspaceApi = {
+      ...baseApi,
+      async loadSession() {
+        return {
+          auth_provider: "firebase",
+          auth_required: true,
+          authenticated: false,
+          firebase_config: {
+            apiKey: "dummy-key",
+            authDomain: "dummy.firebaseapp.com",
+            projectId: "dummy-project",
+          },
+          schema: 1,
+        };
+      },
+      async loginWithFirebase() {
+        throw new ApiError(403, {
+          error: "forbidden_user",
+          ok: false,
+          schema: 1,
+        });
+      },
+    };
+    firebaseMocks.signInWithGoogle.mockResolvedValueOnce({
+      account: {
+        displayName: "Alex Johnson",
+        email: "alex@example.com",
+      },
+      idToken: "firebase-token",
+    });
+
+    render(<App api={api} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Sign in with Google" }),
+    );
+
+    expect(await screen.findByText("Alex Johnson")).toBeInTheDocument();
+    expect(screen.getByText("alex@example.com")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Access denied: The account signed in is not authorized for this workspace.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Use another Google account" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign out of Google" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("alex@example.com")).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Sign in with Google" }),
+      ).toBeInTheDocument();
+    });
+    expect(firebaseMocks.signOutFirebase).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: "dummy-project" }),
+    );
+  });
+
+  test("lets a denied account switch to another Google account", async () => {
+    let attempts = 0;
+    const baseApi = createMockWorkspaceApi({ scenario: "auth" });
+    const api = createFirebaseApi(baseApi, async (idToken) => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new ApiError(403, {
+            error: "forbidden_user",
+            ok: false,
+            schema: 1,
+          });
+        }
+        return baseApi.loginWithFirebase(idToken);
+      });
+    firebaseMocks.signInWithGoogle
+      .mockResolvedValueOnce({
+        account: { displayName: "Alex Johnson", email: "alex@example.com" },
+        idToken: "denied-token",
+      })
+      .mockResolvedValueOnce({
+        account: { displayName: "Taylor Smith", email: "taylor@example.com" },
+        idToken: "authorized-token",
+      });
+
+    render(<App api={api} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Sign in with Google" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Use another Google account" }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "notes.md" }),
+    ).toBeInTheDocument();
+    expect(firebaseMocks.signInWithGoogle).toHaveBeenCalledTimes(2);
+  });
+
+  test("shows a restored Firebase account before workspace authorization", async () => {
+    firebaseMocks.setInitialAccount({
+      displayName: "Taylor Smith",
+      email: "taylor@example.com",
+    });
+
+    render(
+      <App api={createFirebaseApi(createMockWorkspaceApi({ scenario: "auth" }))} />,
+    );
+
+    expect(await screen.findByText("Taylor Smith")).toBeInTheDocument();
+    expect(screen.getByText("taylor@example.com")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Use another Google account" }),
+    ).toBeInTheDocument();
+  });
+
+  test("does not show an error when the Google popup is cancelled", async () => {
+    firebaseMocks.signInWithGoogle.mockRejectedValueOnce(
+      new Error("auth/popup-closed-by-user"),
+    );
+    render(
+      <App api={createFirebaseApi(createMockWorkspaceApi({ scenario: "auth" }))} />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Sign in with Google" }),
+    );
+
+    await waitFor(() => {
+      expect(firebaseMocks.signInWithGoogle).toHaveBeenCalledOnce();
+      expect(screen.queryByText(/Google sign-in could not be completed/)).toBeNull();
+    });
+  });
+
+  test("keeps the account visible when Google sign-out fails", async () => {
+    const api = createFirebaseApi(
+      createMockWorkspaceApi({ scenario: "auth" }),
+      async () => {
+        throw new ApiError(403, {
+          error: "forbidden_user",
+          ok: false,
+          schema: 1,
+        });
+      },
+    );
+    firebaseMocks.signInWithGoogle.mockResolvedValueOnce({
+      account: { displayName: "Alex Johnson", email: "alex@example.com" },
+      idToken: "denied-token",
+    });
+    firebaseMocks.signOutFirebase.mockRejectedValueOnce(
+      new Error("sign_out_failed"),
+    );
+
+    render(<App api={api} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Sign in with Google" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Sign out of Google" }),
+    );
+
+    expect(
+      await screen.findByText("Google sign-out could not be completed. Try again."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("alex@example.com")).toBeInTheDocument();
   });
 
   test("keeps workspace files visible when Git status is unavailable", async () => {
