@@ -295,3 +295,38 @@ func TestWorkspaceUIFirebaseAuthValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenWebUIGoogleOAuthValidation(t *testing.T) {
+	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
+	config.OpenWebUIHost = "127.0.0.1"
+	config.OpenWebUIPort = 8090
+	config.OpenWebUIGoogleClientID = "123-abc.apps.googleusercontent.com"
+	config.OpenWebUIGoogleClientSecret = "secret-xyz"
+	config.OpenWebUIURL = "https://chat.example.com"
+	config.OpenWebUIAllowedDomains = []string{"example.com", "corp.org"}
+	config.OpenWebUIAllowedEmails = []string{"alice@example.com", "bob@corp.org"}
+	config.OpenWebUIEnableOAuthSignup = false
+
+	if err := config.ValidatePaths(); err != nil {
+		t.Fatalf("valid Google OAuth config was rejected: %v", err)
+	}
+
+	invalidConfigs := []func(*Config){
+		func(c *Config) { c.OpenWebUIGoogleClientID = "" },
+		func(c *Config) { c.OpenWebUIGoogleClientSecret = "" },
+		func(c *Config) { c.OpenWebUIURL = "" },
+		func(c *Config) { c.OpenWebUIURL = "invalid-url" },
+		func(c *Config) { c.OpenWebUIAllowedDomains = []string{"user@domain.com"} },
+		func(c *Config) { c.OpenWebUIAllowedDomains = []string{"space domain.com"} },
+		func(c *Config) { c.OpenWebUIAllowedEmails = []string{"invalid-email"} },
+		func(c *Config) { c.OpenWebUIAllowedEmails = []string{"space in@email.com"} },
+		func(c *Config) { c.OpenWebUIAllowedEmails = nil; c.OpenWebUIEnableOAuthSignup = false },
+	}
+	for i, modify := range invalidConfigs {
+		bad := config
+		modify(&bad)
+		if err := bad.ValidatePaths(); err == nil {
+			t.Fatalf("invalid Google OAuth config case %d was unexpectedly accepted", i)
+		}
+	}
+}
