@@ -1046,6 +1046,7 @@ func TestGeneratedAttachmentsContainWorkspaceUIWhenEnabled(t *testing.T) {
 			repo := t.TempDir()
 			runtimeRoot := filepath.Join(t.TempDir(), "runtime")
 			config := testConfig(repo, runtimeRoot)
+			config.OpenLiaReleaseSHA256 = strings.Repeat("a", 64)
 			config.WorkspaceUIHost = test.host
 			config.WorkspaceUIPort = test.port
 			config.WorkspaceUIAuthRequired = test.host == "0.0.0.0"
@@ -1066,7 +1067,7 @@ func TestGeneratedAttachmentsContainWorkspaceUIWhenEnabled(t *testing.T) {
 					t.Fatalf("generated Compose missing memory mount %q:\n%s", expected, text)
 				}
 			}
-			for _, expected := range []string{"workspace-ui:", "docker/workspace-ui.Dockerfile", test.published, fmt.Sprintf("OPENLIA_WORKSPACE_UI_PORT: \"%d\"", test.port), "OPENLIA_SKILLS_ROOT: /skills", "OPENLIA_INGESTION_ROOT: /ingestion", "target: /workspace", "target: /skills", "target: /ingestion", fmt.Sprintf("user: \"%d:%d\"", config.RuntimeUID, config.RuntimeGID), "cap_drop: [ALL]"} {
+			for _, expected := range []string{"workspace-ui:", "docker/workspace-ui.Dockerfile", "OPENLIA_RELEASE_SHA256: \"" + strings.Repeat("a", 64) + "\"", test.published, fmt.Sprintf("OPENLIA_WORKSPACE_UI_PORT: \"%d\"", test.port), "OPENLIA_SKILLS_ROOT: /skills", "OPENLIA_INGESTION_ROOT: /ingestion", "target: /workspace", "target: /skills", "target: /ingestion", fmt.Sprintf("user: \"%d:%d\"", config.RuntimeUID, config.RuntimeGID), "cap_drop: [ALL]"} {
 				if !strings.Contains(text, expected) {
 					t.Fatalf("generated Compose missing %q:\n%s", expected, text)
 				}
