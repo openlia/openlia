@@ -115,6 +115,27 @@ func TestWaitForBackupSchedulerWaitsForHealthyState(t *testing.T) {
 	}
 }
 
+func TestWaitForBackupSchedulerRejectsUnhealthyState(t *testing.T) {
+	runner := &backupSchedulerUnhealthyStatusRunner{}
+	compose := NewCompose(Config{}, runner)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	err := waitForBackupScheduler(ctx, compose)
+	if err == nil {
+		t.Fatal("waitForBackupScheduler accepted an unhealthy scheduler")
+	}
+}
+
+type backupSchedulerUnhealthyStatusRunner struct{}
+
+func (runner *backupSchedulerUnhealthyStatusRunner) Run(_ context.Context, _ string, args ...string) (CommandResult, error) {
+	if len(args) > 0 && args[len(args)-1] == "backup-scheduler" {
+		return CommandResult{Stdout: []byte("running unhealthy\n")}, nil
+	}
+	return CommandResult{}, nil
+}
+
 func TestEnsureBackupScheduleStateInitializesOnlyWhenMissing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "backup-schedule-state.json")
 	now := time.Date(2026, time.October, 1, 4, 20, 0, 0, time.UTC)
