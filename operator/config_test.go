@@ -270,7 +270,7 @@ func TestOpenWebUIHostValidation(t *testing.T) {
 func TestWorkspaceUIFirebaseAuthValidation(t *testing.T) {
 	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
 	config.WorkspaceUIHost = "0.0.0.0"
-	config.WorkspaceUIAllowedEmail = "alice@example.com"
+	config.WorkspaceUIAllowedEmails = []string{"alice@example.com", "bob@example.com"}
 	config.WorkspaceUIFirebaseProjectID = "demo-project"
 	config.WorkspaceUIFirebaseAPIKey = "AIzaSyFakeKey123"
 	config.WorkspaceUIFirebaseAuthDomain = "demo-project.firebaseapp.com"
@@ -281,7 +281,8 @@ func TestWorkspaceUIFirebaseAuthValidation(t *testing.T) {
 	}
 
 	invalidConfigs := []func(*Config){
-		func(c *Config) { c.WorkspaceUIAllowedEmail = "invalid-email" },
+		func(c *Config) { c.WorkspaceUIAllowedEmails = []string{"invalid-email"} },
+		func(c *Config) { c.WorkspaceUIAllowedEmails = []string{} },
 		func(c *Config) { c.WorkspaceUIFirebaseProjectID = "" },
 		func(c *Config) { c.WorkspaceUIFirebaseAPIKey = "" },
 		func(c *Config) { c.WorkspaceUIFirebaseAuthDomain = "" },

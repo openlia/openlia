@@ -22,9 +22,9 @@ port = 8089
 # Generate via: ./openlia workspace-ui password
 password_hash = ""
 
-# Option B: Firebase Authentication (Google Sign-In only, single user)
+# Option B: Firebase Authentication (Google Sign-In)
 # When configured, password authentication is disabled.
-# allowed_email = "user@example.com"
+# allowed_emails = ["user1@example.com", "user2@example.com"]
 # firebase_project_id = "your-firebase-project-id"
 # firebase_api_key = "AIzaSy..."
 # firebase_auth_domain = "your-firebase-project-id.firebaseapp.com"

@@ -91,7 +91,7 @@ type Config struct {
 	WorkspaceUIPort               int
 	WorkspaceUIPublicOrigin       string
 	WorkspaceUIPasswordHash       string
-	WorkspaceUIAllowedEmail       string
+	WorkspaceUIAllowedEmails      []string
 	WorkspaceUIFirebaseProjectID  string
 	WorkspaceUIFirebaseAPIKey     string
 	WorkspaceUIFirebaseAuthDomain string
@@ -431,8 +431,14 @@ func parseConfigUnchecked(data string) (Config, error) {
 				config.WorkspaceUIPublicOrigin, err = parseString(value)
 			case "workspace-ui.password_hash":
 				config.WorkspaceUIPasswordHash, err = parseString(value)
+			case "workspace-ui.allowed_emails":
+				config.WorkspaceUIAllowedEmails, err = parseStringArray(value)
 			case "workspace-ui.allowed_email":
-				config.WorkspaceUIAllowedEmail, err = parseString(value)
+				var single string
+				single, err = parseString(value)
+				if err == nil && single != "" {
+					config.WorkspaceUIAllowedEmails = []string{single}
+				}
 			case "workspace-ui.firebase_project_id":
 				config.WorkspaceUIFirebaseProjectID, err = parseString(value)
 			case "workspace-ui.firebase_api_key":
@@ -674,7 +680,7 @@ func validateConfig(config Config) error {
 	if config.APIHost != "127.0.0.1" {
 		return errors.New("API host must remain 127.0.0.1; use SSH or a private network for access")
 	}
-	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIPublicOrigin, config.WorkspaceUIPasswordHash, config.WorkspaceUIAllowedEmail, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain, config.LochoHostEnabled); err != nil {
+	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIPublicOrigin, config.WorkspaceUIPasswordHash, config.WorkspaceUIAllowedEmails, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain, config.LochoHostEnabled); err != nil {
 		return err
 	}
 	if config.OpenWebUIHost != "" {
@@ -828,7 +834,7 @@ func validateBackupDestinations(destinations []BackupDestinationConfig) error {
 	return nil
 }
 
-func validateWorkspaceUI(host string, port int, publicOrigin, passwordHash, allowedEmail, firebaseProjectID, firebaseAPIKey, firebaseAuthDomain string, authRequired bool) error {
+func validateWorkspaceUI(host string, port int, publicOrigin, passwordHash string, allowedEmails []string, firebaseProjectID, firebaseAPIKey, firebaseAuthDomain string, authRequired bool) error {
 	if host != "" && (net.ParseIP(host) == nil || host != "127.0.0.1" && host != "0.0.0.0") {
 		return errors.New("workspace-ui.host must be 127.0.0.1 or 0.0.0.0")
 	}
@@ -839,10 +845,15 @@ func validateWorkspaceUI(host string, port int, publicOrigin, passwordHash, allo
 		return err
 	}
 
-	isFirebase := firebaseProjectID != "" || allowedEmail != ""
+	isFirebase := firebaseProjectID != "" || len(allowedEmails) > 0
 	if isFirebase {
-		if allowedEmail == "" || !strings.Contains(allowedEmail, "@") || strings.HasPrefix(allowedEmail, "@") || strings.HasSuffix(allowedEmail, "@") {
-			return errors.New("workspace-ui.allowed_email must be a valid email address")
+		if len(allowedEmails) == 0 {
+			return errors.New("workspace-ui.allowed_emails must contain at least one email address")
+		}
+		for _, email := range allowedEmails {
+			if email == "" || !strings.Contains(email, "@") || strings.HasPrefix(email, "@") || strings.HasSuffix(email, "@") {
+				return errors.New("workspace-ui.allowed_emails must contain valid email addresses")
+			}
 		}
 		if firebaseProjectID == "" {
 			return errors.New("workspace-ui.firebase_project_id is required when Firebase Auth is configured")
@@ -1121,8 +1132,15 @@ func renderConfig(config Config) string {
 		if config.WorkspaceUIPasswordHash != "" {
 			fmt.Fprintf(&builder, "password_hash = %q\n", config.WorkspaceUIPasswordHash)
 		}
-		if config.WorkspaceUIAllowedEmail != "" {
-			fmt.Fprintf(&builder, "allowed_email = %q\n", config.WorkspaceUIAllowedEmail)
+		if len(config.WorkspaceUIAllowedEmails) > 0 {
+			builder.WriteString("allowed_emails = [")
+			for i, email := range config.WorkspaceUIAllowedEmails {
+				if i > 0 {
+					builder.WriteString(", ")
+				}
+				fmt.Fprintf(&builder, "%q", email)
+			}
+			builder.WriteString("]\n")
 		}
 		if config.WorkspaceUIFirebaseProjectID != "" {
 			fmt.Fprintf(&builder, "firebase_project_id = %q\n", config.WorkspaceUIFirebaseProjectID)

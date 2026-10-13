@@ -266,7 +266,7 @@ func TestPublicWorkspaceUIRequiresSupportedPasswordHash(t *testing.T) {
 func TestPublicWorkspaceUISupportsFirebaseAuth(t *testing.T) {
 	config := defaultConfig()
 	config.WorkspaceUIHost = "0.0.0.0"
-	config.WorkspaceUIAllowedEmail = "alice@example.com"
+	config.WorkspaceUIAllowedEmails = []string{"alice@example.com", "bob@example.com"}
 	config.WorkspaceUIFirebaseProjectID = "demo-project"
 	config.WorkspaceUIFirebaseAPIKey = "AIzaSyFakeKey123"
 	config.WorkspaceUIFirebaseAuthDomain = "demo-project.firebaseapp.com"
@@ -281,7 +281,9 @@ func TestPublicWorkspaceUISupportsFirebaseAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse rendered config failed: %v", err)
 	}
-	if parsed.WorkspaceUIAllowedEmail != "alice@example.com" ||
+	if len(parsed.WorkspaceUIAllowedEmails) != 2 ||
+		parsed.WorkspaceUIAllowedEmails[0] != "alice@example.com" ||
+		parsed.WorkspaceUIAllowedEmails[1] != "bob@example.com" ||
 		parsed.WorkspaceUIFirebaseProjectID != "demo-project" ||
 		parsed.WorkspaceUIFirebaseAPIKey != "AIzaSyFakeKey123" ||
 		parsed.WorkspaceUIFirebaseAuthDomain != "demo-project.firebaseapp.com" ||
@@ -289,9 +291,20 @@ func TestPublicWorkspaceUISupportsFirebaseAuth(t *testing.T) {
 		t.Fatalf("Firebase config did not round trip properly: %+v", parsed)
 	}
 
+	// Legacy single allowed_email fallback
+	legacyConfig := strings.Replace(rendered, `allowed_emails = ["alice@example.com", "bob@example.com"]`, `allowed_email = "alice@example.com"`, 1)
+	legacyParsed, err := parseConfig(legacyConfig)
+	if err != nil {
+		t.Fatalf("parse legacy config failed: %v", err)
+	}
+	if len(legacyParsed.WorkspaceUIAllowedEmails) != 1 || legacyParsed.WorkspaceUIAllowedEmails[0] != "alice@example.com" {
+		t.Fatalf("legacy allowed_email was not parsed properly: %+v", legacyParsed)
+	}
+
 	// Missing required fields
 	invalidConfigs := []func(*Config){
-		func(c *Config) { c.WorkspaceUIAllowedEmail = "invalid-email" },
+		func(c *Config) { c.WorkspaceUIAllowedEmails = []string{"invalid-email"} },
+		func(c *Config) { c.WorkspaceUIAllowedEmails = []string{} },
 		func(c *Config) { c.WorkspaceUIFirebaseProjectID = "" },
 		func(c *Config) { c.WorkspaceUIFirebaseAPIKey = "" },
 		func(c *Config) { c.WorkspaceUIFirebaseAuthDomain = "" },

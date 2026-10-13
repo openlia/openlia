@@ -478,7 +478,7 @@ func Healthcheck(ctx context.Context, config Config, compose Compose, allowStopp
 					}
 				} else if service == "workspace-ui" {
 					expectedHost, expectedPort := config.WorkspaceUIHost, config.WorkspaceUIPort
-					endpointErr := validateWorkspaceUI(expectedHost, expectedPort, config.WorkspaceUIAuthRequired, config.WorkspaceUIPasswordHashFile, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIAllowedEmail, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain)
+					endpointErr := validateWorkspaceUI(expectedHost, expectedPort, config.WorkspaceUIAuthRequired, config.WorkspaceUIPasswordHashFile, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIAllowedEmails, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain)
 					published, portErr := compose.Run(ctx, "port", service, strconv.Itoa(expectedPort))
 					binding := strings.TrimSpace(string(published.Stdout))
 					expectedBinding := fmt.Sprintf("%s:%d", expectedHost, expectedPort)

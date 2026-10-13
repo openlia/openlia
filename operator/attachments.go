@@ -213,7 +213,7 @@ func generateAttachmentsWithCompose(ctx context.Context, config Config, compose 
 }
 
 func generateAttachmentsFile(config Config) error {
-	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIAuthRequired, config.WorkspaceUIPasswordHashFile, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIAllowedEmail, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain); err != nil {
+	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIAuthRequired, config.WorkspaceUIPasswordHashFile, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIAllowedEmails, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain); err != nil {
 		return err
 	}
 	if err := validateOpenWebUI(config.OpenWebUIHost, config.OpenWebUIPort); err != nil {
@@ -342,7 +342,7 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("\n")
 		isFirebase := config.WorkspaceUIFirebaseProjectID != ""
 		if isFirebase {
-			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_ALLOWED_EMAIL: %q\n", config.WorkspaceUIAllowedEmail))
+			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS: %q\n", strings.Join(config.WorkspaceUIAllowedEmails, ",")))
 			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_FIREBASE_PROJECT_ID: %q\n", config.WorkspaceUIFirebaseProjectID))
 			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_FIREBASE_API_KEY: %q\n", config.WorkspaceUIFirebaseAPIKey))
 			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_FIREBASE_AUTH_DOMAIN: %q\n", config.WorkspaceUIFirebaseAuthDomain))
