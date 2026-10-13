@@ -26,7 +26,12 @@ import type {
   FirebaseClientConfig,
 } from "../shared/api";
 import { ApiError, httpWorkspaceApi, type WorkspaceApi } from "./api";
-import { signInWithGoogle, signOutFirebase } from "./firebase";
+import {
+  signInWithGoogle,
+  signOutFirebase,
+  subscribeToFirebaseAuth,
+  type FirebaseAccount,
+} from "./firebase";
 import { isJournalPath, isMarkdownPath, isRemindPath } from "./CodeEditor";
 import { CreateSkillModal } from "./CreateSkillModal";
 import { ConfigurationPage } from "./ConfigurationPage";
@@ -220,16 +225,20 @@ function ErrorMessage({
 
 function LoginScreen({
   authProvider,
+  firebaseAccount,
   error,
   onGoogleSignIn,
+  onSignOut,
   onSubmit,
   password,
   setPassword,
   submitting,
 }: {
   authProvider?: "password" | "firebase" | "none" | undefined;
+  firebaseAccount: FirebaseAccount | null;
   error: string;
   onGoogleSignIn?: (() => void) | undefined;
+  onSignOut?: (() => void) | undefined;
   onSubmit: () => void;
   password: string;
   setPassword: (value: string) => void;
@@ -261,6 +270,21 @@ function LoginScreen({
 
           {authProvider === "firebase" ? (
             <div className="mt-6 flex flex-col gap-4">
+              {firebaseAccount && (
+                <div className="rounded-box border border-base-content/10 bg-base-200 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-base-content/50">
+                    Google account
+                  </p>
+                  <p className="mt-2 font-semibold">
+                    {firebaseAccount.displayName || "Google account"}
+                  </p>
+                  {firebaseAccount.email && (
+                    <p className="text-sm text-base-content/60">
+                      {firebaseAccount.email}
+                    </p>
+                  )}
+                </div>
+              )}
               <button
                 className="btn btn-primary flex w-full items-center justify-center gap-2"
                 disabled={submitting}
@@ -296,10 +320,22 @@ function LoginScreen({
                         fill="#EA4335"
                       />
                     </svg>
-                    Sign in with Google
+                    {firebaseAccount
+                      ? "Use another Google account"
+                      : "Sign in with Google"}
                   </>
                 )}
               </button>
+              {firebaseAccount && onSignOut && (
+                <button
+                  className="btn btn-ghost w-full"
+                  disabled={submitting}
+                  onClick={onSignOut}
+                  type="button"
+                >
+                  Sign out of Google
+                </button>
+              )}
             </div>
           ) : (
             <form
@@ -513,6 +549,8 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     FirebaseClientConfig | undefined
   >(undefined);
   const [needsLogin, setNeedsLogin] = useState(false);
+  const [firebaseAccount, setFirebaseAccount] =
+    useState<FirebaseAccount | null>(null);
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
@@ -538,6 +576,15 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     file: WorkspaceFile;
     draft: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (authProvider !== "firebase" || !firebaseConfig) {
+      setFirebaseAccount(null);
+      return;
+    }
+
+    return subscribeToFirebaseAuth(firebaseConfig, setFirebaseAccount);
+  }, [authProvider, firebaseConfig]);
 
   const docDirty = file !== null && file.content !== draft;
   const skillDirty =
@@ -1263,8 +1310,9 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     setAuthError("");
     setAuthSubmitting(true);
     try {
-      const idToken = await signInWithGoogle(firebaseConfig);
-      await api.loginWithFirebase(idToken);
+      const signInResult = await signInWithGoogle(firebaseConfig);
+      setFirebaseAccount(signInResult.account);
+      await api.loginWithFirebase(signInResult.idToken);
       setNeedsLogin(false);
       setLoading(true);
       const [
@@ -1323,7 +1371,6 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
         }
       }
     } catch (caught) {
-      void signOutFirebase(firebaseConfig);
       if (caught instanceof ApiError) {
         if (caught.payload?.error === "forbidden_user") {
           setAuthError(
@@ -1354,9 +1401,23 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     }
   }
 
+  async function signOutGoogleAccount() {
+    setAuthError("");
+    setAuthSubmitting(true);
+    try {
+      await api.logout().catch(() => undefined);
+      await signOutFirebase(firebaseConfig);
+      setFirebaseAccount(null);
+    } catch {
+      setAuthError("Google sign-out could not be completed. Try again.");
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }
+
   async function performSignOut() {
     await api.logout().catch(() => undefined);
-    void signOutFirebase(firebaseConfig);
+    await signOutFirebase(firebaseConfig).catch(() => undefined);
     setTree([]);
     setSkills([]);
     setGit(null);
@@ -2298,8 +2359,10 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     return (
       <LoginScreen
         authProvider={authProvider}
+        firebaseAccount={firebaseAccount}
         error={authError}
         onGoogleSignIn={() => void submitGoogleSignIn()}
+        onSignOut={() => void signOutGoogleAccount()}
         onSubmit={() => void submitLogin()}
         password={password}
         setPassword={setPassword}
