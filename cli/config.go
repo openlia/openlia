@@ -433,12 +433,6 @@ func parseConfigUnchecked(data string) (Config, error) {
 				config.WorkspaceUIPasswordHash, err = parseString(value)
 			case "workspace-ui.allowed_emails":
 				config.WorkspaceUIAllowedEmails, err = parseStringArray(value)
-			case "workspace-ui.allowed_email":
-				var single string
-				single, err = parseString(value)
-				if err == nil && single != "" {
-					config.WorkspaceUIAllowedEmails = []string{single}
-				}
 			case "workspace-ui.firebase_project_id":
 				config.WorkspaceUIFirebaseProjectID, err = parseString(value)
 			case "workspace-ui.firebase_api_key":

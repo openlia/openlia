@@ -34,7 +34,6 @@ export interface WorkspaceHandlerOptions {
   maxTreeEntries?: number;
   authRequired?: boolean;
   authProvider?: "password" | "firebase" | "none";
-  allowedEmail?: string | undefined;
   allowedEmails?: string[] | undefined;
   firebaseConfig?:
     | {
@@ -285,14 +284,12 @@ export function createWorkspaceHandler(
   if (options.publicOrigin && !publicOrigin)
     throw new Error("workspace-ui public origin is invalid");
   const hasAllowedEmails = Boolean(
-    (options.allowedEmails && options.allowedEmails.length > 0) ||
-      options.allowedEmail,
+    options.allowedEmails && options.allowedEmails.length > 0,
   );
   const isFirebase =
     options.authProvider === "firebase" ||
     Boolean(options.firebaseConfig?.projectId && hasAllowedEmails);
   const authenticator = new Authenticator({
-    allowedEmail: options.allowedEmail,
     allowedEmails: options.allowedEmails,
     authProvider: options.authProvider ?? (isFirebase ? "firebase" : undefined),
     firebaseConfig: options.firebaseConfig,

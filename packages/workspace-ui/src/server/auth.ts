@@ -36,7 +36,6 @@ export type AuthProvider = "password" | "firebase" | "none";
 export interface AuthenticatorOptions {
   required: boolean;
   authProvider?: AuthProvider | undefined;
-  allowedEmail?: string | undefined;
   allowedEmails?: string[] | undefined;
   firebaseConfig?: FirebaseClientConfig | undefined;
   firebaseJwksUrl?: string | undefined;
@@ -81,10 +80,6 @@ export class Authenticator {
         const trimmed = email.toLowerCase().trim();
         if (trimmed) emails.add(trimmed);
       }
-    }
-    if (options.allowedEmail) {
-      const trimmed = options.allowedEmail.toLowerCase().trim();
-      if (trimmed) emails.add(trimmed);
     }
     this.allowedEmails = emails;
     this.firebaseConfig = options.firebaseConfig;

@@ -282,11 +282,7 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 		return Config{}, err
 	}
 	config.WorkspaceUIPasswordHashFile = getOr(values, "OPENLIA_WORKSPACE_UI_PASSWORD_HASH_FILE", filepath.Join(runtimeRoot, "secrets", "workspace-ui-password.hash"))
-	rawAllowedEmails := values["OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS"]
-	if rawAllowedEmails == "" {
-		rawAllowedEmails = values["OPENLIA_WORKSPACE_UI_ALLOWED_EMAIL"]
-	}
-	if rawAllowedEmails != "" {
+	if rawAllowedEmails := values["OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS"]; rawAllowedEmails != "" {
 		for _, email := range strings.Split(rawAllowedEmails, ",") {
 			trimmed := strings.TrimSpace(email)
 			if trimmed != "" {

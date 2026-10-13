@@ -27,10 +27,7 @@ const bind = process.env.OPENLIA_WORKSPACE_UI_BIND ?? "127.0.0.1";
 const port = portFromEnvironment(process.env.OPENLIA_WORKSPACE_UI_PORT);
 const authRequired = process.env.OPENLIA_WORKSPACE_UI_AUTH_REQUIRED === "true";
 const passwordHashFile = process.env.OPENLIA_WORKSPACE_UI_PASSWORD_HASH_FILE;
-const rawAllowedEmails =
-  process.env.OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS ??
-  process.env.OPENLIA_WORKSPACE_UI_ALLOWED_EMAIL ??
-  "";
+const rawAllowedEmails = process.env.OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS ?? "";
 const allowedEmails = rawAllowedEmails
   .split(",")
   .map((e) => e.trim())
