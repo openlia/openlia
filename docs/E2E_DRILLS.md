@@ -102,9 +102,15 @@ Verify the compiled version:
    ```bash
    OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia init --json
    ```
-   *(If the stack is already initialized and you are updating after code changes, use `./openlia deploy`)*:
+   If the stack is already initialized and you are applying configuration,
+   secret, or attachment changes, use `./openlia deploy`:
    ```bash
    OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia deploy
+   ```
+   If you rebuilt the OpenLia CLI and target operator and need to transfer
+   those release assets to the target, use `./openlia update openlia` instead:
+   ```bash
+   OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia update openlia
    ```
 
 3. Inspect stack status and runtime components:
