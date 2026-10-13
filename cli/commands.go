@@ -34,6 +34,9 @@ func Run(args []string, assets fs.FS) int {
 		usage(os.Stdout)
 		return ExitOK
 	}
+	if options.Release && remaining[0] != "deploy" {
+		return fail(options, ExitUsage, "--release is only supported by deploy", nil)
+	}
 
 	switch remaining[0] {
 	case "init":
@@ -43,7 +46,7 @@ func Run(args []string, assets fs.FS) int {
 	case "doctor":
 		return commandHealth(options, remaining[1:], true)
 	case "deploy", "start", "stop", "restart":
-		return commandLifecycle(options, remaining[0], remaining[1:])
+		return commandLifecycle(options, remaining[0], remaining[1:], assets)
 	case "uninstall":
 		return commandUninstall(options, remaining[1:])
 	case "logs":
@@ -84,6 +87,8 @@ func splitCommonFlags(args []string) (Options, []string, error) {
 			options.JSON = true
 		case "--non-interactive":
 			options.NonInteractive = true
+		case "--release":
+			options.Release = true
 		case "--follow":
 			options.Follow = true
 		case "--check-providers":
@@ -363,7 +368,8 @@ func commandHealth(options Options, args []string, strict bool) int {
 	}
 	ctx, cancel := remoteContext()
 	defer cancel()
-	raw, err := newDeployment(config).health(ctx, !strict, options.ProviderCheck)
+	deployment := newDeployment(config)
+	raw, err := deployment.health(ctx, !strict, options.ProviderCheck)
 	if err != nil {
 		if len(raw) == 0 {
 			return fail(options, ExitFailure, err.Error(), map[string]any{"mode": config.Mode, "target": config.Target, "root": config.InstallRoot})
@@ -389,6 +395,12 @@ func commandHealth(options Options, args []string, strict bool) int {
 		if json.Unmarshal(raw, &health) != nil {
 			health = map[string]any{"output": redact(string(raw))}
 		}
+		release := map[string]any{"configured_version": config.Version}
+		if digest, digestErr := deployment.releaseDigest(ctx); digestErr == nil {
+			release["active_sha256"] = digest
+		} else {
+			release["active_sha256_error"] = redact(digestErr.Error())
+		}
 		return writeResult(options, map[string]any{
 			"schema":  1,
 			"ok":      true,
@@ -396,12 +408,18 @@ func commandHealth(options Options, args []string, strict bool) int {
 			"target":  config.Target,
 			"root":    config.InstallRoot,
 			"openlia": config.Version,
+			"release": release,
 			"hermes":  map[string]any{"tag": config.HermesTag, "digest": config.HermesDigest},
 			"locho":   map[string]any{"version": config.LochoVersion},
 			"health":  health,
 		}, fmt.Sprintf("target=%s\n%s", config.Target, redact(string(raw))))
 	}
-	return writeResult(options, nil, fmt.Sprintf("mode=%s root=%s\n%s", config.Mode, config.InstallRoot, redact(string(raw))))
+	digest, digestErr := deployment.releaseDigest(ctx)
+	releaseStatus := "unknown"
+	if digestErr == nil {
+		releaseStatus = digest
+	}
+	return writeResult(options, nil, fmt.Sprintf("mode=%s root=%s release=%s\n%s", config.Mode, config.InstallRoot, releaseStatus, redact(string(raw))))
 }
 
 func failWithPayload(options Options, code int, message string, fields map[string]any) int {
@@ -420,9 +438,12 @@ func failWithPayload(options Options, code int, message string, fields map[strin
 	return code
 }
 
-func commandLifecycle(options Options, action string, args []string) int {
+func commandLifecycle(options Options, action string, args []string, assets fs.FS) int {
 	if len(args) != 0 {
 		return fail(options, ExitUsage, action+" does not accept positional arguments", nil)
+	}
+	if options.Release && action != "deploy" {
+		return fail(options, ExitUsage, "--release is only supported by deploy", nil)
 	}
 	config, code := configOrError(options)
 	if code != ExitOK {
@@ -431,6 +452,39 @@ func commandLifecycle(options Options, action string, args []string) int {
 	ctx, cancel := remoteContext()
 	defer cancel()
 	deployment := newDeployment(config)
+	var bundled releaseIdentity
+	var installedBefore string
+	if action == "deploy" {
+		if assets == nil {
+			return fail(options, ExitInternal, "deploy requires bundled release assets", nil)
+		}
+		identity, err := bundledReleaseIdentity(assets)
+		if err != nil {
+			return fail(options, ExitInternal, "could not calculate bundled release identity: "+err.Error(), nil)
+		}
+		bundled = identity
+		installedBefore, _ = deployment.releaseDigest(ctx)
+		if !options.Release && installedBefore != "" && installedBefore != bundled.SHA256 {
+			fmt.Fprintf(os.Stderr, "openlia deploy: local release %s differs from installed release %s; applying configuration only. Use openlia deploy --release to publish it.\n", bundled.SHA256, installedBefore)
+		}
+	}
+	if options.Release {
+		if !targetOperatorAssetsAvailable() {
+			return fail(options, ExitPrereq, "OpenLia release deployment requires Linux operator artifacts; run `make build` first", nil)
+		}
+		if _, err := publishOpenLiaRelease(ctx, deployment, assets); err != nil {
+			return fail(options, ExitFailure, "release publication failed: "+err.Error(), nil)
+		}
+		if err := syncLochoSources(ctx, deployment, config); err != nil {
+			return fail(options, ExitFailure, "could not stage Locho relay configuration: "+err.Error(), nil)
+		}
+		if _, err := deployment.operation(ctx, "attachments", nil, "generate", "--json"); err != nil {
+			return fail(options, ExitFailure, "attachment Compose generation failed: "+err.Error(), nil)
+		}
+		if _, err := deployment.operation(ctx, "profile", nil, "deploy", "--json"); err != nil {
+			return fail(options, ExitFailure, "profile deployment failed: "+err.Error(), nil)
+		}
+	}
 	if action == "deploy" || action == "start" || action == "restart" {
 		if err := syncBackupWriterCredentials(ctx, deployment, config); err != nil {
 			return fail(options, ExitFailure, "could not stage backup writer credentials: "+err.Error(), nil)
@@ -491,7 +545,108 @@ func commandLifecycle(options Options, action string, args []string) int {
 			return fail(options, ExitFailure, "workspace Git reconciliation failed: "+err.Error(), map[string]any{"action": action})
 		}
 	}
-	return renderRemote(options, raw, "openlia "+action+": "+redact(string(raw)))
+	if action != "deploy" {
+		return renderRemote(options, raw, "openlia "+action+": "+redact(string(raw)))
+	}
+
+	releaseReport, verifyErr := collectDeploymentReleaseReport(ctx, deployment, config, bundled.SHA256, installedBefore, options.Release)
+	if verifyErr != nil {
+		return fail(options, ExitFailure, "deployment completed but release verification failed: "+verifyErr.Error(), releaseReport.fields())
+	}
+	human := "openlia deploy: release=" + releaseReport.InstalledAfter
+	if !options.Release && !releaseReport.BundledActive {
+		human += "; local bundled release is not active, use `openlia deploy --release` to publish it"
+	} else if releaseReport.UIError != nil {
+		human += "; Workspace UI build identity unavailable: " + releaseReport.UIError.Error()
+	} else {
+		human += "; release verified"
+	}
+	return renderLifecycleResult(options, raw, releaseReport.fields(), human)
+}
+
+func publishOpenLiaRelease(ctx context.Context, deployment deployment, assets fs.FS) (releaseIdentity, error) {
+	archive, digest, err := releaseArchive(assets)
+	if err != nil {
+		return releaseIdentity{}, fmt.Errorf("package bundled release: %w", err)
+	}
+	if err := deployment.uploadRelease(ctx, archive, digest); err != nil {
+		return releaseIdentity{}, fmt.Errorf("upload release: %w", err)
+	}
+	if err := deployment.activateRelease(ctx); err != nil {
+		return releaseIdentity{}, fmt.Errorf("activate release: %w", err)
+	}
+	return releaseIdentity{Version: defaultVersion, SHA256: digest}, nil
+}
+
+type deploymentReleaseReport struct {
+	BundledSHA256  string
+	BeforeSHA256   string
+	InstalledAfter string
+	Published      bool
+	BundledActive  bool
+	WorkspaceUI    string
+	UIVerified     bool
+	UIError        error
+}
+
+func (report deploymentReleaseReport) fields() map[string]any {
+	fields := map[string]any{
+		"bundled_release_sha256":  report.BundledSHA256,
+		"installed_before_sha256": report.BeforeSHA256,
+		"installed_after_sha256":  report.InstalledAfter,
+		"release_published":       report.Published,
+		"bundled_release_active":  report.BundledActive,
+	}
+	if report.WorkspaceUI != "" || report.UIError != nil {
+		fields["workspace_ui_sha256"] = report.WorkspaceUI
+		fields["workspace_ui_verified"] = report.UIVerified
+	}
+	if report.UIError != nil {
+		fields["workspace_ui_verification_error"] = report.UIError.Error()
+	}
+	return fields
+}
+
+func collectDeploymentReleaseReport(ctx context.Context, deployment deployment, config Config, bundledDigest, beforeDigest string, published bool) (deploymentReleaseReport, error) {
+	report := deploymentReleaseReport{
+		BeforeSHA256:  beforeDigest,
+		BundledSHA256: bundledDigest,
+		Published:     published,
+	}
+	installedAfter, err := deployment.releaseDigest(ctx)
+	if err != nil {
+		return report, err
+	}
+	report.InstalledAfter = installedAfter
+	report.BundledActive = installedAfter == bundledDigest
+	if config.WorkspaceUIHost != "" {
+		report.WorkspaceUI, report.UIError = deployment.workspaceUIReleaseDigest(ctx)
+		report.UIVerified = report.UIError == nil && report.WorkspaceUI == installedAfter
+	}
+	if published && !report.BundledActive {
+		return report, fmt.Errorf("active release %s does not match bundled release %s", installedAfter, bundledDigest)
+	}
+	if published && config.WorkspaceUIHost != "" {
+		if report.UIError != nil {
+			return report, fmt.Errorf("Workspace UI build identity unavailable: %w", report.UIError)
+		}
+		if !report.UIVerified {
+			return report, fmt.Errorf("Workspace UI release %s does not match active release %s", report.WorkspaceUI, installedAfter)
+		}
+	}
+	return report, nil
+}
+
+func renderLifecycleResult(options Options, raw []byte, report map[string]any, human string) int {
+	if !options.JSON {
+		return renderRemote(options, raw, human)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(redact(string(raw))), &payload); err != nil {
+		payload = map[string]any{"schema": 1, "ok": true, "output": redact(string(raw))}
+	}
+	payload["release"] = report
+	return writeResult(options, payload, human)
 }
 
 type instructionStatusEnvelope struct {
@@ -762,18 +917,14 @@ func commandUpdate(options Options, args []string, assets fs.FS) int {
 	}
 	if component == "openlia" {
 		if !targetOperatorAssetsAvailable() {
-			return fail(options, ExitPrereq, "OpenLia updates require Linux operator artifacts for the backup scheduler; run `make build` first", nil)
+			return fail(options, ExitPrereq, "OpenLia updates require Linux operator artifacts; run `make build` first", nil)
 		}
-		archive, digest, err := releaseArchive(assets)
+		installedBefore, _ := deployment.releaseDigest(ctx)
+		release, err := publishOpenLiaRelease(ctx, deployment, assets)
 		if err != nil {
-			return fail(options, ExitInternal, err.Error(), nil)
-		}
-		if err := deployment.uploadRelease(ctx, archive, digest); err != nil {
 			return fail(options, ExitFailure, err.Error(), nil)
 		}
-		if err := deployment.activateRelease(ctx); err != nil {
-			return fail(options, ExitFailure, err.Error(), nil)
-		}
+		digest := release.SHA256
 		// A version-isolated release does not inherit generated Compose state.
 		// Generate it before profile backup so running optional services can be
 		// stopped consistently against the newly activated release.
@@ -816,7 +967,11 @@ func commandUpdate(options Options, args []string, assets fs.FS) int {
 				return fail(options, ExitFailure, "workspace Git reconciliation failed: "+err.Error(), nil)
 			}
 		}
-		return renderOpenLiaUpdate(ctx, deployment, options, profileRaw)
+		releaseReport, verifyErr := collectDeploymentReleaseReport(ctx, deployment, config, digest, installedBefore, true)
+		if verifyErr != nil {
+			return fail(options, ExitFailure, "release update completed but verification failed: "+verifyErr.Error(), releaseReport.fields())
+		}
+		return renderOpenLiaUpdate(ctx, deployment, options, profileRaw, releaseReport.fields())
 	}
 	// Runtime image updates intentionally reuse the pinned Compose definition.
 	// The command does not silently change a tag or digest; operators update the
@@ -847,9 +1002,9 @@ func commandUpdate(options Options, args []string, assets fs.FS) int {
 	return renderRemote(options, raw, "openlia update "+component+": pinned runtime reconciled")
 }
 
-func renderOpenLiaUpdate(ctx context.Context, deployment deployment, options Options, raw []byte) int {
+func renderOpenLiaUpdate(ctx context.Context, deployment deployment, options Options, raw []byte, releaseReport map[string]any) int {
 	if options.JSON {
-		return renderRemote(options, raw, "")
+		return renderLifecycleResult(options, raw, releaseReport, "")
 	}
 	var envelope struct {
 		ProfileSync struct {
@@ -859,7 +1014,7 @@ func renderOpenLiaUpdate(ctx context.Context, deployment deployment, options Opt
 	if json.Unmarshal(raw, &envelope) != nil {
 		return fail(options, ExitFailure, "could not parse OpenLia update result", nil)
 	}
-	fmt.Fprintln(os.Stdout, "openlia update openlia: profile assets synchronized")
+	fmt.Fprintf(os.Stdout, "openlia update openlia: profile assets synchronized; release=%v verified\n", releaseReport["installed_after_sha256"])
 	pending := make([]string, 0)
 	for _, item := range envelope.ProfileSync.Instructions.Instructions {
 		if item.UpdateAvailable {

@@ -49,6 +49,22 @@ describe("workspace HTTP handler", () => {
     );
   });
 
+  test("includes the release identity in health when configured", async () => {
+    handler = createWorkspaceHandler({
+      releaseSha256: "a".repeat(64),
+      workspaceRoot: root,
+    });
+
+    const response = await request("/health");
+
+    expect(await response.json()).toEqual({
+      schema: 1,
+      ok: true,
+      release_sha256: "a".repeat(64),
+      service: "workspace-ui",
+    });
+  });
+
   test("lists files while excluding protected paths and symlinks", async () => {
     mkdirSync(join(root, "notes"));
     writeFileSync(join(root, "notes", "readme.md"), "hello");

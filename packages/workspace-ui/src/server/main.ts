@@ -1,5 +1,15 @@
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createWorkspaceHandler } from "./app";
+
+function releaseIdentityFromImage(): string | undefined {
+  try {
+    const value = readFileSync("/opt/openlia/release.sha256", "utf8").trim();
+    return value || undefined;
+  } catch {
+    return process.env.OPENLIA_RELEASE_SHA256 || undefined;
+  }
+}
 
 function portFromEnvironment(value: string | undefined): number {
   const port = Number(value ?? "8089");
@@ -23,6 +33,7 @@ const ingestionRoot = process.env.OPENLIA_INGESTION_ROOT
 const migrationsRoot = process.env.OPENLIA_MIGRATIONS_ROOT
   ? resolve(process.env.OPENLIA_MIGRATIONS_ROOT)
   : undefined;
+const releaseSha256 = releaseIdentityFromImage();
 const bind = process.env.OPENLIA_WORKSPACE_UI_BIND ?? "127.0.0.1";
 const port = portFromEnvironment(process.env.OPENLIA_WORKSPACE_UI_PORT);
 const authRequired = process.env.OPENLIA_WORKSPACE_UI_AUTH_REQUIRED === "true";
@@ -65,6 +76,7 @@ const handler = createWorkspaceHandler({
     : {}),
   ...(ingestionRoot ? { ingestionRoot } : {}),
   ...(migrationsRoot ? { migrationsRoot } : {}),
+  ...(releaseSha256 ? { releaseSha256 } : {}),
   passwordHashFile,
   publicOrigin: process.env.OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN,
   sessionDatabasePath:

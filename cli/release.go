@@ -22,6 +22,27 @@ type releaseFile struct {
 	Data []byte
 }
 
+type releaseIdentity struct {
+	Version string
+	SHA256  string
+}
+
+func bundledReleaseIdentity(assets fs.FS) (releaseIdentity, error) {
+	_, digest, err := releaseArchive(assets)
+	if err != nil {
+		return releaseIdentity{}, err
+	}
+	return releaseIdentity{Version: defaultVersion, SHA256: digest}, nil
+}
+
+func normalizeReleaseDigest(raw []byte) (string, error) {
+	digest := strings.TrimSpace(string(raw))
+	if len(digest) != sha256.Size*2 || strings.Trim(digest, "0123456789abcdef") != "" {
+		return "", fmt.Errorf("invalid release digest %q", digest)
+	}
+	return digest, nil
+}
+
 func collectReleaseFiles(assets fs.FS) ([]releaseFile, error) {
 	files := make([]releaseFile, 0)
 	err := fs.WalkDir(assets, ".", func(name string, entry fs.DirEntry, err error) error {

@@ -105,6 +105,10 @@ func TestConfigRejectsRsyncIdentityMountedIntoHermes(t *testing.T) {
 func TestLoadConfigFromEnv(t *testing.T) {
 	repo := t.TempDir()
 	runtime := filepath.Join(t.TempDir(), "runtime")
+	releaseDigest := strings.Repeat("c", 64)
+	if err := os.WriteFile(filepath.Join(repo, "release.sha256"), []byte(releaseDigest+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	config, err := LoadConfigFromEnv(map[string]string{
 		"OPENLIA_REPO_ROOT":                     repo,
 		"OPENLIA_RUNTIME_ROOT":                  runtime,
@@ -131,7 +135,7 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !config.LocalMode || !config.SkillsConfigured || config.OutputLanguage != "vi" || config.WorkspaceUIHost != "0.0.0.0" || config.WorkspaceUIPort != 8090 || config.WorkspaceUIPublicOrigin != "https://workspace.example.test" || config.OpenWebUIHost != "127.0.0.1" || config.OpenWebUIPort != 8090 || config.OpenWebUIImage != "ghcr.io/open-webui/open-webui:main" || config.OpenWebUIAuth != false || config.LochoX8664SHA256 != strings.Repeat("a", 64) || config.LochoARM64SHA256 != strings.Repeat("b", 64) || len(config.EnabledSkills) != 2 || config.IngestionMaxConcurrentJobs != 2 || config.NetworkName != "example-private" || config.Provider != "copilot" || len(config.FallbackProviders) != 2 || config.FallbackProviders[0].BaseURL != "https://gateway.example.test/v1" || config.FallbackProviders[1].Model != "official-model" {
+	if !config.LocalMode || !config.SkillsConfigured || config.OutputLanguage != "vi" || config.WorkspaceUIHost != "0.0.0.0" || config.WorkspaceUIPort != 8090 || config.WorkspaceUIPublicOrigin != "https://workspace.example.test" || config.OpenWebUIHost != "127.0.0.1" || config.OpenWebUIPort != 8090 || config.OpenWebUIImage != "ghcr.io/open-webui/open-webui:main" || config.OpenWebUIAuth != false || config.OpenLiaReleaseSHA256 != releaseDigest || config.LochoX8664SHA256 != strings.Repeat("a", 64) || config.LochoARM64SHA256 != strings.Repeat("b", 64) || len(config.EnabledSkills) != 2 || config.IngestionMaxConcurrentJobs != 2 || config.NetworkName != "example-private" || config.Provider != "copilot" || len(config.FallbackProviders) != 2 || config.FallbackProviders[0].BaseURL != "https://gateway.example.test/v1" || config.FallbackProviders[1].Model != "official-model" {
 		t.Fatalf("unexpected typed config: %+v", config)
 	}
 	wantImage := toolcatalog.ManagedHermesImage("example", "v2026.9.14", "sha256:99641e57ec762c59e54cb44aa6746b7fc68c18b3c5ddb088af54234c613d9294", toolcatalog.DefaultDebianSnapshot)

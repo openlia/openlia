@@ -122,10 +122,10 @@ skills-verify:
 clean-logs:
 	rm -rf .playwright-mcp/ /tmp/openlia_verify/
 
-deploy-dev: skills-test
-	OPENLIA_CONFIG=$$HOME/.config/openlia/dev/config.toml ./openlia deploy
+deploy-dev: skills-test build
+	OPENLIA_CONFIG=$$HOME/.config/openlia/dev/config.toml ./openlia deploy --release
 
-deploy-prod: skills-test
+deploy-prod: skills-test build
 	OPENLIA_CONFIG=$$HOME/.config/openlia/config.toml ./openlia update openlia
 
 smoke:

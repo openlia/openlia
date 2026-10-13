@@ -27,6 +27,20 @@ func TestDeploymentResultStateRejectsMissingOrInvalidState(t *testing.T) {
 	}
 }
 
+func TestSplitCommonFlagsParsesReleaseAndRejectsItForNonDeployLifecycle(t *testing.T) {
+	options, remaining, err := splitCommonFlags([]string{"--json", "deploy", "--release"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !options.JSON || !options.Release || strings.Join(remaining, " ") != "deploy" {
+		t.Fatalf("options=%+v remaining=%v", options, remaining)
+	}
+
+	if got := Run([]string{"--release", "start"}, nil); got != ExitUsage {
+		t.Fatalf("start --release exit code = %d, want %d", got, ExitUsage)
+	}
+}
+
 func TestAuthSetupPersistsPromptedSourceBeforeDeployment(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.toml")
 	t.Setenv("OPENLIA_CONFIG", configPath)

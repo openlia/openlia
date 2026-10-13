@@ -51,6 +51,7 @@ type Config struct {
 	OutputLanguage                string
 	OpenLiaVersion                string
 	OpenLiaRevision               string
+	OpenLiaReleaseSHA256          string
 	FallbackProviders             []FallbackProviderConfig
 	HermesImage                   string
 	HermesVersion                 string
@@ -217,6 +218,7 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 		OutputLanguage:             getOr(values, "OPENLIA_OUTPUT_LANGUAGE", "en"),
 		OpenLiaVersion:             getOr(values, "OPENLIA_VERSION", "0.1.0"),
 		OpenLiaRevision:            values["OPENLIA_REVISION"],
+		OpenLiaReleaseSHA256:       values["OPENLIA_RELEASE_SHA256"],
 		FallbackProviders:          fallbackProviders,
 		HermesImage:                getOr(values, "OPENLIA_HERMES_IMAGE", "openlia-hermes:v2026.9.14"),
 		HermesVersion:              getOr(values, "OPENLIA_HERMES_VERSION", getOr(values, "HERMES_BASE_TAG", "v2026.9.14")),
@@ -233,6 +235,11 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 		RuntimeUID:                 runtimeUID,
 		RuntimeGID:                 runtimeGID,
 		LochoHostRoot:              filepath.Join(runtimeRoot, "locho-host"),
+	}
+	if config.OpenLiaReleaseSHA256 == "" {
+		if data, readErr := os.ReadFile(filepath.Join(repositoryRoot, "release.sha256")); readErr == nil {
+			config.OpenLiaReleaseSHA256 = strings.TrimSpace(string(data))
+		}
 	}
 	if raw := values["OPENLIA_BACKUP_DESTINATIONS"]; raw != "" {
 		if err := json.Unmarshal([]byte(raw), &config.BackupDestinations); err != nil {

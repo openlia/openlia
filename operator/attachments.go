@@ -330,7 +330,13 @@ func generateAttachmentsFile(config Config) error {
 		passwordHashFile, _ := json.Marshal(config.WorkspaceUIPasswordHashFile)
 		builder.WriteString("  workspace-ui:\n    image: \"${OPENLIA_WORKSPACE_UI_IMAGE:-openlia-workspace-ui:v0.1.0}\"\n")
 		builder.WriteString("    build:\n      context: ..\n      dockerfile: docker/workspace-ui.Dockerfile\n")
+		if config.OpenLiaReleaseSHA256 != "" {
+			builder.WriteString(fmt.Sprintf("      args:\n        OPENLIA_RELEASE_SHA256: %q\n", config.OpenLiaReleaseSHA256))
+		}
 		builder.WriteString(fmt.Sprintf("    command: [\"bun\", \"/opt/openlia/workspace-ui/server.js\"]\n    restart: unless-stopped\n    user: \"%d:%d\"\n    read_only: true\n    tmpfs:\n      - /tmp:rw,noexec,nosuid,size=32m\n    security_opt:\n      - no-new-privileges:true\n    cap_drop: [ALL]\n    environment:\n      OPENLIA_WORKSPACE_ROOT: /workspace\n      OPENLIA_SKILLS_ROOT: /skills\n      OPENLIA_VERSION: %q\n      OPENLIA_REVISION: %q\n      OPENLIA_HERMES_VERSION: %q\n      OPENLIA_LOCHO_VERSION: %q\n      OPENLIA_WORKSPACE_UI_BIND: 0.0.0.0\n      OPENLIA_WORKSPACE_UI_PORT: \"%d\"\n", config.RuntimeUID, config.RuntimeGID, config.OpenLiaVersion, config.OpenLiaRevision, config.HermesVersion, config.LochoVersion, workspaceUIPort))
+		if config.OpenLiaReleaseSHA256 != "" {
+			builder.WriteString(fmt.Sprintf("      OPENLIA_RELEASE_SHA256: %q\n", config.OpenLiaReleaseSHA256))
+		}
 		builder.WriteString("      OPENLIA_INGESTION_ROOT: /ingestion\n")
 		builder.WriteString("      OPENLIA_MEMORIES_ROOT: /memories\n")
 		builder.WriteString("      OPENLIA_MIGRATIONS_ROOT: /migrations\n")

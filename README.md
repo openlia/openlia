@@ -942,6 +942,12 @@ Use a separate operator config when managing another deployment:
 OPENLIA_CONFIG="$HOME/.config/openlia/remote.toml" openlia status
 ```
 
+`openlia deploy` applies configuration using the release already installed on
+the target. After changing OpenLia or Workspace UI source, use
+`openlia deploy --release` to upload and activate the release bundled in the
+local CLI before reconciling services. The deploy result reports release and
+Workspace UI build identities.
+
 Maintenance commands use the selected operator config by default. `uninstall`
 shows the resolved deployment before confirmation; repeated `--local`,
 `--target`, `--root`, or `--project` values are assertions and must match the
