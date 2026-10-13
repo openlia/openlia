@@ -1054,7 +1054,7 @@ describe("workspace HTTP handler", () => {
 
     try {
       const firebaseHandler = createWorkspaceHandler({
-        allowedEmail: "owner@example.com",
+        allowedEmails: ["owner@example.com", "collaborator@example.com"],
         authProvider: "firebase",
         authRequired: true,
         firebaseConfig: {
@@ -1083,6 +1083,7 @@ describe("workspace HTTP handler", () => {
         },
       });
       expect(sessionData["allowed_email"]).toBeUndefined();
+      expect(sessionData["allowed_emails"]).toBeUndefined();
 
       // 2. Password login is rejected when Firebase Auth is active
       const passwordRes = await firebaseHandler(
@@ -1125,23 +1126,36 @@ describe("workspace HTTP handler", () => {
         error: "unverified_email",
       });
 
-      // 5. Firebase login with authorized email succeeds and sets session cookie
-      const validToken = await makeToken("owner@example.com", true);
-      const loginRes = await firebaseHandler(
+      // 5. Firebase login with first authorized email succeeds and sets session cookie
+      const validToken1 = await makeToken("owner@example.com", true);
+      const loginRes1 = await firebaseHandler(
         new Request("http://localhost/api/auth/firebase-login", {
-          body: JSON.stringify({ idToken: validToken }),
+          body: JSON.stringify({ idToken: validToken1 }),
           headers: { "Content-Type": "application/json" },
           method: "POST",
         }),
       );
-      expect(loginRes.status).toBe(200);
-      const cookie = loginRes.headers.get("set-cookie")?.split(";")[0] ?? "";
-      expect(cookie).toContain("openlia_workspace_session=");
+      expect(loginRes1.status).toBe(200);
+      const cookie1 = loginRes1.headers.get("set-cookie")?.split(";")[0] ?? "";
+      expect(cookie1).toContain("openlia_workspace_session=");
 
-      // 6. Accessing protected endpoint with session cookie works
+      // 6. Firebase login with second authorized email also succeeds
+      const validToken2 = await makeToken("collaborator@example.com", true);
+      const loginRes2 = await firebaseHandler(
+        new Request("http://localhost/api/auth/firebase-login", {
+          body: JSON.stringify({ idToken: validToken2 }),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        }),
+      );
+      expect(loginRes2.status).toBe(200);
+      const cookie2 = loginRes2.headers.get("set-cookie")?.split(";")[0] ?? "";
+      expect(cookie2).toContain("openlia_workspace_session=");
+
+      // 7. Accessing protected endpoint with session cookie works
       const treeRes = await firebaseHandler(
         new Request("http://localhost/api/workspace/tree", {
-          headers: { Cookie: cookie },
+          headers: { Cookie: cookie1 },
         }),
       );
       expect(treeRes.status).toBe(200);

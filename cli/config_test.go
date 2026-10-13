@@ -266,7 +266,7 @@ func TestPublicWorkspaceUIRequiresSupportedPasswordHash(t *testing.T) {
 func TestPublicWorkspaceUISupportsFirebaseAuth(t *testing.T) {
 	config := defaultConfig()
 	config.WorkspaceUIHost = "0.0.0.0"
-	config.WorkspaceUIAllowedEmail = "alice@example.com"
+	config.WorkspaceUIAllowedEmails = []string{"alice@example.com", "bob@example.com"}
 	config.WorkspaceUIFirebaseProjectID = "demo-project"
 	config.WorkspaceUIFirebaseAPIKey = "AIzaSyFakeKey123"
 	config.WorkspaceUIFirebaseAuthDomain = "demo-project.firebaseapp.com"
@@ -281,7 +281,9 @@ func TestPublicWorkspaceUISupportsFirebaseAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse rendered config failed: %v", err)
 	}
-	if parsed.WorkspaceUIAllowedEmail != "alice@example.com" ||
+	if len(parsed.WorkspaceUIAllowedEmails) != 2 ||
+		parsed.WorkspaceUIAllowedEmails[0] != "alice@example.com" ||
+		parsed.WorkspaceUIAllowedEmails[1] != "bob@example.com" ||
 		parsed.WorkspaceUIFirebaseProjectID != "demo-project" ||
 		parsed.WorkspaceUIFirebaseAPIKey != "AIzaSyFakeKey123" ||
 		parsed.WorkspaceUIFirebaseAuthDomain != "demo-project.firebaseapp.com" ||
@@ -291,7 +293,8 @@ func TestPublicWorkspaceUISupportsFirebaseAuth(t *testing.T) {
 
 	// Missing required fields
 	invalidConfigs := []func(*Config){
-		func(c *Config) { c.WorkspaceUIAllowedEmail = "invalid-email" },
+		func(c *Config) { c.WorkspaceUIAllowedEmails = []string{"invalid-email"} },
+		func(c *Config) { c.WorkspaceUIAllowedEmails = []string{} },
 		func(c *Config) { c.WorkspaceUIFirebaseProjectID = "" },
 		func(c *Config) { c.WorkspaceUIFirebaseAPIKey = "" },
 		func(c *Config) { c.WorkspaceUIFirebaseAuthDomain = "" },

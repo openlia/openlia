@@ -36,7 +36,7 @@ export type AuthProvider = "password" | "firebase" | "none";
 export interface AuthenticatorOptions {
   required: boolean;
   authProvider?: AuthProvider | undefined;
-  allowedEmail?: string | undefined;
+  allowedEmails?: string[] | undefined;
   firebaseConfig?: FirebaseClientConfig | undefined;
   firebaseJwksUrl?: string | undefined;
   passwordHash?: string | undefined;
@@ -59,7 +59,7 @@ export class Authenticator {
   readonly required: boolean;
   readonly secureCookies: boolean;
   readonly authProvider: AuthProvider;
-  readonly allowedEmail?: string | undefined;
+  readonly allowedEmails: ReadonlySet<string>;
   readonly firebaseConfig?: FirebaseClientConfig | undefined;
   private readonly firebaseJwksUrl?: string | undefined;
   private readonly passwordHash: string;
@@ -74,7 +74,14 @@ export class Authenticator {
     this.secureCookies = options.secureCookies ?? false;
     this.authProvider =
       options.authProvider ?? (options.required ? "password" : "none");
-    this.allowedEmail = options.allowedEmail?.trim();
+    const emails = new Set<string>();
+    if (options.allowedEmails) {
+      for (const email of options.allowedEmails) {
+        const trimmed = email.toLowerCase().trim();
+        if (trimmed) emails.add(trimmed);
+      }
+    }
+    this.allowedEmails = emails;
     this.firebaseConfig = options.firebaseConfig;
     this.firebaseJwksUrl = options.firebaseJwksUrl;
     this.idleTimeoutMs = positiveTimeout(
@@ -100,9 +107,9 @@ export class Authenticator {
       );
     }
     if (this.required && this.authProvider === "firebase") {
-      if (!this.allowedEmail || !this.firebaseConfig?.projectId) {
+      if (this.allowedEmails.size === 0 || !this.firebaseConfig?.projectId) {
         throw new Error(
-          "workspace-ui firebase authentication requires allowedEmail and firebaseConfig.projectId",
+          "workspace-ui firebase authentication requires allowedEmails and firebaseConfig.projectId",
         );
       }
     }
@@ -225,7 +232,7 @@ export class Authenticator {
     if (
       this.authProvider !== "firebase" ||
       !this.firebaseConfig?.projectId ||
-      !this.allowedEmail
+      this.allowedEmails.size === 0
     ) {
       return { kind: "disabled" };
     }
@@ -251,9 +258,8 @@ export class Authenticator {
     }
 
     const tokenEmail = payload.email?.toLowerCase().trim();
-    const expectedEmail = this.allowedEmail.toLowerCase().trim();
 
-    if (!tokenEmail || tokenEmail !== expectedEmail) {
+    if (!tokenEmail || !this.allowedEmails.has(tokenEmail)) {
       this.recordFailure(clientKey, now);
       return { kind: "forbidden_user", email: payload.email };
     }
@@ -303,9 +309,10 @@ export class Authenticator {
   private reconcileVerifier(): void {
     const database = this.database;
     if (!database) return;
+    const sortedEmails = Array.from(this.allowedEmails).sort().join(",");
     const verifierString =
       this.authProvider === "firebase"
-        ? `firebase:${this.firebaseConfig?.projectId}:${this.allowedEmail}`
+        ? `firebase:${this.firebaseConfig?.projectId}:${sortedEmails}`
         : this.passwordHash;
     const verifierHash = digestToken(verifierString);
     const current = database
