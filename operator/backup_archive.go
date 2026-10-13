@@ -100,6 +100,9 @@ func durableHermesPath(relative string, entry fs.DirEntry, bundledGroups map[str
 	if excludedBackupPath(relative) {
 		return false
 	}
+	if isGeneratedArtifactPath(relative) {
+		return false
+	}
 	parts := strings.Split(relative, "/")
 	if len(parts) > 0 && parts[0] == "ingestion" {
 		return false
@@ -125,6 +128,9 @@ func durableHermesPath(relative string, entry fs.DirEntry, bundledGroups map[str
 
 func durableMetaPath(relative string, entry fs.DirEntry) bool {
 	if excludedBackupPath(relative) {
+		return false
+	}
+	if isGeneratedArtifactPath(relative) {
 		return false
 	}
 	if portableMetaGeneratedPath(relative, entry) {

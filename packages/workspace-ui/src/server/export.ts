@@ -28,6 +28,74 @@ const ignoredNoiseBasenames = new Set([
   "thumbs.db",
 ]);
 
+const generatedPathParts = new Set([
+  ".cache",
+  ".curator_backups",
+  ".mypy_cache",
+  ".nox",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".tox",
+  ".venv",
+  "env",
+  "node_modules",
+  "venv",
+  "__pycache__",
+]);
+
+function isGeneratedArtifactPath(path: string): boolean {
+  const normalized = path.replaceAll("\\", "/").toLowerCase();
+  const parts = normalized.split("/");
+  const basename = parts.at(-1) ?? "";
+  return (
+    parts.some((part) => generatedPathParts.has(part)) ||
+    basename.endsWith(".pyc") ||
+    basename.endsWith(".pyo") ||
+    basename.endsWith(".pyd") ||
+    basename.endsWith("$py.class") ||
+    basename === ".coverage" ||
+    basename.startsWith(".coverage.") ||
+    basename.endsWith(".egg-info")
+  );
+}
+
+function isPortableExportExcludedPath(path: string): boolean {
+  const normalized = path.replaceAll("\\", "/").toLowerCase();
+  const parts = normalized.split("/");
+  const basename = parts.at(-1) ?? "";
+  return (
+    isGeneratedArtifactPath(normalized) ||
+    normalized === "sources/document-passwords.toml" ||
+    basename === ".gitignore" ||
+    basename === "agents.md" ||
+    basename === "claude.md" ||
+    basename === ".cursorrules" ||
+    basename === "auth.json" ||
+    normalized.includes(".secret") ||
+    basename.endsWith(".pem") ||
+    basename.endsWith(".key") ||
+    basename.endsWith(".p12") ||
+    basename.endsWith(".pfx") ||
+    normalized === ".env" ||
+    normalized.startsWith(".env.") ||
+    normalized.endsWith(".env") ||
+    parts.some(
+      (part) =>
+        part === ".env" ||
+        part.startsWith(".env.") ||
+        part === ".git" ||
+        part === ".obsidian" ||
+        part === ".trash" ||
+        part === "browser-profile" ||
+        part === "cache" ||
+        part === "logs" ||
+        part === "mcp-tokens" ||
+        part === "pairing" ||
+        part === "sessions",
+    )
+  );
+}
+
 function isNoiseFile(path: string): boolean {
   const normalized = path.replaceAll("\\", "/").toLowerCase();
   const basename = normalized.split("/").at(-1) ?? "";
@@ -185,7 +253,12 @@ export function exportArchive(options: ExportArchiveOptions): Uint8Array {
         const absolute = join(currentDir, entry.name);
         const relPath = relative(rootDir, absolute).split(sep).join("/");
 
-        if (protectedPath(relPath) || isNoiseFile(relPath)) continue;
+        if (
+          protectedPath(relPath) ||
+          isPortableExportExcludedPath(relPath) ||
+          isNoiseFile(relPath)
+        )
+          continue;
 
         let info: Stats;
         try {

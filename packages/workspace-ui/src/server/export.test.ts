@@ -126,6 +126,29 @@ describe("export archive", () => {
     writeFileSync(join(workspaceRoot, "Thumbs.db"), "junk");
     writeFileSync(join(workspaceRoot, "._doc.md"), "junk");
 
+    // Generated artifacts
+    mkdirSync(join(skillsRoot, ".curator_backups", "snapshot"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(skillsRoot, ".curator_backups", "snapshot", "skills.tar.gz"),
+      "old snapshot",
+    );
+    mkdirSync(join(skillsRoot, "custom", "__pycache__"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(skillsRoot, "custom", "__pycache__", "helper.pyc"),
+      "bytecode",
+    );
+    mkdirSync(join(workspaceRoot, "node_modules", "package"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(workspaceRoot, "node_modules", "package", "index.js"),
+      "dependency",
+    );
+
     // Symlinks
     const targetFile = join(tempDir, "outside.txt");
     writeFileSync(targetFile, "outside content");
@@ -151,6 +174,9 @@ describe("export archive", () => {
     expect(listResult.stdout).not.toContain("Thumbs.db");
     expect(listResult.stdout).not.toContain("._doc.md");
     expect(listResult.stdout).not.toContain("symlink.txt");
+    expect(listResult.stdout).not.toContain(".curator_backups");
+    expect(listResult.stdout).not.toContain("__pycache__");
+    expect(listResult.stdout).not.toContain("node_modules");
   });
 
   test("exportArchive throws export_too_large when exceeding maxDownloadBytes", () => {
