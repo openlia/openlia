@@ -21,6 +21,7 @@ type Options struct {
 	NonInteractive bool
 	Follow         bool
 	ProviderCheck  bool
+	Release        bool
 }
 
 var secretPatterns = []*regexp.Regexp{
@@ -89,7 +90,7 @@ Usage:
                 [--open-webui] [--open-webui-port 8090] [--locho-host]
   openlia status [--json]
   openlia doctor [--json]
-  openlia deploy | start | stop | restart
+  openlia deploy [--release] | start | stop | restart
   openlia uninstall [--local|--target user@host] [--project NAME] [--root /path]
   openlia logs [--follow]
   openlia update [openlia|hermes|locho|open-webui]
@@ -114,7 +115,11 @@ Usage:
   openlia browser install|start|stop|restart|status|logs|uninstall
   openlia telegram id [--token TOKEN]
 
-Global flags: --json, --non-interactive, --version, --help
+Global flags: --json, --non-interactive, --version, --help, --release
+
+openlia deploy applies configuration using the release already installed on
+the target. Use openlia deploy --release to upload and activate the release
+bundled in this CLI before applying configuration.
 
 workspace-ui password prompts without echo and prints only an Argon2id hash.
 Copy it into [workspace-ui].password_hash in config.toml, then run openlia deploy.

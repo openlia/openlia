@@ -154,8 +154,11 @@ Key flags for `openlia init`:
 
 ### Deploying & Starting
 ```bash
-# Build/sync and start all services
+# Apply configuration and start all services using the installed release
 openlia deploy
+
+# Publish this CLI's bundled release, then apply configuration and start
+openlia deploy --release
 
 # Lifecycle control
 openlia stop
@@ -180,10 +183,17 @@ openlia logs -f
 ## 5. Updates and Upgrades
 
 OpenLia separates release updates from runtime deployment. `openlia deploy`
-applies the current operator configuration to the full stack: it synchronizes
+applies the current operator configuration to the full stack using the
+currently installed OpenLia release: it synchronizes
 protected runtime inputs, regenerates configured attachments, builds the
 configured images, and reconciles the services. Use it after changing
 configuration, secrets, ports, or attachments.
+
+Use `openlia deploy --release` after changing OpenLia source or Workspace UI
+code. It uploads and activates the release bundled in the local CLI before
+applying configuration. The command reports the bundled release digest, the
+active target digest, and the Workspace UI build digest so a healthy container
+cannot be mistaken for newly deployed code.
 
 `openlia update` without a component is read-only. It prints release
 information and does not change the deployment. Explicit component updates use
