@@ -179,21 +179,42 @@ openlia logs -f
 
 ## 5. Updates and Upgrades
 
-OpenLia is designed to be upgraded cleanly without risking workspace data:
+OpenLia separates release updates from runtime deployment. `openlia deploy`
+applies the current operator configuration to the full stack: it synchronizes
+protected runtime inputs, regenerates configured attachments, builds the
+configured images, and reconciles the services. Use it after changing
+configuration, secrets, ports, or attachments.
+
+`openlia update` without a component is read-only. It prints release
+information and does not change the deployment. Explicit component updates use
+the versions and digests already configured in `config.toml`; they do not
+silently select newer versions.
 
 ```bash
-# Update runtime containers and target operators
+# Inspect release pins without changing the deployment
 openlia update
 
-# Update Open WebUI container independently
+# Upload and activate a newly built OpenLia release, including the target
+# operator, profile, templates, and bundled skills
+openlia update openlia
+
+# Reconcile one pinned runtime component
+openlia update hermes
+openlia update locho
 openlia update open-webui
 
-# Sync bundled Hermes skills
-openlia skills sync
+# Inspect managed and forked skill provenance
+openlia skills status
 
-# Check and apply schema migrations to the personal workspace
-openlia skills migrate
+# Review and apply a staged bundled-skill migration
+openlia skills migrate show PROPOSAL_ID
+openlia skills migrate apply PROPOSAL_ID
 ```
+
+`openlia update openlia` preserves the workspace and leaves customized or
+forked skills active until their changes are explicitly reviewed. If an update
+has not already staged migration context, it can be prepared manually with
+`openlia skills migrate prepare SKILL`.
 
 ---
 
