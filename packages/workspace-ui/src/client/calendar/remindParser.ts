@@ -377,17 +377,12 @@ export function formatRemStatement(event: Partial<CalendarEvent>): string {
     .trim()
     .replace(/\n/g, " ");
 
-  if (infoClauses.length > 0) {
-    const headerLine = `${tokens.join(" ")} \\`;
-    const lines = [headerLine];
-    for (const clause of infoClauses) {
-      lines.push(`    ${clause} \\`);
-    }
-    lines.push(`    MSG ${cleanSummary}`);
-    return lines.join("\n");
+  const lines = [`${tokens.join(" ")} \\`];
+  for (const clause of infoClauses) {
+    lines.push(`    ${clause} \\`);
   }
-
-  return `${tokens.join(" ")} MSG ${cleanSummary}`;
+  lines.push(`    MSG ${cleanSummary}`);
+  return lines.join("\n");
 }
 
 export function addEventToFile(

@@ -35,7 +35,9 @@ Calendar entries are maintained in the workspace using [Remind](https://manpages
 
 Remind specifies events with the `REM` command:
 ```remind
-REM <date_spec> [AT <time>] [DURATION <duration>] [TAG <tags>] [INFO "<Header>: <Value>"]... MSG <Summary>
+REM <date_spec> [AT <time>] [DURATION <duration>] [TAG <tags>] \
+    [INFO "<Header>: <Value>"]... \
+    MSG <Summary>
 ```
 
 Per the Debian `remind(1)` specification, the `INFO` keyword transmits metadata to backends. Each `INFO` string has the form `"Header: Value"` (no whitespace before the colon; headers are case-insensitive and unique per reminder).
@@ -113,7 +115,7 @@ python scripts/remind_calendar.py add \
   --tag "meeting"
 ```
 
-The helper script formats multi-line `REM` entries with backslash continuations, validates unique `INFO` headers, and appends the entry to `calendar/reminders.rem`.
+The helper script formats every `REM` entry as a readable multi-line block with backslash continuations, validates unique `INFO` headers, and appends the entry to `calendar/reminders.rem`. Entries without metadata use the same shape with only the header and `MSG` lines.
 
 ### 3. Reschedule or Cancel Events
 

@@ -158,6 +158,22 @@ REM 2026-10-14 AT 14:00 DURATION 60 MSG 1:1 Sync
     expect(parsedEv.callUrl).toBe("https://zoom.us/j/123456");
   });
 
+  test("formats reminders without metadata as multiline blocks", () => {
+    const formatted = formatRemStatement({
+      summary: "Simple Reminder",
+      date: "2026-10-21",
+      time: "08:00",
+    });
+
+    expect(formatted).toBe(
+      ["REM 2026-10-21 AT 08:00 \\", "    MSG Simple Reminder"].join("\n"),
+    );
+    const { events } = parseRemindFile(formatted);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.summary).toBe("Simple Reminder");
+    expect(events[0]?.date).toBe("2026-10-21");
+  });
+
   test("adds, updates, and deletes events in file content", () => {
     let content = "# My Calendar\n";
     content = addEventToFile(content, {
