@@ -1,5 +1,24 @@
 import type { CalendarEvent } from "./types";
 
+const MONTHS: Record<string, number> = {};
+for (const [index, name] of [
+  "january",
+  "february",
+  "march",
+  "april",
+  "may",
+  "june",
+  "july",
+  "august",
+  "september",
+  "october",
+  "november",
+  "december",
+].entries()) {
+  MONTHS[name] = index + 1;
+  MONTHS[name.slice(0, 3)] = index + 1;
+}
+
 const WEEKDAYS: Record<string, number> = {
   mon: 1,
   monday: 1,
@@ -90,7 +109,20 @@ export function parseRemLine(
   const priority = prioMatch?.[1] ? parseInt(prioMatch[1], 10) : undefined;
 
   // Date and repeat
-  const tokens = remHead.trim().split(/\s+/).slice(1); // skip "REM"
+  // Only inspect the trigger prefix, never quoted INFO text or clause values.
+  const tokens: string[] = [];
+  for (const token of remHead.trim().split(/\s+/).slice(1)) {
+    const low = token.toLowerCase();
+    if (
+      !(low in WEEKDAYS) &&
+      !(low in MONTHS) &&
+      !/^(?:[0-9]+|[0-9]{4}[-/][0-9]{2}[-/][0-9]{2}|\*[0-9]+|[+-][0-9]+)$/.test(
+        token,
+      )
+    )
+      break;
+    tokens.push(token);
+  }
   let dateStr = "";
   let repeatStr: string | undefined;
 
@@ -108,6 +140,30 @@ export function parseRemLine(
     if (/^[0-9]{4}\/[0-9]{2}\/[0-9]{2}$/.test(token)) {
       dateStr = token.replace(/\//g, "-");
       break;
+    }
+  }
+
+  if (!dateStr) {
+    // Remind also accepts named-month dates in either order.
+    const namedDate = tokens
+      .join(" ")
+      .match(
+        /\b(?:([0-9]{1,2})\s+([a-z]+)|([a-z]+)\s+([0-9]{1,2}))\s+([0-9]{4})\b/i,
+      );
+    if (namedDate) {
+      const day = Number(namedDate[1] ?? namedDate[4]);
+      const month = MONTHS[(namedDate[2] ?? namedDate[3] ?? "").toLowerCase()];
+      const year = Number(namedDate[5]);
+      if (month) {
+        const date = new Date(Date.UTC(year, month - 1, day));
+        if (
+          date.getUTCFullYear() === year &&
+          date.getUTCMonth() === month - 1 &&
+          date.getUTCDate() === day
+        ) {
+          dateStr = date.toISOString().slice(0, 10);
+        }
+      }
     }
   }
 
