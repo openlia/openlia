@@ -79,7 +79,11 @@ export function parseRoute(
       tab = "skills";
     } else if (host === "git-activity") {
       tab = "git-activity";
-    } else if (host === "ingestion") {
+    } else if (
+      host === "ingestion" ||
+      host === "source" ||
+      host === "sources"
+    ) {
       if (raw) ingestionId = safeDecodeURIComponent(raw);
       tab = "ingestion";
     } else if (host === "migration") {

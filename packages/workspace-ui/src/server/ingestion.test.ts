@@ -198,4 +198,102 @@ describe("ingestion HTTP endpoints", () => {
     expect(payload.live_available).toBe(false);
     expect(payload.intakes[0]?.status).toBe("processing");
   });
+
+  test("gets source document with extractions, citation, and backlinks", async () => {
+    // Write a note referencing the source
+    mkdirSync(join(root, "tasks"), { recursive: true });
+    writeFileSync(
+      join(root, "tasks", "review-taxes.md"),
+      "# Tax review\nSee [Quarterly statement](openlia://source/src_1) for details.\n",
+    );
+
+    const response = await request("/api/workspace/ingestion/sources/src_1");
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      id: string;
+      title: string;
+      canonical_uri: string;
+      content: string;
+      backlinks: Array<{ path: string; domain: string }>;
+      extractions: Array<{ extraction_id: string }>;
+    };
+    expect(payload.id).toBe("src_1");
+    expect(payload.title).toBe("Quarterly statement");
+    expect(payload.canonical_uri).toBe("openlia://source/src_1");
+    expect(payload.content).toBe("extracted");
+    expect(payload.extractions.length).toBe(1);
+    expect(payload.backlinks.length).toBe(1);
+    expect(payload.backlinks[0]?.path).toBe("tasks/review-taxes.md");
+    expect(payload.backlinks[0]?.domain).toBe("tasks");
+  });
+
+  test("updates source document metadata and review status", async () => {
+    const patchRes = await handler(
+      new Request("http://localhost/api/workspace/ingestion/sources/src_1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          correspondent: "ACME Corp",
+          document_type: "statement",
+          tags: ["finance", "q3"],
+          review: {
+            status: "reviewed",
+            reasons: [],
+          },
+        }),
+      }),
+    );
+    expect(patchRes.status).toBe(200);
+    const updated = (await patchRes.json()) as {
+      correspondent: string;
+      document_type: string;
+      tags: string[];
+      review: { status: string };
+    };
+    expect(updated.correspondent).toBe("ACME Corp");
+    expect(updated.document_type).toBe("statement");
+    expect(updated.tags).toEqual(["finance", "q3"]);
+    expect(updated.review.status).toBe("reviewed");
+  });
+
+  test("uploads text document and enqueues job", async () => {
+    const uploadRes = await handler(
+      new Request("http://localhost/api/workspace/ingestion/upload", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: "Service Contract",
+          content: "Service agreement terms and conditions for 2026",
+          kind: "text",
+        }),
+      }),
+    );
+    expect(uploadRes.status).toBe(200);
+    const uploadPayload = (await uploadRes.json()) as {
+      ok: boolean;
+      source_id: string;
+      version_id: string;
+      job_id: string;
+    };
+    expect(uploadPayload.ok).toBe(true);
+    expect(uploadPayload.source_id.startsWith("src_")).toBe(true);
+    expect(uploadPayload.job_id.startsWith("job_")).toBe(true);
+
+    // Verify it is searchable
+    const searchRes = await request(
+      `/api/workspace/ingestion/search?q=agreement`,
+    );
+    expect(searchRes.status).toBe(200);
+    const searchPayload = (await searchRes.json()) as {
+      total: number;
+      matches: Array<{ source_id: string; title: string }>;
+    };
+    expect(searchPayload.total).toBeGreaterThanOrEqual(1);
+    expect(
+      searchPayload.matches.some(
+        (m) => m.source_id === uploadPayload.source_id,
+      ),
+    ).toBe(true);
+  });
 });
+

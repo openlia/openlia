@@ -21,9 +21,9 @@ class AdapterError(RuntimeError):
         self.retryable = retryable
 
 
-def process_job(job: dict, publisher, password_store, llm) -> dict:
+def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
     source = publisher.load_source(job["source_id"])
-    intake = publisher.load_intake(job["intake_id"])
+    intake = publisher.load_intake(job["intake_id"]) if job.get("intake_id") else None
     kind = source.get("kind")
     if kind == "file":
         versions = source.get("versions") or []
@@ -38,25 +38,109 @@ def process_job(job: dict, publisher, password_store, llm) -> dict:
             kind = "image"
         elif ext in {".txt", ".md", ".json", ".log", ".yaml", ".yml", ".py", ".sh"}:
             kind = "text"
-    intake["status"] = "processing"
-    publisher.update_intake(intake)
+    if intake:
+        intake["status"] = "processing"
+        publisher.update_intake(intake)
+    source.setdefault("processing", {})
+    source["processing"]["status"] = "processing"
+    source["processing"]["last_job_id"] = job.get("job_id")
+    publisher.update_source(source)
     if kind in {"chat", "text"}:
-        result = _text(source, intake, job, publisher)
+        result = _text(source, intake or {}, job, publisher)
     elif kind == "csv":
-        result = _csv(source, intake, job, publisher)
+        result = _csv(source, intake or {}, job, publisher)
     elif kind == "excel":
-        result = _excel(source, intake, job, publisher, password_store)
+        result = _excel(source, intake or {}, job, publisher, password_store)
     elif kind == "pdf":
-        result = _pdf(source, intake, job, publisher, password_store, llm)
+        result = _pdf(source, intake or {}, job, publisher, password_store, llm)
     elif kind == "image":
-        result = _image(source, intake, job, publisher, llm)
+        result = _image(source, intake or {}, job, publisher, llm)
     elif kind == "youtube":
-        result = _youtube(source, intake, job, publisher)
+        result = _youtube(source, intake or {}, job, publisher)
     else:
         raise AdapterError("unsupported_kind", "source kind is not supported")
-    intake["status"] = "complete" if result["status"] == "completed" else "partial"
-    intake["retry_count"] = max(intake.get("retry_count") or 0, job.get("attempts", 0))
-    publisher.update_intake(intake)
+    if intake:
+        intake["status"] = "complete" if result["status"] == "completed" else "partial"
+        intake["retry_count"] = max(intake.get("retry_count") or 0, job.get("attempts", 0))
+        publisher.update_intake(intake)
+
+    # Reload updated source to inspect extractions
+    source = publisher.load_source(job["source_id"])
+    source.setdefault("processing", {})
+    source["processing"]["status"] = "complete" if result["status"] == "completed" else "partial"
+
+    # Extract text from latest extraction for LLM metadata tagging
+    extracted_text = ""
+    try:
+        versions = source.get("versions") or []
+        if versions:
+            ver_id = versions[-1].get("id")
+            for ext in versions[-1].get("extractions", []):
+                ext_dir = publisher.artifacts / source["id"] / ver_id / "extractions" / ext
+                for candidate_name in ["text.md", "transcript.md", "tables.json"]:
+                    candidate = ext_dir / candidate_name
+                    if candidate.exists():
+                        extracted_text = candidate.read_text(encoding="utf-8", errors="ignore")
+                        break
+                if extracted_text:
+                    break
+    except Exception:
+        pass
+
+    try:
+        from .metadata import extract_document_metadata
+        meta = extract_document_metadata(
+            llm=llm,
+            text=extracted_text,
+            filename=source.get("title") or "document",
+            kind=kind,
+            existing_title=source.get("title"),
+        )
+        if meta.get("title") and (not source.get("title") or source["title"] in {"Untitled source", "Source", "source.txt"}):
+            source["title"] = meta["title"]
+        if meta.get("document_type") and not source.get("document_type"):
+            source["document_type"] = meta["document_type"]
+        if meta.get("correspondent") and not source.get("correspondent"):
+            source["correspondent"] = meta["correspondent"]
+        if meta.get("document_date") and not source.get("document_date"):
+            source["document_date"] = meta["document_date"]
+        if meta.get("tags"):
+            existing_tags = list(source.get("tags") or [])
+            for t in meta["tags"]:
+                if t not in existing_tags:
+                    existing_tags.append(t)
+            source["tags"] = existing_tags
+        if meta.get("summary") and not source.get("summary"):
+            source["summary"] = meta["summary"]
+        if meta.get("review_reasons"):
+            source.setdefault("review", {"status": "unreviewed", "reasons": []})
+            for r in meta["review_reasons"]:
+                if r not in source["review"]["reasons"]:
+                    source["review"]["reasons"].append(r)
+    except Exception:
+        pass
+
+    publisher.update_source(source)
+
+    # Sync to SQLite FTS5 if db provided
+    if db is not None:
+        try:
+            db.upsert_source_fts(
+                source_id=source["id"],
+                title=source.get("title"),
+                correspondent=source.get("correspondent"),
+                document_type=source.get("document_type"),
+                tags=source.get("tags"),
+                summary=source.get("summary"),
+                content=extracted_text[:100000],
+                document_date=source.get("document_date"),
+                review_status=source.get("review", {}).get("status", "unreviewed"),
+                processing_status=source.get("processing", {}).get("status", "complete"),
+                lifecycle=source.get("lifecycle", "active"),
+            )
+        except Exception:
+            pass
+
     return result
 
 

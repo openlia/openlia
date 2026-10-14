@@ -446,8 +446,9 @@ class IngestionTests(unittest.TestCase):
         mock_llm = MockVisionLLM(text="Scanned Invoice Line Items")
         result = self.adapters.process_job(job, self.publisher, self.passwords, mock_llm)
         self.assertEqual(result["status"], "completed")
-        self.assertEqual(result["summary"]["pages"], 1)
-        self.assertEqual(len(mock_llm.calls), 1)
+        self.assertEqual(len(mock_llm.calls), 2)
+        self.assertEqual(mock_llm.calls[0].get("task"), "openlia_ingestion_ocr")
+        self.assertEqual(mock_llm.calls[1].get("task"), "openlia_document_tagger")
 
         extraction_file = list(self.workspace.glob(f"sources/artifacts/{captured['source']['id']}/**/text.md"))
         self.assertTrue(len(extraction_file) == 1)
@@ -745,6 +746,99 @@ class IngestionTests(unittest.TestCase):
         )
         self.assertTrue(retry_resp["ok"])
         self.assertEqual(retry_resp["state"], "queued")
+
+
+    def test_search_tagging_and_references(self):
+        references_mod = sys.modules[f"{self.package}.references"]
+        
+        # 1. Capture document
+        captured = self.publisher.capture(
+            {"kind": "text", "title": "Contract Agreement", "content": "Quarterly Financial Agreement for ACME Corp revenue audit"}
+        )
+        source_id = captured["source"]["id"]
+        version_id = captured["version"]["id"]
+
+        # 2. Process job with DB sync
+        self.queue.submit(
+            {
+                "idempotency_key": "job-agreement-1",
+                "intake_id": captured["intake"]["intake_id"],
+                "source_id": source_id,
+                "version_id": version_id,
+                "operation": "extract",
+                "continuation": {},
+            }
+        )
+        job = self.queue.claim("worker-agreement")
+        result = self.adapters.process_job(job, self.publisher, self.passwords, None, db=self.queue)
+        self.assertEqual(result["status"], "completed")
+
+        # 3. Reference builder & parser
+        uri = references_mod.build_source_uri(source_id, version_id, page=2)
+        self.assertEqual(uri, f"openlia://source/{source_id}#{version_id}/p2")
+        parsed = references_mod.parse_source_uri(uri)
+        self.assertEqual(parsed["source_id"], source_id)
+        self.assertEqual(parsed["version_id"], version_id)
+        self.assertEqual(parsed["page"], 2)
+
+        citation = references_mod.build_markdown_citation(source_id, "Contract Agreement", version_id=version_id, page=2)
+        self.assertIn("[Contract Agreement (v. ", citation)
+        self.assertIn(f"({uri})", citation)
+
+        # 4. Backlinks discovery
+        task_dir = self.workspace / "tasks"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "audit-task.md").write_text(
+            f"# Follow up on audit\nCheck agreement at [{citation}] and verify.", encoding="utf-8"
+        )
+        backlinks = references_mod.find_backlinks(self.workspace, source_id)
+        self.assertEqual(len(backlinks), 1)
+        self.assertEqual(backlinks[0]["path"], "tasks/audit-task.md")
+        self.assertEqual(backlinks[0]["line_number"], 2)
+
+        # 5. Search via queue.search_sources
+        search_res = self.queue.search_sources(query="revenue audit")
+        self.assertEqual(search_res["total"], 1)
+        self.assertEqual(search_res["matches"][0]["source_id"], source_id)
+        self.assertIn("<mark>", search_res["matches"][0]["snippet"])
+
+        # 6. Runtime tools (Hermes agent interface)
+        ctx = MockHermesContext()
+        runtime = self.runtime_mod.IngestionRuntime(ctx)
+        runtime.register_tools()
+
+        # ingestion_search tool
+        tool_search_resp = json.loads(runtime.search({"query": "revenue"}))
+        self.assertTrue(tool_search_resp["ok"])
+        self.assertEqual(tool_search_resp["total"], 1)
+        self.assertEqual(tool_search_resp["matches"][0]["source_id"], source_id)
+        self.assertIn("openlia://source/", tool_search_resp["matches"][0]["canonical_uri"])
+
+        # ingestion_tag tool
+        tool_tag_resp = json.loads(runtime.tag_document({"source_id": source_id, "tags": ["finance", "audit_2026"]}))
+        self.assertTrue(tool_tag_resp["ok"])
+        self.assertIn("audit_2026", tool_tag_resp["tags"])
+
+        # ingestion_update_document tool
+        tool_update_resp = json.loads(runtime.update_document({
+            "source_id": source_id,
+            "correspondent": "ACME Corp",
+            "document_type": "contract",
+            "review": {"status": "reviewed", "reasons": []}
+        }))
+        self.assertTrue(tool_update_resp["ok"])
+        self.assertEqual(tool_update_resp["document"]["correspondent"], "ACME Corp")
+        self.assertEqual(tool_update_resp["document"]["document_type"], "contract")
+        self.assertEqual(tool_update_resp["document"]["review"]["status"], "reviewed")
+
+        # ingestion_get_document tool
+        tool_get_resp = json.loads(runtime.get_document({"source_id": source_id}))
+        self.assertTrue(tool_get_resp["ok"])
+        self.assertEqual(tool_get_resp["document"]["id"], source_id)
+        self.assertEqual(tool_get_resp["document"]["correspondent"], "ACME Corp")
+        self.assertEqual(len(tool_get_resp["document"]["backlinks"]), 1)
+        self.assertEqual(tool_get_resp["document"]["backlinks"][0]["path"], "tasks/audit-task.md")
+        self.assertTrue(len(tool_get_resp["document"]["extractions"]) >= 1)
 
 
 if __name__ == "__main__":

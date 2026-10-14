@@ -17,6 +17,11 @@ import type {
   WorkspaceGitStatus,
   IngestionDetailResponse,
   IngestionOverviewResponse,
+  SourceBacklink,
+  SourceDocument,
+  SourceSearchResponse,
+  SourceUpdateRequest,
+  SourceUploadResponse,
   MigrationActionResponse,
   MigrationDetailResponse,
   MigrationFeedbackRequest,
@@ -80,6 +85,30 @@ export interface WorkspaceApi {
     options?: { query?: string; status?: string; limit?: number } | undefined,
   ): Promise<IngestionOverviewResponse>;
   loadIngestionDetail(intakeId: string): Promise<IngestionDetailResponse>;
+  searchSources(options?: {
+    query?: string | undefined;
+    tags?: string[] | undefined;
+    correspondent?: string | undefined;
+    document_type?: string | undefined;
+    review_status?: string | undefined;
+    processing_status?: string | undefined;
+    lifecycle?: string | undefined;
+    offset?: number | undefined;
+    limit?: number | undefined;
+  } | undefined): Promise<SourceSearchResponse>;
+  loadSource(sourceId: string): Promise<SourceDocument>;
+  updateSource(
+    sourceId: string,
+    updates: SourceUpdateRequest,
+  ): Promise<SourceDocument>;
+  uploadDocument(formData: FormData): Promise<SourceUploadResponse>;
+  uploadDocumentJson(body: {
+    title?: string | undefined;
+    content?: string | undefined;
+    base64?: string | undefined;
+    filename?: string | undefined;
+    kind?: string | undefined;
+  }): Promise<SourceUploadResponse>;
   loadMigrations(): Promise<MigrationSummary[]>;
   loadMigrationDetail(id: string): Promise<MigrationDetailResponse>;
   submitMigrationFeedback(
@@ -343,6 +372,36 @@ function isIngestionDetailResponse(
   );
 }
 
+function isSourceSearchResponse(value: unknown): value is SourceSearchResponse {
+  return (
+    isObject(value) &&
+    value.schema === 1 &&
+    typeof value.total === "number" &&
+    Array.isArray(value.matches) &&
+    isObject(value.facets)
+  );
+}
+
+function isSourceDocument(value: unknown): value is SourceDocument {
+  return (
+    isObject(value) &&
+    typeof value.id === "string" &&
+    typeof value.title === "string" &&
+    typeof value.kind === "string" &&
+    isObject(value.processing) &&
+    isObject(value.review)
+  );
+}
+
+function isSourceUploadResponse(value: unknown): value is SourceUploadResponse {
+  return (
+    isObject(value) &&
+    value.schema === 1 &&
+    value.ok === true &&
+    typeof value.source_id === "string"
+  );
+}
+
 function isWorkspaceSettings(value: unknown): value is WorkspaceSettings {
   return (
     isObject(value) &&
@@ -560,6 +619,63 @@ export const httpWorkspaceApi: WorkspaceApi = {
       `/api/workspace/ingestion/${encodeURIComponent(intakeId)}`,
       isIngestionDetailResponse,
     ),
+  searchSources: (options) => {
+    const params = new URLSearchParams();
+    if (options?.query) params.set("q", options.query);
+    if (options?.tags && options.tags.length > 0)
+      params.set("tags", options.tags.join(","));
+    if (options?.correspondent)
+      params.set("correspondent", options.correspondent);
+    if (options?.document_type)
+      params.set("document_type", options.document_type);
+    if (options?.review_status)
+      params.set("review_status", options.review_status);
+    if (options?.processing_status)
+      params.set("processing_status", options.processing_status);
+    if (options?.lifecycle) params.set("lifecycle", options.lifecycle);
+    if (options?.offset !== undefined)
+      params.set("offset", String(options.offset));
+    if (options?.limit !== undefined) params.set("limit", String(options.limit));
+    const query = params.toString();
+    return requestJson<SourceSearchResponse>(
+      `/api/workspace/ingestion/search${query ? `?${query}` : ""}`,
+      isSourceSearchResponse,
+    );
+  },
+  loadSource: (sourceId) =>
+    requestJson<SourceDocument>(
+      `/api/workspace/ingestion/sources/${encodeURIComponent(sourceId)}`,
+      isSourceDocument,
+    ),
+  updateSource: (sourceId, updates) =>
+    requestJson<SourceDocument>(
+      `/api/workspace/ingestion/sources/${encodeURIComponent(sourceId)}`,
+      isSourceDocument,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(updates),
+      },
+    ),
+  uploadDocument: (formData) =>
+    requestJson<SourceUploadResponse>(
+      "/api/workspace/ingestion/upload",
+      isSourceUploadResponse,
+      {
+        method: "POST",
+        body: formData,
+      },
+    ),
+  uploadDocumentJson: (body) =>
+    requestJson<SourceUploadResponse>(
+      "/api/workspace/ingestion/upload",
+      isSourceUploadResponse,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    ),
   loadMigrations: async () => {
     const res = await requestJson<MigrationListResponse>(
       "/api/workspace/migration",
@@ -730,3 +846,5 @@ export const httpWorkspaceApi: WorkspaceApi = {
       },
     ),
 };
+
+export const api = httpWorkspaceApi;

@@ -18,6 +18,7 @@ metadata:
 - Use when auditing workspace health, integrity, and organizational consistency.
 - Use on-demand when the user asks to clean up, review, or organize the workspace.
 - Use periodically to identify unfiled intake captures, broken references, stale claims, and completed projects pending archive.
+- Maintain the separation between evidence and attention: `sources/` holds durable evidence (retained originals and extractions); `inbox/` holds unresolved attention items. Unreviewed documents in `sources/records/` appear in the virtual "Needs Review" view and should not be moved into `inbox/`.
 - Use `workspace.yaml` as the source of truth for approved nested and top-level
   extensions. If it is missing, use the 15-domain legacy fallback and say so.
 - Read `assistant-policy.yaml` when present. Its `generate_reports` and

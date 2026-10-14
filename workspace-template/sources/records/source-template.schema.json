@@ -2,14 +2,51 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "kind", "title", "status", "captured_at", "sensitivity", "origin", "versions", "password_profile"],
+  "required": ["id", "kind", "title", "captured_at", "sensitivity", "origin", "versions"],
   "properties": {
     "id": {"type": ["string", "null"], "pattern": "^src_[A-Za-z0-9_-]+$"},
     "kind": {"type": ["string", "null"], "enum": ["chat", "text", "file", "pdf", "image", "excel", "csv", "youtube", "other", null]},
     "title": {"type": ["string", "null"]},
+    "document_type": {"type": ["string", "null"], "enum": ["invoice", "receipt", "bank_statement", "contract", "tax_document", "medical_record", "id_document", "manual", "note", "video_transcript", "other", null]},
+    "correspondent": {"type": ["string", "null"]},
+    "document_date": {"type": ["string", "null"]},
+    "tags": {"type": "array", "items": {"type": "string"}},
+    "summary": {"type": ["string", "null"]},
     "status": {"type": ["string", "null"], "enum": ["captured", "processing", "complete", "partial", "failed", "archived", null]},
+    "processing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"type": "string", "enum": ["captured", "queued", "processing", "complete", "partial", "failed"]},
+        "last_job_id": {"type": ["string", "null"]},
+        "updated_at": {"type": ["string", "null"], "format": "date-time"},
+        "error": {"type": ["string", "null"]}
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reasons"],
+      "properties": {
+        "status": {"type": "string", "enum": ["unreviewed", "needs-review", "reviewed"]},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+        "reviewed_at": {"type": ["string", "null"], "format": "date-time"},
+        "reviewed_by": {"type": ["string", "null"]}
+      }
+    },
+    "lifecycle": {"type": ["string", "null"], "enum": ["active", "archived", null]},
     "captured_at": {"type": ["string", "null"], "format": "date-time"},
     "sensitivity": {"type": ["string", "null"]},
+    "custom_fields": {"type": "object"},
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scope": {"type": ["string", "null"]},
+        "source": {"type": ["string", "null"]}
+      }
+    },
     "origin": {
       "type": "object",
       "additionalProperties": false,
@@ -19,7 +56,8 @@
         "source_url": {"type": ["string", "null"], "format": "uri"},
         "provider": {"type": ["string", "null"]},
         "provider_item_id": {"type": ["string", "null"]},
-        "message_id": {"type": ["string", "null"]}
+        "message_id": {"type": ["string", "null"]},
+        "request_ref": {"type": ["string", "null"]}
       }
     },
     "versions": {
@@ -36,7 +74,26 @@
           "original_ref": {"type": "string"},
           "received_at": {"type": "string", "format": "date-time"},
           "retained": {"type": "boolean"},
-          "extractions": {"type": "array", "items": {"type": "string", "pattern": "^ext_[A-Za-z0-9_-]+$"}}
+          "extractions": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {"type": "string", "pattern": "^ext_[A-Za-z0-9_-]+$"},
+                {
+                  "type": "object",
+                  "required": ["role", "path", "media_type"],
+                  "properties": {
+                    "role": {"type": "string"},
+                    "path": {"type": "string"},
+                    "media_type": {"type": "string"},
+                    "artifact_id": {"type": ["string", "null"]},
+                    "extraction_id": {"type": ["string", "null"]},
+                    "warnings": {"type": "array", "items": {"type": "string"}}
+                  }
+                }
+              ]
+            }
+          }
         }
       }
     },

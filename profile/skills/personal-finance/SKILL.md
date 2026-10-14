@@ -43,12 +43,18 @@ registered finance paths and their templates rather than inventing a destination
 - Record the authority used (`direct-request` or `standing-delegation`) in the
   intake record or output. Never silently broaden the authorized batch.
 
-Retained statements, payslips, screenshots, and exports captured by durable
-ingestion live under the registered `sources/` library. Credentials, account
-numbers, private keys, and tokens remain prohibited. Finance intake records may
-contain a stable source reference, source identifier or checksum, covered dates,
-and extracted facts. Never copy service authentication material into the
-workspace or profile.
+Retained statements, payslips, receipts, screenshots, and exports captured by
+durable ingestion live permanently under `sources/` as verifiable evidence.
+Credentials, account numbers, private keys, and tokens remain prohibited.
+When posting journal entries, cite the canonical source URI using an hledger comment tag:
+```hledger
+2026-10-14 * ACME Corp ; source: openlia://source/src_123#ver_001/p1
+    expenses:consulting    $500.00
+    assets:checking
+```
+Finance intake records and reviews in `finance/intake/` cite evidence using `[Document Title](openlia://source/{source_id}#{version_id}/p{page})`.
+To locate unposted or unreviewed receipts, query `ingestion_search(tags=["finance"], review_status="needs-review")`.
+Once transactions are posted and validated, mark the source reviewed via `ingestion_update_document(source_id=..., review={"status": "reviewed"})`.
 
 ## Data Model
 

@@ -1764,6 +1764,8 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
       requestOpenSkill(target.skillId, target.skillFile);
     } else if (target.kind === "git-activity") {
       requestTabChange("git-activity");
+    } else if (target.kind === "ingestion") {
+      requestIngestion(target.sourceId);
     }
   }
 

@@ -61,6 +61,9 @@ decision or project action -> later review**.
   liquidity, concentration, custody, counterparty, currency, tax, and downside
   evidence when those risks are in scope, and keep suitability assumptions
   explicit.
+- To discover relevant evidence, reports, or data exports already captured in the
+  workspace, use `ingestion_search(query=...)` or `ingestion_get_document(source_id=...)`.
+  Cite workspace evidence using canonical URIs: `[Title (v. {version_id}), p. {page}](openlia://source/{source_id}#{version_id}/p{page})`.
 
 ## Procedure
 

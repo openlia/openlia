@@ -271,6 +271,113 @@ export interface IngestionDetailResponse {
   artifacts: IngestionArtifact[];
 }
 
+export interface SourceBacklink {
+  path: string;
+  domain: string;
+  filename: string;
+  line_number?: number;
+}
+
+export interface SourceProcessingState {
+  status: "captured" | "queued" | "processing" | "complete" | "partial" | "failed";
+  last_job_id?: string | null;
+  error_code?: string | null;
+  error_summary?: string | null;
+}
+
+export interface SourceReviewState {
+  status: "unreviewed" | "needs-review" | "reviewed";
+  reasons: string[];
+  reviewed_at?: string | null;
+}
+
+export interface SourceExtractionItem {
+  extraction_id: string;
+  version_id: string;
+  path: string;
+}
+
+export interface SourceDocument {
+  id: string;
+  title: string;
+  kind: string;
+  document_type?: string | null;
+  correspondent?: string | null;
+  document_date?: string | null;
+  tags: string[];
+  summary?: string | null;
+  processing: SourceProcessingState;
+  review: SourceReviewState;
+  lifecycle: "active" | "archived";
+  captured_at: string;
+  origin?: Record<string, unknown>;
+  versions: Array<Record<string, unknown>>;
+  custom_fields?: Record<string, unknown>;
+  canonical_uri: string;
+  markdown_citation: string;
+  backlinks?: SourceBacklink[];
+  content?: string | null;
+  extractions?: SourceExtractionItem[];
+}
+
+export interface SourceSearchFacets {
+  tags: Record<string, number>;
+  correspondents: Record<string, number>;
+  document_types: Record<string, number>;
+  review_status: Record<string, number>;
+  processing_status: Record<string, number>;
+}
+
+export interface SourceSearchResultItem {
+  source_id: string;
+  title: string;
+  correspondent?: string | null;
+  document_type?: string | null;
+  document_date?: string | null;
+  tags: string[];
+  summary?: string | null;
+  review_status: string;
+  processing_status: string;
+  lifecycle: string;
+  snippet?: string | null;
+  rank: number;
+  canonical_uri: string;
+  markdown_citation: string;
+}
+
+export interface SourceSearchResponse {
+  schema: 1;
+  total: number;
+  offset: number;
+  limit: number;
+  matches: SourceSearchResultItem[];
+  facets: SourceSearchFacets;
+}
+
+export interface SourceUpdateRequest {
+  title?: string;
+  correspondent?: string | null;
+  document_type?: string | null;
+  document_date?: string | null;
+  tags?: string[];
+  summary?: string | null;
+  review?: {
+    status?: "unreviewed" | "needs-review" | "reviewed";
+    reasons?: string[];
+  };
+  lifecycle?: "active" | "archived";
+  custom_fields?: Record<string, unknown>;
+}
+
+export interface SourceUploadResponse {
+  schema: 1;
+  ok: boolean;
+  source_id: string;
+  version_id: string;
+  job_id: string;
+  title: string;
+}
+
 export interface FirebaseClientConfig {
   apiKey: string;
   authDomain: string;
