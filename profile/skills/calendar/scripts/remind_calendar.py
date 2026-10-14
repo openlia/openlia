@@ -249,7 +249,14 @@ def parse_rem_line(line: str, line_no: int = 1, file_name: str = "") -> Calendar
     priority = int(prio_match.group(1)) if prio_match else None
 
     # Extract date
-    date_tokens = rem_head.split()[1:]  # skip REM
+    # Inspect only the trigger prefix, not INFO text or other clause values.
+    date_tokens = []
+    for token in rem_head.split()[1:]:
+        low = token.lower()
+        if (low not in WEEKDAYS and low not in MONTHS
+                and not re.fullmatch(r"(?:[0-9]+|[0-9]{4}[-/][0-9]{2}[-/][0-9]{2}|\*[0-9]+|[+-][0-9]+)", token)):
+            break
+        date_tokens.append(token)
     date_str = ""
     repeat_str = None
 
@@ -265,7 +272,23 @@ def parse_rem_line(line: str, line_no: int = 1, file_name: str = "") -> Calendar
             date_str = token.replace("/", "-")
             break
 
-    # If no explicit ISO date, check for month day year or weekday
+    # Remind accepts named-month dates in either order.
+    if not date_str:
+        named_date = re.search(
+            r"\b(?:([0-9]{1,2})\s+([a-z]+)|([a-z]+)\s+([0-9]{1,2}))\s+([0-9]{4})\b",
+            " ".join(date_tokens), re.IGNORECASE,
+        )
+        if named_date:
+            day = int(named_date.group(1) or named_date.group(4))
+            month = MONTHS.get((named_date.group(2) or named_date.group(3)).lower())
+            year = int(named_date.group(5))
+            if month:
+                try:
+                    date_str = datetime.date(year, month, day).isoformat()
+                except ValueError:
+                    pass
+
+    # If no explicit date, check for a weekday in the trigger prefix.
     if not date_str:
         # Check weekday
         for token in date_tokens:
@@ -594,6 +617,32 @@ def self_test() -> bool:
         assert legacy_ev.call_url == "https://zoom.us/j/999"
         assert legacy_ev.map_url == "https://maps.google.com/?q=Office"
         assert legacy_ev.note == "calendar/legacy.md"
+
+        # Named-month dates must not become weekly Thursdays because of "thu hoach".
+        for date_spec in ("27 OCT 2026", "Oct 27 2026", "27 October 2026", "October 27 2026"):
+            named_stmt = (
+                f'REM {date_spec} AT 07:30 DURATION 8:00 '
+                'INFO "Description: Nop bai thu hoach truoc 30/10/2026." '
+                'MSG Hoạt động trải nghiệm STEM'
+            )
+            named_ev = parse_rem_line(named_stmt)
+            assert named_ev is not None and named_ev.date == "2026-10-27"
+            assert named_ev.duration == 480
+            cal_path.write_text(named_stmt + "\n", encoding="utf-8")
+            october = query_agenda(cal_path, datetime.date(2026, 10, 1), days=31)
+            assert len(october) == 1 and october[0].date == "2026-10-27"
+            assert not query_agenda(cal_path, datetime.date(2026, 11, 1), days=30)
+
+        for statement in (
+            'REM 15 AT 07:30 INFO "Description: thu 2026-10-27 mon" MSG Test',
+            'REM AT 07:30 INFO "Location: thu" MSG Test',
+            'REM 15 TAG thu MSG Test',
+            'REM 31 Feb 2026 INFO "Description: thu" MSG Test',
+        ):
+            ev = parse_rem_line(statement)
+            assert ev is not None and ev.date == "unspecified"
+        weekly = parse_rem_line('REM Mon AT 09:00 INFO "Description: thu 2026-10-27" MSG Weekly')
+        assert weekly is not None and weekly.date == "mon"
 
         # Test 3: Write to file and query agenda
         stmt2 = format_rem_statement(

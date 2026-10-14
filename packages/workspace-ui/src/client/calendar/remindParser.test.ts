@@ -9,6 +9,52 @@ import {
 } from "./remindParser";
 
 describe("remindParser", () => {
+  test.each([
+    "27 OCT 2026",
+    "Oct 27 2026",
+    "27 October 2026",
+    "October 27 2026",
+  ])("renders named-month date %s once despite Vietnamese weekday-like metadata", (date) => {
+    const { events } = parseRemindFile(`REM ${date} AT 07:30 DURATION 8:00 \\
+    INFO "Description: Nop bai thu hoach truoc 30/10/2026." \\
+    MSG Hoạt động trải nghiệm STEM`);
+    expect(events[0]?.date).toBe("2026-10-27");
+    expect(events[0]?.duration).toBe(480);
+    expect(
+      expandEventsForRange(events, "2026-10-01", "2026-10-31").map(
+        (e) => e.date,
+      ),
+    ).toEqual(["2026-10-27"]);
+    expect(expandEventsForRange(events, "2026-11-01", "2026-11-30")).toEqual(
+      [],
+    );
+  });
+
+  test.each([
+    'REM 15 AT 07:30 INFO "Description: Nop bai thu hoach 2026-10-27 ngay mon" MSG Test',
+    'REM AT 07:30 INFO "Location: thu" MSG Test',
+    "REM 15 TAG thu MSG Test",
+    'REM 31 Feb 2026 INFO "Description: thu" MSG Test',
+  ])("does not infer dates or weekdays from metadata: %s", (statement) => {
+    const { events } = parseRemindFile(statement);
+    expect(events[0]?.date).toBe("unspecified");
+    expect(expandEventsForRange(events, "2026-10-01", "2026-10-31")).toEqual(
+      [],
+    );
+  });
+
+  test("uses the trigger weekday rather than dates inside INFO clauses", () => {
+    const { events } = parseRemindFile(
+      'REM Mon AT 09:00 INFO "Description: thu 2026-10-27" MSG Weekly',
+    );
+    expect(events[0]?.date).toBe("mon");
+    expect(
+      expandEventsForRange(events, "2026-10-01", "2026-10-31").map(
+        (e) => e.date,
+      ),
+    ).toEqual(["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"]);
+  });
+
   test("parses single-line and multi-line REM statements with INFO clauses", () => {
     const content = `# Sample Calendar
 INCLUDE holidays.rem
