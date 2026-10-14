@@ -448,6 +448,42 @@ describe("CopyLinkButton and document copy integration", () => {
     expect(deleted).toBe(true);
   });
 
+  test("DocumentPane renders a delete action for artifacts and fires callback", () => {
+    let deleted = false;
+    render(
+      <DocumentPane
+        artifact={{
+          editable: false,
+          modified_at: "2026-09-22T00:00:00.000Z",
+          path: "sample.png",
+          size: 100,
+        }}
+        conflict=""
+        deleting={false}
+        diff={[]}
+        documentError=""
+        draft=""
+        file={null}
+        fileLoading={false}
+        onCloseFiles={() => undefined}
+        onDelete={() => {
+          deleted = true;
+        }}
+        onDownload={() => undefined}
+        onDraftChange={() => undefined}
+        onOpenDetails={() => undefined}
+        onRetry={() => undefined}
+        onSave={() => undefined}
+        onViewChange={() => undefined}
+        saving={false}
+        view="preview"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete file" }));
+    expect(deleted).toBe(true);
+  });
+
   test("DeleteFileDialog describes and confirms discarding a dirty draft", () => {
     let confirmed = false;
     render(

@@ -116,16 +116,38 @@ describe("workspace HTTP handler", () => {
     );
   });
 
-  test("returns metadata for binary files without decoding them", async () => {
+  test("returns metadata for binary files without decoding them and allows deleting them", async () => {
     writeFileSync(join(root, "sample.png"), new Uint8Array([0, 1, 2]));
 
     const response = await request("/api/workspace/metadata?path=sample.png");
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
+    const metadata = (await response.json()) as {
+      editable: boolean;
+      path: string;
+      size: number;
+      revision: string;
+    };
+    expect(metadata).toMatchObject({
       editable: false,
       path: "sample.png",
       size: 3,
+    });
+    expect(metadata.revision).toMatch(/^sha256:/);
+
+    const deleteResponse = await request("/api/workspace/file", {
+      body: JSON.stringify({
+        expected_revision: metadata.revision,
+        path: "sample.png",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "DELETE",
+    });
+    expect(deleteResponse.status).toBe(200);
+    expect(await deleteResponse.json()).toEqual({
+      ok: true,
+      path: "sample.png",
+      schema: 1,
     });
   });
 

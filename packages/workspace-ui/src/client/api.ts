@@ -161,7 +161,8 @@ function isWorkspaceFileMetadata(
     typeof value.size === "number" &&
     Number.isFinite(value.size) &&
     typeof value.modified_at === "string" &&
-    typeof value.editable === "boolean"
+    typeof value.editable === "boolean" &&
+    (value.revision === undefined || typeof value.revision === "string")
   );
 }
 

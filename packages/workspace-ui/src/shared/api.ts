@@ -5,6 +5,7 @@ export interface WorkspaceFileMetadata {
   size: number;
   modified_at: string;
   editable: boolean;
+  revision?: string;
 }
 
 export type WorkspaceTreeEntry =

@@ -303,4 +303,45 @@ describe("FileNavigator Action Menu", () => {
       "/download/sample.pdf",
     );
   });
+
+  test("exposes delete action for non-editable files in file navigator", () => {
+    const onDeleteFile = vi.fn();
+    render(
+      <FileNavigator
+        downloadUrl={(path) => `/download/${path}`}
+        entries={[
+          {
+            editable: false,
+            kind: "file",
+            modified_at: "2026-09-22T00:00:00.000Z",
+            path: "sample.pdf",
+            size: 10,
+          },
+        ]}
+        filter=""
+        loading={false}
+        mobileOpen={false}
+        onClose={() => {}}
+        onDeleteFile={onDeleteFile}
+        onFilterChange={() => {}}
+        onOpenFile={() => {}}
+        onRetry={() => {}}
+        rawUrl={(path) => `/raw/${path}`}
+        selectedPath={undefined}
+        truncated={false}
+        workspaceError=""
+      />,
+    );
+
+    const actionButton = screen.getByRole("button", {
+      name: "Actions for sample.pdf",
+    });
+    expect(actionButton).toBeInTheDocument();
+
+    const deleteBtn = screen.getByRole("button", { name: "Delete..." });
+    expect(deleteBtn).toBeInTheDocument();
+
+    fireEvent.click(deleteBtn);
+    expect(onDeleteFile).toHaveBeenCalledWith("sample.pdf");
+  });
 });

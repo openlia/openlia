@@ -117,12 +117,16 @@ function artifactPreviewKind(
 
 function ArtifactPane({
   artifact,
+  deleting = false,
   downloadUrl,
+  onDelete,
   onDownload,
   rawUrl,
 }: {
   artifact: WorkspaceFileMetadata;
+  deleting?: boolean | undefined;
   downloadUrl?: ((path: string) => string) | undefined;
+  onDelete?: (() => void) | undefined;
   onDownload: () => void;
   rawUrl?: ((path: string) => string) | undefined;
 }) {
@@ -163,6 +167,31 @@ function ArtifactPane({
           >
             Download
           </button>
+          {onDelete && (
+            <button
+              aria-label="Delete file"
+              className="btn btn-sm btn-ghost text-error hover:bg-error/10 hover:text-error gap-1.5"
+              disabled={deleting}
+              onClick={onDelete}
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                className="h-3.5 w-3.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
+              >
+                <path
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span>Delete</span>
+            </button>
+          )}
         </div>
       </div>
       <div className="grid gap-4 border-b border-base-content/10 bg-base-200/30 px-5 py-4 sm:grid-cols-3">
@@ -354,7 +383,9 @@ export function DocumentPane({
       {artifact ? (
         <ArtifactPane
           artifact={artifact}
+          deleting={deleting}
           downloadUrl={downloadUrl}
+          onDelete={onDelete}
           onDownload={onDownload}
           rawUrl={rawUrl}
         />
