@@ -184,16 +184,13 @@ def format_rem_statement(
 
     clean_summary = summary.strip().replace("\n", " ")
 
-    # Format multi-line if INFO clauses exist
-    if info_clauses:
-        header_line = " ".join(tokens) + " \\"
-        lines = [header_line]
-        for clause in info_clauses:
-            lines.append(f"    {clause} \\")
-        lines.append(f"    MSG {clean_summary}")
-        return "\n".join(lines)
-    else:
-        return " ".join(tokens) + f" MSG {clean_summary}"
+    # Keep every generated reminder block readable and structurally consistent.
+    header_line = " ".join(tokens) + " \\"
+    lines = [header_line]
+    for clause in info_clauses:
+        lines.append(f"    {clause} \\")
+    lines.append(f"    MSG {clean_summary}")
+    return "\n".join(lines)
 
 
 def parse_info_clauses(text: str) -> dict[str, str]:
@@ -653,6 +650,20 @@ def self_test() -> bool:
             call_url="https://zoom.us/j/12345678",
             attendees="Carol, Dave",
             tags="engineering",
+        )
+        assert stmt2 == (
+            "REM Mon AT 09:30 DURATION 15 TAG engineering \\\n"
+            "    INFO \"Video-Link: https://zoom.us/j/12345678\" \\\n"
+            "    INFO \"Attendees: Carol, Dave\" \\\n"
+            "    MSG Engineering Standup"
+        )
+        simple_stmt = format_rem_statement(
+            summary="Simple Reminder",
+            date_str="2026-10-21",
+            time_str="08:00",
+        )
+        assert simple_stmt == "\n".join(
+            ("REM 2026-10-21 AT 08:00 " + chr(92), "    MSG Simple Reminder")
         )
         cal_path.write_text(f"{stmt1}\n\n{stmt2}\n", encoding="utf-8")
 
