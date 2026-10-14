@@ -841,7 +841,11 @@ export class WorkspaceService {
 
   metadata(pathValue: unknown): WorkspaceFileMetadata {
     const file = this.download(pathValue);
-    return this.fileMetadata(file.absolute, file.path);
+    const contents = readFileSync(file.absolute);
+    return {
+      ...this.fileMetadata(file.absolute, file.path),
+      revision: revision(contents),
+    };
   }
 
   async gitStatus(): Promise<WorkspaceGitStatus> {

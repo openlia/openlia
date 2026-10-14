@@ -147,6 +147,89 @@ describe("workspace application", () => {
     expect(screen.queryByText("This document could not be opened")).toBeNull();
   });
 
+  test("confirms and deletes a non-text artifact", async () => {
+    const baseApi = createMockWorkspaceApi();
+    let entries = [
+      ...(await baseApi.loadTree()).entries,
+      {
+        editable: false,
+        kind: "file" as const,
+        modified_at: "2026-09-22T00:00:00.000Z",
+        path: "sample.png",
+        size: 1024,
+      },
+    ];
+    let deletedPath = "";
+    const api: WorkspaceApi = {
+      ...baseApi,
+      async deleteFile(path, revision) {
+        deletedPath = path;
+        entries = entries.filter((e) => e.path !== path);
+        return { ok: true, path, schema: 1 };
+      },
+      async loadFile(path) {
+        if (path === "sample.png") {
+          throw new ApiError(415, {
+            error: "binary_file",
+            ok: false,
+            schema: 1,
+          });
+        }
+        return baseApi.loadFile(path);
+      },
+      async loadFileMetadata(path) {
+        if (path === "sample.png") {
+          return {
+            editable: false,
+            modified_at: "2026-09-22T00:00:00.000Z",
+            path: "sample.png",
+            revision: "sha256:png-rev",
+            size: 1024,
+          };
+        }
+        return baseApi.loadFileMetadata(path);
+      },
+      async loadTree() {
+        return { entries, schema: 1, truncated: false };
+      },
+      rawUrl(path) {
+        return `/api/workspace/raw?${new URLSearchParams({ path })}`;
+      },
+    };
+
+    window.history.replaceState(null, "", "/files/sample.png");
+    render(<App api={api} />);
+
+    expect(
+      await screen.findByRole("region", { name: "Non-text artifact" }),
+    ).toBeInTheDocument();
+
+    const deleteBtn = await screen.findByRole("button", {
+      name: "Delete file",
+    });
+    fireEvent.click(deleteBtn);
+
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      'permanently delete "sample.png"',
+    );
+
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Delete",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Recent Changes" }),
+      ).toBeInTheDocument(),
+    );
+    expect(deletedPath).toBe("sample.png");
+    expect(
+      screen.queryByRole("region", { name: "Non-text artifact" }),
+    ).toBeNull();
+  });
+
   test("opens a document, tracks edits, and saves it", async () => {
     render(<App api={createMockWorkspaceApi()} />);
     fireEvent.click(await screen.findByRole("button", { name: "notes.md" }));

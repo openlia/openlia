@@ -1441,12 +1441,17 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
   }
 
   function requestDelete(path?: string) {
-    const targetPath = path ?? file?.path;
+    const targetPath = path ?? file?.path ?? artifact?.path;
     if (!targetPath || deleting || isMemoryDocument(targetPath)) return;
     setPendingDelete({
       dirty: file?.path === targetPath ? docDirty : false,
       path: targetPath,
-      revision: file?.path === targetPath ? file.revision : "",
+      revision:
+        file?.path === targetPath
+          ? file.revision
+          : artifact?.path === targetPath
+            ? (artifact.revision ?? "")
+            : "",
     });
   }
 
@@ -1834,12 +1839,25 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     try {
       let revision = pending.revision;
       if (!revision) {
-        const loaded = await api.loadFile(pending.path);
-        revision = loaded.revision;
+        try {
+          const loaded = await api.loadFile(pending.path);
+          revision = loaded.revision;
+        } catch (error) {
+          if (isArtifactError(error)) {
+            const meta = await api.loadFileMetadata(pending.path);
+            if (meta.revision) {
+              revision = meta.revision;
+            } else {
+              throw error;
+            }
+          } else {
+            throw error;
+          }
+        }
       }
       await api.deleteFile(pending.path, revision);
       setPendingDelete(null);
-      if (file?.path === pending.path) {
+      if (file?.path === pending.path || artifact?.path === pending.path) {
         setFile(null);
         setArtifact(null);
         setDraft("");

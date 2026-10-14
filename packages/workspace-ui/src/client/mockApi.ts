@@ -552,7 +552,10 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         (item) => item.kind === "file" && item.path === requestedPath,
       );
       if (entry?.kind !== "file") throw error(404, "not_found");
-      return { ...entry };
+      return {
+        ...entry,
+        revision: fileRevisions[requestedPath] ?? revision,
+      };
     },
     async saveFile(requestedPath, nextContent, expectedRevision) {
       requireAuthentication();
@@ -585,8 +588,12 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     ): Promise<WorkspaceDeleteResponse> {
       requireAuthentication();
       if (isMemoryDocument(requestedPath)) throw error(403, "protected_path");
+      const entryExists = entries.some(
+        (item) => item.kind === "file" && item.path === requestedPath,
+      );
       const currentContent = fileContents[requestedPath];
-      if (currentContent === undefined) throw error(404, "not_found");
+      if (currentContent === undefined && !entryExists)
+        throw error(404, "not_found");
       const currentRevision = fileRevisions[requestedPath] ?? revision;
       if (expectedRevision !== currentRevision) {
         throw error(409, "revision_conflict", currentRevision);

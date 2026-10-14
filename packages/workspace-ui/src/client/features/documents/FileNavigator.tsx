@@ -407,25 +407,21 @@ export function FileNavigator({
                             Copy Link
                           </button>
                         </li>
-                        {onDeleteFile &&
-                          node.editable &&
-                          !isMemoryDocument(node.path) && (
-                            <li>
-                              <button
-                                className="text-error"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  (
-                                    document.activeElement as HTMLElement
-                                  )?.blur();
-                                  onDeleteFile(node.path);
-                                }}
-                                type="button"
-                              >
-                                Delete...
-                              </button>
-                            </li>
-                          )}
+                        {onDeleteFile && !isMemoryDocument(node.path) && (
+                          <li>
+                            <button
+                              className="text-error"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                (document.activeElement as HTMLElement)?.blur();
+                                onDeleteFile(node.path);
+                              }}
+                              type="button"
+                            >
+                              Delete...
+                            </button>
+                          </li>
+                        )}
                       </ul>
                     </div>
                   )}
