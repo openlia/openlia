@@ -592,14 +592,19 @@ func TestDurableBackupExcludesRebuildableSkillsAndCaches(t *testing.T) {
 		}
 	}
 	files := map[string]string{
-		filepath.Join(config.DataRoot, "workspace", "keep.md"):                          "workspace",
-		filepath.Join(config.DataRoot, "cache", "model.bin"):                            "cache",
-		filepath.Join(config.DataRoot, "home", "package.bin"):                           "package",
-		filepath.Join(config.DataRoot, "skills", "creative", "DESCRIPTION.md"):          "bundled metadata",
-		filepath.Join(config.DataRoot, "skills", "creative", "ascii-video", "SKILL.md"): "bundled",
-		filepath.Join(config.DataRoot, "skills", "weekly-review", "SKILL.md"):           "managed",
-		filepath.Join(config.DataRoot, "skills", ".bundled_manifest"):                   "ascii-video:hash\n",
-		filepath.Join(config.RuntimeRoot, "open-webui", "webui.db"):                     "open-webui",
+		filepath.Join(config.DataRoot, "workspace", "keep.md"):                                           "workspace",
+		filepath.Join(config.DataRoot, "cache", "model.bin"):                                             "cache",
+		filepath.Join(config.DataRoot, "home", "package.bin"):                                            "package",
+		filepath.Join(config.DataRoot, "skills", ".curator_backups", "old", "skills.tar.gz"):             "old snapshot",
+		filepath.Join(config.DataRoot, "skills", "weekly-review", "__pycache__", "helper.pyc"):           "bytecode",
+		filepath.Join(config.DataRoot, "skills", "weekly-review", ".venv", "bin", "python"):              "virtualenv",
+		filepath.Join(config.DataRoot, "skills", "weekly-review", "node_modules", "package", "index.js"): "dependency",
+		filepath.Join(config.DataRoot, "skills", "creative", "DESCRIPTION.md"):                           "bundled metadata",
+		filepath.Join(config.DataRoot, "skills", "creative", "ascii-video", "SKILL.md"):                  "bundled",
+		filepath.Join(config.DataRoot, "skills", "weekly-review", "SKILL.md"):                            "managed",
+		filepath.Join(config.DataRoot, "skills", ".bundled_manifest"):                                    "ascii-video:hash\n",
+		filepath.Join(config.MetaRoot, ".cache", "generated.json"):                                       "generated",
+		filepath.Join(config.RuntimeRoot, "open-webui", "webui.db"):                                      "open-webui",
 	}
 	for path, contents := range files {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -617,7 +622,18 @@ func TestDurableBackupExcludesRebuildableSkillsAndCaches(t *testing.T) {
 			t.Fatalf("durable member missing %s: %v", expected, names)
 		}
 	}
-	for _, excluded := range []string{"hermes/cache/model.bin", "hermes/home/package.bin", "hermes/skills/creative/ascii-video/SKILL.md", "open-webui/webui.db", "locho"} {
+	for _, excluded := range []string{
+		"hermes/cache/model.bin",
+		"hermes/home/package.bin",
+		"hermes/skills/creative/ascii-video/SKILL.md",
+		"hermes/skills/.curator_backups/old/skills.tar.gz",
+		"hermes/skills/weekly-review/__pycache__/helper.pyc",
+		"hermes/skills/weekly-review/.venv/bin/python",
+		"hermes/skills/weekly-review/node_modules/package/index.js",
+		"meta/.cache/generated.json",
+		"open-webui/webui.db",
+		"locho",
+	} {
 		if names[excluded] {
 			t.Fatalf("rebuildable or excluded member present %s: %v", excluded, names)
 		}

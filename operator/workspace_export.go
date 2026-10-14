@@ -21,10 +21,73 @@ func isExportNoise(relPath string, info os.FileInfo) bool {
 		return true
 	}
 	parts := strings.Split(filepath.ToSlash(relPath), "/")
+	if isPortableExportExcludedPath(relPath) {
+		return true
+	}
 	for _, part := range parts {
 		if part == ".git" || part == ".obsidian" || part == ".trash" ||
 			part == ".DS_Store" || strings.EqualFold(part, "thumbs.db") ||
 			part == "desktop.ini" || strings.HasPrefix(part, "._") {
+			return true
+		}
+	}
+	return false
+}
+
+// isGeneratedArtifactPath identifies disposable files that should not be
+// carried between machines. It intentionally does not interpret .gitignore;
+// user-owned files can be ignored by Git and still be needed for recovery.
+func isGeneratedArtifactPath(relPath string) bool {
+	parts := strings.Split(filepath.ToSlash(relPath), "/")
+	for _, part := range parts {
+		switch strings.ToLower(part) {
+		case ".curator_backups", "node_modules", "__pycache__", ".cache",
+			".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".nox",
+			".venv", "venv", "env":
+			return true
+		}
+	}
+
+	base := strings.ToLower(parts[len(parts)-1])
+	return strings.HasSuffix(base, ".pyc") ||
+		strings.HasSuffix(base, ".pyo") ||
+		strings.HasSuffix(base, ".pyd") ||
+		strings.HasSuffix(base, "$py.class") ||
+		base == ".coverage" || strings.HasPrefix(base, ".coverage.") ||
+		strings.HasSuffix(base, ".egg-info")
+}
+
+func isPortableExportExcludedPath(relPath string) bool {
+	normalized := filepath.ToSlash(relPath)
+	lowerPath := strings.ToLower(normalized)
+	parts := strings.Split(lowerPath, "/")
+	base := parts[len(parts)-1]
+
+	if isGeneratedArtifactPath(normalized) {
+		return true
+	}
+	if lowerPath == "sources/document-passwords.toml" ||
+		lowerPath == "@memories" || strings.HasPrefix(lowerPath, "@memories/") ||
+		base == ".gitignore" || base == "agents.md" || base == "claude.md" ||
+		base == ".cursorrules" || base == "auth.json" ||
+		strings.Contains(lowerPath, ".secret") ||
+		strings.HasSuffix(base, ".pem") || strings.HasSuffix(base, ".key") ||
+		strings.HasSuffix(base, ".p12") || strings.HasSuffix(base, ".pfx") {
+		return true
+	}
+	if lowerPath == ".env" || strings.HasPrefix(lowerPath, ".env.") ||
+		strings.HasSuffix(lowerPath, ".env") {
+		return true
+	}
+	for _, part := range parts {
+		switch part {
+		case ".git", ".obsidian", ".trash", "browser-profile", "cache",
+			"logs", "mcp-tokens", "pairing", "sessions":
+			return true
+		case ".env":
+			return true
+		}
+		if strings.HasPrefix(part, ".env.") {
 			return true
 		}
 	}
