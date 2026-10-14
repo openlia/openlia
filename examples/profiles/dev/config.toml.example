@@ -80,6 +80,7 @@ enabled = [
   "deep-research",
   "personal-finance",
   "calendar",
+  "workspace-git",
   "workspace-organize",
   "personal-health"
 ]
