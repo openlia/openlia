@@ -46,7 +46,7 @@ delegation:
     financial_transactions: ask
   destructive:
     delete_records: ask
-    overwrite_records: deny
+    overwrite_records: ask
 
 scheduled_work:
   enabled: true
