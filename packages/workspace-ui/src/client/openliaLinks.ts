@@ -24,10 +24,18 @@ export type ResolvedTarget =
       label: string;
       exists?: boolean | undefined;
     }
+  | {
+      kind: "ingestion";
+      sourceId: string;
+      versionId?: string | undefined;
+      page?: number | undefined;
+      label: string;
+      exists?: boolean | undefined;
+    }
   | null;
 
 export interface GoToSuggestion {
-  kind: "workspace" | "skill" | "git-activity";
+  kind: "workspace" | "skill" | "git-activity" | "ingestion";
   id: string;
   title: string;
   subtitle?: string | undefined;
@@ -290,6 +298,30 @@ export function resolveLinkTarget(
           label: "Git Activity",
         };
       }
+
+      if (host === "source" || host === "sources" || host === "ingestion") {
+        const sourceId = rawPath.split("/")[0] || "";
+        if (!sourceId) return null;
+        let versionId: string | undefined;
+        let page: number | undefined;
+        const hash = url.hash.replace(/^#/, "");
+        if (hash) {
+          const vMatch = hash.match(/^(ver_[A-Za-z0-9_-]+)/);
+          if (vMatch) versionId = vMatch[1];
+          const pMatch = hash.match(/(?:^|\/)p(\d+)/);
+          if (pMatch && pMatch[1]) page = Number.parseInt(pMatch[1], 10);
+        }
+        return {
+          exists: true,
+          kind: "ingestion",
+          sourceId,
+          versionId,
+          page,
+          label: page
+            ? `Source / ${sourceId} (p. ${page})`
+            : `Source / ${sourceId}`,
+        };
+      }
     } catch {
       // Continue to fallback parsing
     }
@@ -334,6 +366,25 @@ export function resolveLinkTarget(
       }
     } catch {
       // ignore
+    }
+  }
+
+  if (
+    candidate.startsWith("/ingestion/") ||
+    candidate.startsWith("ingestion/")
+  ) {
+    const raw =
+      candidate
+        .replace(/^\/?ingestion\//, "")
+        .split("?")[0]
+        ?.split("#")[0] ?? "";
+    if (raw) {
+      return {
+        exists: true,
+        kind: "ingestion",
+        sourceId: raw,
+        label: `Source / ${raw}`,
+      };
     }
   }
 

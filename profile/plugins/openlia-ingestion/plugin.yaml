@@ -12,3 +12,7 @@ provides_tools:
   - save_document_password
   - list_document_password_profiles
   - retry_ingestion_with_password_profile
+  - ingestion_search
+  - ingestion_get_document
+  - ingestion_update_document
+  - ingestion_tag

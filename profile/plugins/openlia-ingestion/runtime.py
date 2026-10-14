@@ -16,6 +16,7 @@ from .adapters import AdapterError, process_job
 from .passwords import PasswordProfileError, PasswordProfiles
 from .publication import PublicationError, WorkspacePublisher
 from .queue import IngestionQueue
+from .references import build_markdown_citation, build_source_uri, find_backlinks, parse_source_uri
 
 
 LOGGER = logging.getLogger("openlia.ingestion")
@@ -69,12 +70,18 @@ class IngestionRuntime:
             self.ocr_task_registered = True
         except Exception:
             LOGGER.warning("could not register the ingestion OCR auxiliary task")
+        self.tagger_task_registered = False
+        try:
+            ctx.register_auxiliary_task("openlia_document_tagger", display_name="OpenLia document intelligence tagger", description="Automated document classification and metadata extraction", defaults={"timeout": 60})
+            self.tagger_task_registered = True
+        except Exception:
+            LOGGER.warning("could not register the document tagger auxiliary task")
 
     def register_tools(self):
         self._register("ingestion_capture", self.capture, {
             "name": "ingestion_capture",
             "description": "Durably capture text, a local attachment, a PDF, image, Excel, CSV, or YouTube URL and queue asynchronous extraction.",
-            "parameters": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["chat", "text", "file", "pdf", "image", "excel", "csv", "youtube"]}, "title": {"type": "string"}, "content": {"type": "string"}, "file_path": {"type": "string"}, "url": {"type": "string"}, "requested_outputs": {"type": "array", "items": {"type": "string"}}, "password_profile": {"type": "string"}, "next_action": {"type": "string"}, "request_ref": {"type": "string"}}, "required": ["kind"]},
+            "parameters": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["chat", "text", "file", "pdf", "image", "excel", "csv", "youtube"]}, "title": {"type": "string"}, "content": {"type": "string"}, "file_path": {"type": "string"}, "url": {"type": "string"}, "requested_outputs": {"type": "array", "items": {"type": "string"}}, "password_profile": {"type": "string"}, "next_action": {"type": "string"}, "request_ref": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "correspondent": {"type": "string"}, "document_type": {"type": "string"}, "document_date": {"type": "string"}}, "required": ["kind"]},
         })
         self._register("ingestion_status", self.status, {"name": "ingestion_status", "description": "Read sanitized durable ingestion status.", "parameters": {"type": "object", "properties": {"job_id": {"type": "string"}, "intake_id": {"type": "string"}}, "additionalProperties": False}})
         self._register("ingestion_retry", self.retry, {"name": "ingestion_retry", "description": "Explicitly retry a failed or blocked ingestion job.", "parameters": {"type": "object", "properties": {"intake_id": {"type": "string"}, "password_profile": {"type": "string"}}, "required": ["intake_id"]}})
@@ -84,6 +91,73 @@ class IngestionRuntime:
         self._register("save_document_password", self.save_password, {"name": "save_document_password", "description": "Save a user-provided document-unlock password under a named profile. Never repeat the password.", "parameters": {"type": "object", "properties": {"profile_id": {"type": "string"}, "label": {"type": "string"}, "password": {"type": "string"}}, "required": ["profile_id", "label", "password"]}})
         self._register("list_document_password_profiles", self.list_passwords, {"name": "list_document_password_profiles", "description": "List document-password profile IDs and labels without values.", "parameters": {"type": "object", "properties": {}, "additionalProperties": False}})
         self._register("retry_ingestion_with_password_profile", self.retry_with_password, {"name": "retry_ingestion_with_password_profile", "description": "Associate an existing blocked intake with a document-password profile and requeue it.", "parameters": {"type": "object", "properties": {"intake_id": {"type": "string"}, "profile_id": {"type": "string"}}, "required": ["intake_id", "profile_id"]}})
+        self._register("ingestion_search", self.search, {
+            "name": "ingestion_search",
+            "description": "Full-text and faceted search across all ingested documents, extracted OCR text, transcripts, and metadata. Returns matching sources, summaries, snippets, and canonical openlia://source/... reference URIs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Free text search keywords"},
+                    "tags": {"type": "array", "items": {"type": "string"}, "description": "Filter by tags"},
+                    "correspondent": {"type": "string", "description": "Filter by sender/organization"},
+                    "document_type": {"type": "string", "description": "Filter by document type (e.g. invoice, receipt, statement, contract)"},
+                    "review_status": {"type": "string", "enum": ["unreviewed", "needs-review", "reviewed"], "description": "Filter by review status"},
+                    "processing_status": {"type": "string", "description": "Filter by processing status"},
+                    "lifecycle": {"type": "string", "enum": ["active", "archived"], "description": "Filter by lifecycle"},
+                    "date_from": {"type": "string", "description": "Earliest document date (YYYY-MM-DD)"},
+                    "date_to": {"type": "string", "description": "Latest document date (YYYY-MM-DD)"},
+                    "limit": {"type": "integer", "description": "Max results to return (default 10, max 50)"},
+                },
+            },
+        })
+        self._register("ingestion_get_document", self.get_document, {
+            "name": "ingestion_get_document",
+            "description": "Retrieve an ingested document's complete metadata, tags, extractions, canonical citation URIs, and dynamic backlinks by source ID or openlia://source/... URI.",
+            "parameters": {
+                "type": "object",
+                "required": ["source_id"],
+                "properties": {
+                    "source_id": {"type": "string", "description": "Source ID (src_...) or canonical openlia://source/... URI"},
+                    "version_id": {"type": "string", "description": "Optional specific version ID"},
+                    "include_content": {"type": "boolean", "description": "Whether to include full extracted text (default true)"},
+                    "page": {"type": "integer", "description": "Specific page number excerpt to retrieve"},
+                },
+            },
+        })
+        self._register("ingestion_update_document", self.update_document, {
+            "name": "ingestion_update_document",
+            "description": "Update metadata attributes (title, correspondent, document_type, document_date, tags, summary, review_status, review_reasons, lifecycle) on an existing source record.",
+            "parameters": {
+                "type": "object",
+                "required": ["source_id"],
+                "properties": {
+                    "source_id": {"type": "string", "description": "Source ID (src_...)"},
+                    "title": {"type": "string"},
+                    "correspondent": {"type": "string"},
+                    "document_type": {"type": "string"},
+                    "document_date": {"type": "string"},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "summary": {"type": "string"},
+                    "review_status": {"type": "string", "enum": ["unreviewed", "needs-review", "reviewed"]},
+                    "review_reasons": {"type": "array", "items": {"type": "string"}},
+                    "lifecycle": {"type": "string", "enum": ["active", "archived"]},
+                    "custom_fields": {"type": "object"},
+                },
+            },
+        })
+        self._register("ingestion_tag", self.tag_document, {
+            "name": "ingestion_tag",
+            "description": "Add or remove tags on an ingested source record.",
+            "parameters": {
+                "type": "object",
+                "required": ["source_id"],
+                "properties": {
+                    "source_id": {"type": "string", "description": "Source ID (src_...)"},
+                    "add_tags": {"type": "array", "items": {"type": "string"}},
+                    "remove_tags": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        })
 
     def _register(self, name, handler, schema):
         self.ctx.register_tool(name=name, toolset="openlia-ingestion", schema=schema, handler=handler, is_async=False, description=schema["description"])
@@ -256,6 +330,170 @@ class IngestionRuntime:
         except PasswordProfileError as exc:
             return _json({"ok": False, "error_code": "password_profiles_invalid", "message": str(exc)})
 
+    def search(self, args: dict, **kwargs) -> str:
+        try:
+            result = self.queue.search_sources(
+                query=args.get("query"),
+                tags=args.get("tags"),
+                correspondent=args.get("correspondent"),
+                document_type=args.get("document_type"),
+                review_status=args.get("review_status"),
+                processing_status=args.get("processing_status"),
+                lifecycle=args.get("lifecycle"),
+                date_from=args.get("date_from"),
+                date_to=args.get("date_to"),
+                offset=int(args.get("offset") or 0),
+                limit=min(int(args.get("limit") or 10), 50),
+            )
+            for item in result["matches"]:
+                item["canonical_uri"] = build_source_uri(item["source_id"])
+                item["markdown_citation"] = build_markdown_citation(item)
+            return _json({"ok": True, **result})
+        except Exception as exc:
+            LOGGER.exception("ingestion_search error")
+            return _json({"ok": False, "error_code": "search_failed", "message": str(exc)})
+
+    def get_document(self, args: dict, **kwargs) -> str:
+        try:
+            raw_id = str(args.get("source_id") or "").strip()
+            parsed = parse_source_uri(raw_id)
+            source_id = parsed["source_id"] if parsed else raw_id
+            page = int(args["page"]) if args.get("page") is not None else (parsed["page"] if parsed else None)
+            version_id = args.get("version_id") or (parsed.get("version_id") if parsed else None)
+
+            source = self.publisher.load_source(source_id)
+            content = None
+            if args.get("include_content", True):
+                extracted_text = ""
+                versions = source.get("versions") or []
+                selected_version = next((v for v in versions if v.get("id") == version_id), versions[-1] if versions else None)
+                if selected_version:
+                    ver_id = selected_version.get("id")
+                    for ext in selected_version.get("extractions", []):
+                        ext_dir = self.publisher.artifacts / source_id / ver_id / "extractions" / ext
+                        for candidate_name in ["text.md", "transcript.md", "tables.json"]:
+                            candidate = ext_dir / candidate_name
+                            if candidate.exists():
+                                extracted_text = candidate.read_text(encoding="utf-8", errors="ignore")
+                                break
+                        if extracted_text:
+                            break
+                if page and extracted_text and f"## Page {page}" in extracted_text:
+                    parts = extracted_text.split(f"## Page {page}")
+                    if len(parts) > 1:
+                        content = f"## Page {page}" + parts[1].split("## Page ")[0]
+                else:
+                    content = extracted_text[:50000] if extracted_text else None
+
+            backlinks = find_backlinks(self.workspace_root, source_id)
+            extractions = []
+            versions = source.get("versions") or []
+            selected_version = next((v for v in versions if v.get("id") == version_id), versions[-1] if versions else None)
+            if selected_version:
+                ver_id = selected_version.get("id")
+                for ext in selected_version.get("extractions", []):
+                    ext_dir = self.publisher.artifacts / source_id / ver_id / "extractions" / ext
+                    extractions.append({"extraction_id": ext, "version_id": ver_id, "path": str(ext_dir)})
+
+            doc_response = {
+                **source,
+                "content": content,
+                "canonical_uri": build_source_uri(source_id, version_id, page),
+                "markdown_citation": build_markdown_citation(source, version_id=version_id, page=page),
+                "backlinks": backlinks,
+                "extractions": extractions,
+            }
+
+            return _json({
+                "ok": True,
+                "source": doc_response,
+                "document": doc_response,
+                "content": content,
+                "canonical_uri": build_source_uri(source_id, version_id, page),
+                "markdown_citation": build_markdown_citation(source, version_id=version_id, page=page),
+                "backlinks": backlinks,
+            })
+        except Exception as exc:
+            LOGGER.exception("ingestion_get_document error")
+            return _json({"ok": False, "error_code": "document_not_found", "message": str(exc)})
+
+    def update_document(self, args: dict, **kwargs) -> str:
+        try:
+            source_id = str(args.get("source_id") or "").strip()
+            source = self.publisher.load_source(source_id)
+            for field in ["title", "correspondent", "document_type", "document_date", "summary", "lifecycle"]:
+                if field in args and args[field] is not None:
+                    source[field] = args[field]
+            if "tags" in args and isinstance(args["tags"], list):
+                source["tags"] = [str(t).strip().lower() for t in args["tags"] if str(t).strip()]
+            if "custom_fields" in args and isinstance(args["custom_fields"], dict):
+                source.setdefault("custom_fields", {}).update(args["custom_fields"])
+            if "review" in args and isinstance(args["review"], dict):
+                source.setdefault("review", {"status": "unreviewed", "reasons": []})
+                if "status" in args["review"]:
+                    source["review"]["status"] = args["review"]["status"]
+                if "reasons" in args["review"]:
+                    source["review"]["reasons"] = args["review"]["reasons"]
+                if source["review"]["status"] == "reviewed":
+                    source["review"]["reviewed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            if "review_status" in args and args["review_status"]:
+                source.setdefault("review", {"status": "unreviewed", "reasons": []})
+                source["review"]["status"] = args["review_status"]
+                if args["review_status"] == "reviewed":
+                    source["review"]["reviewed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            if "review_reasons" in args and isinstance(args["review_reasons"], list):
+                source.setdefault("review", {"status": "unreviewed", "reasons": []})
+                source["review"]["reasons"] = args["review_reasons"]
+
+            self.publisher.update_source(source)
+            self.queue.upsert_source_fts(
+                source_id=source["id"],
+                title=source.get("title"),
+                correspondent=source.get("correspondent"),
+                document_type=source.get("document_type"),
+                tags=source.get("tags"),
+                summary=source.get("summary"),
+                content="",
+                document_date=source.get("document_date"),
+                review_status=source.get("review", {}).get("status", "unreviewed"),
+                processing_status=source.get("processing", {}).get("status", "complete"),
+                lifecycle=source.get("lifecycle", "active"),
+            )
+            return _json({"ok": True, "source_id": source_id, "updated": True, "document": source})
+        except Exception as exc:
+            LOGGER.exception("ingestion_update_document error")
+            return _json({"ok": False, "error_code": "update_failed", "message": str(exc)})
+
+    def tag_document(self, args: dict, **kwargs) -> str:
+        try:
+            source_id = str(args.get("source_id") or "").strip()
+            source = self.publisher.load_source(source_id)
+            current_tags = list(source.get("tags") or [])
+            add_tags = [str(t).strip().lower() for t in (args.get("add_tags") or args.get("tags") or []) if str(t).strip()]
+            remove_tags = set(str(t).strip().lower() for t in args.get("remove_tags") or [])
+            for t in add_tags:
+                if t not in current_tags:
+                    current_tags.append(t)
+            current_tags = [t for t in current_tags if t not in remove_tags]
+            source["tags"] = current_tags
+            self.publisher.update_source(source)
+            self.queue.upsert_source_fts(
+                source_id=source["id"],
+                title=source.get("title"),
+                correspondent=source.get("correspondent"),
+                document_type=source.get("document_type"),
+                tags=source.get("tags"),
+                summary=source.get("summary"),
+                content="",
+                document_date=source.get("document_date"),
+                review_status=source.get("review", {}).get("status", "unreviewed"),
+                processing_status=source.get("processing", {}).get("status", "complete"),
+                lifecycle=source.get("lifecycle", "active"),
+            )
+            return _json({"ok": True, "source_id": source_id, "tags": current_tags})
+        except Exception as exc:
+            return _json({"ok": False, "error_code": "tag_failed", "message": str(exc)})
+
     def _worker_loop(self):
         owner = f"{os.getpid()}-{uuid.uuid4().hex}"
         while not self.stop_event.is_set():
@@ -268,7 +506,7 @@ class IngestionRuntime:
             heartbeat.start()
             try:
                 guarded_publisher = _LeasePublisher(self.publisher, lambda: self.queue.owns(job["job_id"], owner, job["lease_generation"]) and self._publication_allowed())
-                result = process_job(job, guarded_publisher, self.passwords, self.ctx.llm if self.ocr_task_registered else None)
+                result = process_job(job, guarded_publisher, self.passwords, self.ctx.llm if (self.ocr_task_registered or getattr(self, "tagger_task_registered", False)) else None, db=self.queue)
                 result.setdefault("status", "completed")
                 result.setdefault("continuation", job.get("continuation", {}))
                 event_id = self.queue.finish(job, result)

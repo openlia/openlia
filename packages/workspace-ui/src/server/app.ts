@@ -13,6 +13,7 @@ import type {
   WorkspaceRenameRequest,
   WorkspaceSystemInfo,
   WorkspaceWriteRequest,
+  SourceUpdateRequest,
 } from "../shared/api";
 import { Authenticator } from "./auth";
 import { exportArchive } from "./export";
@@ -633,6 +634,192 @@ export function createWorkspaceHandler(
           ? Math.max(1, Math.min(100, Number(limitParam) || 20))
           : 20;
         return json(await service.activity(limit));
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname === "/api/workspace/ingestion/search"
+      ) {
+        const query = url.searchParams.get("q") ?? undefined;
+        const tagsParam = url.searchParams.get("tags");
+        const tags = tagsParam
+          ? tagsParam
+              .split(",")
+              .map((t) => t.trim())
+              .filter(Boolean)
+          : undefined;
+        const correspondent =
+          url.searchParams.get("correspondent") ?? undefined;
+        const document_type =
+          url.searchParams.get("document_type") ?? undefined;
+        const review_status =
+          url.searchParams.get("review_status") ?? undefined;
+        const processing_status =
+          url.searchParams.get("processing_status") ?? undefined;
+        const lifecycle = url.searchParams.get("lifecycle") ?? undefined;
+        const date_from = url.searchParams.get("date_from") ?? undefined;
+        const date_to = url.searchParams.get("date_to") ?? undefined;
+        const limit = Math.max(
+          1,
+          Math.min(100, Number(url.searchParams.get("limit") ?? "20") || 20),
+        );
+        const offset = Math.max(
+          0,
+          Math.min(100_000, Number(url.searchParams.get("offset") ?? "0") || 0),
+        );
+
+        return json(
+          ingestionService.searchSources({
+            query,
+            tags,
+            correspondent,
+            document_type,
+            review_status,
+            processing_status,
+            lifecycle,
+            date_from,
+            date_to,
+            offset,
+            limit,
+          }),
+        );
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname.startsWith("/api/workspace/ingestion/sources/")
+      ) {
+        try {
+          const sourceId = decodeURIComponent(
+            url.pathname.slice("/api/workspace/ingestion/sources/".length),
+          );
+          return json(ingestionService.getSource(sourceId));
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("not found")) {
+            return json({ schema: 1, ok: false, error: "not_found" }, 404);
+          }
+          return json({ schema: 1, ok: false, error: "invalid_source" }, 400);
+        }
+      }
+      if (
+        request.method === "PATCH" &&
+        url.pathname.startsWith("/api/workspace/ingestion/sources/")
+      ) {
+        try {
+          const sourceId = decodeURIComponent(
+            url.pathname.slice("/api/workspace/ingestion/sources/".length),
+          );
+          const body = (await request.json()) as SourceUpdateRequest;
+          return json(ingestionService.updateSource(sourceId, body));
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("not found")) {
+            return json({ schema: 1, ok: false, error: "not_found" }, 404);
+          }
+          return json(
+            {
+              schema: 1,
+              ok: false,
+              error: "update_failed",
+              message: String(error),
+            },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/workspace/ingestion/upload"
+      ) {
+        try {
+          const contentType = request.headers.get("content-type") ?? "";
+          if (contentType.includes("multipart/form-data")) {
+            const formData = await request.formData();
+            const results = [];
+            for (const [, value] of formData.entries()) {
+              if (
+                value instanceof File ||
+                (typeof value === "object" &&
+                  value !== null &&
+                  "name" in value &&
+                  "arrayBuffer" in value)
+              ) {
+                const file = value as File;
+                const buffer = new Uint8Array(await file.arrayBuffer());
+                const res = ingestionService.upload({
+                  name: file.name || "upload.bin",
+                  data: buffer,
+                });
+                results.push(res);
+              }
+            }
+            if (results.length === 0) {
+              return json(
+                { schema: 1, ok: false, error: "no_files_uploaded" },
+                400,
+              );
+            }
+            return json({
+              schema: 1,
+              ok: true,
+              uploads: results,
+              ...results[0],
+            });
+          } else {
+            const body = (await request.json()) as Record<string, unknown>;
+            const filename =
+              (body.filename as string) ||
+              `${(body.title as string) || "document"}.txt`;
+            let data: Uint8Array;
+            if (typeof body.base64 === "string") {
+              data = Buffer.from(body.base64, "base64");
+            } else if (typeof body.content === "string") {
+              data = new TextEncoder().encode(body.content);
+            } else {
+              return json(
+                { schema: 1, ok: false, error: "missing_content" },
+                400,
+              );
+            }
+            const res = ingestionService.upload(
+              {
+                name: filename,
+                data,
+              },
+              {
+                title: typeof body.title === "string" ? body.title : undefined,
+                kind: typeof body.kind === "string" ? body.kind : undefined,
+              },
+            );
+            return json(res);
+          }
+        } catch (error) {
+          return json(
+            {
+              schema: 1,
+              ok: false,
+              error: "upload_failed",
+              message: String(error),
+            },
+            500,
+          );
+        }
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/workspace/ingestion/rebuild-fts"
+      ) {
+        try {
+          const result = ingestionService.rebuildFts();
+          return json({ schema: 1, ok: true, ...result });
+        } catch (error) {
+          return json(
+            {
+              schema: 1,
+              ok: false,
+              error: "rebuild_failed",
+              message: String(error),
+            },
+            500,
+          );
+        }
       }
       if (
         request.method === "GET" &&

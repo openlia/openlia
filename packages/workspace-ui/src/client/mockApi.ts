@@ -18,6 +18,9 @@ import type {
   WorkspaceWriteResponse,
   IngestionDetailResponse,
   IngestionOverviewResponse,
+  SourceDocument,
+  SourceSearchResponse,
+  SourceUploadResponse,
 } from "../shared/api";
 import { ApiError, type WorkspaceApi } from "./api";
 import {
@@ -894,6 +897,112 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
           title: "Quarterly statement",
           versions: [],
         },
+      };
+    },
+
+    async searchSources(): Promise<SourceSearchResponse> {
+      requireAuthentication();
+      return {
+        schema: 1,
+        total: 1,
+        offset: 0,
+        limit: 20,
+        matches: [
+          {
+            source_id: "src_mock",
+            title: "Quarterly statement",
+            correspondent: "ACME Corp",
+            document_type: "statement",
+            document_date: "2026-10-10",
+            tags: ["finance", "statement"],
+            summary: "Quarterly statement summary",
+            review_status: "needs-review",
+            processing_status: "complete",
+            lifecycle: "active",
+            snippet: "Quarterly statement for <mark>Q3</mark>",
+            rank: 1,
+            canonical_uri: "openlia://source/src_mock",
+            markdown_citation:
+              "[Quarterly statement](openlia://source/src_mock)",
+          },
+        ],
+        facets: {
+          tags: { finance: 1, statement: 1 },
+          correspondents: { "ACME Corp": 1 },
+          document_types: { statement: 1 },
+          review_status: { "needs-review": 1 },
+          processing_status: { complete: 1 },
+        },
+      };
+    },
+
+    async loadSource(sourceId: string): Promise<SourceDocument> {
+      requireAuthentication();
+      return {
+        id: sourceId,
+        title: "Quarterly statement",
+        kind: "pdf",
+        document_type: "statement",
+        correspondent: "ACME Corp",
+        document_date: "2026-10-10",
+        tags: ["finance", "statement"],
+        summary: "Quarterly statement summary",
+        processing: {
+          status: "complete",
+          last_job_id: "job_mock",
+          error_code: null,
+          error_summary: null,
+        },
+        review: {
+          status: "needs-review",
+          reasons: ["check-totals"],
+          reviewed_at: null,
+        },
+        lifecycle: "active",
+        captured_at: modifiedAt,
+        origin: { capture_method: "upload" },
+        versions: [],
+        canonical_uri: `openlia://source/${sourceId}`,
+        markdown_citation: `[Quarterly statement](openlia://source/${sourceId})`,
+        content: "Quarterly statement extracted content",
+        backlinks: [],
+        extractions: [],
+      };
+    },
+
+    async updateSource(
+      sourceId: string,
+      updates: any,
+    ): Promise<SourceDocument> {
+      requireAuthentication();
+      const doc = await this.loadSource(sourceId);
+      return {
+        ...doc,
+        ...updates,
+      };
+    },
+
+    async uploadDocument(): Promise<SourceUploadResponse> {
+      requireAuthentication();
+      return {
+        schema: 1,
+        ok: true,
+        source_id: "src_uploaded",
+        version_id: "ver_001",
+        job_id: "job_uploaded",
+        title: "Uploaded Document",
+      };
+    },
+
+    async uploadDocumentJson(): Promise<SourceUploadResponse> {
+      requireAuthentication();
+      return {
+        schema: 1,
+        ok: true,
+        source_id: "src_uploaded_json",
+        version_id: "ver_001",
+        job_id: "job_uploaded_json",
+        title: "Uploaded Document",
       };
     },
 

@@ -90,14 +90,38 @@ class WorkspacePublisher:
                 "retained": True,
                 "extractions": [],
             }
+        origin["request_ref"] = request.get("request_ref")
         source = {
             "$schema": "./source-template.schema.json",
             "id": source_id,
             "kind": kind,
             "title": title,
+            "document_type": request.get("document_type"),
+            "correspondent": request.get("correspondent"),
+            "document_date": request.get("document_date"),
+            "tags": request.get("tags") or [],
+            "summary": request.get("summary"),
             "status": "captured",
+            "processing": {
+                "status": "captured",
+                "last_job_id": None,
+                "updated_at": captured_at,
+                "error": None,
+            },
+            "review": {
+                "status": "unreviewed",
+                "reasons": [],
+                "reviewed_at": None,
+                "reviewed_by": None,
+            },
+            "lifecycle": "active",
             "captured_at": captured_at,
             "sensitivity": request.get("sensitivity") or "personal",
+            "custom_fields": request.get("custom_fields") or {},
+            "authorization": {
+                "scope": request.get("authorization_scope") or "ingestion",
+                "source": request.get("authorization_source") or "direct-request",
+            },
             "origin": origin,
             "versions": [version] if version else [],
             "password_profile": request.get("password_profile"),
@@ -199,6 +223,16 @@ class WorkspacePublisher:
         if extraction_id not in version["extractions"]:
             version["extractions"].append(extraction_id)
         source["status"] = "complete" if manifest["complete"] else "partial"
+        source.setdefault("processing", {})
+        source["processing"]["status"] = "complete" if manifest["complete"] else "partial"
+        source["processing"]["updated_at"] = timestamp()
+        if manifest.get("warnings"):
+            source.setdefault("review", {"status": "unreviewed", "reasons": []})
+            for w in manifest["warnings"]:
+                if w not in source["review"]["reasons"]:
+                    source["review"]["reasons"].append(w)
+            if source["review"].get("status") == "reviewed":
+                source["review"]["status"] = "needs-review"
         self.update_source(source)
         intake.setdefault("artifact_refs", [])
         intake.setdefault("extraction_refs", [])

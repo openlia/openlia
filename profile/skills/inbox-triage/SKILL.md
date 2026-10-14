@@ -23,7 +23,10 @@ metadata:
 
 ## Operating Model
 
-- A review file is a staging record, not a final domain record. It preserves the source and proposed extractions for human review.
+- **Separation Principle**: `sources/` stores evidence (retained originals and OCR/transcripts); `inbox/` holds items requiring active human attention (unresolved notes, questions, and decisions). Processing jobs live in the runtime database.
+- Document uploads live in `sources/records/{id}.md`. They do NOT create routine intake notes in `inbox/`. The document inbox is a virtual view (`review.status == 'needs-review'` or `'unreviewed'`) queried via `ingestion_search(review_status="needs-review")`.
+- Standalone captures and substantive review notes stay in `inbox/` (e.g. `inbox/YYYY-MM-DD-review.md`) and cite evidence using canonical URIs: `[Title](openlia://source/{source_id}#{version_id}/p{page})`.
+- A review file is a staging record, not a final domain record. It preserves the source reference and proposed extractions for human review.
 - One source may produce zero, one, or several candidates. Give each candidate a stable ID such as `C-YYYY-MM-DD-001`.
 - Use `review` when the destination or interpretation is uncertain. Use `archive` only when the source explicitly indicates that it is inactive, reference-only, or already complete.
 - The default batch routes map to workspace destinations as follows; a
@@ -32,9 +35,9 @@ metadata:
   - `event` -> `calendar/`
   - `decision` -> `decisions/`
   - `idea` -> `ideas/`
-   - `research` -> `knowledge/research/`
-   - `finance` -> registered `finance/intake/`
-   - `claim` -> `knowledge/claims/`
+  - `research` -> `knowledge/research/`
+  - `finance` -> registered `finance/intake/`
+  - `claim` -> `knowledge/claims/`
   - `archive` -> `archive/`
   - `review` -> remain in `inbox/` pending clarification
 - A route is only a destination suggestion. Resolve it through the active
@@ -43,9 +46,7 @@ metadata:
 - A clear candidate may be filed automatically when the current request or
   standing delegation authorizes the operation. An ambiguous candidate stays
   in the review file and asks for the smallest clarification or approval.
-- A matching extension may override a core route only when its context tags
-  match the item. If the registry has no destination, hold the candidate in
-  `inbox/` and propose a registry extension.
+- Once a source document's triage or review is complete, mark it reviewed via `ingestion_update_document(source_id=..., review={"status": "reviewed"})`. The document stays permanently in `sources/` as evidence for domain records.
 
 ## Chat Intake & Review Procedure (Conversational Mode)
 

@@ -247,6 +247,46 @@ describe("resolveLinkTarget", () => {
     });
   });
 
+  test("resolves openlia://source/<id> and openlia://sources/<id>", () => {
+    const res = resolveLinkTarget("openlia://source/src_abc123");
+    expect(res).toEqual({
+      exists: true,
+      kind: "ingestion",
+      sourceId: "src_abc123",
+      label: "Source / src_abc123",
+      versionId: undefined,
+      page: undefined,
+    });
+
+    const resPage = resolveLinkTarget("openlia://source/src_abc123#ver_001/p2");
+    expect(resPage).toEqual({
+      exists: true,
+      kind: "ingestion",
+      sourceId: "src_abc123",
+      versionId: "ver_001",
+      page: 2,
+      label: "Source / src_abc123 (p. 2)",
+    });
+
+    const resPlural = resolveLinkTarget("openlia://sources/src_xyz789");
+    expect(resPlural).toEqual({
+      exists: true,
+      kind: "ingestion",
+      sourceId: "src_xyz789",
+      label: "Source / src_xyz789",
+      versionId: undefined,
+      page: undefined,
+    });
+
+    const resPath = resolveLinkTarget("/ingestion/src_abc123");
+    expect(resPath).toEqual({
+      exists: true,
+      kind: "ingestion",
+      sourceId: "src_abc123",
+      label: "Source / src_abc123",
+    });
+  });
+
   test("resolveRelativePath calculates normalized target path", () => {
     expect(
       resolveRelativePath("./architecture.md", "projects/website/readme.md"),

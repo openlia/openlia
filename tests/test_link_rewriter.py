@@ -154,9 +154,41 @@ def test_adapter_patching():
         os.environ.pop("OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN", None)
 
 
+def test_rewrite_source_links():
+    os.environ["OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN"] = "https://workspace.example.test"
+    try:
+        sample = "[Invoice](openlia://source/src_12345)"
+        assert (
+            rewrite_openlia_links(sample)
+            == "[Invoice](https://workspace.example.test/ingestion/src_12345)"
+        )
+
+        sample_page = "[Invoice, p. 2](openlia://source/src_12345#ver_001/p2)"
+        assert (
+            rewrite_openlia_links(sample_page)
+            == "[Invoice, p. 2](https://workspace.example.test/ingestion/src_12345#ver_001/p2)"
+        )
+
+        sample_sources = "[Sources](openlia://sources/src_67890)"
+        assert (
+            rewrite_openlia_links(sample_sources)
+            == "[Sources](https://workspace.example.test/ingestion/src_67890)"
+        )
+
+        # Without origin
+        os.environ["OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN"] = ""
+        assert (
+            rewrite_openlia_links(sample)
+            == "[Invoice](/ingestion/src_12345)"
+        )
+    finally:
+        os.environ.pop("OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN", None)
+
+
 if __name__ == "__main__":
     test_rewrite_workspace_links_with_origin()
     test_rewrite_skills_links_with_origin()
+    test_rewrite_source_links()
     test_rewrite_without_origin()
     test_origin_with_trailing_slash()
     test_passthrough_non_openlia()

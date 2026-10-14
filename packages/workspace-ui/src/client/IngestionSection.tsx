@@ -1,9 +1,19 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useState, type DragEvent } from "react";
 import type {
   IngestionDetailResponse,
   IngestionListItem,
   IngestionOverviewResponse,
+  SourceDocument,
+  SourceSearchResponse,
 } from "../shared/api";
+import { api } from "./api";
+import {
+  DocumentFilterBar,
+  type IngestionScope,
+} from "./ingestion/DocumentFilterBar";
+import { DocumentCard } from "./ingestion/DocumentCard";
+import { DocumentInspector } from "./ingestion/DocumentInspector";
+import { UploadModal } from "./ingestion/UploadModal";
 
 export interface IngestionSectionProps {
   overview: IngestionOverviewResponse | null;
@@ -149,177 +159,55 @@ function DetailPane({
           </span>
         </div>
       )}
-      {intake.callback.last_error && (
-        <div className="alert alert-warning mt-3 text-sm" role="alert">
-          <span>Callback delivery: {intake.callback.last_error}</span>
-        </div>
-      )}
 
-      <div className="mt-6 grid gap-5 lg:grid-cols-2">
-        <section className="rounded-xl border border-base-content/10 bg-base-200/30 p-4">
-          <h4 className="font-semibold">Live execution</h4>
-          <dl className="mt-3 space-y-2 text-sm">
-            <DetailRow
-              label="Job ID"
-              value={intake.job?.job_id ?? "Not queued"}
-              mono
-            />
-            <DetailRow
-              label="Attempts"
-              value={intake.job ? String(intake.job.attempts) : "Not queued"}
-            />
-            <DetailRow
-              label="Heartbeat"
-              value={formatTime(intake.job?.heartbeat_at)}
-            />
-            <DetailRow
-              label="Lease expires"
-              value={formatTime(intake.job?.lease_expires_at)}
-            />
-            <DetailRow
-              label="Next attempt"
-              value={formatTime(intake.job?.next_attempt_at)}
-            />
-            <DetailRow
-              label="Updated"
-              value={formatTime(intake.job?.updated_at)}
-            />
-          </dl>
-        </section>
-        <section className="rounded-xl border border-base-content/10 bg-base-200/30 p-4">
-          <h4 className="font-semibold">Callback and continuation</h4>
-          <dl className="mt-3 space-y-2 text-sm">
-            <DetailRow
-              label="Event ID"
-              value={intake.callback.event_id ?? "Not emitted"}
-              mono
-            />
-            <DetailRow
-              label="Delivery attempts"
-              value={
-                intake.callback.attempts === undefined
-                  ? "Not emitted"
-                  : String(intake.callback.attempts)
-              }
-            />
-            <DetailRow
-              label="Delivered"
-              value={formatTime(intake.callback.delivered_at)}
-            />
-            <DetailRow
-              label="Acknowledged"
-              value={formatTime(intake.callback.acknowledged_at)}
-            />
-            <DetailRow
-              label="Action ID"
-              value={intake.action?.action_id ?? "Not started"}
-              mono
-            />
-            <DetailRow
-              label="Record refs"
-              value={intake.action?.record_refs.join(", ") || "None"}
-            />
-          </dl>
-        </section>
-      </div>
-
-      <section className="mt-5 rounded-xl border border-base-content/10 bg-base-200/30 p-4">
-        <h4 className="font-semibold">Durable records and artifacts</h4>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            className="btn btn-sm btn-outline"
-            onClick={() => onOpenFile(intake.intake_record_path)}
-            type="button"
-          >
-            Open intake record
-          </button>
-          <button
-            className="btn btn-sm btn-outline"
-            onClick={() => onOpenFile(intake.source_record_path)}
-            type="button"
-          >
-            Open source record
-          </button>
-        </div>
+      <div className="mt-6">
+        <h4 className="text-sm font-semibold">Published Artifacts</h4>
         {detail.artifacts.length > 0 ? (
-          <div className="mt-4 divide-y divide-base-content/10 rounded-lg border border-base-content/10">
+          <div className="mt-3 divide-y divide-base-content/10 rounded-lg border border-base-content/10">
             {detail.artifacts.map((artifact) => (
               <div
-                className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between"
                 key={artifact.path}
+                className="flex items-center justify-between p-3 text-xs"
               >
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold">{artifact.role}</p>
-                  <p
-                    className="truncate font-mono text-[11px] text-base-content/55"
-                    title={artifact.path}
-                  >
-                    {artifact.path}
-                  </p>
-                  {artifact.warnings.length > 0 && (
-                    <p className="mt-1 text-xs text-warning">
-                      {artifact.warnings.join(", ")}
-                    </p>
-                  )}
+                <div className="min-w-0 flex-1 truncate pr-3">
+                  <span className="font-mono">{artifact.path}</span>
+                  <span className="ml-2 text-base-content/50">
+                    ({artifact.role})
+                  </span>
                 </div>
-                <a
-                  className="btn btn-ghost btn-xs shrink-0 text-primary"
-                  href={rawUrl(artifact.path)}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  Open
-                </a>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={rawUrl(artifact.path)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-ghost btn-xs"
+                  >
+                    Raw
+                  </a>
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-xs"
+                    onClick={() => onOpenFile(artifact.path)}
+                  >
+                    Open
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         ) : (
-          <p className="mt-4 text-sm text-base-content/60">
-            No published artifacts yet.
+          <p className="mt-2 text-xs text-base-content/50">
+            No artifacts published for this intake yet.
           </p>
         )}
-      </section>
+      </div>
 
-      {intake.source_url && (
-        <a
-          className="mt-4 block truncate text-sm text-primary hover:underline"
-          href={intake.source_url}
-          rel="noreferrer"
-          target="_blank"
-        >
-          {intake.source_url}
-        </a>
-      )}
-      <p className="mt-5 text-xs text-base-content/50">
-        Captured {formatTime(intake.captured_at)}. Live snapshot{" "}
-        {detail.live_stale ? "is stale" : "updated"}{" "}
-        {detail.live_age_seconds === undefined
-          ? "unavailable"
-          : `${Math.round(detail.live_age_seconds)}s ago`}
-        .
-      </p>
+      <div className="mt-6 border-t border-base-content/10 pt-4 text-xs text-base-content/60 space-y-1">
+        <p>Source Record: {intake.source_record_path}</p>
+        <p>Intake Record: {intake.intake_record_path}</p>
+        <p>Captured: {formatTime(intake.captured_at)}</p>
+      </div>
     </section>
-  );
-}
-
-function DetailRow({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3 border-b border-base-content/5 pb-2 last:border-0 last:pb-0">
-      <dt className="text-base-content/55">{label}</dt>
-      <dd
-        className={`max-w-[65%] break-words text-right ${mono ? "font-mono text-xs" : ""}`}
-      >
-        {value}
-      </dd>
-    </div>
   );
 }
 
@@ -327,142 +215,337 @@ export function IngestionSection({
   overview,
   detail,
   detailLoading,
-  loading,
+  loading: _parentLoading,
   onOpenFile,
   onRefresh,
   onSelect,
   rawUrl,
 }: IngestionSectionProps) {
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
-  const filtered = useMemo(() => {
-    const items = overview?.intakes ?? [];
-    const query = search.trim().toLowerCase();
-    return items.filter((item) => {
-      if (status && item.status !== status) return false;
-      if (!query) return true;
-      return `${item.source_title} ${item.intake_id} ${item.kind}`
-        .toLowerCase()
-        .includes(query);
-    });
-  }, [overview?.intakes, search, status]);
+  // Navigation & Scope
+  const [scope, setScope] = useState<IngestionScope>("needs-review");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTag, setSelectedTag] = useState<string | undefined>();
+  const [selectedCorrespondent, setSelectedCorrespondent] = useState<
+    string | undefined
+  >();
+  const [selectedDocType, setSelectedDocType] = useState<string | undefined>();
 
-  if (loading && !overview) {
-    return (
-      <div className="flex min-h-[30rem] flex-1 items-center justify-center">
-        <span
-          className="loading loading-spinner loading-md text-primary"
-          role="status"
-        />
-      </div>
-    );
+  // Document state
+  const [searchResults, setSearchResults] =
+    useState<SourceSearchResponse | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [selectedSourceId, setSelectedSourceId] = useState<
+    string | undefined
+  >();
+  const [selectedSource, setSelectedSource] = useState<SourceDocument | null>(
+    null,
+  );
+  const [sourceLoading, setSourceLoading] = useState(false);
+
+  // Upload modal state
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
+  const [isWindowDragging, setIsWindowDragging] = useState(false);
+
+  // Perform search query based on active filters
+  const performSearch = useCallback(async () => {
+    if (scope === "workers") return;
+    setSearchLoading(true);
+    try {
+      let review_status: string | undefined;
+      let lifecycle: string | undefined;
+      let processing_status: string | undefined;
+
+      if (scope === "needs-review") {
+        review_status = "needs-review";
+        lifecycle = "active";
+      } else if (scope === "library") {
+        lifecycle = "active";
+      } else if (scope === "processing") {
+        processing_status = "processing";
+      } else if (scope === "archived") {
+        lifecycle = "archived";
+      }
+
+      const res = await api.searchSources({
+        query: searchQuery.trim() || undefined,
+        tags: selectedTag ? [selectedTag] : undefined,
+        correspondent: selectedCorrespondent,
+        document_type: selectedDocType,
+        review_status,
+        lifecycle,
+        processing_status,
+        limit: 50,
+      });
+      setSearchResults(res);
+
+      // Auto-select first match if none selected
+      if (res.matches.length > 0 && !selectedSourceId) {
+        setSelectedSourceId(res.matches[0]?.source_id);
+      }
+    } catch {
+      // Ignore search error
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [
+    scope,
+    searchQuery,
+    selectedTag,
+    selectedCorrespondent,
+    selectedDocType,
+    selectedSourceId,
+  ]);
+
+  useEffect(() => {
+    void performSearch();
+  }, [performSearch]);
+
+  // Load selected document detail
+  useEffect(() => {
+    if (!selectedSourceId || scope === "workers") {
+      setSelectedSource(null);
+      return;
+    }
+    let cancelled = false;
+    setSourceLoading(true);
+    api
+      .loadSource(selectedSourceId)
+      .then((doc: SourceDocument) => {
+        if (!cancelled) setSelectedSource(doc);
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedSource(null);
+      })
+      .finally(() => {
+        if (!cancelled) setSourceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSourceId, scope]);
+
+  // Global drag-and-drop listener to open upload modal
+  function handleWindowDragOver(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsWindowDragging(true);
   }
 
-  const counts = overview?.counts ?? {};
-  const selectedId = detail?.intake.intake_id;
+  function handleWindowDragLeave(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsWindowDragging(false);
+  }
+
+  function handleWindowDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsWindowDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      setDroppedFiles(Array.from(e.dataTransfer.files));
+      setIsUploadOpen(true);
+    }
+  }
+
+  async function handleRebuildFts() {
+    try {
+      await fetch("/api/workspace/ingestion/rebuild-fts", { method: "POST" });
+      void performSearch();
+    } catch {
+      // Ignore
+    }
+  }
+
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: full-window drag and drop target for document upload
     <div
-      className="flex min-h-0 flex-1 flex-col overflow-hidden bg-base-100"
-      data-testid="ingestion-section"
+      onDragOver={handleWindowDragOver}
+      onDragLeave={handleWindowDragLeave}
+      onDrop={handleWindowDrop}
+      className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-base-100"
     >
-      <div className="border-b border-base-content/10 bg-base-100 p-5 sm:p-7">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="workspace-eyebrow">OPENLIA / INGESTION RUNTIME</p>
-            <h2 className="mt-1 text-2xl font-bold tracking-tight">
-              Ingestion Control Room
-            </h2>
-            <p className="mt-1 text-xs text-base-content/60">
-              Live queue execution, Hermes callbacks, and durable extraction
-              records.
+      {/* Window Drag Overlay */}
+      {isWindowDragging && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-primary/20 backdrop-blur-sm pointer-events-none">
+          <div className="rounded-2xl border-2 border-dashed border-primary bg-base-100/90 p-8 shadow-2xl text-center">
+            <svg
+              className="mx-auto h-12 w-12 text-primary"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <title>Upload document</title>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+              />
+            </svg>
+            <p className="mt-2 text-lg font-bold">Drop files to ingest</p>
+            <p className="text-xs text-base-content/60">
+              Files will be stored into sources/ and queued for OCR extraction
             </p>
           </div>
-          <button
-            aria-label="Refresh ingestion"
-            className="btn btn-ghost btn-sm btn-square"
-            onClick={onRefresh}
-            type="button"
+        </div>
+      )}
+
+      {/* Top filter bar */}
+      <DocumentFilterBar
+        scope={scope}
+        onScopeChange={(newScope) => {
+          setScope(newScope);
+          setSelectedSourceId(undefined);
+        }}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        selectedTag={selectedTag}
+        onTagChange={setSelectedTag}
+        selectedCorrespondent={selectedCorrespondent}
+        onCorrespondentChange={setSelectedCorrespondent}
+        selectedDocType={selectedDocType}
+        onDocTypeChange={setSelectedDocType}
+        facets={
+          searchResults?.facets ?? {
+            tags: {},
+            correspondents: {},
+            document_types: {},
+            review_status: {},
+            processing_status: {},
+          }
+        }
+        onOpenUpload={() => {
+          setDroppedFiles([]);
+          setIsUploadOpen(true);
+        }}
+        onRebuildFts={handleRebuildFts}
+      />
+
+      {/* Main content body */}
+      {scope === "workers" ? (
+        /* Legacy Queue & Worker Leases View */
+        <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
+          <section
+            className="max-h-[28rem] w-full overflow-y-auto border-b border-base-content/10 xl:max-h-none xl:w-[min(34rem,38%)] xl:border-b-0 xl:border-r"
+            aria-label="Ingestion intakes"
           >
-            ↻
-          </button>
-        </div>
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          {Object.entries(counts)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([key, value]) => (
-              <button
-                className={`badge badge-md cursor-pointer ${status === key ? "badge-primary" : "badge-outline"}`}
-                key={key}
-                onClick={() => setStatus(status === key ? "" : key)}
-                type="button"
-              >
-                {key}: {value}
-              </button>
-            ))}
-          {overview?.live_available ? (
-            <span
-              className={`badge badge-md ${overview.live_stale ? "badge-warning" : "badge-success"}`}
-            >
-              {overview.live_stale ? "Live snapshot stale" : "Live connected"}
-            </span>
-          ) : (
-            <span className="badge badge-md badge-ghost">
-              Durable records only
-            </span>
-          )}
-        </div>
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-          <input
-            aria-label="Search ingestion"
-            className="input input-bordered input-sm w-full sm:max-w-sm"
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search intake or source..."
-            type="search"
-            value={search}
-          />
-          {overview?.live_error && (
-            <p className="self-center text-xs text-warning">
-              {overview.live_error}
-            </p>
-          )}
-        </div>
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
-        <section
-          className="max-h-[28rem] w-full overflow-y-auto border-b border-base-content/10 xl:max-h-none xl:w-[min(34rem,38%)] xl:border-b-0 xl:border-r"
-          aria-label="Ingestion intakes"
-        >
-          {filtered.length > 0 ? (
-            filtered.map((item) => (
-              <ItemRow
-                item={item}
-                key={item.intake_id}
-                onSelect={() => onSelect(item.intake_id)}
-                selected={selectedId === item.intake_id}
+            {overview && overview.intakes.length > 0 ? (
+              overview.intakes.map((item) => (
+                <ItemRow
+                  item={item}
+                  key={item.intake_id}
+                  onSelect={() => onSelect(item.intake_id)}
+                  selected={detail?.intake.intake_id === item.intake_id}
+                />
+              ))
+            ) : (
+              <div className="p-8 text-center text-sm text-base-content/60">
+                No legacy intake records found.
+              </div>
+            )}
+          </section>
+          {detailLoading ? (
+            <div className="flex min-h-[24rem] flex-1 items-center justify-center">
+              <span
+                className="loading loading-spinner loading-md text-primary"
+                role="status"
               />
-            ))
+            </div>
+          ) : detail ? (
+            <DetailPane
+              detail={detail}
+              onOpenFile={onOpenFile}
+              rawUrl={rawUrl}
+            />
           ) : (
-            <div className="p-8 text-center text-sm text-base-content/60">
-              No ingestion records match this filter.
+            <div className="flex min-h-[24rem] flex-1 items-center justify-center p-8 text-center text-sm text-base-content/60">
+              Select an intake to inspect worker leases and published
+              extractions.
             </div>
           )}
-        </section>
-        {detailLoading ? (
-          <div className="flex min-h-[24rem] flex-1 items-center justify-center">
-            <span
-              className="loading loading-spinner loading-md text-primary"
-              role="status"
+        </div>
+      ) : (
+        /* Modern Paperless Document Console */
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+          {/* Document List (Left Column) */}
+          <section
+            className="w-full md:w-[min(32rem,40%)] border-b md:border-b-0 md:border-r border-base-content/10 overflow-y-auto bg-base-100 flex flex-col"
+            aria-label="Document library"
+          >
+            {searchLoading ? (
+              <div className="flex flex-1 items-center justify-center p-8">
+                <span className="loading loading-spinner loading-md text-primary" />
+              </div>
+            ) : searchResults && searchResults.matches.length > 0 ? (
+              <div className="divide-y divide-base-content/10">
+                <div className="bg-base-200/40 px-3.5 py-2 text-[11px] font-semibold uppercase tracking-wider text-base-content/50">
+                  {searchResults.total} document
+                  {searchResults.total !== 1 ? "s" : ""}
+                </div>
+                {searchResults.matches.map((item) => (
+                  <DocumentCard
+                    key={item.source_id}
+                    item={item}
+                    isSelected={selectedSourceId === item.source_id}
+                    onSelect={() => setSelectedSourceId(item.source_id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-sm text-base-content/50">
+                <svg
+                  className="h-10 w-10 mb-2 stroke-current opacity-40"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <title>No documents</title>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.5"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  />
+                </svg>
+                <p className="font-semibold">No documents match this view</p>
+                <p className="text-xs text-base-content/40 mt-1">
+                  Upload a PDF, image, or paste notes to get started.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-xs mt-3"
+                  onClick={() => setIsUploadOpen(true)}
+                >
+                  Upload Document
+                </button>
+              </div>
+            )}
+          </section>
+
+          {/* Document Inspector (Right Column) */}
+          <section className="flex-1 min-w-0 flex flex-col overflow-hidden bg-base-100">
+            <DocumentInspector
+              document={selectedSource}
+              loading={sourceLoading}
+              onUpdate={(updated) => {
+                setSelectedSource(updated);
+                void performSearch();
+                onRefresh();
+              }}
+              onOpenFile={onOpenFile}
+              rawUrl={rawUrl}
             />
-          </div>
-        ) : detail ? (
-          <DetailPane detail={detail} onOpenFile={onOpenFile} rawUrl={rawUrl} />
-        ) : (
-          <div className="flex min-h-[24rem] flex-1 items-center justify-center p-8 text-center text-sm text-base-content/60">
-            Select an intake to inspect its live execution and published
-            artifacts.
-          </div>
-        )}
-      </div>
+          </section>
+        </div>
+      )}
+
+      {/* Upload Modal */}
+      <UploadModal
+        isOpen={isUploadOpen}
+        onClose={() => setIsUploadOpen(false)}
+        initialFiles={droppedFiles}
+        onSuccess={() => {
+          void performSearch();
+          onRefresh();
+        }}
+      />
     </div>
   );
 }

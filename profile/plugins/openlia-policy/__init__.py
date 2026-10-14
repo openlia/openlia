@@ -50,6 +50,9 @@ _READ_ONLY_TOOLS = {
     "web_extract",
     "web_search",
     "vision_analyze",
+    "ingestion_search",
+    "ingestion_get_document",
+    "ingestion_status",
 }
 _READ_ONLY_COMMANDS = {
     "basename",
@@ -597,6 +600,8 @@ class PolicyEnforcer:
             "ingestion_acknowledge",
             "ingestion_complete_action",
             "ingestion_recover",
+            "ingestion_update_document",
+            "ingestion_tag",
         }:
             action = "capture" if tool_name in {"ingestion_capture", "save_document_password"} else "update_records"
             relative_path = "sources/document-passwords.toml" if tool_name == "save_document_password" else "sources"
