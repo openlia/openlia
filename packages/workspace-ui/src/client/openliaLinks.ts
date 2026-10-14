@@ -317,7 +317,9 @@ export function resolveLinkTarget(
           sourceId,
           versionId,
           page,
-          label: page ? `Source / ${sourceId} (p. ${page})` : `Source / ${sourceId}`,
+          label: page
+            ? `Source / ${sourceId} (p. ${page})`
+            : `Source / ${sourceId}`,
         };
       }
     } catch {
@@ -371,10 +373,11 @@ export function resolveLinkTarget(
     candidate.startsWith("/ingestion/") ||
     candidate.startsWith("ingestion/")
   ) {
-    const raw = candidate
-      .replace(/^\/?ingestion\//, "")
-      .split("?")[0]
-      ?.split("#")[0] ?? "";
+    const raw =
+      candidate
+        .replace(/^\/?ingestion\//, "")
+        .split("?")[0]
+        ?.split("#")[0] ?? "";
     if (raw) {
       return {
         exists: true,

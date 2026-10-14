@@ -922,7 +922,8 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
             snippet: "Quarterly statement for <mark>Q3</mark>",
             rank: 1,
             canonical_uri: "openlia://source/src_mock",
-            markdown_citation: "[Quarterly statement](openlia://source/src_mock)",
+            markdown_citation:
+              "[Quarterly statement](openlia://source/src_mock)",
           },
         ],
         facets: {
@@ -969,7 +970,10 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
       };
     },
 
-    async updateSource(sourceId: string, updates: any): Promise<SourceDocument> {
+    async updateSource(
+      sourceId: string,
+      updates: any,
+    ): Promise<SourceDocument> {
       requireAuthentication();
       const doc = await this.loadSource(sourceId);
       return {

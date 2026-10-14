@@ -296,4 +296,3 @@ describe("ingestion HTTP endpoints", () => {
     ).toBe(true);
   });
 });
-

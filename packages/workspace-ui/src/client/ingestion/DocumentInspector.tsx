@@ -17,7 +17,9 @@ export function DocumentInspector({
   onOpenFile,
   rawUrl,
 }: DocumentInspectorProps) {
-  const [activeTab, setActiveTab] = useState<"content" | "metadata" | "backlinks">("content");
+  const [activeTab, setActiveTab] = useState<
+    "content" | "metadata" | "backlinks"
+  >("content");
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCitation, setCopiedCitation] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -61,6 +63,7 @@ export function DocumentInspector({
           fill="none"
           viewBox="0 0 24 24"
         >
+          <title>No document selected</title>
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -70,7 +73,8 @@ export function DocumentInspector({
         </svg>
         <p className="text-sm font-semibold">Select a document to inspect</p>
         <p className="text-xs max-w-sm mt-1">
-          Review OCR extractions, edit correspondent and metadata, and inspect domain backlinks.
+          Review OCR extractions, edit correspondent and metadata, and inspect
+          domain backlinks.
         </p>
       </div>
     );
@@ -91,7 +95,9 @@ export function DocumentInspector({
       });
       onUpdate(updated);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to update review status");
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to update review status",
+      );
     } finally {
       setSaving(false);
     }
@@ -113,7 +119,9 @@ export function DocumentInspector({
       const updated = await api.updateSource(document.id, updates);
       onUpdate(updated);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save metadata");
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to save metadata",
+      );
     } finally {
       setSaving(false);
     }
@@ -147,7 +155,9 @@ export function DocumentInspector({
 
   const latestVersion =
     document.versions.length > 0
-      ? (document.versions[document.versions.length - 1] as { original_ref?: string })
+      ? (document.versions[document.versions.length - 1] as {
+          original_ref?: string;
+        })
       : null;
   const originalRef = latestVersion?.original_ref;
 
@@ -172,15 +182,21 @@ export function DocumentInspector({
                 </span>
               )}
             </div>
-            <h2 className="mt-1 text-xl font-bold break-words">{document.title}</h2>
+            <h2 className="mt-1 text-xl font-bold break-words">
+              {document.title}
+            </h2>
             <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-base-content/60">
               {document.correspondent && (
                 <span>
                   Correspondent: <strong>{document.correspondent}</strong>
                 </span>
               )}
-              {document.document_date && <span>Date: {document.document_date}</span>}
-              <span>Captured: {new Date(document.captured_at).toLocaleDateString()}</span>
+              {document.document_date && (
+                <span>Date: {document.document_date}</span>
+              )}
+              <span>
+                Captured: {new Date(document.captured_at).toLocaleDateString()}
+              </span>
             </div>
           </div>
 
@@ -255,8 +271,19 @@ export function DocumentInspector({
             {originalRef && (
               <div className="flex items-center justify-between rounded-lg border border-base-content/10 bg-base-200/50 p-3 text-xs">
                 <div className="flex items-center gap-2 min-w-0">
-                  <svg className="h-4 w-4 text-primary shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  <svg
+                    className="h-4 w-4 text-primary shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <title>Original file</title>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+                    />
                   </svg>
                   <span className="truncate font-mono">{originalRef}</span>
                 </div>
@@ -272,7 +299,9 @@ export function DocumentInspector({
                   <button
                     type="button"
                     className="btn btn-outline btn-xs"
-                    onClick={() => onOpenFile(`sources/records/${document.id}.md`)}
+                    onClick={() =>
+                      onOpenFile(`sources/records/${document.id}.md`)
+                    }
                   >
                     Open Record
                   </button>
@@ -291,7 +320,8 @@ export function DocumentInspector({
               ) : (
                 <div className="rounded-lg border border-dashed border-base-content/20 p-8 text-center text-xs text-base-content/50">
                   No text extractions available yet.
-                  {document.processing.status === "queued" && " The document is queued for OCR extraction."}
+                  {document.processing.status === "queued" &&
+                    " The document is queued for OCR extraction."}
                 </div>
               )}
             </div>
@@ -302,50 +332,60 @@ export function DocumentInspector({
         {activeTab === "metadata" && (
           <div className="max-w-xl space-y-4">
             <div>
-              <label className="text-xs font-semibold text-base-content/70">Title</label>
-              <input
-                type="text"
-                className="input input-bordered input-sm mt-1 w-full"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
+              <label className="block text-xs font-semibold text-base-content/70">
+                Title
+                <input
+                  type="text"
+                  className="input input-bordered input-sm mt-1 w-full font-normal"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </label>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-base-content/70">Correspondent</label>
-                <input
-                  type="text"
-                  className="input input-bordered input-sm mt-1 w-full"
-                  placeholder="e.g. ACME Corp, Bank"
-                  value={correspondent}
-                  onChange={(e) => setCorrespondent(e.target.value)}
-                />
+                <label className="block text-xs font-semibold text-base-content/70">
+                  Correspondent
+                  <input
+                    type="text"
+                    className="input input-bordered input-sm mt-1 w-full font-normal"
+                    placeholder="e.g. ACME Corp, Bank"
+                    value={correspondent}
+                    onChange={(e) => setCorrespondent(e.target.value)}
+                  />
+                </label>
               </div>
               <div>
-                <label className="text-xs font-semibold text-base-content/70">Document Type</label>
-                <input
-                  type="text"
-                  className="input input-bordered input-sm mt-1 w-full"
-                  placeholder="e.g. invoice, statement, receipt"
-                  value={documentType}
-                  onChange={(e) => setDocumentType(e.target.value)}
-                />
+                <label className="block text-xs font-semibold text-base-content/70">
+                  Document Type
+                  <input
+                    type="text"
+                    className="input input-bordered input-sm mt-1 w-full font-normal"
+                    placeholder="e.g. invoice, statement, receipt"
+                    value={documentType}
+                    onChange={(e) => setDocumentType(e.target.value)}
+                  />
+                </label>
               </div>
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-base-content/70">Document Date</label>
-              <input
-                type="date"
-                className="input input-bordered input-sm mt-1 w-full"
-                value={documentDate}
-                onChange={(e) => setDocumentDate(e.target.value)}
-              />
+              <label className="block text-xs font-semibold text-base-content/70">
+                Document Date
+                <input
+                  type="date"
+                  className="input input-bordered input-sm mt-1 w-full font-normal"
+                  value={documentDate}
+                  onChange={(e) => setDocumentDate(e.target.value)}
+                />
+              </label>
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-base-content/70">Tags</label>
+              <span className="block text-xs font-semibold text-base-content/70">
+                Tags
+              </span>
               <div className="mt-1 flex flex-wrap gap-1.5 mb-2">
                 {tags.map((t) => (
                   <span
@@ -388,13 +428,15 @@ export function DocumentInspector({
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-base-content/70">Summary</label>
-              <textarea
-                className="textarea textarea-bordered mt-1 h-24 w-full text-xs"
-                placeholder="Brief summary of document facts or contents..."
-                value={summary}
-                onChange={(e) => setSummary(e.target.value)}
-              />
+              <label className="block text-xs font-semibold text-base-content/70">
+                Summary
+                <textarea
+                  className="textarea textarea-bordered mt-1 h-24 w-full text-xs font-normal"
+                  placeholder="Brief summary of document facts or contents..."
+                  value={summary}
+                  onChange={(e) => setSummary(e.target.value)}
+                />
+              </label>
             </div>
 
             <div className="pt-2">
@@ -418,7 +460,10 @@ export function DocumentInspector({
                 Workspace Domain References
               </h4>
               <p className="text-xs text-base-content/60 mb-3">
-                Records across the workspace citing this document via <code className="font-mono text-xs">{document.canonical_uri}</code>
+                Records across the workspace citing this document via{" "}
+                <code className="font-mono text-xs">
+                  {document.canonical_uri}
+                </code>
               </p>
             </div>
 
@@ -457,7 +502,8 @@ export function DocumentInspector({
               <div className="rounded-lg border border-dashed border-base-content/20 p-8 text-center text-xs text-base-content/50">
                 <p>No workspace records currently cite this source.</p>
                 <p className="mt-1 text-[11px] text-base-content/40">
-                  To cite this source in tasks, calendar, or finance records, copy:
+                  To cite this source in tasks, calendar, or finance records,
+                  copy:
                 </p>
                 <div className="mt-2 inline-block rounded bg-base-200 px-2 py-1 font-mono text-xs text-base-content/80 select-all">
                   {document.markdown_citation}

@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, extname, join, relative, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { Database } from "bun:sqlite";
@@ -349,8 +356,7 @@ export class IngestionService {
             (correspondentCounts[r.correspondent] ?? 0) + 1;
         }
         if (r.document_type) {
-          typeCounts[r.document_type] =
-            (typeCounts[r.document_type] ?? 0) + 1;
+          typeCounts[r.document_type] = (typeCounts[r.document_type] ?? 0) + 1;
         }
         const rev = r.review_status || "unreviewed";
         reviewCounts[rev] = (reviewCounts[rev] ?? 0) + 1;
@@ -470,7 +476,9 @@ export class IngestionService {
     const allDocs: SourceRecord[] = [];
     for (const name of readdirSync(recordsDir)) {
       if (!name.endsWith(".md") || name.startsWith("source-template")) continue;
-      const doc = this.readFrontmatter(join(recordsDir, name)) as SourceRecord | null;
+      const doc = this.readFrontmatter(
+        join(recordsDir, name),
+      ) as SourceRecord | null;
       if (doc && doc.id) allDocs.push(doc);
     }
 
@@ -490,7 +498,10 @@ export class IngestionService {
         (doc.processing?.status ?? "complete") !== options.processing_status
       )
         return false;
-      if (options.lifecycle && (doc.lifecycle ?? "active") !== options.lifecycle)
+      if (
+        options.lifecycle &&
+        (doc.lifecycle ?? "active") !== options.lifecycle
+      )
         return false;
       if (options.tags && options.tags.length > 0) {
         const docTags = new Set(doc.tags ?? []);
@@ -570,7 +581,12 @@ export class IngestionService {
 
   getSource(sourceId: string): SourceDocument {
     if (!safeId.test(sourceId)) throw new Error("invalid source id");
-    const filePath = join(this.workspaceRoot, "sources", "records", `${sourceId}.md`);
+    const filePath = join(
+      this.workspaceRoot,
+      "sources",
+      "records",
+      `${sourceId}.md`,
+    );
     if (!existsSync(filePath)) throw new Error("source record not found");
 
     const record = this.readFrontmatter(filePath) as SourceRecord | null;
@@ -579,7 +595,8 @@ export class IngestionService {
     let extractedText = "";
     const extractions: SourceExtractionItem[] = [];
     const versions = record.versions ?? [];
-    const latestVersion = versions.length > 0 ? versions[versions.length - 1] : null;
+    const latestVersion =
+      versions.length > 0 ? versions[versions.length - 1] : null;
     const versionId = latestVersion?.id as string | undefined;
 
     if (versionId) {
@@ -601,7 +618,11 @@ export class IngestionService {
               version_id: versionId,
               path: `sources/artifacts/${sourceId}/${versionId}/extractions/${extId}`,
             });
-            for (const candidate of ["text.md", "transcript.md", "tables.json"]) {
+            for (const candidate of [
+              "text.md",
+              "transcript.md",
+              "tables.json",
+            ]) {
               const cp = join(extDir, candidate);
               if (existsSync(cp) && !extractedText) {
                 try {
@@ -653,27 +674,42 @@ export class IngestionService {
 
   updateSource(sourceId: string, updates: SourceUpdateRequest): SourceDocument {
     if (!safeId.test(sourceId)) throw new Error("invalid source id");
-    const filePath = join(this.workspaceRoot, "sources", "records", `${sourceId}.md`);
+    const filePath = join(
+      this.workspaceRoot,
+      "sources",
+      "records",
+      `${sourceId}.md`,
+    );
     if (!existsSync(filePath)) throw new Error("source record not found");
 
     const content = readFileSync(filePath, "utf8");
-    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/);
+    const match = content.match(
+      /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/,
+    );
     if (!match?.[1]) throw new Error("corrupt source record");
 
     const record = YAML.parse(match[1]) as SourceRecord;
     const body = match[2] ?? "";
 
     if (updates.title !== undefined) record.title = updates.title;
-    if (updates.correspondent !== undefined) record.correspondent = updates.correspondent;
-    if (updates.document_type !== undefined) record.document_type = updates.document_type;
-    if (updates.document_date !== undefined) record.document_date = updates.document_date;
+    if (updates.correspondent !== undefined)
+      record.correspondent = updates.correspondent;
+    if (updates.document_type !== undefined)
+      record.document_type = updates.document_type;
+    if (updates.document_date !== undefined)
+      record.document_date = updates.document_date;
     if (updates.summary !== undefined) record.summary = updates.summary;
     if (updates.lifecycle !== undefined) record.lifecycle = updates.lifecycle;
     if (updates.tags !== undefined) {
-      record.tags = updates.tags.map((t) => t.trim().toLowerCase()).filter(Boolean);
+      record.tags = updates.tags
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean);
     }
     if (updates.custom_fields !== undefined) {
-      record.custom_fields = { ...(record.custom_fields ?? {}), ...updates.custom_fields };
+      record.custom_fields = {
+        ...(record.custom_fields ?? {}),
+        ...updates.custom_fields,
+      };
     }
     if (updates.review) {
       record.review = {
@@ -682,7 +718,7 @@ export class IngestionService {
         reviewed_at:
           updates.review.status === "reviewed"
             ? new Date().toISOString()
-            : record.review?.reviewed_at ?? null,
+            : (record.review?.reviewed_at ?? null),
       };
     }
 
@@ -724,7 +760,9 @@ export class IngestionService {
 
   upload(
     file: { name: string; data: Uint8Array },
-    options?: { title?: string | undefined; kind?: string | undefined } | undefined,
+    options?:
+      | { title?: string | undefined; kind?: string | undefined }
+      | undefined,
   ): SourceUploadResponse {
     const rawExt = extname(file.name).toLowerCase();
     const sourceId = `src_${randomBytes(6).toString("hex")}`;
@@ -738,9 +776,15 @@ export class IngestionService {
       if (rawExt === ".pdf") kind = "pdf";
       else if (rawExt === ".xlsx" || rawExt === ".xls") kind = "excel";
       else if (rawExt === ".csv") kind = "csv";
-      else if ([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"].includes(rawExt))
+      else if (
+        [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"].includes(
+          rawExt,
+        )
+      )
         kind = "image";
-      else if ([".txt", ".md", ".json", ".log", ".yaml", ".yml"].includes(rawExt))
+      else if (
+        [".txt", ".md", ".json", ".log", ".yaml", ".yml"].includes(rawExt)
+      )
         kind = "text";
       else kind = "file";
     }
@@ -750,9 +794,12 @@ export class IngestionService {
     // 1. Write original artifact
     const artifactRel = `sources/artifacts/${sourceId}/${versionId}/${file.name}`;
     const artifactAbs = join(this.workspaceRoot, artifactRel);
-    mkdirSync(join(this.workspaceRoot, "sources", "artifacts", sourceId, versionId), {
-      recursive: true,
-    });
+    mkdirSync(
+      join(this.workspaceRoot, "sources", "artifacts", sourceId, versionId),
+      {
+        recursive: true,
+      },
+    );
     writeFileSync(artifactAbs, file.data);
 
     // 2. Write source record
@@ -793,7 +840,11 @@ export class IngestionService {
     const recordDir = join(this.workspaceRoot, "sources", "records");
     mkdirSync(recordDir, { recursive: true });
     const recordFile = join(recordDir, `${sourceId}.md`);
-    writeFileSync(recordFile, `---\n${YAML.stringify(sourceRecord)}---\n\n# ${title}\n`, "utf8");
+    writeFileSync(
+      recordFile,
+      `---\n${YAML.stringify(sourceRecord)}---\n\n# ${title}\n`,
+      "utf8",
+    );
 
     // 3. Insert job into SQLite jobs table
     const db = this.getDb();
@@ -819,8 +870,13 @@ export class IngestionService {
 
         let initialContent = "";
         try {
-          if (kind === "text" || [".txt", ".md", ".json", ".csv"].includes(rawExt)) {
-            initialContent = new TextDecoder().decode(file.data.slice(0, 50000));
+          if (
+            kind === "text" ||
+            [".txt", ".md", ".json", ".csv"].includes(rawExt)
+          ) {
+            initialContent = new TextDecoder().decode(
+              file.data.slice(0, 50000),
+            );
           }
         } catch {}
 
@@ -849,7 +905,10 @@ export class IngestionService {
 
   findBacklinks(sourceId: string): SourceBacklink[] {
     const backlinks: SourceBacklink[] = [];
-    const targetTokens = [`openlia://source/${sourceId}`, `openlia://sources/${sourceId}`];
+    const targetTokens = [
+      `openlia://source/${sourceId}`,
+      `openlia://sources/${sourceId}`,
+    ];
 
     const walk = (dir: string) => {
       if (!existsSync(dir)) return;
@@ -864,8 +923,8 @@ export class IngestionService {
         if (entry.isDirectory()) {
           walk(fullPath);
         } else if (
-          [".md", ".rem", ".hledger", ".journal", ".yaml", ".json"].some((ext) =>
-            entry.name.endsWith(ext),
+          [".md", ".rem", ".hledger", ".journal", ".yaml", ".json"].some(
+            (ext) => entry.name.endsWith(ext),
           )
         ) {
           try {
@@ -874,7 +933,8 @@ export class IngestionService {
             const content = readFileSync(fullPath, "utf8");
             if (targetTokens.some((tok) => content.includes(tok))) {
               const parts = rel.split("/");
-              const domain = (parts.length > 1 ? parts[0] : "workspace") || "workspace";
+              const domain =
+                (parts.length > 1 ? parts[0] : "workspace") || "workspace";
               let lineNo = 1;
               const lines = content.split("\n");
               for (let i = 0; i < lines.length; i++) {
@@ -913,12 +973,15 @@ export class IngestionService {
 
     for (const name of readdirSync(recordsDir)) {
       if (!name.endsWith(".md") || name.startsWith("source-template")) continue;
-      const doc = this.readFrontmatter(join(recordsDir, name)) as SourceRecord | null;
+      const doc = this.readFrontmatter(
+        join(recordsDir, name),
+      ) as SourceRecord | null;
       if (!doc || !doc.id) continue;
 
       let extractedText = "";
       const versions = doc.versions ?? [];
-      const latestVersion = versions.length > 0 ? versions[versions.length - 1] : null;
+      const latestVersion =
+        versions.length > 0 ? versions[versions.length - 1] : null;
       const versionId = latestVersion?.id as string | undefined;
 
       if (versionId) {
@@ -933,7 +996,11 @@ export class IngestionService {
         if (existsSync(extRoot)) {
           for (const extId of readdirSync(extRoot)) {
             const extDir = join(extRoot, extId);
-            for (const candidate of ["text.md", "transcript.md", "tables.json"]) {
+            for (const candidate of [
+              "text.md",
+              "transcript.md",
+              "tables.json",
+            ]) {
               const cp = join(extDir, candidate);
               if (existsSync(cp) && !extractedText) {
                 try {

@@ -1,6 +1,11 @@
 import type { SourceSearchFacets } from "../../shared/api";
 
-export type IngestionScope = "needs-review" | "library" | "processing" | "archived" | "workers";
+export type IngestionScope =
+  | "needs-review"
+  | "library"
+  | "processing"
+  | "archived"
+  | "workers";
 
 export interface DocumentFilterBarProps {
   scope: IngestionScope;
@@ -35,11 +40,11 @@ export function DocumentFilterBar({
 }: DocumentFilterBarProps) {
   const needsReviewCount =
     (facets.review_status["needs-review"] ?? 0) +
-    (facets.review_status["unreviewed"] ?? 0);
+    (facets.review_status.unreviewed ?? 0);
   const processingCount =
-    (facets.processing_status["queued"] ?? 0) +
-    (facets.processing_status["processing"] ?? 0) +
-    (facets.processing_status["failed"] ?? 0);
+    (facets.processing_status.queued ?? 0) +
+    (facets.processing_status.processing ?? 0) +
+    (facets.processing_status.failed ?? 0);
 
   const tagsList = Object.keys(facets.tags).sort();
   const correspondentsList = Object.keys(facets.correspondents).sort();
@@ -129,6 +134,7 @@ export function DocumentFilterBar({
               viewBox="0 0 24 24"
               stroke="currentColor"
             >
+              <title>Upload</title>
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -215,7 +221,10 @@ export function DocumentFilterBar({
           )}
 
           {/* Reset Filters button */}
-          {(selectedDocType || selectedCorrespondent || selectedTag || searchQuery) && (
+          {(selectedDocType ||
+            selectedCorrespondent ||
+            selectedTag ||
+            searchQuery) && (
             <button
               type="button"
               className="btn btn-ghost btn-xs text-xs text-base-content/60"

@@ -85,17 +85,21 @@ export interface WorkspaceApi {
     options?: { query?: string; status?: string; limit?: number } | undefined,
   ): Promise<IngestionOverviewResponse>;
   loadIngestionDetail(intakeId: string): Promise<IngestionDetailResponse>;
-  searchSources(options?: {
-    query?: string | undefined;
-    tags?: string[] | undefined;
-    correspondent?: string | undefined;
-    document_type?: string | undefined;
-    review_status?: string | undefined;
-    processing_status?: string | undefined;
-    lifecycle?: string | undefined;
-    offset?: number | undefined;
-    limit?: number | undefined;
-  } | undefined): Promise<SourceSearchResponse>;
+  searchSources(
+    options?:
+      | {
+          query?: string | undefined;
+          tags?: string[] | undefined;
+          correspondent?: string | undefined;
+          document_type?: string | undefined;
+          review_status?: string | undefined;
+          processing_status?: string | undefined;
+          lifecycle?: string | undefined;
+          offset?: number | undefined;
+          limit?: number | undefined;
+        }
+      | undefined,
+  ): Promise<SourceSearchResponse>;
   loadSource(sourceId: string): Promise<SourceDocument>;
   updateSource(
     sourceId: string,
@@ -635,7 +639,8 @@ export const httpWorkspaceApi: WorkspaceApi = {
     if (options?.lifecycle) params.set("lifecycle", options.lifecycle);
     if (options?.offset !== undefined)
       params.set("offset", String(options.offset));
-    if (options?.limit !== undefined) params.set("limit", String(options.limit));
+    if (options?.limit !== undefined)
+      params.set("limit", String(options.limit));
     const query = params.toString();
     return requestJson<SourceSearchResponse>(
       `/api/workspace/ingestion/search${query ? `?${query}` : ""}`,

@@ -258,9 +258,7 @@ describe("resolveLinkTarget", () => {
       page: undefined,
     });
 
-    const resPage = resolveLinkTarget(
-      "openlia://source/src_abc123#ver_001/p2",
-    );
+    const resPage = resolveLinkTarget("openlia://source/src_abc123#ver_001/p2");
     expect(resPage).toEqual({
       exists: true,
       kind: "ingestion",

@@ -215,7 +215,7 @@ export function IngestionSection({
   overview,
   detail,
   detailLoading,
-  loading: parentLoading,
+  loading: _parentLoading,
   onOpenFile,
   onRefresh,
   onSelect,
@@ -225,14 +225,21 @@ export function IngestionSection({
   const [scope, setScope] = useState<IngestionScope>("needs-review");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string | undefined>();
-  const [selectedCorrespondent, setSelectedCorrespondent] = useState<string | undefined>();
+  const [selectedCorrespondent, setSelectedCorrespondent] = useState<
+    string | undefined
+  >();
   const [selectedDocType, setSelectedDocType] = useState<string | undefined>();
 
   // Document state
-  const [searchResults, setSearchResults] = useState<SourceSearchResponse | null>(null);
+  const [searchResults, setSearchResults] =
+    useState<SourceSearchResponse | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [selectedSourceId, setSelectedSourceId] = useState<string | undefined>();
-  const [selectedSource, setSelectedSource] = useState<SourceDocument | null>(null);
+  const [selectedSourceId, setSelectedSourceId] = useState<
+    string | undefined
+  >();
+  const [selectedSource, setSelectedSource] = useState<SourceDocument | null>(
+    null,
+  );
   const [sourceLoading, setSourceLoading] = useState(false);
 
   // Upload modal state
@@ -348,6 +355,7 @@ export function IngestionSection({
   }
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: full-window drag and drop target for document upload
     <div
       onDragOver={handleWindowDragOver}
       onDragLeave={handleWindowDragLeave}
@@ -364,6 +372,7 @@ export function IngestionSection({
               viewBox="0 0 24 24"
               stroke="currentColor"
             >
+              <title>Upload document</title>
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -448,7 +457,8 @@ export function IngestionSection({
             />
           ) : (
             <div className="flex min-h-[24rem] flex-1 items-center justify-center p-8 text-center text-sm text-base-content/60">
-              Select an intake to inspect worker leases and published extractions.
+              Select an intake to inspect worker leases and published
+              extractions.
             </div>
           )}
         </div>
@@ -467,7 +477,8 @@ export function IngestionSection({
             ) : searchResults && searchResults.matches.length > 0 ? (
               <div className="divide-y divide-base-content/10">
                 <div className="bg-base-200/40 px-3.5 py-2 text-[11px] font-semibold uppercase tracking-wider text-base-content/50">
-                  {searchResults.total} document{searchResults.total !== 1 ? "s" : ""}
+                  {searchResults.total} document
+                  {searchResults.total !== 1 ? "s" : ""}
                 </div>
                 {searchResults.matches.map((item) => (
                   <DocumentCard
@@ -485,6 +496,7 @@ export function IngestionSection({
                   fill="none"
                   viewBox="0 0 24 24"
                 >
+                  <title>No documents</title>
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"

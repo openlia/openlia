@@ -279,7 +279,13 @@ export interface SourceBacklink {
 }
 
 export interface SourceProcessingState {
-  status: "captured" | "queued" | "processing" | "complete" | "partial" | "failed";
+  status:
+    | "captured"
+    | "queued"
+    | "processing"
+    | "complete"
+    | "partial"
+    | "failed";
   last_job_id?: string | null;
   error_code?: string | null;
   error_summary?: string | null;

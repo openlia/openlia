@@ -29,19 +29,19 @@ export function UploadModal({
 
   if (!isOpen) return null;
 
-  function handleDragOver(e: DragEvent<HTMLDivElement>) {
+  function handleDragOver(e: DragEvent<HTMLElement>) {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(true);
   }
 
-  function handleDragLeave(e: DragEvent<HTMLDivElement>) {
+  function handleDragLeave(e: DragEvent<HTMLElement>) {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
   }
 
-  function handleDrop(e: DragEvent<HTMLDivElement>) {
+  function handleDrop(e: DragEvent<HTMLElement>) {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
@@ -157,12 +157,13 @@ export function UploadModal({
         {tab === "files" ? (
           <div className="mt-4 space-y-4">
             {/* Drag and drop zone */}
-            <div
+            <button
+              type="button"
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center transition-colors ${
+              className={`w-full flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center transition-colors ${
                 isDragging
                   ? "border-primary bg-primary/10"
                   : "border-base-content/20 hover:border-primary/50 hover:bg-base-200/50"
@@ -174,6 +175,7 @@ export function UploadModal({
                 viewBox="0 0 24 24"
                 stroke="currentColor"
               >
+                <title>Upload files</title>
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -188,16 +190,9 @@ export function UploadModal({
                 Supports PDF, Images (PNG, JPG, WebP), Spreadsheets (XLSX, CSV),
                 Markdown, Text
               </p>
-              <button
-                type="button"
-                className="btn btn-outline btn-xs mt-3"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  fileInputRef.current?.click();
-                }}
-              >
+              <span className="btn btn-outline btn-xs mt-3 pointer-events-none">
                 Browse Files
-              </button>
+              </span>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -205,7 +200,7 @@ export function UploadModal({
                 className="hidden"
                 onChange={handleFileChange}
               />
-            </div>
+            </button>
 
             {/* Selected files list */}
             {files.length > 0 && (
@@ -216,7 +211,7 @@ export function UploadModal({
                 <div className="max-h-40 space-y-1.5 overflow-y-auto pr-1">
                   {files.map((file, idx) => (
                     <div
-                      key={`${file.name}-${idx}`}
+                      key={`${file.name}-${file.size}-${file.lastModified}`}
                       className="flex items-center justify-between rounded-lg border border-base-content/10 bg-base-200/40 p-2 text-xs"
                     >
                       <div className="min-w-0 flex-1 truncate pr-2">
@@ -253,50 +248,52 @@ export function UploadModal({
                 onClick={handleUploadFiles}
                 disabled={files.length === 0 || uploading}
               >
-                {uploading ? "Ingesting..." : `Upload & Ingest (${files.length})`}
+                {uploading
+                  ? "Ingesting..."
+                  : `Upload & Ingest (${files.length})`}
               </button>
             </div>
           </div>
         ) : (
           <div className="mt-4 space-y-3">
             <div>
-              <label className="text-xs font-semibold text-base-content/70">
+              <label className="block text-xs font-semibold text-base-content/70">
                 Document Title (Optional)
+                <input
+                  type="text"
+                  className="input input-bordered input-sm mt-1 w-full font-normal"
+                  placeholder="e.g. Meeting Note, Financial Statement, Invoice Snippet"
+                  value={textTitle}
+                  onChange={(e) => setTextTitle(e.target.value)}
+                />
               </label>
-              <input
-                type="text"
-                className="input input-bordered input-sm mt-1 w-full"
-                placeholder="e.g. Meeting Note, Financial Statement, Invoice Snippet"
-                value={textTitle}
-                onChange={(e) => setTextTitle(e.target.value)}
-              />
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-base-content/70">
+              <label className="block text-xs font-semibold text-base-content/70">
                 Format / Kind
+                <select
+                  className="select select-bordered select-sm mt-1 w-full font-normal"
+                  value={textKind}
+                  onChange={(e) => setTextKind(e.target.value)}
+                >
+                  <option value="text">Plain Text / Markdown</option>
+                  <option value="chat">Chat Transcript / Excerpt</option>
+                  <option value="csv">CSV Data</option>
+                </select>
               </label>
-              <select
-                className="select select-bordered select-sm mt-1 w-full"
-                value={textKind}
-                onChange={(e) => setTextKind(e.target.value)}
-              >
-                <option value="text">Plain Text / Markdown</option>
-                <option value="chat">Chat Transcript / Excerpt</option>
-                <option value="csv">CSV Data</option>
-              </select>
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-base-content/70">
+              <label className="block text-xs font-semibold text-base-content/70">
                 Document Content
+                <textarea
+                  className="textarea textarea-bordered mt-1 h-36 w-full font-mono text-xs font-normal"
+                  placeholder="Paste document text, invoice lines, statement details, or markdown here..."
+                  value={textContent}
+                  onChange={(e) => setTextContent(e.target.value)}
+                />
               </label>
-              <textarea
-                className="textarea textarea-bordered mt-1 h-36 w-full font-mono text-xs"
-                placeholder="Paste document text, invoice lines, statement details, or markdown here..."
-                value={textContent}
-                onChange={(e) => setTextContent(e.target.value)}
-              />
             </div>
 
             <div className="modal-action border-t border-base-content/10 pt-4">

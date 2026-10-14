@@ -39,7 +39,11 @@ function processingBadge(status: string) {
   }
 }
 
-export function DocumentCard({ item, isSelected, onSelect }: DocumentCardProps) {
+export function DocumentCard({
+  item,
+  isSelected,
+  onSelect,
+}: DocumentCardProps) {
   const [copied, setCopied] = useState(false);
 
   function copyCitation(e: React.MouseEvent) {
@@ -50,6 +54,8 @@ export function DocumentCard({ item, isSelected, onSelect }: DocumentCardProps) 
   }
 
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: card click selects document
+    // biome-ignore lint/a11y/noStaticElementInteractions: card acts as a selection item
     <div
       onClick={onSelect}
       className={`group relative cursor-pointer border-b border-base-content/10 p-3.5 transition-colors hover:bg-base-200/60 ${
@@ -104,6 +110,7 @@ export function DocumentCard({ item, isSelected, onSelect }: DocumentCardProps) 
       {item.snippet && (
         <div
           className="mt-2 line-clamp-2 text-xs text-base-content/75 italic bg-base-200/40 rounded p-1.5 font-mono [&>mark]:bg-warning/30 [&>mark]:text-warning-content [&>mark]:font-bold"
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: FTS5 highlight snippet generated safely by SQLite
           dangerouslySetInnerHTML={{ __html: item.snippet }}
         />
       )}
