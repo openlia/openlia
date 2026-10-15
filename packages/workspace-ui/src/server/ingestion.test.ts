@@ -355,6 +355,76 @@ describe("ingestion HTTP endpoints", () => {
         (m) => m.source_id === uploadPayload.source_id,
       ),
     ).toBe(true);
+
+    const needsReviewRes = await request(
+      "/api/workspace/ingestion/search?review_status=needs-review&lifecycle=active",
+    );
+    expect(needsReviewRes.status).toBe(200);
+    const needsReviewPayload = (await needsReviewRes.json()) as {
+      total: number;
+      matches: Array<{ source_id: string; review_status: string }>;
+      facets: { review_status: Record<string, number> };
+    };
+    expect(needsReviewPayload.total).toBe(1);
+    expect(needsReviewPayload.matches[0]).toMatchObject({
+      source_id: uploadPayload.source_id,
+      review_status: "unreviewed",
+    });
+    expect(needsReviewPayload.facets.review_status).toEqual({
+      unreviewed: 1,
+    });
+
+    const markNeedsReviewRes = await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${uploadPayload.source_id}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            review: { status: "needs-review", reasons: ["OCR warning"] },
+          }),
+        },
+      ),
+    );
+    expect(markNeedsReviewRes.status).toBe(200);
+    const explicitNeedsReviewRes = await request(
+      "/api/workspace/ingestion/search?review_status=needs-review&lifecycle=active",
+    );
+    const explicitNeedsReviewPayload =
+      (await explicitNeedsReviewRes.json()) as {
+        total: number;
+        facets: { review_status: Record<string, number> };
+      };
+    expect(explicitNeedsReviewPayload.total).toBe(1);
+    expect(explicitNeedsReviewPayload.facets.review_status).toEqual({
+      "needs-review": 1,
+    });
+
+    const markReviewedRes = await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${uploadPayload.source_id}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            review: { status: "reviewed", reasons: [] },
+          }),
+        },
+      ),
+    );
+    expect(markReviewedRes.status).toBe(200);
+    const reviewedNeedsReviewRes = await request(
+      "/api/workspace/ingestion/search?review_status=needs-review&lifecycle=active",
+    );
+    const reviewedNeedsReviewPayload =
+      (await reviewedNeedsReviewRes.json()) as {
+        total: number;
+        facets: { review_status: Record<string, number> };
+      };
+    expect(reviewedNeedsReviewPayload.total).toBe(0);
+    expect(reviewedNeedsReviewPayload.facets.review_status).toEqual({
+      reviewed: 1,
+    });
   });
 
   test("uploads an image with valid provenance through multipart intake", async () => {
