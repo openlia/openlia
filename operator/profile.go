@@ -563,30 +563,87 @@ func renderFallbackBlock(data []byte, providers []FallbackProviderConfig) ([]byt
 		updated := append([]string{}, lines[:start]...)
 		updated = append(updated, block...)
 		updated = append(updated, lines[end+1:]...)
-		return []byte(strings.Join(updated, "\n")), nil
+		return []byte(strings.Join(removeUnmanagedFallbackBlocks(updated), "\n")), nil
 	}
 	for index, line := range lines {
-		if strings.TrimSpace(line) != "fallback_providers:" || strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+		if !isTopLevelFallbackDeclaration(line) {
 			continue
 		}
-		end = index + 1
-		for end < len(lines) {
-			trimmed := strings.TrimSpace(lines[end])
-			if trimmed != "" && !strings.HasPrefix(lines[end], " ") && !strings.HasPrefix(lines[end], "\t") && !strings.HasPrefix(trimmed, "#") {
-				break
-			}
-			end++
-		}
+		end = fallbackDeclarationEnd(lines, index)
 		updated := append([]string{}, lines[:index]...)
 		updated = append(updated, block...)
 		updated = append(updated, lines[end:]...)
-		return []byte(strings.Join(updated, "\n")), nil
+		return []byte(strings.Join(removeUnmanagedFallbackBlocks(updated), "\n")), nil
 	}
 	if len(lines) > 0 && lines[len(lines)-1] != "" {
 		lines = append(lines, "")
 	}
 	lines = append(lines, block...)
-	return []byte(strings.Join(lines, "\n")), nil
+	return []byte(strings.Join(removeUnmanagedFallbackBlocks(lines), "\n")), nil
+}
+
+func isTopLevelFallbackDeclaration(line string) bool {
+	if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimSpace(line), "fallback_providers:")
+}
+
+func fallbackDeclarationEnd(lines []string, start int) int {
+	trimmed := strings.TrimSpace(lines[start])
+	if strings.TrimSpace(strings.TrimPrefix(trimmed, "fallback_providers:")) != "" {
+		return start + 1
+	}
+	end := start + 1
+	for end < len(lines) {
+		line := lines[end]
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") && !strings.HasPrefix(trimmed, "#") {
+			break
+		}
+		end++
+	}
+	return end
+}
+
+func removeUnmanagedFallbackBlocks(lines []string) []string {
+	start, end := -1, -1
+	for index, line := range lines {
+		switch strings.TrimSpace(line) {
+		case fallbackBlockStart:
+			start = index
+		case fallbackBlockEnd:
+			if start >= 0 {
+				end = index
+			}
+		}
+		if start >= 0 && end >= start {
+			break
+		}
+	}
+	if start < 0 || end < start {
+		return lines
+	}
+
+	updated := make([]string, 0, len(lines))
+	for index := 0; index < len(lines); {
+		if index >= start && index <= end {
+			updated = append(updated, lines[index])
+			index++
+			continue
+		}
+		if isTopLevelFallbackDeclaration(lines[index]) {
+			next := fallbackDeclarationEnd(lines, index)
+			if index < start && next > start {
+				next = start
+			}
+			index = next
+			continue
+		}
+		updated = append(updated, lines[index])
+		index++
+	}
+	return updated
 }
 
 func renderFallbackLines(providers []FallbackProviderConfig) []string {
