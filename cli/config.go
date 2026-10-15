@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -19,19 +20,20 @@ import (
 )
 
 const (
-	configSchema           = 2
-	defaultVersion         = "0.1.0"
-	defaultHermesTag       = "v2026.9.14"
-	defaultLochoVersion    = "1.2.0"
-	defaultRemoteRoot      = "/srv/openlia"
-	defaultLocalRoot       = ".openlia"
-	defaultProject         = "openlia"
-	defaultOutputLanguage  = "en"
-	defaultTimezone        = "Asia/Ho_Chi_Minh"
-	defaultWorkspaceUIPort = 8089
-	defaultOpenWebUIPort   = 8090
-	defaultOpenWebUIImage  = "ghcr.io/open-webui/open-webui:main"
-	defaultHermesImage     = "openlia-hermes:" + defaultHermesTag
+	configSchema                 = 2
+	defaultVersion               = "0.1.0"
+	defaultHermesTag             = "v2026.9.14"
+	defaultLochoVersion          = "1.2.0"
+	defaultRemoteRoot            = "/srv/openlia"
+	defaultLocalRoot             = ".openlia"
+	defaultProject               = "openlia"
+	defaultOutputLanguage        = "en"
+	defaultTimezone              = "Asia/Ho_Chi_Minh"
+	defaultWorkspaceUIPort       = 8089
+	defaultOpenWebUIPort         = 8090
+	defaultOpenWebUIImage        = "ghcr.io/open-webui/open-webui:main"
+	maxBackupRemoteRetentionDays = (1<<63 - 1) / int64(24*time.Hour)
+	defaultHermesImage           = "openlia-hermes:" + defaultHermesTag
 )
 
 var defaultSkills = []string{
@@ -118,7 +120,9 @@ type Config struct {
 	BackupRecipient               string
 	BackupSchedule                string
 	BackupScheduleEnabled         bool
-	BackupRemoteRetention         int
+	BackupLocalRetention          int
+	BackupLocalMaxBytes           int64
+	BackupRemoteRetentionDays     int
 	BackupDestinations            []BackupDestinationConfig
 	WorkspaceGitSchedule          string
 	WorkspaceGitEnabled           bool
@@ -195,7 +199,9 @@ func defaultConfig() Config {
 		EnabledSkills:              append([]string(nil), defaultSkills...),
 		BackupSchedule:             "20 4 * * *",
 		BackupScheduleEnabled:      true,
-		BackupRemoteRetention:      30,
+		BackupLocalRetention:       5,
+		BackupLocalMaxBytes:        10 << 30,
+		BackupRemoteRetentionDays:  30,
 		BackupDestinations:         []BackupDestinationConfig{},
 		WorkspaceGitSchedule:       "0 4 * * *",
 		WorkspaceGitEnabled:        true,
@@ -277,6 +283,8 @@ func parseConfigUnchecked(data string) (Config, error) {
 	var err error
 	scanner := bufio.NewScanner(strings.NewReader(data))
 	lineNumber := 0
+	backupLocalMaxBytesSet := false
+	backupLocalMaxSizeSet := false
 	for scanner.Scan() {
 		lineNumber++
 		line := strings.TrimSpace(scanner.Text())
@@ -534,8 +542,22 @@ func parseConfigUnchecked(data string) (Config, error) {
 				config.BackupSchedule, err = parseString(value)
 			case "backup.schedule_enabled":
 				config.BackupScheduleEnabled, err = parseBool(value)
-			case "backup.remote_retention":
-				config.BackupRemoteRetention, err = parseInt(value)
+			case "backup.local_retention":
+				config.BackupLocalRetention, err = parseInt(value)
+			case "backup.local_max_bytes":
+				if backupLocalMaxSizeSet {
+					return Config{}, fmt.Errorf("line %d cannot set both backup.local_max_size and backup.local_max_bytes", lineNumber)
+				}
+				config.BackupLocalMaxBytes, err = parseInt64(value)
+				backupLocalMaxBytesSet = true
+			case "backup.local_max_size":
+				if backupLocalMaxBytesSet {
+					return Config{}, fmt.Errorf("line %d cannot set both backup.local_max_size and backup.local_max_bytes", lineNumber)
+				}
+				config.BackupLocalMaxBytes, err = parseBackupSize(value)
+				backupLocalMaxSizeSet = true
+			case "backup.remote_retention_days":
+				config.BackupRemoteRetentionDays, err = parseInt(value)
 			case "workspace_git.schedule":
 				config.WorkspaceGitSchedule, err = parseString(value)
 			case "workspace_git.enabled":
@@ -567,6 +589,67 @@ func parseInt(value string) (int, error) {
 		return 0, fmt.Errorf("expected integer: %w", err)
 	}
 	return parsed, nil
+}
+
+func parseInt64(value string) (int64, error) {
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("expected integer: %w", err)
+	}
+	return parsed, nil
+}
+
+func parseBackupSize(value string) (int64, error) {
+	text, err := parseString(value)
+	if err != nil {
+		return 0, err
+	}
+	parts := strings.Fields(text)
+	if len(parts) != 2 {
+		return 0, errors.New("expected a quoted size such as \"10 GiB\"")
+	}
+	number, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil || math.IsNaN(number) || math.IsInf(number, 0) || number <= 0 {
+		return 0, errors.New("size amount must be a positive number")
+	}
+	multipliers := map[string]float64{
+		"B":   1,
+		"KB":  1e3,
+		"MB":  1e6,
+		"GB":  1e9,
+		"TB":  1e12,
+		"KIB": 1 << 10,
+		"MIB": 1 << 20,
+		"GIB": 1 << 30,
+		"TIB": 1 << 40,
+	}
+	multiplier, ok := multipliers[strings.ToUpper(parts[1])]
+	if !ok {
+		return 0, errors.New("size unit must be B, KB, MB, GB, TB, KiB, MiB, GiB, or TiB")
+	}
+	bytes := number * multiplier
+	if bytes > float64(math.MaxInt64) || bytes < 1 {
+		return 0, errors.New("size is outside the supported range")
+	}
+	return int64(math.Round(bytes)), nil
+}
+
+func formatBackupSize(bytes int64) string {
+	units := []struct {
+		name   string
+		factor int64
+	}{
+		{"TiB", 1 << 40},
+		{"GiB", 1 << 30},
+		{"MiB", 1 << 20},
+		{"KiB", 1 << 10},
+	}
+	for _, unit := range units {
+		if bytes >= unit.factor && bytes%unit.factor == 0 {
+			return fmt.Sprintf("%d %s", bytes/unit.factor, unit.name)
+		}
+	}
+	return fmt.Sprintf("%d B", bytes)
 }
 
 func parseBool(value string) (bool, error) {
@@ -608,8 +691,14 @@ func validateConfig(config Config) error {
 	if err := validateTimezone(config.Timezone); err != nil {
 		return err
 	}
-	if config.BackupRemoteRetention <= 0 {
-		return errors.New("backup.remote_retention must be a positive integer")
+	if config.BackupLocalRetention <= 0 {
+		return errors.New("backup.local_retention must be a positive integer")
+	}
+	if config.BackupLocalMaxBytes <= 0 {
+		return errors.New("backup.local_max_size must be a positive size")
+	}
+	if config.BackupRemoteRetentionDays <= 0 || int64(config.BackupRemoteRetentionDays) > maxBackupRemoteRetentionDays {
+		return errors.New("backup.remote_retention_days must be a positive integer")
 	}
 	if config.BackupRecipient != "" {
 		if _, err := age.ParseX25519Recipient(config.BackupRecipient); err != nil {
@@ -1278,7 +1367,7 @@ func renderConfig(config Config) string {
 	builder.WriteString("]\n")
 	fmt.Fprintf(&builder, "\n[ingestion]\nmax_concurrent_jobs = %d\n", config.IngestionMaxConcurrentJobs)
 	fmt.Fprintf(&builder, "\n[workspace_git]\nenabled = %t\nschedule = %q\n", config.WorkspaceGitEnabled, config.WorkspaceGitSchedule)
-	fmt.Fprintf(&builder, "\n[backup]\nschedule = %q\nschedule_enabled = %t\nremote_retention = %d\n", config.BackupSchedule, config.BackupScheduleEnabled, config.BackupRemoteRetention)
+	fmt.Fprintf(&builder, "\n[backup]\nschedule = %q\nschedule_enabled = %t\nlocal_retention = %d\nlocal_max_size = %q\nremote_retention_days = %d\n", config.BackupSchedule, config.BackupScheduleEnabled, config.BackupLocalRetention, formatBackupSize(config.BackupLocalMaxBytes), config.BackupRemoteRetentionDays)
 	if config.BackupKnownHosts != "" {
 		fmt.Fprintf(&builder, "known_hosts = %q\n", config.BackupKnownHosts)
 	}

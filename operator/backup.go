@@ -15,12 +15,13 @@ import (
 )
 
 type BackupResult struct {
-	OK           bool                      `json:"ok"`
-	Archive      string                    `json:"archive"`
-	Secrets      string                    `json:"secrets,omitempty"`
-	Action       string                    `json:"action,omitempty"`
-	State        string                    `json:"state,omitempty"`
-	Destinations []BackupDestinationResult `json:"destinations,omitempty"`
+	OK             bool                      `json:"ok"`
+	Archive        string                    `json:"archive"`
+	Secrets        string                    `json:"secrets,omitempty"`
+	Action         string                    `json:"action,omitempty"`
+	State          string                    `json:"state,omitempty"`
+	RetentionError string                    `json:"retention_error,omitempty"`
+	Destinations   []BackupDestinationResult `json:"destinations,omitempty"`
 }
 
 type backupManifest struct {
@@ -202,8 +203,15 @@ func CreateRollback(config Config, reason string, now time.Time, paths ...string
 	if err := AtomicWriteFile(destination+".json", append(data, '\n'), 0o600); err != nil {
 		return BackupResult{}, err
 	}
-	_, _ = pruneBackups(config, config.BackupRetention)
-	return BackupResult{OK: true, Archive: destination, Secrets: secretStatus, Action: "rollback"}, nil
+	_, pruneErr := pruneBackups(config, config.BackupRetention)
+	if stateErr := writeBackupRetentionState(config, pruneErr); stateErr != nil && pruneErr == nil {
+		pruneErr = fmt.Errorf("record backup retention status: %w", stateErr)
+	}
+	result := BackupResult{OK: true, Archive: destination, Secrets: secretStatus, Action: "rollback"}
+	if pruneErr != nil {
+		result.RetentionError = pruneErr.Error()
+	}
+	return result, nil
 }
 
 func safeRuntimeRelativePath(value string) bool {
@@ -426,9 +434,17 @@ func createBackupWithRestart(ctx context.Context, config Config, reason string, 
 	if reason != "restore-preflight" {
 		retention := config.BackupRetention
 		if retention <= 0 {
-			retention = 5
+			retention = defaultBackupRetention
 		}
-		_, _ = pruneBackups(config, retention)
+		_, pruneErr := pruneBackups(config, retention)
+		if stateErr := writeBackupRetentionState(config, pruneErr); stateErr != nil && pruneErr == nil {
+			pruneErr = fmt.Errorf("record backup retention status: %w", stateErr)
+		}
+		result := BackupResult{OK: true, Archive: destination, Secrets: "excluded"}
+		if pruneErr != nil {
+			result.RetentionError = pruneErr.Error()
+		}
+		return result, nil
 	}
 	return BackupResult{OK: true, Archive: destination, Secrets: "excluded"}, nil
 }

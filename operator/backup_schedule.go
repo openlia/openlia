@@ -108,13 +108,15 @@ func BackupScheduleTick(ctx context.Context, config Config, now time.Time) (Back
 	state.LastResult = "ok"
 	if err != nil {
 		state.LastResult = "failed"
+	} else if result.RetentionError != "" {
+		state.LastResult = "partial"
 	}
 	stateData, _ = json.Marshal(state)
 	if writeErr := AtomicWriteFile(statePath, append(stateData, '\n'), 0o600); writeErr != nil && err == nil {
 		err = writeErr
 	}
 	changeStatus := "ok"
-	if err != nil {
+	if err != nil || result.RetentionError != "" {
 		changeStatus = "partial"
 	}
 	if recordErr := RecordChange(config, "backup", changeStatus, result.Archive, "reason=scheduled", now); recordErr != nil && err == nil {

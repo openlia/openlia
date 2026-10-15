@@ -3,6 +3,7 @@ package operator
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -119,6 +120,9 @@ func TestLoadConfigFromEnv(t *testing.T) {
 		"OPENLIA_LOCAL_MODE":                    "true",
 		"OPENLIA_ENABLED_SKILLS":                "daily-briefing,workspace-git",
 		"OPENLIA_INGESTION_MAX_CONCURRENT_JOBS": "2",
+		"OPENLIA_BACKUP_RETENTION":              "4",
+		"OPENLIA_BACKUP_MAX_BYTES":              "123456789",
+		"OPENLIA_BACKUP_REMOTE_RETENTION_DAYS":  "17",
 		"OPENLIA_SKILLS_CONFIGURED":             "true",
 		"OPENLIA_WORKSPACE_UI_HOST":             "0.0.0.0",
 		"OPENLIA_WORKSPACE_UI_PORT":             "8090",
@@ -135,7 +139,7 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !config.LocalMode || !config.SkillsConfigured || config.OutputLanguage != "vi" || config.WorkspaceUIHost != "0.0.0.0" || config.WorkspaceUIPort != 8090 || config.WorkspaceUIPublicOrigin != "https://workspace.example.test" || config.OpenWebUIHost != "127.0.0.1" || config.OpenWebUIPort != 8090 || config.OpenWebUIImage != "ghcr.io/open-webui/open-webui:main" || config.OpenWebUIAuth != false || config.OpenLiaReleaseSHA256 != releaseDigest || config.LochoX8664SHA256 != strings.Repeat("a", 64) || config.LochoARM64SHA256 != strings.Repeat("b", 64) || len(config.EnabledSkills) != 2 || config.IngestionMaxConcurrentJobs != 2 || config.NetworkName != "example-private" || config.Provider != "copilot" || len(config.FallbackProviders) != 2 || config.FallbackProviders[0].BaseURL != "https://gateway.example.test/v1" || config.FallbackProviders[1].Model != "official-model" {
+	if !config.LocalMode || !config.SkillsConfigured || config.OutputLanguage != "vi" || config.WorkspaceUIHost != "0.0.0.0" || config.WorkspaceUIPort != 8090 || config.WorkspaceUIPublicOrigin != "https://workspace.example.test" || config.OpenWebUIHost != "127.0.0.1" || config.OpenWebUIPort != 8090 || config.OpenWebUIImage != "ghcr.io/open-webui/open-webui:main" || config.OpenWebUIAuth != false || config.OpenLiaReleaseSHA256 != releaseDigest || config.LochoX8664SHA256 != strings.Repeat("a", 64) || config.LochoARM64SHA256 != strings.Repeat("b", 64) || len(config.EnabledSkills) != 2 || config.IngestionMaxConcurrentJobs != 2 || config.BackupRetention != 4 || config.BackupMaxBytes != 123456789 || config.BackupRemoteRetentionDays != 17 || config.NetworkName != "example-private" || config.Provider != "copilot" || len(config.FallbackProviders) != 2 || config.FallbackProviders[0].BaseURL != "https://gateway.example.test/v1" || config.FallbackProviders[1].Model != "official-model" {
 		t.Fatalf("unexpected typed config: %+v", config)
 	}
 	wantImage := toolcatalog.ManagedHermesImage("example", "v2026.9.14", "sha256:99641e57ec762c59e54cb44aa6746b7fc68c18b3c5ddb088af54234c613d9294", toolcatalog.DefaultDebianSnapshot)
@@ -161,6 +165,17 @@ func TestLoadConfigFromEnvRequiresRuntimeRoot(t *testing.T) {
 	_, err := LoadConfigFromEnv(map[string]string{"OPENLIA_REPO_ROOT": t.TempDir()})
 	if err == nil || !strings.Contains(err.Error(), "OPENLIA_RUNTIME_ROOT is required") {
 		t.Fatalf("missing runtime root error = %v", err)
+	}
+}
+
+func TestLoadConfigFromEnvRejectsRemoteRetentionDurationOverflow(t *testing.T) {
+	_, err := LoadConfigFromEnv(map[string]string{
+		"OPENLIA_REPO_ROOT":                    t.TempDir(),
+		"OPENLIA_RUNTIME_ROOT":                 filepath.Join(t.TempDir(), "runtime"),
+		"OPENLIA_BACKUP_REMOTE_RETENTION_DAYS": strconv.FormatInt(maxBackupRemoteRetentionDays+1, 10),
+	})
+	if err == nil || !strings.Contains(err.Error(), "OPENLIA_BACKUP_REMOTE_RETENTION_DAYS") {
+		t.Fatalf("overflowing remote retention error = %v", err)
 	}
 }
 

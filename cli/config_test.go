@@ -47,7 +47,9 @@ func TestConfigRoundTrip(t *testing.T) {
 	want.BackupRecipient = identity.Recipient().String()
 	want.BackupSchedule = "15 3 * * 1,3,5"
 	want.BackupScheduleEnabled = true
-	want.BackupRemoteRetention = 30
+	want.BackupLocalRetention = 4
+	want.BackupLocalMaxBytes = 123456789
+	want.BackupRemoteRetentionDays = 17
 	want.BackupDestinations = []BackupDestinationConfig{
 		{Name: "archive", Type: "s3", Endpoint: "https://s3.example.test", Bucket: "openlia-backups", Prefix: "personal", Region: "us-east-1", PathStyle: true, ReaderCredentialsFile: filepath.Join(temporary, "reader-credentials"), ReaderAWSProfile: "reader", WriterCredentialsFile: filepath.Join(temporary, "writer-credentials"), WriterAWSProfile: "writer"},
 		{Name: "nas", Type: "rsync", RsyncTarget: "backup@nas.example.test:/srv/backups/openlia", IdentityFile: "/srv/openlia/backup-ssh-key", OperatorIdentityFile: filepath.Join(temporary, "rsync-key")},
@@ -72,8 +74,11 @@ func TestConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Target != want.Target || got.Model != want.Model || got.OutputLanguage != want.OutputLanguage || got.WorkspaceUIHost != want.WorkspaceUIHost || got.WorkspaceUIPort != want.WorkspaceUIPort || got.WorkspaceUIPublicOrigin != want.WorkspaceUIPublicOrigin || got.OpenWebUIHost != want.OpenWebUIHost || got.OpenWebUIPort != want.OpenWebUIPort || got.OpenWebUIImage != want.OpenWebUIImage || got.OpenWebUIAuth != want.OpenWebUIAuth || got.OpenWebUIGoogleClientID != want.OpenWebUIGoogleClientID || got.OpenWebUIGoogleClientSecret != want.OpenWebUIGoogleClientSecret || got.OpenWebUIURL != want.OpenWebUIURL || len(got.OpenWebUIAllowedDomains) != len(want.OpenWebUIAllowedDomains) || got.OpenWebUIAllowedDomains[0] != want.OpenWebUIAllowedDomains[0] || len(got.OpenWebUIAllowedEmails) != len(want.OpenWebUIAllowedEmails) || got.OpenWebUIAllowedEmails[0] != want.OpenWebUIAllowedEmails[0] || got.OpenWebUIEnableOAuthSignup != want.OpenWebUIEnableOAuthSignup || got.LochoRelayConfigSource != want.LochoRelayConfigSource || got.LochoRelaySecretsSource != want.LochoRelaySecretsSource || len(got.FallbackProviders) != 2 || got.FallbackProviders[0] != want.FallbackProviders[0] || got.FallbackProviders[1] != want.FallbackProviders[1] || got.Timezone != want.Timezone || got.SecretSource != want.SecretSource || len(got.EnabledSkills) != 2 || got.IngestionMaxConcurrentJobs != want.IngestionMaxConcurrentJobs || got.BackupIdentityFile != want.BackupIdentityFile || got.BackupKnownHosts != want.BackupKnownHosts || got.BackupRecipient != want.BackupRecipient || got.BackupSchedule != want.BackupSchedule || got.BackupScheduleEnabled != want.BackupScheduleEnabled || got.BackupRemoteRetention != want.BackupRemoteRetention || len(got.BackupDestinations) != len(want.BackupDestinations) || got.BackupDestinations[0] != want.BackupDestinations[0] || got.BackupDestinations[1] != want.BackupDestinations[1] || got.WorkspaceGitSchedule != want.WorkspaceGitSchedule || got.WorkspaceGitEnabled != want.WorkspaceGitEnabled || got.OpenLiaBrowser != want.OpenLiaBrowser {
+	if got.Target != want.Target || got.Model != want.Model || got.OutputLanguage != want.OutputLanguage || got.WorkspaceUIHost != want.WorkspaceUIHost || got.WorkspaceUIPort != want.WorkspaceUIPort || got.WorkspaceUIPublicOrigin != want.WorkspaceUIPublicOrigin || got.OpenWebUIHost != want.OpenWebUIHost || got.OpenWebUIPort != want.OpenWebUIPort || got.OpenWebUIImage != want.OpenWebUIImage || got.OpenWebUIAuth != want.OpenWebUIAuth || got.OpenWebUIGoogleClientID != want.OpenWebUIGoogleClientID || got.OpenWebUIGoogleClientSecret != want.OpenWebUIGoogleClientSecret || got.OpenWebUIURL != want.OpenWebUIURL || len(got.OpenWebUIAllowedDomains) != len(want.OpenWebUIAllowedDomains) || got.OpenWebUIAllowedDomains[0] != want.OpenWebUIAllowedDomains[0] || len(got.OpenWebUIAllowedEmails) != len(want.OpenWebUIAllowedEmails) || got.OpenWebUIAllowedEmails[0] != want.OpenWebUIAllowedEmails[0] || got.OpenWebUIEnableOAuthSignup != want.OpenWebUIEnableOAuthSignup || got.LochoRelayConfigSource != want.LochoRelayConfigSource || got.LochoRelaySecretsSource != want.LochoRelaySecretsSource || len(got.FallbackProviders) != 2 || got.FallbackProviders[0] != want.FallbackProviders[0] || got.FallbackProviders[1] != want.FallbackProviders[1] || got.Timezone != want.Timezone || got.SecretSource != want.SecretSource || len(got.EnabledSkills) != 2 || got.IngestionMaxConcurrentJobs != want.IngestionMaxConcurrentJobs || got.BackupIdentityFile != want.BackupIdentityFile || got.BackupKnownHosts != want.BackupKnownHosts || got.BackupRecipient != want.BackupRecipient || got.BackupSchedule != want.BackupSchedule || got.BackupScheduleEnabled != want.BackupScheduleEnabled || len(got.BackupDestinations) != len(want.BackupDestinations) || got.BackupDestinations[0] != want.BackupDestinations[0] || got.BackupDestinations[1] != want.BackupDestinations[1] || got.WorkspaceGitSchedule != want.WorkspaceGitSchedule || got.WorkspaceGitEnabled != want.WorkspaceGitEnabled || got.OpenLiaBrowser != want.OpenLiaBrowser {
 		t.Fatalf("round trip mismatch: got %#v want %#v", got, want)
+	}
+	if got.BackupLocalRetention != want.BackupLocalRetention || got.BackupLocalMaxBytes != want.BackupLocalMaxBytes || got.BackupRemoteRetentionDays != want.BackupRemoteRetentionDays {
+		t.Fatalf("backup retention round trip mismatch: got %#v want %#v", got, want)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -81,6 +86,50 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("config mode is %o, want 600", info.Mode().Perm())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `local_max_size = "123456789 B"`) || strings.Contains(string(data), "local_max_bytes") {
+		t.Fatalf("rendered config does not use human-readable local size: %s", data)
+	}
+}
+
+func TestBackupSizeConfigUsesHumanReadableUnits(t *testing.T) {
+	config, err := parseConfig("[backup]\nlocal_max_size = \"10 GiB\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.BackupLocalMaxBytes != 10<<30 {
+		t.Fatalf("10 GiB parsed as %d bytes", config.BackupLocalMaxBytes)
+	}
+
+	config, err = parseConfig("[backup]\nlocal_max_size = \"1.5 GB\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.BackupLocalMaxBytes != 1500000000 {
+		t.Fatalf("1.5 GB parsed as %d bytes", config.BackupLocalMaxBytes)
+	}
+}
+
+func TestBackupSizeConfigRejectsAmbiguousAndLegacyRemoteSettings(t *testing.T) {
+	_, err := parseConfig("[backup]\nlocal_max_bytes = 10737418240\nlocal_max_size = \"10 GiB\"\n")
+	if err == nil || !strings.Contains(err.Error(), "cannot set both") {
+		t.Fatalf("ambiguous local size error = %v", err)
+	}
+	_, err = parseConfig("[backup]\nremote_retention = 30\n")
+	if err == nil || !strings.Contains(err.Error(), "unknown setting") {
+		t.Fatalf("legacy remote retention error = %v", err)
+	}
+}
+
+func TestBackupRemoteRetentionRejectsDurationOverflow(t *testing.T) {
+	config := defaultConfig()
+	config.BackupRemoteRetentionDays = int(maxBackupRemoteRetentionDays + 1)
+	if err := validateConfig(config); err == nil || !strings.Contains(err.Error(), "remote_retention_days") {
+		t.Fatalf("overflowing remote retention error = %v", err)
 	}
 }
 

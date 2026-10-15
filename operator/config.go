@@ -34,12 +34,12 @@ type Config struct {
 	SecretFile                    string
 	BackupRoot                    string
 	BackupRetention               int
+	BackupMaxBytes                int64
 	BackupRecipient               string
 	BackupSchedule                string
 	BackupScheduleEnabled         bool
 	WorkspaceGitSchedule          string
 	WorkspaceGitEnabled           bool
-	BackupRemoteRetention         int
 	BackupDestinations            []BackupDestination
 	BackupNamespaceRoot           string
 	OperatorConfigFile            string
@@ -65,6 +65,7 @@ type Config struct {
 	IngestionMaxConcurrentJobs    int
 	SkillsConfigured              bool
 	ExternalNetwork               string
+	BackupRemoteRetentionDays     int
 	APIEnabled                    bool
 	APIHost                       string
 	WorkspaceUIHost               string
@@ -202,13 +203,14 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 		SecretFile:                 getOr(values, "OPENLIA_SECRET_FILE", filepath.Join(runtimeRoot, "secrets", "hermes.env")),
 		BackupRoot:                 getOr(values, "OPENLIA_BACKUP_ROOT", filepath.Join(runtimeRoot, "backups")),
 		BackupRetention:            5,
+		BackupMaxBytes:             10 << 30,
 		BackupRecipient:            values["OPENLIA_BACKUP_RECIPIENT"],
 		BackupSchedule:             getOr(values, "OPENLIA_BACKUP_SCHEDULE", "20 4 * * *"),
 		BackupScheduleEnabled:      true,
 		WorkspaceGitSchedule:       getOr(values, "OPENLIA_WORKSPACE_GIT_SCHEDULE", "0 4 * * *"),
 		WorkspaceGitEnabled:        true,
 		IngestionMaxConcurrentJobs: 1,
-		BackupRemoteRetention:      30,
+		BackupRemoteRetentionDays:  30,
 		BackupDestinations:         []BackupDestination{},
 		OperatorConfigFile:         values["OPENLIA_CLI_CONFIG_FILE"],
 		MetaRoot:                   getOr(values, "OPENLIA_META_ROOT", filepath.Join(runtimeRoot, "meta")),
@@ -269,12 +271,19 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 		}
 		config.BackupRetention = parsed
 	}
-	if rawRetention := values["OPENLIA_BACKUP_REMOTE_RETENTION"]; rawRetention != "" {
-		parsed, err := strconv.Atoi(rawRetention)
+	if rawMaxBytes := values["OPENLIA_BACKUP_MAX_BYTES"]; rawMaxBytes != "" {
+		parsed, err := strconv.ParseInt(rawMaxBytes, 10, 64)
 		if err != nil || parsed <= 0 {
-			return Config{}, fmt.Errorf("OPENLIA_BACKUP_REMOTE_RETENTION must be a positive integer")
+			return Config{}, fmt.Errorf("OPENLIA_BACKUP_MAX_BYTES must be a positive integer")
 		}
-		config.BackupRemoteRetention = parsed
+		config.BackupMaxBytes = parsed
+	}
+	if rawRetention := values["OPENLIA_BACKUP_REMOTE_RETENTION_DAYS"]; rawRetention != "" {
+		parsed, err := strconv.Atoi(rawRetention)
+		if err != nil || parsed <= 0 || int64(parsed) > maxBackupRemoteRetentionDays {
+			return Config{}, fmt.Errorf("OPENLIA_BACKUP_REMOTE_RETENTION_DAYS must be a positive integer")
+		}
+		config.BackupRemoteRetentionDays = parsed
 	}
 
 	config.LocalMode = localMode
@@ -574,8 +583,8 @@ func (c Config) ValidatePaths() error {
 	if err := validateOutputLanguage(c.OutputLanguage); err != nil {
 		return fmt.Errorf("output language: %w", err)
 	}
-	if c.BackupRetention < 0 || c.BackupRemoteRetention < 0 {
-		return fmt.Errorf("backup retention counts must be non-negative")
+	if c.BackupRetention < 0 || c.BackupMaxBytes < 0 || c.BackupRemoteRetentionDays < 0 || int64(c.BackupRemoteRetentionDays) > maxBackupRemoteRetentionDays {
+		return fmt.Errorf("backup retention values must be non-negative")
 	}
 	if c.BackupRecipient != "" {
 		if _, err := age.ParseX25519Recipient(c.BackupRecipient); err != nil {

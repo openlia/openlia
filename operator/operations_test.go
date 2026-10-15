@@ -1739,20 +1739,8 @@ func TestPruneBackups(t *testing.T) {
 	// Create 7 backup archives with .json pairs spaced 1 minute apart
 	for i := 1; i <= 7; i++ {
 		archivePath := filepath.Join(config.BackupRoot, fmt.Sprintf("openlia-20260921T10000%dZ-%d.tar.gz.age", i, i))
-		if err := os.WriteFile(archivePath, []byte(fmt.Sprintf("archive-%d", i)), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		jsonPath := archivePath + ".json"
-		if err := os.WriteFile(jsonPath, []byte(fmt.Sprintf("meta-%d", i)), 0o600); err != nil {
-			t.Fatal(err)
-		}
 		modTime := baseTime.Add(time.Duration(i) * time.Minute)
-		if err := os.Chtimes(archivePath, modTime, modTime); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chtimes(jsonPath, modTime, modTime); err != nil {
-			t.Fatal(err)
-		}
+		writeTestDurableArchive(t, archivePath, []byte(fmt.Sprintf("archive-%d", i)), modTime)
 	}
 
 	// Create 4 compose-generated files
@@ -1808,6 +1796,197 @@ func TestPruneBackups(t *testing.T) {
 		if _, err := os.Stat(composePath); err != nil {
 			t.Fatalf("expected compose file %d to exist: %v", i, err)
 		}
+	}
+}
+
+func writeTestDurableArchive(t *testing.T, path string, content []byte, created time.Time) {
+	t.Helper()
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := fileSHA256(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := json.Marshal(backupMetadata{
+		Schema: 2, Kind: "durable", Archive: filepath.Base(path), SHA256: digest,
+		Encrypted: true, CreatedAt: created.UTC().Format(time.RFC3339Nano), Secrets: "excluded",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+".json", append(metadata, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, created, created); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path+".json", created, created); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPruneBackupsAppliesLocalSizeBudgetAfterCount(t *testing.T) {
+	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
+	if err := os.MkdirAll(config.BackupRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	baseTime := time.Date(2026, 9, 21, 10, 0, 0, 0, time.UTC)
+	for i := 1; i <= 4; i++ {
+		archivePath := filepath.Join(config.BackupRoot, fmt.Sprintf("openlia-20260921T10000%dZ-%d.tar.gz.age", i, i))
+		modTime := baseTime.Add(time.Duration(i) * time.Minute)
+		writeTestDurableArchive(t, archivePath, []byte("1234"), modTime)
+	}
+	archiveInfo, err := os.Stat(filepath.Join(config.BackupRoot, "openlia-20260921T100003Z-3.tar.gz.age"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadataInfo, err := os.Stat(filepath.Join(config.BackupRoot, "openlia-20260921T100003Z-3.tar.gz.age.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.BackupMaxBytes = 2 * (archiveInfo.Size() + metadataInfo.Size())
+
+	removed, err := PruneBackups(config, 5)
+	if err != nil {
+		t.Fatalf("PruneBackups failed: %v", err)
+	}
+	if len(removed) != 2 {
+		t.Fatalf("removed = %v, want two oldest archives", removed)
+	}
+	for i := 1; i <= 2; i++ {
+		archivePath := filepath.Join(config.BackupRoot, fmt.Sprintf("openlia-20260921T10000%dZ-%d.tar.gz.age", i, i))
+		if _, err := os.Stat(archivePath); !os.IsNotExist(err) {
+			t.Fatalf("archive %d was not removed: %v", i, err)
+		}
+	}
+	for i := 3; i <= 4; i++ {
+		archivePath := filepath.Join(config.BackupRoot, fmt.Sprintf("openlia-20260921T10000%dZ-%d.tar.gz.age", i, i))
+		if _, err := os.Stat(archivePath); err != nil {
+			t.Fatalf("newest archive %d was removed: %v", i, err)
+		}
+	}
+}
+
+func TestReadBackupStatusReportsRetentionUsage(t *testing.T) {
+	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
+	if err := os.MkdirAll(config.BackupRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	archivePath := filepath.Join(config.BackupRoot, "openlia-20260921T100000Z-1.tar.gz.age")
+	writeTestDurableArchive(t, archivePath, []byte("1234"), time.Date(2026, 9, 21, 10, 0, 0, 0, time.UTC))
+	archiveInfo, err := os.Stat(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadataInfo, err := os.Stat(archivePath + ".json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.BackupMaxBytes = archiveInfo.Size() + metadataInfo.Size()
+
+	status, err := ReadBackupStatus(config)
+	if err != nil {
+		t.Fatalf("ReadBackupStatus failed: %v", err)
+	}
+	if status.LocalBytes != config.BackupMaxBytes || status.LocalUsage != formatBackupSize(config.BackupMaxBytes) || status.LocalMaxSize != formatBackupSize(config.BackupMaxBytes) || status.LocalRetention != defaultBackupRetention {
+		t.Fatalf("retention status = %+v", status)
+	}
+	if status.LocalBudgetExceeded {
+		t.Fatal("local budget incorrectly reported as exceeded")
+	}
+}
+
+func TestPruneBackupsPreservesOversizedNewestArchive(t *testing.T) {
+	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
+	config.BackupMaxBytes = 3
+	if err := os.MkdirAll(config.BackupRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for i, content := range []string{"old", "newest-is-larger"} {
+		archivePath := filepath.Join(config.BackupRoot, fmt.Sprintf("openlia-20260921T10000%dZ-%d.tar.gz.age", i+1, i+1))
+		modTime := time.Date(2026, 9, 21, 10, i, 0, 0, time.UTC)
+		writeTestDurableArchive(t, archivePath, []byte(content), modTime)
+	}
+
+	if _, err := PruneBackups(config, 5); err != nil {
+		t.Fatalf("PruneBackups failed: %v", err)
+	}
+	newest := filepath.Join(config.BackupRoot, "openlia-20260921T100002Z-2.tar.gz.age")
+	if _, err := os.Stat(newest); err != nil {
+		t.Fatalf("oversized newest archive was not preserved: %v", err)
+	}
+	oldest := filepath.Join(config.BackupRoot, "openlia-20260921T100001Z-1.tar.gz.age")
+	if _, err := os.Stat(oldest); !os.IsNotExist(err) {
+		t.Fatalf("oldest archive was not removed: %v", err)
+	}
+}
+
+func TestPruneBackupsPreservesOlderVerifiedArchiveWhenNewestIsCorrupt(t *testing.T) {
+	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
+	config.BackupMaxBytes = 1
+	if err := os.MkdirAll(config.BackupRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldest := filepath.Join(config.BackupRoot, "openlia-20260921T100000Z-1.tar.gz.age")
+	newest := filepath.Join(config.BackupRoot, "openlia-20260921T110000Z-2.tar.gz.age")
+	writeTestDurableArchive(t, oldest, []byte("valid recovery copy"), time.Date(2026, 9, 21, 10, 0, 0, 0, time.UTC))
+	writeTestDurableArchive(t, newest, []byte("valid before corruption"), time.Date(2026, 9, 21, 11, 0, 0, 0, time.UTC))
+	if err := os.WriteFile(newest, []byte("corrupt recovery copy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := PruneBackups(config, 1); err != nil {
+		t.Fatalf("PruneBackups failed: %v", err)
+	}
+	if _, err := os.Stat(oldest); err != nil {
+		t.Fatalf("verified older archive was removed: %v", err)
+	}
+	if _, err := os.Stat(newest); !os.IsNotExist(err) {
+		t.Fatalf("corrupt newest archive was not removed: %v", err)
+	}
+}
+
+func TestPruneBackupsRefusesToDeleteWhenNoVerifiedArchiveExists(t *testing.T) {
+	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
+	if err := os.MkdirAll(config.BackupRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(config.BackupRoot, "openlia-20260921T100000Z-1.tar.gz.age")
+	if err := os.WriteFile(archive, []byte("unverified"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(archive+".json", []byte("not metadata"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := PruneBackups(config, 1); err == nil || !strings.Contains(err.Error(), "no verified durable backup") {
+		t.Fatalf("PruneBackups error = %v, want verified-backup failure", err)
+	}
+	if _, err := os.Stat(archive); err != nil {
+		t.Fatalf("unverified archive was removed: %v", err)
+	}
+}
+
+func TestPruneBackupsRemovesOrphanMetadata(t *testing.T) {
+	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
+	if err := os.MkdirAll(config.BackupRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(config.BackupRoot, "openlia-20260921T100000Z-1.tar.gz.age.json")
+	if err := os.WriteFile(orphan, []byte("orphan metadata"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := PruneBackups(config, 1)
+	if err != nil {
+		t.Fatalf("PruneBackups failed: %v", err)
+	}
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Fatalf("orphan metadata remains: %v", err)
+	}
+	if len(removed) != 1 || removed[0] != filepath.Base(orphan) {
+		t.Fatalf("removed = %v, want orphan metadata", removed)
 	}
 }
 

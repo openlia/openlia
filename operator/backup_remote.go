@@ -19,6 +19,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
+const maxBackupRemoteRetentionDays = (1<<63 - 1) / int64(24*time.Hour)
+
 type BackupDestinationResult struct {
 	Name      string `json:"name"`
 	Type      string `json:"type"`
@@ -62,9 +64,9 @@ func PushBackup(ctx context.Context, config Config, result BackupResult, now tim
 		var err error
 		switch destination.Type {
 		case "s3":
-			err = pushS3Backup(ctx, config, destination, result.Archive)
+			err = pushS3BackupAt(ctx, config, destination, result.Archive, now)
 		case "rsync":
-			err = pushRsyncBackup(ctx, config, destination, result.Archive, config.BackupRemoteRetention)
+			err = pushRsyncBackupAt(ctx, config, destination, result.Archive, remoteRetentionDays(config), now)
 		default:
 			err = fmt.Errorf("unsupported destination type")
 		}
@@ -91,6 +93,10 @@ func PushBackup(ctx context.Context, config Config, result BackupResult, now tim
 }
 
 func pushS3Backup(ctx context.Context, config Config, destination BackupDestination, archive string) error {
+	return pushS3BackupAt(ctx, config, destination, archive, time.Now())
+}
+
+func pushS3BackupAt(ctx context.Context, config Config, destination BackupDestination, archive string, now time.Time) error {
 	awsConfig, err := loadS3BackupConfig(ctx, destination)
 	if err != nil {
 		return err
@@ -115,7 +121,7 @@ func pushS3Backup(ctx context.Context, config Config, destination BackupDestinat
 		_, _ = client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(destination.Bucket), Key: aws.String(key + ".json")})
 		return fmt.Errorf("upload archive: %w", err)
 	}
-	if err := pruneS3Backups(ctx, client, destination.Bucket, keyPrefix, config.BackupRemoteRetention); err != nil {
+	if err := pruneS3BackupsAt(ctx, client, destination.Bucket, keyPrefix, remoteRetentionDays(config), now); err != nil {
 		return fmt.Errorf("remote retention: %w", err)
 	}
 	return nil
@@ -137,8 +143,12 @@ func uploadS3File(ctx context.Context, client *s3.Client, bucket, key, path stri
 }
 
 func pruneS3Backups(ctx context.Context, client *s3.Client, bucket, prefix string, keep int) error {
-	if keep <= 0 {
-		keep = 30
+	return pruneS3BackupsAt(ctx, client, bucket, prefix, keep, time.Now())
+}
+
+func pruneS3BackupsAt(ctx context.Context, client *s3.Client, bucket, prefix string, retentionDays int, now time.Time) error {
+	if retentionDays <= 0 {
+		retentionDays = 30
 	}
 	var objects []s3Object
 	var continuation *string
@@ -157,11 +167,21 @@ func pruneS3Backups(ctx context.Context, client *s3.Client, bucket, prefix strin
 		}
 		continuation = page.NextContinuationToken
 	}
-	sort.Slice(objects, func(i, j int) bool { return objects[i].time.After(objects[j].time) })
-	if len(objects) <= keep {
-		return nil
-	}
-	for _, object := range objects[keep:] {
+	sort.Slice(objects, func(i, j int) bool {
+		left := backupObjectTime(filepath.Base(objects[i].key), objects[i].time)
+		right := backupObjectTime(filepath.Base(objects[j].key), objects[j].time)
+		if left.Equal(right) {
+			return objects[i].key > objects[j].key
+		}
+		return left.After(right)
+	})
+	for index, object := range objects {
+		if index == 0 {
+			continue
+		}
+		if !backupExpired(filepath.Base(object.key), object.time, now, retentionDays) {
+			continue
+		}
 		keys := []string{object.key, object.key + ".json"}
 		for _, key := range keys {
 			if _, err := client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)}); err != nil {
@@ -178,6 +198,10 @@ type s3Object struct {
 }
 
 func pushRsyncBackup(ctx context.Context, config Config, destination BackupDestination, archive string, keep int) error {
+	return pushRsyncBackupAt(ctx, config, destination, archive, keep, time.Now())
+}
+
+func pushRsyncBackupAt(ctx context.Context, config Config, destination BackupDestination, archive string, retentionDays int, now time.Time) error {
 	remoteHost, remotePath, err := splitRsyncTarget(destination.RsyncTarget)
 	if err != nil {
 		return err
@@ -195,7 +219,7 @@ func pushRsyncBackup(ctx context.Context, config Config, destination BackupDesti
 		_ = removeRsyncObject(ctx, destination, remoteHost, targetPath+".json")
 		return fmt.Errorf("upload archive: %w", err)
 	}
-	return pruneRsyncBackups(ctx, destination, remoteHost, remotePath, keep)
+	return pruneRsyncBackupsAt(ctx, destination, remoteHost, remotePath, retentionDays, now)
 }
 
 func backupNamespace(config Config) string {
@@ -254,6 +278,10 @@ func rsyncUpload(ctx context.Context, destination BackupDestination, source, hos
 }
 
 func pruneRsyncBackups(ctx context.Context, destination BackupDestination, host, directory string, keep int) error {
+	return pruneRsyncBackupsAt(ctx, destination, host, directory, keep, time.Now())
+}
+
+func pruneRsyncBackupsAt(ctx context.Context, destination BackupDestination, host, directory string, retentionDays int, now time.Time) error {
 	findCommand := rsyncBackupListCommand(directory)
 	args := backupSSHOptions()
 	if destination.IdentityFile != "" {
@@ -273,13 +301,24 @@ func pruneRsyncBackups(ctx context.Context, destination BackupDestination, host,
 		}
 		items = append(items, name)
 	}
-	if keep <= 0 {
-		keep = 30
+	if retentionDays <= 0 {
+		retentionDays = 30
 	}
-	if len(items) <= keep {
-		return nil
-	}
-	for _, item := range items[keep:] {
+	sort.Slice(items, func(i, j int) bool {
+		left := backupObjectTime(items[i], time.Time{})
+		right := backupObjectTime(items[j], time.Time{})
+		if left.Equal(right) {
+			return items[i] > items[j]
+		}
+		return left.After(right)
+	})
+	for index, item := range items {
+		if index == 0 {
+			continue
+		}
+		if !backupExpired(item, time.Time{}, now, retentionDays) {
+			continue
+		}
 		for _, name := range []string{item, item + ".json"} {
 			removeCommand := "rm -f -- " + shellArgumentQuote(filepath.Join(directory, name))
 			removeArgs := backupSSHOptions()
@@ -293,6 +332,50 @@ func pruneRsyncBackups(ctx context.Context, destination BackupDestination, host,
 		}
 	}
 	return nil
+}
+
+func remoteRetentionDays(config Config) int {
+	if config.BackupRemoteRetentionDays > 0 {
+		if int64(config.BackupRemoteRetentionDays) > maxBackupRemoteRetentionDays {
+			return int(maxBackupRemoteRetentionDays)
+		}
+		return config.BackupRemoteRetentionDays
+	}
+	return 30
+}
+
+func backupExpired(name string, fallback, now time.Time, retentionDays int) bool {
+	if retentionDays <= 0 {
+		retentionDays = 30
+	}
+	if int64(retentionDays) > maxBackupRemoteRetentionDays {
+		retentionDays = int(maxBackupRemoteRetentionDays)
+	}
+	created := backupObjectTime(name, fallback)
+	if created.IsZero() {
+		return false
+	}
+	return created.Before(now.Add(-time.Duration(retentionDays) * 24 * time.Hour))
+}
+
+func backupObjectTime(name string, fallback time.Time) time.Time {
+	created, ok := backupTimestamp(name)
+	if ok {
+		return created
+	}
+	return fallback
+}
+
+func backupTimestamp(name string) (time.Time, bool) {
+	name = strings.TrimPrefix(name, "openlia-")
+	if len(name) < len("20060102T150405Z") {
+		return time.Time{}, false
+	}
+	created, err := time.Parse("20060102T150405Z", name[:len("20060102T150405Z")])
+	if err != nil {
+		return time.Time{}, false
+	}
+	return created, true
 }
 
 func backupSSHOptions() []string {
