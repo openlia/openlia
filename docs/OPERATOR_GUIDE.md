@@ -241,8 +241,32 @@ openlia backup create
 ### Scheduling Automated Backups
 You can enable the automated backup scheduler sidecar:
 ```bash
-openlia backup schedule --cron "0 2 * * *" --retention 14
+openlia backup schedule install
 ```
+
+The default policy is five local encrypted archives with a 10 GiB soft budget
+and 30 elapsed days of remote retention. Configure it in the selected profile:
+
+```toml
+[backup]
+schedule = "20 4 * * *"
+schedule_enabled = true
+local_retention = 5
+local_max_size = "10 GiB"
+remote_retention_days = 30
+```
+
+`local_max_size` uses a quoted human-readable size. Binary units such as
+`"10 GiB"` and `"500 MiB"`, plus decimal units such as `"10 GB"`, are accepted.
+
+Local pruning removes the oldest archive and metadata pairs after the count and
+size limits are applied. The newest verified archive is preserved if it alone
+exceeds the soft budget. If no verified local archive exists, cleanup stops and reports
+an error. `openlia backup status` reports usage, budget overruns, and retention
+cleanup errors. Remote pruning runs after a successful upload; if
+uploads stop, expired remote objects remain until the next successful upload.
+The newest remote archive is preserved even when it is older than the retention
+window.
 
 ### Remote Backup Storage (S3 / SSH)
 S3 destinations can use separate reader credentials on the operator machine and

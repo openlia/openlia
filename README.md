@@ -985,7 +985,9 @@ Configure zero, one, or both remote destinations under `[[backup.destinations]]`
 [backup]
 schedule = "20 4 * * *"
 schedule_enabled = true
-remote_retention = 30
+local_retention = 5
+local_max_size = "10 GiB"
+remote_retention_days = 30
 # Optional target-side SSH known-hosts file used by the backup sidecar.
 # known_hosts = "/root/.ssh/known_hosts"
 
@@ -1010,6 +1012,9 @@ identity_file = "/srv/openlia/operator-secrets/backup-rsync-key"
 operator_identity_file = "/Users/me/.ssh/openlia-backup-read"
 ```
 
+`local_max_size` accepts quoted binary or decimal sizes such as `"10 GiB"`,
+`"500 MiB"`, or `"10 GB"`.
+
 S3 credential paths are relative to the selected profile's `config.toml`
 directory. Files must be regular mode-`0600` files outside the checkout and use
 the standard AWS shared-credentials format. OpenLia uses the reader file only
@@ -1022,16 +1027,22 @@ to retrieve remote backups. For rsync, provision the target-side SSH key at
 `identity_file` outside `runtime/secrets` and the Hermes data directory so the
 agent container cannot read it. Pin the host in the configured target
 `known_hosts` file, and configure `operator_identity_file` (or an operator-side
-SSH agent) for recovery. Remote retention defaults to 30 successful backups per
-destination; local retention remains five durable archives. `openlia backup
-status` shows the latest local archive and last upload result; `openlia backup
-list` lists remote archives.
+SSH agent) for recovery. Remote retention defaults to 30 elapsed days per
+destination; local retention keeps five durable archives and applies a 10 GiB
+soft budget to archive and metadata pairs. The newest verified archive is
+preserved even if it alone exceeds the budget. If no verified local archive
+exists, cleanup stops and reports an error. `openlia backup status` shows
+retention usage, budget, cleanup errors, the latest local archive, and the last
+upload result; `openlia backup list` lists remote archives.
+Remote pruning also preserves the newest remote archive, even when it is older
+than the configured retention window.
 If one destination fails, the encrypted local archive remains and the other
 destination is still attempted. Retry the newest artifact with
 `openlia backup push`, or select one retained encrypted archive with
 `--archive FILENAME.age`. On versioned S3 buckets, configure lifecycle expiry
-for noncurrent object versions as well; OpenLia prunes the visible current
-objects under its configured prefix.
+for noncurrent object versions and incomplete multipart uploads as well; OpenLia
+prunes visible current objects older than the configured age under its
+configured prefix.
 
 `openlia backup restore` accepts a local `.tar.gz.age` archive or retrieves one
 from a configured destination with `--from NAME --latest` (or `--object NAME`).

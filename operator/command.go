@@ -154,7 +154,7 @@ func runBackup(ctx context.Context, config Config, args []string, _ io.Reader, o
 		}
 		result.Destinations, err = PushBackup(ctx, config, result, now)
 		backupStatus := "ok"
-		if err != nil {
+		if err != nil || result.RetentionError != "" {
 			backupStatus = "partial"
 		}
 		if recordErr := RecordChange(config, "backup", backupStatus, result.Archive, "reason="+reason, now); recordErr != nil {

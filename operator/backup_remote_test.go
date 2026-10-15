@@ -79,7 +79,7 @@ func TestPushBackupS3UploadsCiphertextAndMetadata(t *testing.T) {
 	t.Setenv("AWS_ACCESS_KEY_ID", "test-access")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
-	config := Config{ProjectName: "test-project", BackupRoot: backupRoot, InstallRoot: filepath.Join(root, "install"), MetaRoot: metaRoot, BackupRemoteRetention: 30, BackupDestinations: []BackupDestination{{Name: "s3", Type: "s3", Endpoint: server.URL, Bucket: "openlia-backups", Prefix: "unit", Region: "us-east-1", PathStyle: true}}}
+	config := Config{ProjectName: "test-project", BackupRoot: backupRoot, InstallRoot: filepath.Join(root, "install"), MetaRoot: metaRoot, BackupRemoteRetentionDays: 30, BackupDestinations: []BackupDestination{{Name: "s3", Type: "s3", Endpoint: server.URL, Bucket: "openlia-backups", Prefix: "unit", Region: "us-east-1", PathStyle: true}}}
 	results, err := PushBackup(context.Background(), config, BackupResult{OK: true, Archive: archive}, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -97,6 +97,74 @@ func TestPushBackupS3UploadsCiphertextAndMetadata(t *testing.T) {
 	if metadataIndex < 0 || archiveIndex < 0 || listIndex < 0 || metadataIndex > archiveIndex || archiveIndex > listIndex {
 		t.Fatalf("S3 upload sequence = %s", joined)
 	}
+}
+
+func TestPushS3BackupPreservesNewestExpiredArchive(t *testing.T) {
+	root := t.TempDir()
+	backupRoot := filepath.Join(root, "backups")
+	metaRoot := filepath.Join(root, "meta")
+	if err := os.MkdirAll(backupRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(metaRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(backupRoot, "openlia-20261001T042000Z-newest.tar.gz.age")
+	writeTestDurableArchive(t, archive, []byte("ciphertext"), time.Date(2026, 10, 1, 4, 20, 0, 0, time.UTC))
+	config := Config{ProjectName: "test-project", BackupRoot: backupRoot, InstallRoot: filepath.Join(root, "install"), MetaRoot: metaRoot, BackupRemoteRetentionDays: 30}
+	prefix := "unit/" + config.ProjectName + "-" + backupNamespace(config) + "/"
+	oldName := "openlia-20260901T042000Z-old.tar.gz.age"
+	newName := filepath.Base(archive)
+	var deleted []string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodGet && request.URL.Query().Get("list-type") == "2" {
+			writer.Header().Set("Content-Type", "application/xml")
+			_, _ = io.WriteString(writer, `<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>openlia-backups</Name><IsTruncated>false</IsTruncated><Contents><Key>`+prefix+newName+`</Key><LastModified>2026-10-01T04:20:00.000Z</LastModified></Contents><Contents><Key>`+prefix+oldName+`</Key><LastModified>2026-09-01T04:20:00.000Z</LastModified></Contents></ListBucketResult>`)
+			return
+		}
+		if request.Method == http.MethodDelete {
+			deleted = append(deleted, request.URL.Path)
+			writer.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if request.Method != http.MethodPut {
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		_, _ = io.Copy(io.Discard, request.Body)
+		writer.Header().Set("ETag", `"test-etag"`)
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	caPath := filepath.Join(root, "s3-ca.pem")
+	if err := os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AWS_CA_BUNDLE", caPath)
+	t.Setenv("AWS_ACCESS_KEY_ID", "test-access")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	now := time.Date(2026, 10, 15, 4, 20, 0, 0, time.UTC)
+	if err := pushS3BackupAt(context.Background(), config, BackupDestination{Type: "s3", Endpoint: server.URL, Bucket: "openlia-backups", Prefix: "unit", Region: "us-east-1", PathStyle: true}, archive, now); err != nil {
+		t.Fatal(err)
+	}
+	oldKey := "/openlia-backups/" + prefix + oldName
+	newKey := "/openlia-backups/" + prefix + newName
+	if !containsString(deleted, oldKey) || !containsString(deleted, oldKey+".json") {
+		t.Fatalf("expired S3 archive was not fully removed: %v", deleted)
+	}
+	if containsString(deleted, newKey) || containsString(deleted, newKey+".json") {
+		t.Fatalf("newest S3 archive was removed: %v", deleted)
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestLoadS3BackupConfigUsesExplicitProfile(t *testing.T) {
@@ -135,6 +203,19 @@ func TestRsyncBackupListCommandIsPortableAndFilenameOrdered(t *testing.T) {
 	}
 }
 
+func TestBackupRemoteRetentionUsesArchiveAge(t *testing.T) {
+	now := time.Date(2026, 10, 1, 4, 20, 0, 0, time.UTC)
+	if !backupExpired("openlia-20260831T042000Z-old.tar.gz.age", now, now, 30) {
+		t.Fatal("backup older than 30 days was not expired")
+	}
+	if backupExpired("openlia-20260915T042000Z-new.tar.gz.age", now.Add(-365*24*time.Hour), now, 30) {
+		t.Fatal("backup within 30 days was expired")
+	}
+	if backupExpired("openlia-not-a-timestamp.tar.gz.age", time.Time{}, now, 30) {
+		t.Fatal("backup without a usable age was expired")
+	}
+}
+
 func TestPushBackupRsyncUsesDeploymentNamespaceAndMetadataFirst(t *testing.T) {
 	root := t.TempDir()
 	bin := filepath.Join(root, "bin")
@@ -142,7 +223,7 @@ func TestPushBackupRsyncUsesDeploymentNamespaceAndMetadataFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	logPath := filepath.Join(root, "calls.log")
-	sshScript := "#!/bin/sh\nprintf 'ssh %s\\n' \"$*\" >> \"$CALL_LOG\"\ncase \"$*\" in *find*) printf 'openlia-20261001T042000Z-1.tar.gz.age\\nopenlia-20260930T042000Z-1.tar.gz.age\\n' ;; esac\n"
+	sshScript := "#!/bin/sh\nprintf 'ssh %s\\n' \"$*\" >> \"$CALL_LOG\"\ncase \"$*\" in *find*) printf 'openlia-20261001T042000Z-1.tar.gz.age\\nopenlia-20260901T042000Z-1.tar.gz.age\\n' ;; esac\n"
 	rsyncScript := "#!/bin/sh\nprintf 'rsync %s\\n' \"$*\" >> \"$CALL_LOG\"\n"
 	for name, script := range map[string]string{"ssh": sshScript, "rsync": rsyncScript} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o700); err != nil {
@@ -168,9 +249,10 @@ func TestPushBackupRsyncUsesDeploymentNamespaceAndMetadataFirst(t *testing.T) {
 	if err := os.WriteFile(archive+".json", append(metadata, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	config := Config{ProjectName: "project", InstallRoot: filepath.Join(root, "install-a"), BackupRoot: backupRoot, MetaRoot: metaRoot, BackupRemoteRetention: 30}
+	config := Config{ProjectName: "project", InstallRoot: filepath.Join(root, "install-a"), BackupRoot: backupRoot, MetaRoot: metaRoot, BackupRemoteRetentionDays: 30}
 	destination := BackupDestination{Name: "nas", Type: "rsync", RsyncTarget: "backup@nas.example:/srv/openlia"}
-	if err := pushRsyncBackup(context.Background(), config, destination, archive, 30); err != nil {
+	now := time.Date(2026, 10, 15, 4, 20, 0, 0, time.UTC)
+	if err := pushRsyncBackupAt(context.Background(), config, destination, archive, 30, now); err != nil {
 		t.Fatal(err)
 	}
 	log, err := os.ReadFile(logPath)
@@ -186,5 +268,13 @@ func TestPushBackupRsyncUsesDeploymentNamespaceAndMetadataFirst(t *testing.T) {
 	archiveCall := strings.Index(text, filepath.Base(archive))
 	if metadataCall < 0 || archiveCall < 0 || metadataCall > archiveCall {
 		t.Fatalf("rsync metadata was not uploaded before archive: %s", text)
+	}
+	oldRemotePath := filepath.Join("/srv/openlia", namespace, "openlia-20260901T042000Z-1.tar.gz.age")
+	if !strings.Contains(text, "rm -f -- '"+oldRemotePath+"'") || !strings.Contains(text, "rm -f -- '"+oldRemotePath+".json'") {
+		t.Fatalf("expired rsync backup was not fully removed: %s", text)
+	}
+	newRemotePath := filepath.Join("/srv/openlia", namespace, "openlia-20261001T042000Z-1.tar.gz.age")
+	if strings.Contains(text, "rm -f -- '"+newRemotePath+"'") {
+		t.Fatalf("newest rsync backup was removed: %s", text)
 	}
 }
