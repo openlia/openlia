@@ -71,6 +71,7 @@ type PendingAction =
       ingestionId?: string | undefined;
       migrationId?: string | undefined;
     }
+  | { kind: "switchView"; view: WorkspaceView }
   | { kind: "signout" }
   | null;
 
@@ -445,53 +446,6 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
   const [diagnostics, setDiagnostics] =
     useState<WorkspaceDiagnosticsResponse | null>(null);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
-  const [otherCalendarFiles, setOtherCalendarFiles] = useState<
-    Array<{ path: string; content: string }>
-  >([]);
-
-  useEffect(() => {
-    if (!file || !isRemindPath(file.path)) {
-      setOtherCalendarFiles([]);
-      return;
-    }
-
-    const siblingRemFiles = tree.filter(
-      (entry): entry is WorkspaceTreeEntry & { kind: "file" } =>
-        entry.kind === "file" &&
-        isRemindPath(entry.path) &&
-        entry.path !== file.path,
-    );
-
-    if (siblingRemFiles.length === 0) {
-      setOtherCalendarFiles([]);
-      return;
-    }
-
-    let cancelled = false;
-    Promise.all(
-      siblingRemFiles.map(async (entry) => {
-        try {
-          const loaded = await api.loadFile(entry.path);
-          return { path: entry.path, content: loaded.content };
-        } catch {
-          return null;
-        }
-      }),
-    ).then((results) => {
-      if (!cancelled) {
-        setOtherCalendarFiles(
-          results.filter(
-            (r): r is { path: string; content: string } => r !== null,
-          ),
-        );
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [file, tree, api]);
-
   const handleLoadInclude = useCallback(
     async (resolvedPath: string): Promise<string | null> => {
       try {
@@ -502,6 +456,49 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
       }
     },
     [api],
+  );
+
+  const handleLoadCalendarFile = useCallback(
+    async (path: string): Promise<{ content: string; revision: string }> => {
+      const loaded = await api.loadFile(path);
+      return { content: loaded.content, revision: loaded.revision };
+    },
+    [api],
+  );
+
+  const handleSaveCalendarFile = useCallback(
+    async (
+      path: string,
+      content: string,
+      expectedRevision: string,
+    ): Promise<{ revision: string }> => {
+      try {
+        const response = await api.saveFile(path, content, expectedRevision);
+        if (file?.path === path) {
+          setFile((current) =>
+            current && current.path === path
+              ? { ...current, ...response, content }
+              : current,
+          );
+          setDraft(content);
+          setConflict("");
+        }
+        return { revision: response.revision };
+      } catch (caught) {
+        if (caught instanceof ApiError && caught.status === 401) {
+          throw new Error(
+            "Your session expired. Sign in again to save events.",
+          );
+        }
+        if (caught instanceof ApiError && caught.status === 409) {
+          throw new Error(
+            "This calendar changed on disk. Reload it and try the event again.",
+          );
+        }
+        throw new Error("The calendar event could not be saved.");
+      }
+    },
+    [api, file?.path],
   );
 
   const [pendingRename, setPendingRename] = useState<{
@@ -2165,6 +2162,17 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
         tab: action.tab,
       });
       if (action.ingestionId) void loadIngestionDetail(action.ingestionId);
+    } else if (action.kind === "switchView") {
+      setView(action.view);
+      navigateRoute(
+        {
+          filter: filter || undefined,
+          path: file?.path ?? artifact?.path,
+          tab: activeTab,
+          view: action.view,
+        },
+        { replace: true },
+      );
     } else {
       void performSignOut();
     }
@@ -2204,6 +2212,17 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
         tab: action.tab,
       });
       if (action.ingestionId) void loadIngestionDetail(action.ingestionId);
+    } else if (action.kind === "switchView") {
+      setView(action.view);
+      navigateRoute(
+        {
+          filter: filter || undefined,
+          path: file?.path ?? artifact?.path,
+          tab: activeTab,
+          view: action.view,
+        },
+        { replace: true },
+      );
     } else {
       void performSignOut();
     }
@@ -2228,6 +2247,15 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
 
   function handleViewChange(nextView: WorkspaceView) {
     const normalizedView = viewForPath(file?.path ?? artifact?.path, nextView);
+    if (
+      normalizedView === "preview" &&
+      view === "edit" &&
+      isRemindPath(file?.path ?? "") &&
+      docDirty
+    ) {
+      setPendingAction({ kind: "switchView", view: normalizedView });
+      return;
+    }
     setView(normalizedView);
     if (normalizedView === "info") setDetailsOpen(true);
     const currentRoute =
@@ -2470,7 +2498,8 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
             draft={draft}
             file={file}
             fileLoading={fileLoading}
-            otherCalendarFiles={otherCalendarFiles}
+            onLoadCalendarFile={handleLoadCalendarFile}
+            onSaveCalendarFile={handleSaveCalendarFile}
             onLoadInclude={handleLoadInclude}
             onCloseFiles={() => setFilesOpen(true)}
             onDelete={() => requestDelete()}
@@ -2736,7 +2765,9 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
                 ? "opening another skill"
                 : pendingAction.kind === "switchTab"
                   ? "switching view mode"
-                  : "signing out"
+                  : pendingAction.kind === "switchView"
+                    ? "switching to calendar preview"
+                    : "signing out"
           }
           onCancel={() => setPendingAction(null)}
           onDiscard={discardAndContinue}

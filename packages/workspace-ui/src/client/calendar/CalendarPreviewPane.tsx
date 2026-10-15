@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { resolveRelativePath } from "../openliaLinks";
 import { CalendarToolbar } from "./CalendarToolbar";
 import { EventModal } from "./EventModal";
 import { GanttView } from "./GanttView";
@@ -16,10 +17,25 @@ import { WeekView } from "./WeekView";
 export interface CalendarPreviewPaneProps {
   content: string;
   filePath: string;
-  onDraftChange?: ((newContent: string) => void) | undefined;
+  fileRevision: string;
   onSwitchToEdit?: (() => void) | undefined;
   onNavigateLink?: ((path: string) => void) | undefined;
-  otherCalendarFiles?: Array<{ path: string; content: string }> | undefined;
+  onLoadCalendarFile?:
+    | ((path: string) => Promise<{ content: string; revision: string }>)
+    | undefined;
+  onSaveCalendarFile?:
+    | ((
+        path: string,
+        content: string,
+        expectedRevision: string,
+      ) => Promise<{ revision: string }>)
+    | undefined;
+}
+
+interface LoadedCalendarFile {
+  path: string;
+  content: string;
+  revision: string;
 }
 
 const COLOR_PALETTES = [
@@ -58,17 +74,18 @@ const COLOR_PALETTES = [
 export function CalendarPreviewPane({
   content,
   filePath,
-  onDraftChange,
+  fileRevision,
   onSwitchToEdit,
   onNavigateLink,
-  otherCalendarFiles = [],
+  onLoadCalendarFile,
+  onSaveCalendarFile,
 }: CalendarPreviewPaneProps) {
   const [viewMode, setViewMode] = useState<CalendarViewMode>("month");
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
-
-  const [enabledSources, setEnabledSources] = useState<Set<string>>(
-    () => new Set([filePath]),
-  );
+  const [includedFiles, setIncludedFiles] = useState<
+    Map<string, LoadedCalendarFile>
+  >(() => new Map());
+  const [includesLoading, setIncludesLoading] = useState(false);
 
   // Modal state
   const [modalState, setModalState] = useState<{
@@ -83,94 +100,145 @@ export function CalendarPreviewPane({
     event: null,
   });
 
-  // Ensure current file is always in enabledSources by default
-  useEffect(() => {
-    setEnabledSources((prev) => {
-      const next = new Set(prev);
-      next.add(filePath);
-      return next;
-    });
-  }, [filePath]);
-
   // Parse current file
   const parsedCurrent = useMemo(() => {
     return parseRemindFile(content, filePath);
   }, [content, filePath]);
 
-  // Parse other available files
-  const parsedOthers = useMemo(() => {
-    return otherCalendarFiles.map((file) => ({
-      path: file.path,
-      ...parseRemindFile(file.content, file.path),
-    }));
-  }, [otherCalendarFiles]);
+  useEffect(() => {
+    let cancelled = false;
 
-  // Build Calendar Sources
-  const sources: CalendarSource[] = useMemo(() => {
-    const list: CalendarSource[] = [];
+    async function loadIncludedFiles() {
+      if (!onLoadCalendarFile) {
+        setIncludedFiles(new Map());
+        return;
+      }
 
-    // Primary current file
-    const currentName =
-      filePath
-        .split("/")
-        .pop()
-        ?.replace(/\.rem(ind)?$/, "") || "Primary";
-    const primaryPalette = COLOR_PALETTES[0] ?? {
-      color: "#3b82f6",
-      bgClass: "bg-primary/15",
-      textClass: "text-primary",
-      borderClass: "border-primary/40",
+      setIncludesLoading(true);
+      setIncludedFiles(new Map());
+      const loaded = new Map<string, LoadedCalendarFile>();
+      const queue: Array<{ includePath: string; fromFile: string }> =
+        parsedCurrent.includedFiles.map((includePath) => ({
+          includePath,
+          fromFile: filePath,
+        }));
+      const visited = new Set<string>([filePath]);
+      let iterations = 0;
+
+      while (queue.length > 0 && iterations < 50) {
+        iterations++;
+        const item = queue.shift();
+        if (!item) break;
+
+        const resolvedPath = resolveRelativePath(
+          item.includePath,
+          item.fromFile,
+        );
+        if (visited.has(resolvedPath)) continue;
+        visited.add(resolvedPath);
+
+        try {
+          const file = await onLoadCalendarFile(resolvedPath);
+          if (cancelled) return;
+
+          const loadedFile = { path: resolvedPath, ...file };
+          loaded.set(resolvedPath, loadedFile);
+          const nested = parseRemindFile(file.content, resolvedPath);
+          for (const includePath of nested.includedFiles) {
+            queue.push({ includePath, fromFile: resolvedPath });
+          }
+        } catch {
+          // Ignore missing includes while still showing the available calendar.
+        }
+      }
+
+      if (!cancelled) {
+        setIncludedFiles(loaded);
+        setIncludesLoading(false);
+      }
+    }
+
+    void loadIncludedFiles();
+    return () => {
+      cancelled = true;
     };
-    list.push({
-      path: filePath,
-      name: currentName,
-      color: primaryPalette.color,
-      bgClass: primaryPalette.bgClass,
-      textClass: primaryPalette.textClass,
-      borderClass: primaryPalette.borderClass,
-      enabled: enabledSources.has(filePath),
-      isCurrentFile: true,
-      eventCount: parsedCurrent.events.length,
-    });
+  }, [filePath, onLoadCalendarFile, parsedCurrent.includedFiles]);
 
-    // Other files
-    parsedOthers.forEach((other, index) => {
-      const palette =
-        COLOR_PALETTES[(index + 1) % COLOR_PALETTES.length] ?? primaryPalette;
-      const otherName =
-        other.path
+  const calendarFiles = useMemo<LoadedCalendarFile[]>(
+    () => [
+      { path: filePath, content, revision: fileRevision },
+      ...includedFiles.values(),
+    ],
+    [content, filePath, fileRevision, includedFiles],
+  );
+
+  const parsedCalendarFiles = useMemo(
+    () =>
+      calendarFiles.map((file) => ({
+        file,
+        parsed: parseRemindFile(file.content, file.path),
+      })),
+    [calendarFiles],
+  );
+
+  // Build one source per file in the selected calendar's include tree.
+  const sources: CalendarSource[] = useMemo(() => {
+    return parsedCalendarFiles.map(({ file, parsed }, index) => {
+      const palette = COLOR_PALETTES[index % COLOR_PALETTES.length] ?? {
+        bgClass: "bg-primary/15",
+        textClass: "text-primary",
+        borderClass: "border-primary/40",
+        color: "#3b82f6",
+      };
+      const name =
+        file.path
           .split("/")
           .pop()
-          ?.replace(/\.rem(ind)?$/, "") || `Calendar ${index + 1}`;
-      list.push({
-        path: other.path,
-        name: otherName,
+          ?.replace(/\.rem(ind)?$/, "") || file.path;
+
+      return {
+        path: file.path,
+        name,
         color: palette.color,
         bgClass: palette.bgClass,
         textClass: palette.textClass,
         borderClass: palette.borderClass,
-        enabled: enabledSources.has(other.path),
-        isCurrentFile: false,
-        eventCount: other.events.length,
-      });
+        enabled: true,
+        isCurrentFile: file.path === filePath,
+        eventCount: parsed.events.length,
+      };
     });
+  }, [filePath, parsedCalendarFiles]);
 
-    return list;
-  }, [filePath, parsedCurrent.events.length, parsedOthers, enabledSources]);
+  const allRawEvents = useMemo(
+    () => parsedCalendarFiles.flatMap(({ parsed }) => parsed.events),
+    [parsedCalendarFiles],
+  );
 
-  // Aggregate raw events from all enabled sources
-  const allRawEvents = useMemo(() => {
-    const result: CalendarEvent[] = [];
-    if (enabledSources.has(filePath)) {
-      result.push(...parsedCurrent.events);
+  const findCalendarFile = (path: string) => {
+    return calendarFiles.find((file) => file.path === path);
+  };
+
+  const saveCalendarFile = async (path: string, nextContent: string) => {
+    const source = findCalendarFile(path);
+    if (!source || !onSaveCalendarFile) {
+      throw new Error("Calendar source is not available for saving.");
     }
-    for (const other of parsedOthers) {
-      if (enabledSources.has(other.path)) {
-        result.push(...other.events);
-      }
+
+    const result = await onSaveCalendarFile(path, nextContent, source.revision);
+
+    if (path !== filePath) {
+      setIncludedFiles((previous) => {
+        const next = new Map(previous);
+        next.set(path, {
+          path,
+          content: nextContent,
+          revision: result.revision,
+        });
+        return next;
+      });
     }
-    return result;
-  }, [enabledSources, filePath, parsedCurrent.events, parsedOthers]);
+  };
 
   // Expand events for the active visible date window
   const visibleExpandedEvents = useMemo(() => {
@@ -239,20 +307,6 @@ export function CalendarPreviewPane({
     setCurrentDate(new Date());
   };
 
-  const handleToggleSource = (path: string) => {
-    setEnabledSources((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) {
-        if (next.size > 1) {
-          next.delete(path);
-        }
-      } else {
-        next.add(path);
-      }
-      return next;
-    });
-  };
-
   // Title generation
   const title = useMemo(() => {
     const year = currentDate.getFullYear();
@@ -278,36 +332,36 @@ export function CalendarPreviewPane({
     return `${monMonth} ${mon.getDate()} – ${sunMonth} ${sun.getDate()}, ${year}`;
   }, [currentDate, viewMode]);
 
-  // Saving event modifications
-  const handleSaveEvent = (
+  // Event modal writes are persisted immediately to the selected source file.
+  const handleSaveEvent = async (
     eventData: Partial<CalendarEvent>,
     targetSource: string,
   ) => {
-    if (!onDraftChange) return;
+    const sourcePath =
+      modalState.mode === "create"
+        ? targetSource
+        : modalState.event?.sourceFile;
+    if (!sourcePath) throw new Error("Calendar source is not available.");
 
-    if (modalState.mode === "create") {
-      if (targetSource === filePath) {
-        const updatedContent = addEventToFile(content, eventData);
-        onDraftChange(updatedContent);
-      }
-    } else if (modalState.mode === "edit" && modalState.event) {
-      if (modalState.event.sourceFile === filePath) {
-        const updatedContent = updateEventInFile(
-          content,
-          modalState.event,
-          eventData,
-        );
-        onDraftChange(updatedContent);
-      }
-    }
+    const source = findCalendarFile(sourcePath);
+    if (!source) throw new Error("Calendar source is not available.");
+
+    const updatedContent =
+      modalState.mode === "create"
+        ? addEventToFile(source.content, eventData)
+        : modalState.event
+          ? updateEventInFile(source.content, modalState.event, eventData)
+          : source.content;
+
+    await saveCalendarFile(sourcePath, updatedContent);
   };
 
-  const handleDeleteEvent = (event: CalendarEvent) => {
-    if (!onDraftChange) return;
-    if (event.sourceFile === filePath) {
-      const updatedContent = deleteEventFromFile(content, event);
-      onDraftChange(updatedContent);
-    }
+  const handleDeleteEvent = async (event: CalendarEvent) => {
+    const source = findCalendarFile(event.sourceFile);
+    if (!source) throw new Error("Calendar source is not available.");
+
+    const updatedContent = deleteEventFromFile(source.content, event);
+    await saveCalendarFile(event.sourceFile, updatedContent);
   };
 
   return (
@@ -320,8 +374,6 @@ export function CalendarPreviewPane({
         onPrev={handlePrev}
         onNext={handleNext}
         onToday={handleToday}
-        sources={sources}
-        onToggleSource={handleToggleSource}
         onNewEvent={() =>
           setModalState({
             isOpen: true,
@@ -334,64 +386,74 @@ export function CalendarPreviewPane({
       />
 
       {/* Active Calendar View */}
-      <div className="flex-1 overflow-hidden">
-        {viewMode === "month" && (
-          <MonthView
-            currentDate={currentDate}
-            events={visibleExpandedEvents}
-            sources={sources}
-            onSelectEvent={(ev) =>
-              setModalState({ isOpen: true, mode: "view", event: ev })
-            }
-            onNewEventOnDate={(dateIso) =>
-              setModalState({
-                isOpen: true,
-                mode: "create",
-                event: null,
-                presetDate: dateIso,
-              })
-            }
-          />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {includesLoading && (
+          <div
+            className="shrink-0 border-b border-base-content/10 px-3 py-1 text-xs text-base-content/60"
+            role="status"
+          >
+            Loading included calendars...
+          </div>
         )}
+        <div className="min-h-0 min-w-0 flex-1">
+          {viewMode === "month" && (
+            <MonthView
+              currentDate={currentDate}
+              events={visibleExpandedEvents}
+              sources={sources}
+              onSelectEvent={(ev) =>
+                setModalState({ isOpen: true, mode: "view", event: ev })
+              }
+              onNewEventOnDate={(dateIso) =>
+                setModalState({
+                  isOpen: true,
+                  mode: "create",
+                  event: null,
+                  presetDate: dateIso,
+                })
+              }
+            />
+          )}
 
-        {viewMode === "week" && (
-          <WeekView
-            currentDate={currentDate}
-            events={visibleExpandedEvents}
-            sources={sources}
-            onSelectEvent={(ev) =>
-              setModalState({ isOpen: true, mode: "view", event: ev })
-            }
-            onNewEventOnTime={(dateIso, timeStr) =>
-              setModalState({
-                isOpen: true,
-                mode: "create",
-                event: null,
-                presetDate: dateIso,
-                presetTime: timeStr,
-              })
-            }
-          />
-        )}
+          {viewMode === "week" && (
+            <WeekView
+              currentDate={currentDate}
+              events={visibleExpandedEvents}
+              sources={sources}
+              onSelectEvent={(ev) =>
+                setModalState({ isOpen: true, mode: "view", event: ev })
+              }
+              onNewEventOnTime={(dateIso, timeStr) =>
+                setModalState({
+                  isOpen: true,
+                  mode: "create",
+                  event: null,
+                  presetDate: dateIso,
+                  presetTime: timeStr,
+                })
+              }
+            />
+          )}
 
-        {viewMode === "gantt" && (
-          <GanttView
-            currentDate={currentDate}
-            events={visibleExpandedEvents}
-            sources={sources}
-            onSelectEvent={(ev) =>
-              setModalState({ isOpen: true, mode: "view", event: ev })
-            }
-            onNewEventOnDate={(dateIso) =>
-              setModalState({
-                isOpen: true,
-                mode: "create",
-                event: null,
-                presetDate: dateIso,
-              })
-            }
-          />
-        )}
+          {viewMode === "gantt" && (
+            <GanttView
+              currentDate={currentDate}
+              events={visibleExpandedEvents}
+              sources={sources}
+              onSelectEvent={(ev) =>
+                setModalState({ isOpen: true, mode: "view", event: ev })
+              }
+              onNewEventOnDate={(dateIso) =>
+                setModalState({
+                  isOpen: true,
+                  mode: "create",
+                  event: null,
+                  presetDate: dateIso,
+                })
+              }
+            />
+          )}
+        </div>
       </div>
 
       {/* Event Details & Editor Modal */}
