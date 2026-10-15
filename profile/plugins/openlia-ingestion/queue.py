@@ -483,6 +483,15 @@ class IngestionQueue:
         with self._database() as db:
             db.execute("DELETE FROM source_fts WHERE source_id = ?", (source_id,))
 
+    def get_source_fts_content(self, source_id: str) -> str:
+        """Return indexed extracted content so metadata updates can preserve it."""
+        with self._database() as db:
+            row = db.execute(
+                "SELECT content FROM source_fts WHERE source_id = ? LIMIT 1",
+                (source_id,),
+            ).fetchone()
+        return str(row["content"] or "") if row is not None else ""
+
     def search_sources(
         self,
         query: str | None = None,

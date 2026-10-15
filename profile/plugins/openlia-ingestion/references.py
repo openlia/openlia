@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 SOURCE_URI_PATTERN = re.compile(
-    r"^openlia://sources?/([A-Za-z0-9_-]+)(?:#(?:([A-Za-z0-9_-]+)/)?p?(\d+))?$"
+    r"^openlia://sources?/([A-Za-z0-9][A-Za-z0-9._-]*)(?:#(?:(?:([A-Za-z0-9][A-Za-z0-9._-]*)(?:/p(\d+))?)|p(\d+)))?$"
 )
 
 
@@ -35,7 +35,7 @@ def parse_source_uri(uri: str) -> dict | None:
         return None
     source_id = match.group(1)
     version_or_empty = match.group(2)
-    page_str = match.group(3)
+    page_str = match.group(3) or match.group(4)
     page = int(page_str) if page_str else None
     return {
         "source_id": source_id,
@@ -53,11 +53,11 @@ def build_markdown_citation(
     """Generate human-readable Markdown citation with canonical link."""
     if isinstance(source, dict):
         # If second arg was passed positionally as version_id (e.g. ver_...)
-        if title and (title.startswith("ver_") or version_id is None and not page):
+        if title and title.startswith("ver_") and version_id is None:
             if version_id is None:
                 version_id = title
                 title = None
-        source_id = source.get("id") or "unknown"
+        source_id = source.get("id") or source.get("source_id") or "unknown"
         doc_title = title or source.get("title") or "Source Document"
     else:
         source_id = str(source)
