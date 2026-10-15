@@ -51,6 +51,16 @@ class MockVisionLLM:
         return MockVisionResult(self.text, self.warnings)
 
 
+class MockMetadataLLM:
+    def __init__(self, parsed):
+        self.parsed = parsed
+        self.calls = []
+
+    def complete_structured(self, **kwargs):
+        self.calls.append(kwargs)
+        return type("MetadataResult", (), {"parsed": self.parsed})()
+
+
 class MockHermesContext:
     def __init__(self, llm=None):
         self.tools = {}
@@ -91,6 +101,7 @@ class IngestionTests(unittest.TestCase):
         self.queue_mod = sys.modules[f"{self.package}.queue"]
         self.passwords_mod = sys.modules[f"{self.package}.passwords"]
         self.adapters = sys.modules[f"{self.package}.adapters"]
+        self.metadata = importlib.import_module(f"{self.package}.metadata")
         self.runtime_mod = sys.modules[f"{self.package}.runtime"]
 
         self.publisher = self.publication.WorkspacePublisher(self.workspace)
@@ -109,6 +120,26 @@ class IngestionTests(unittest.TestCase):
         target = self.root / name
         shutil.copy2(source, target)
         return target
+
+    def test_metadata_extraction_preserves_custom_document_type(self):
+        llm = MockMetadataLLM(
+            {
+                "title": "April 2021 Payslip",
+                "document_type": "payslip",
+                "correspondent": None,
+                "document_date": None,
+                "tags": ["finance", "payroll"],
+                "summary": "Monthly payslip.",
+                "review_reasons": [],
+            }
+        )
+
+        result = self.metadata.extract_document_metadata(
+            llm, "Monthly payroll statement for April 2021", "payslip.pdf", "pdf"
+        )
+
+        self.assertEqual(result["document_type"], "payslip")
+        self.assertNotIn("enum", llm.calls[0]["json_schema"]["properties"]["document_type"])
 
     # =========================================================================
     # Queue, Leases, and Continuation Tests
