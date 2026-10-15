@@ -168,7 +168,7 @@ OpenLia maintains the workspace (`/opt/data/workspace`) as a local Git repositor
      > `Lên lịch nhắc nhở lúc 9h sáng mai họp đội ngũ`
      *Expected*: Agent uses the `calendar` skill and Remind syntax to record the event into `calendar/reminders.rem`.
      > `Kiểm tra lịch hôm nay`
-     *Expected*: Agent queries today's agenda via `remind_calendar.py` and returns scheduled items.
+     *Expected*: Agent queries today's agenda with native `remind` and returns scheduled items.
    - **Personal Health Record Workflow**:
      > `Ghi nhận hồ sơ sức khỏe: cân nặng 65kg, huyết áp 120/80`
      *Expected*: Agent recognizes the health workflow, validates against `health/` schemas, and safely logs or confirms the entry.

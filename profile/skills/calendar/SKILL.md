@@ -1,6 +1,6 @@
 ---
 name: calendar
-description: Manage calendar events, agendas, reminders, and recurring schedules using Remind with full support for attendees, locations, and call links.
+description: Manage calendar events, agendas, reminders, and recurring schedules by authoring Remind entries directly with the LLM.
 version: 0.1.0
 platforms: [macos, linux]
 required_environment_variables: []
@@ -12,6 +12,14 @@ metadata:
 ---
 
 # Calendar
+
+Calendar entries are authored directly in Remind syntax. Do not use a
+calendar-specific formatter or parser: native Remind is the source of truth
+for syntax, recurrence, includes, and agenda evaluation.
+
+This rule applies to agent-side calendar operations. The workspace UI may parse
+Remind files for visualization, but agent edits must remain native Remind
+syntax.
 
 ## When to Use
 
@@ -46,7 +54,7 @@ Standardized INFO headers supported by OpenLia:
 
 | Header | Description | Example |
 | :--- | :--- | :--- |
-| `Attendees:` | Comma-separated list of attendees (names, emails, or workspace links) | `Alice <alice@example.com>, Bob, [[Charlie]]` |
+| `Attendees:` | Comma-separated list of attendees (names, emails, or workspace links) | `Alice <alice@example.com>, Bob, openlia://workspace/people/charlie.md` |
 | `Location:` | Physical address, room, or venue name | `123 Market St, San Francisco, CA` |
 | `Map-Url:` | Google Maps or web link to location (alias: `Map:`) | `https://maps.google.com/?q=123+Market+St` |
 | `Video-Link:` | Video conferencing link: Zoom, Google Meet, Teams (alias: `Call:`) | `https://meet.google.com/abc-defg-hij` |
@@ -68,25 +76,41 @@ Standardized INFO headers supported by OpenLia:
 
 ## Operating Procedures
 
-### 1. View Agenda & Lookaheads (Read-Only)
+### 1. Inspect the Existing Calendar
 
-Run the bundled calendar helper script:
+Before writing, read `calendar/reminders.rem` and any files named by its
+`INCLUDE` directives. Preserve existing comments, source references, Unicode,
+and unrelated entries. Calendar includes are resolved reliably when Remind is
+run from the calendar directory, so use that directory as the working
+directory for all checks.
 
 ```sh
-# View today's agenda
-python scripts/remind_calendar.py agenda --workspace-root /opt/data/workspace
-
-# View agenda for a specific date and lookahead window (e.g. 7 days)
-python scripts/remind_calendar.py agenda --workspace-root /opt/data/workspace --date YYYY-MM-DD --days 7
-
-# Output machine-readable JSON
-python scripts/remind_calendar.py agenda --workspace-root /opt/data/workspace --format json
+cd /opt/data/workspace/calendar
 ```
 
-Or run `remind` directly when the binary is installed:
+There is no calendar-specific helper script. Do not invent a second parser or
+rewrite a calendar through an encoding-normalization command.
+
+### 2. View Agenda & Lookaheads (Read-Only)
+
+Run native Remind directly:
+
 ```sh
-remind -s+7 /opt/data/workspace/calendar/reminders.rem
+# View today's agenda; -r disables RUN directives and -q disables queueing
+remind -r -q -g reminders.rem
+
+# View a specific date
+remind -r -q -g reminders.rem YYYY-MM-DD
+
+# View a one-week lookahead from a specific date
+remind -r -q -s+1 reminders.rem YYYY-MM-DD
 ```
+
+`-s+N` means N weeks, not N days. For a machine-readable monthly result, use
+Remind's pure JSON calendar mode and filter the requested date from its
+`entries`: `remind -r -q -ppp reminders.rem YYYY-MM-DD`. Do not assume that
+the newer `--json` option is installed. Check stderr as well as the exit
+status; Remind can report a parse error while still returning status 0.
 
 Present the agenda in clean Markdown:
 - Format each event with its start time, duration, and title.
@@ -95,35 +119,59 @@ Present the agenda in clean Markdown:
 - List attendees with formatting: `👥 Attendees: Alice, Bob`.
 - Include description excerpts or linked companion notes when present.
 
-### 2. Schedule New Events
+### 3. Schedule New Events
 
-Use the helper script to construct syntactically valid `REM` statements without syntax or escaping mistakes:
+Construct the `REM` block directly and append it to the appropriate calendar
+file. Use a specific ISO date when the event is a one-off. Use Remind's
+weekday/month/repeat syntax only when the recurrence is intentional.
 
-```sh
-python scripts/remind_calendar.py add \
-  --workspace-root /opt/data/workspace \
-  --date YYYY-MM-DD \
-  --time HH:MM \
-  --duration HH:MM \
-  --summary "Event Title" \
-  --attendees "Alice <alice@example.com>, [[Bob]]" \
-  --location "Physical Address or Room" \
-  --map-url "https://maps.google.com/?q=..." \
-  --video-link "https://meet.google.com/..." \
-  --description "Agenda topics" \
-  --event-note "calendar/2026-10-15-agenda.md" \
-  --tag "meeting"
+```remind
+REM 2026-10-15 AT 10:00 DURATION 1:00 TAG meeting TAG client \
+    INFO "Location: 123 Market St, San Francisco, CA" \
+    INFO "Map-Url: https://maps.google.com/?q=123+Market+St" \
+    INFO "Attendees: Alice <alice@example.com>, openlia://workspace/people/bob.md" \
+    INFO "Description: Quarterly client sync and roadmap review" \
+    INFO "Event-Note: openlia://workspace/calendar/2026-10-15-client-review.md" \
+    MSG Client Roadmap Review
 ```
 
-The helper script formats every `REM` entry as a readable multi-line block with backslash continuations, validates unique `INFO` headers, and appends the entry to `calendar/reminders.rem`. Entries without metadata use the same shape with only the header and `MSG` lines.
+Keep `MSG` last. Repeat `TAG` for each tag. Use at most one `INFO` clause for
+each header, and keep header names free of whitespace before the colon.
 
-### 3. Reschedule or Cancel Events
+Remind accepts UTF-8 event text. Preserve Vietnamese, Japanese, Korean, and
+other Unicode text exactly as authored. Never transliterate, strip accents,
+or replace titles with generic labels to work around an unrelated parse error.
+Literal square brackets in `MSG` or other Remind expressions can be parsed as
+Remind expressions; use parentheses for ordinary prose, or escape and test a
+deliberate expression. In `MSG` text, write a literal percent sign as `%%`;
+Remind's substitution filter renders it as `%`. Literal percent signs in
+`INFO` values and URLs should still be tested with native Remind rather than
+normalized.
 
-1. First inspect the existing reminders using `python scripts/remind_calendar.py agenda` or `grep` in `calendar/reminders.rem`.
-2. To reschedule, locate the target `REM` statement, update the date, time, or duration, and verify with `python scripts/remind_calendar.py validate`.
-3. To cancel, comment out or remove the `REM` block.
+### 4. Reschedule or Cancel Events
 
-### 4. Safety & Policy Rules
+1. First inspect the existing reminders with native Remind and read the target file.
+2. To reschedule, update only the target `REM` block and retain its metadata and source references.
+3. To cancel, comment out or remove the `REM` block only after the user approves the destructive change.
+4. Validate the complete calendar, including included files, with native Remind before reporting success.
+
+### 5. Native Validation
+
+Run the check from the calendar directory and inspect both output streams:
+
+```sh
+remind -r -q -s1 reminders.rem YYYY-MM-DD > /tmp/openlia-calendar.out \
+  2> /tmp/openlia-calendar.err
+status=$?
+test "$status" -eq 0 && test ! -s /tmp/openlia-calendar.err
+```
+
+Use a date that exercises the changed entries. For a modular calendar, also
+confirm that each included file is found and that its entries appear in the
+native output. Do not call a file valid based only on a regular-expression
+check or a zero exit code.
+
+### 6. Safety & Policy Rules
 
 - **Workspace File Mutations**: Adding or updating events in `calendar/reminders.rem` is a local workspace change. Always verify the proposed change with the user before committing destructive edits or deleting existing entries.
 - **External Calendars**: Local `reminders.rem` management does NOT authorize modifying external calendar services (Google Calendar, Microsoft Outlook, CalDAV). Modifying external calendar integrations requires explicit authorization under `modify_external_calendar` policy.
