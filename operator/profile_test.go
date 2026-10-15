@@ -101,6 +101,26 @@ func TestProfileSyncRendersFallbackProviders(t *testing.T) {
 	}
 }
 
+func TestRenderFallbackBlockReplacesInlineAndStaleFallbackDeclarations(t *testing.T) {
+	providers := []FallbackProviderConfig{{Provider: "custom", Model: "gateway-model"}}
+	for _, data := range [][]byte{
+		[]byte("fallback_providers: []\nmodel:\n  provider: copilot\n" + fallbackBlockStart + "\nfallback_providers: []\n" + fallbackBlockEnd + "\n"),
+		[]byte("fallback_providers:\n  - provider: stale\n" + fallbackBlockStart + "\nfallback_providers: []\n" + fallbackBlockEnd + "\n"),
+	} {
+		updated, err := renderFallbackBlock(data, providers)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(updated)
+		if strings.Count(text, "fallback_providers:") != 1 {
+			t.Fatalf("expected one fallback_providers declaration, got:\n%s", text)
+		}
+		if !strings.Contains(text, fallbackBlockStart) || !strings.Contains(text, fallbackBlockEnd) || !strings.Contains(text, "provider: \"custom\"\n    model: \"gateway-model\"") {
+			t.Fatalf("fallback providers or managed markers were not rendered:\n%s", text)
+		}
+	}
+}
+
 func TestProfileSyncRendersRuntimeProviderAndModel(t *testing.T) {
 	repo := t.TempDir()
 	runtime := filepath.Join(t.TempDir(), "runtime")
