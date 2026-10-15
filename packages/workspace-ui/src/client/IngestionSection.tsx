@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type DragEvent } from "react";
+import { type DragEvent, useCallback, useEffect, useState } from "react";
 import type {
   IngestionDetailResponse,
   IngestionListItem,
@@ -7,11 +7,12 @@ import type {
   SourceSearchResponse,
 } from "../shared/api";
 import { api } from "./api";
+import { DocumentCard } from "./ingestion/DocumentCard";
 import {
   DocumentFilterBar,
   type IngestionScope,
+  type ReviewFilter,
 } from "./ingestion/DocumentFilterBar";
-import { DocumentCard } from "./ingestion/DocumentCard";
 import { DocumentInspector } from "./ingestion/DocumentInspector";
 import { UploadModal } from "./ingestion/UploadModal";
 
@@ -222,7 +223,8 @@ export function IngestionSection({
   rawUrl,
 }: IngestionSectionProps) {
   // Navigation & Scope
-  const [scope, setScope] = useState<IngestionScope>("needs-review");
+  const [scope, setScope] = useState<IngestionScope>("library");
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string | undefined>();
   const [selectedCorrespondent, setSelectedCorrespondent] = useState<
@@ -256,10 +258,8 @@ export function IngestionSection({
       let lifecycle: string | undefined;
       let processing_status: string | undefined;
 
-      if (scope === "needs-review") {
-        review_status = "needs-review";
-        lifecycle = "active";
-      } else if (scope === "library") {
+      if (scope === "library") {
+        review_status = reviewFilter === "all" ? undefined : reviewFilter;
         lifecycle = "active";
       } else if (scope === "processing") {
         processing_status = "processing";
@@ -279,8 +279,13 @@ export function IngestionSection({
       });
       setSearchResults(res);
 
-      // Auto-select first match if none selected
-      if (res.matches.length > 0 && !selectedSourceId) {
+      // Keep the inspector inside the active filtered collection.
+      if (res.matches.length === 0) {
+        setSelectedSourceId(undefined);
+      } else if (
+        !selectedSourceId ||
+        !res.matches.some((match) => match.source_id === selectedSourceId)
+      ) {
         setSelectedSourceId(res.matches[0]?.source_id);
       }
     } catch {
@@ -290,6 +295,7 @@ export function IngestionSection({
     }
   }, [
     scope,
+    reviewFilter,
     searchQuery,
     selectedTag,
     selectedCorrespondent,
@@ -393,6 +399,11 @@ export function IngestionSection({
         scope={scope}
         onScopeChange={(newScope) => {
           setScope(newScope);
+          setSelectedSourceId(undefined);
+        }}
+        reviewFilter={reviewFilter}
+        onReviewFilterChange={(filter) => {
+          setReviewFilter(filter);
           setSelectedSourceId(undefined);
         }}
         searchQuery={searchQuery}

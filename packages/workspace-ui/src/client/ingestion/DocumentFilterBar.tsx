@@ -1,15 +1,13 @@
 import type { SourceSearchFacets } from "../../shared/api";
 
-export type IngestionScope =
-  | "needs-review"
-  | "library"
-  | "processing"
-  | "archived"
-  | "workers";
+export type IngestionScope = "library" | "processing" | "archived" | "workers";
+export type ReviewFilter = "all" | "needs-review" | "reviewed";
 
 export interface DocumentFilterBarProps {
   scope: IngestionScope;
   onScopeChange: (scope: IngestionScope) => void;
+  reviewFilter: ReviewFilter;
+  onReviewFilterChange: (filter: ReviewFilter) => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   selectedTag?: string | undefined;
@@ -26,6 +24,8 @@ export interface DocumentFilterBarProps {
 export function DocumentFilterBar({
   scope,
   onScopeChange,
+  reviewFilter,
+  onReviewFilterChange,
   searchQuery,
   onSearchChange,
   selectedTag,
@@ -41,6 +41,11 @@ export function DocumentFilterBar({
   const needsReviewCount =
     (facets.review_status["needs-review"] ?? 0) +
     (facets.review_status.unreviewed ?? 0);
+  const reviewedCount = facets.review_status.reviewed ?? 0;
+  const allReviewCount = Object.values(facets.review_status).reduce(
+    (total, count) => total + count,
+    0,
+  );
   const processingCount =
     (facets.processing_status.queued ?? 0) +
     (facets.processing_status.processing ?? 0) +
@@ -55,20 +60,6 @@ export function DocumentFilterBar({
       {/* Top row: Scope tabs and action buttons */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="tabs tabs-boxed bg-base-200">
-          <button
-            type="button"
-            className={`tab text-xs font-medium ${
-              scope === "needs-review" ? "tab-active" : ""
-            }`}
-            onClick={() => onScopeChange("needs-review")}
-          >
-            Needs Review
-            {needsReviewCount > 0 && (
-              <span className="badge badge-warning badge-xs ml-1.5 font-bold">
-                {needsReviewCount}
-              </span>
-            )}
-          </button>
           <button
             type="button"
             className={`tab text-xs font-medium ${
@@ -150,6 +141,22 @@ export function DocumentFilterBar({
       {/* Second row: Search query and facet filters (when not in raw workers view) */}
       {scope !== "workers" && (
         <div className="flex flex-wrap items-center gap-2 pt-1">
+          {scope === "library" && (
+            <select
+              aria-label="Review filter"
+              className="select select-bordered select-sm max-w-[170px] text-xs"
+              value={reviewFilter}
+              onChange={(event) =>
+                onReviewFilterChange(event.target.value as ReviewFilter)
+              }
+            >
+              <option value="all">All Reviews ({allReviewCount})</option>
+              <option value="needs-review">
+                Needs Review ({needsReviewCount})
+              </option>
+              <option value="reviewed">Reviewed ({reviewedCount})</option>
+            </select>
+          )}
           {/* Full-text search */}
           <div className="relative min-w-[200px] flex-1">
             <input

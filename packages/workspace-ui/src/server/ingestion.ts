@@ -300,11 +300,6 @@ export class IngestionService {
         params.push(options.document_type.trim());
       }
 
-      if (options.review_status) {
-        conditions.push("review_status = ?");
-        params.push(options.review_status.trim());
-      }
-
       if (options.processing_status) {
         conditions.push("processing_status = ?");
         params.push(options.processing_status.trim());
@@ -323,6 +318,18 @@ export class IngestionService {
       if (options.date_to) {
         conditions.push("document_date <= ?");
         params.push(options.date_to);
+      }
+
+      const reviewFacetConditions = [...conditions];
+      const reviewFacetParams = [...params];
+      if (options.review_status) {
+        if (options.review_status.trim() === "needs-review") {
+          conditions.push("review_status IN (?, ?)");
+          params.push("needs-review", "unreviewed");
+        } else {
+          conditions.push("review_status = ?");
+          params.push(options.review_status.trim());
+        }
       }
 
       const whereClause =
@@ -356,6 +363,20 @@ export class IngestionService {
         processing_status: string;
         lifecycle: string;
       }>;
+      const reviewFacetWhere =
+        reviewFacetConditions.length > 0
+          ? `WHERE ${reviewFacetConditions.join(" AND ")}`
+          : "";
+      const reviewFacetRows = db
+        .query(
+          `SELECT review_status, COUNT(*) AS count
+           FROM source_fts ${reviewFacetWhere}
+           GROUP BY review_status`,
+        )
+        .all(...reviewFacetParams) as Array<{
+        review_status: string | null;
+        count: number;
+      }>;
 
       const tagCounts: Record<string, number> = {};
       const correspondentCounts: Record<string, number> = {};
@@ -376,10 +397,12 @@ export class IngestionService {
         if (r.document_type) {
           typeCounts[r.document_type] = (typeCounts[r.document_type] ?? 0) + 1;
         }
-        const rev = r.review_status || "unreviewed";
-        reviewCounts[rev] = (reviewCounts[rev] ?? 0) + 1;
         const proc = r.processing_status || "captured";
         processingCounts[proc] = (processingCounts[proc] ?? 0) + 1;
+      }
+      for (const row of reviewFacetRows) {
+        const reviewStatus = row.review_status || "unreviewed";
+        reviewCounts[reviewStatus] = Number(row.count);
       }
 
       // Fetch paginated results
@@ -501,16 +524,22 @@ export class IngestionService {
     }
 
     const q = (options.query ?? "").toLowerCase();
-    const filtered = allDocs.filter((doc) => {
+    const matchesFilter = (
+      doc: SourceRecord,
+      includeReview: boolean,
+    ): boolean => {
       if (options.correspondent && doc.correspondent !== options.correspondent)
         return false;
       if (options.document_type && doc.document_type !== options.document_type)
         return false;
-      if (
-        options.review_status &&
-        (doc.review?.status ?? "unreviewed") !== options.review_status
-      )
-        return false;
+      if (includeReview && options.review_status) {
+        const reviewStatus = doc.review?.status ?? "unreviewed";
+        const matchesReviewScope =
+          options.review_status === "needs-review"
+            ? reviewStatus === "needs-review" || reviewStatus === "unreviewed"
+            : reviewStatus === options.review_status;
+        if (!matchesReviewScope) return false;
+      }
       if (
         options.processing_status &&
         (doc.processing?.status ?? "complete") !== options.processing_status
@@ -539,7 +568,9 @@ export class IngestionService {
         if (!combined.includes(q)) return false;
       }
       return true;
-    });
+    };
+    const reviewFacetDocs = allDocs.filter((doc) => matchesFilter(doc, false));
+    const filtered = allDocs.filter((doc) => matchesFilter(doc, true));
 
     const tagCounts: Record<string, number> = {};
     const correspondentCounts: Record<string, number> = {};
@@ -554,10 +585,12 @@ export class IngestionService {
           (correspondentCounts[d.correspondent] ?? 0) + 1;
       if (d.document_type)
         typeCounts[d.document_type] = (typeCounts[d.document_type] ?? 0) + 1;
-      const rev = d.review?.status ?? "unreviewed";
-      reviewCounts[rev] = (reviewCounts[rev] ?? 0) + 1;
       const proc = d.processing?.status ?? "complete";
       processingCounts[proc] = (processingCounts[proc] ?? 0) + 1;
+    }
+    for (const d of reviewFacetDocs) {
+      const reviewStatus = d.review?.status ?? "unreviewed";
+      reviewCounts[reviewStatus] = (reviewCounts[reviewStatus] ?? 0) + 1;
     }
 
     const offset = Math.max(0, options.offset ?? 0);
