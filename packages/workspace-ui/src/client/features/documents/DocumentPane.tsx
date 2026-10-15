@@ -330,7 +330,8 @@ export function DocumentPane({
   rawUrl,
   downloadUrl,
   totalDocuments,
-  otherCalendarFiles,
+  onLoadCalendarFile,
+  onSaveCalendarFile,
   onLoadInclude,
 }: {
   conflict: string;
@@ -366,7 +367,16 @@ export function DocumentPane({
   rawUrl?: ((path: string) => string) | undefined;
   downloadUrl?: ((path: string) => string) | undefined;
   totalDocuments?: number | undefined;
-  otherCalendarFiles?: Array<{ path: string; content: string }> | undefined;
+  onLoadCalendarFile?:
+    | ((path: string) => Promise<{ content: string; revision: string }>)
+    | undefined;
+  onSaveCalendarFile?:
+    | ((
+        path: string,
+        content: string,
+        expectedRevision: string,
+      ) => Promise<{ revision: string }>)
+    | undefined;
   onLoadInclude?:
     | ((resolvedPath: string) => Promise<string | null>)
     | undefined;
@@ -776,10 +786,11 @@ export function DocumentPane({
                 <CalendarPreviewPane
                   content={draft}
                   filePath={file.path}
-                  onDraftChange={onDraftChange}
+                  fileRevision={file.revision}
+                  onLoadCalendarFile={onLoadCalendarFile}
+                  onSaveCalendarFile={onSaveCalendarFile}
                   onSwitchToEdit={() => onViewChange("edit")}
                   onNavigateLink={onNavigateLink}
-                  otherCalendarFiles={otherCalendarFiles}
                 />
               </section>
             ) : (

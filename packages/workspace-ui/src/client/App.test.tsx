@@ -1237,11 +1237,65 @@ messages:
 
     // Expect calendar to load reminders.rem in preview mode
     expect(await screen.findByText("Q4 Strategy Sync")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Columbus Day / Indigenous Peoples' Day"),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Month" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
     expect(calendarButton).toHaveAttribute("aria-current", "page");
+  });
+
+  test("does not show calendar event creation in raw edit mode", async () => {
+    render(<App api={createMockWorkspaceApi()} />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Recent Changes" }),
+    ).toBeInTheDocument();
+    const nav = screen.getByRole("navigation", {
+      name: "Workspace navigation",
+    });
+    fireEvent.click(within(nav).getByRole("button", { name: "Calendar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+
+    expect(
+      await screen.findByRole("textbox", { name: "Code editor" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "New Event" }),
+    ).not.toBeInTheDocument();
+  });
+
+  test("protects unsaved calendar code before opening preview", async () => {
+    render(<App api={createMockWorkspaceApi()} />);
+    expect(
+      await screen.findByRole("heading", { name: "Recent Changes" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      within(
+        screen.getByRole("navigation", { name: "Workspace navigation" }),
+      ).getByRole("button", { name: "Calendar" }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    const editor = await screen.findByRole("textbox", { name: "Code editor" });
+    setEditorText(editor, "REM 2026-10-15 MSG Unsaved calendar change");
+
+    fireEvent.click(
+      within(screen.getByRole("toolbar", { name: "Document view" })).getByRole(
+        "button",
+        { name: "Calendar" },
+      ),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Keep your draft?" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(
+      await screen.findByRole("button", { name: "New Event" }),
+    ).toBeInTheDocument();
   });
 
   test("navigates to Git Activity tab and displays commit history", async () => {

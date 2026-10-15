@@ -1,4 +1,4 @@
-import type { CalendarSource, CalendarViewMode } from "./types";
+import type { CalendarViewMode } from "./types";
 
 export interface CalendarToolbarProps {
   viewMode: CalendarViewMode;
@@ -7,8 +7,6 @@ export interface CalendarToolbarProps {
   onPrev: () => void;
   onNext: () => void;
   onToday: () => void;
-  sources: CalendarSource[];
-  onToggleSource: (path: string) => void;
   onNewEvent: () => void;
   onSwitchToEdit?: (() => void) | undefined;
 }
@@ -20,8 +18,6 @@ export function CalendarToolbar({
   onPrev,
   onNext,
   onToday,
-  sources,
-  onToggleSource,
   onNewEvent,
   onSwitchToEdit,
 }: CalendarToolbarProps) {
@@ -117,63 +113,8 @@ export function CalendarToolbar({
         </h2>
       </div>
 
-      {/* Right: Multi-calendar filters and New Event */}
+      {/* Right: New Event and raw source shortcut */}
       <div className="flex items-center gap-2">
-        {/* Calendar layers filter */}
-        {sources.length > 1 && (
-          <div className="dropdown dropdown-end">
-            <button
-              tabIndex={0}
-              type="button"
-              className="btn btn-xs btn-outline gap-1.5 font-normal"
-              title="Toggle calendar layers"
-            >
-              <svg
-                className="h-3.5 w-3.5 text-base-content/70"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 6h16M4 12h16M4 18h7"
-                />
-              </svg>
-              <span>
-                Calendars ({sources.filter((s) => s.enabled).length}/
-                {sources.length})
-              </span>
-            </button>
-            <ul className="dropdown-content menu z-20 mt-1 w-56 rounded-box bg-base-100 p-2 shadow-lg border border-base-content/10">
-              <li className="menu-title text-xs">Calendar Layers</li>
-              {sources.map((src) => (
-                <li key={src.path}>
-                  <label className="label cursor-pointer justify-start gap-2 py-1">
-                    <input
-                      type="checkbox"
-                      className="checkbox checkbox-xs checkbox-primary"
-                      checked={src.enabled}
-                      onChange={() => onToggleSource(src.path)}
-                    />
-                    <span className="flex items-center gap-1.5 truncate">
-                      <span
-                        className={`inline-block h-2 w-2 rounded-full ${src.bgClass}`}
-                      />
-                      <span className="truncate">{src.name}</span>
-                    </span>
-                    <span className="badge badge-xs badge-ghost ml-auto">
-                      {src.eventCount}
-                    </span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
         {/* New Event Button */}
         <button
           type="button"

@@ -9,8 +9,11 @@ export interface EventModalProps {
   sources: CalendarSource[];
   currentFilePath: string;
   onClose: () => void;
-  onSave: (event: Partial<CalendarEvent>, targetSource: string) => void;
-  onDelete?: ((event: CalendarEvent) => void) | undefined;
+  onSave: (
+    event: Partial<CalendarEvent>,
+    targetSource: string,
+  ) => void | Promise<void>;
+  onDelete?: ((event: CalendarEvent) => void | Promise<void>) | undefined;
   onNavigateLink?: ((path: string) => void) | undefined;
 }
 
@@ -27,6 +30,8 @@ export function EventModal({
   onNavigateLink,
 }: EventModalProps) {
   const [mode, setMode] = useState<"view" | "edit" | "create">(initialMode);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Accessible field IDs
   const summaryId = useId();
@@ -62,9 +67,9 @@ export function EventModal({
     event?.sourceFile || currentFilePath,
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!summary.trim()) return;
+    if (!summary.trim() || isSaving) return;
 
     const attendeeList = attendees
       .split(",")
@@ -78,23 +83,55 @@ export function EventModal({
 
     const durMins = parseInt(duration, 10) || (time ? 60 : 0);
 
-    onSave(
-      {
-        summary: summary.trim(),
-        date: date.trim(),
-        time: time.trim() || undefined,
-        duration: durMins,
-        location: location.trim() || undefined,
-        mapUrl: mapUrl.trim() || undefined,
-        callUrl: callUrl.trim() || undefined,
-        attendees: attendeeList,
-        description: description.trim() || undefined,
-        note: note.trim() || undefined,
-        tags: tagList,
-      },
-      targetSource,
-    );
-    onClose();
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await onSave(
+        {
+          summary: summary.trim(),
+          date: date.trim(),
+          time: time.trim() || undefined,
+          duration: durMins,
+          location: location.trim() || undefined,
+          mapUrl: mapUrl.trim() || undefined,
+          callUrl: callUrl.trim() || undefined,
+          attendees: attendeeList,
+          description: description.trim() || undefined,
+          note: note.trim() || undefined,
+          tags: tagList,
+        },
+        targetSource,
+      );
+      onClose();
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "The calendar event could not be saved.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!event || !onDelete || isSaving) return;
+    if (!confirm(`Delete event "${event.summary}"?`)) return;
+
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await onDelete(event);
+      onClose();
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "The calendar event could not be deleted.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -264,17 +301,18 @@ export function EventModal({
             )}
 
             {/* View Actions */}
+            {saveError && (
+              <div className="alert alert-error py-2 text-xs" role="alert">
+                {saveError}
+              </div>
+            )}
             <div className="modal-action border-t border-base-content/10 pt-3 flex items-center justify-between">
               {onDelete && (
                 <button
                   type="button"
                   className="btn btn-sm btn-error btn-outline"
-                  onClick={() => {
-                    if (confirm(`Delete event "${event.summary}"?`)) {
-                      onDelete(event);
-                      onClose();
-                    }
-                  }}
+                  disabled={isSaving}
+                  onClick={() => void handleDelete()}
                 >
                   Delete Event
                 </button>
@@ -367,7 +405,7 @@ export function EventModal({
             </div>
 
             {/* Calendar Source */}
-            {sources.length > 1 && (
+            {mode === "create" && sources.length > 1 && (
               <div className="form-control">
                 <label className="label py-1" htmlFor={sourceId}>
                   <span className="label-text font-semibold">
@@ -380,9 +418,9 @@ export function EventModal({
                   value={targetSource}
                   onChange={(e) => setTargetSource(e.target.value)}
                 >
-                  {sources.map((s) => (
-                    <option key={s.path} value={s.path}>
-                      {s.name} ({s.path})
+                  {sources.map((source) => (
+                    <option key={source.path} value={source.path}>
+                      {source.name} ({source.path})
                     </option>
                   ))}
                 </select>
@@ -499,10 +537,16 @@ export function EventModal({
             </div>
 
             {/* Actions */}
+            {saveError && (
+              <div className="alert alert-error py-2 text-xs" role="alert">
+                {saveError}
+              </div>
+            )}
             <div className="modal-action border-t border-base-content/10 pt-3 flex justify-end gap-2">
               <button
                 type="button"
                 className="btn btn-sm btn-ghost"
+                disabled={isSaving}
                 onClick={() => {
                   if (mode === "edit") setMode("view");
                   else onClose();
@@ -513,8 +557,13 @@ export function EventModal({
               <button
                 type="submit"
                 className="btn btn-sm btn-primary shadow-xs"
+                disabled={isSaving}
               >
-                {mode === "create" ? "Add Event" : "Save Changes"}
+                {isSaving
+                  ? "Saving..."
+                  : mode === "create"
+                    ? "Add Event"
+                    : "Save Changes"}
               </button>
             </div>
           </form>

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { CalendarPreviewPane } from "./CalendarPreviewPane";
 
@@ -19,6 +19,7 @@ describe("CalendarPreviewPane", () => {
       <CalendarPreviewPane
         content={SAMPLE_REM_CONTENT}
         filePath="calendar/reminders.rem"
+        fileRevision="root-revision"
       />,
     );
 
@@ -27,6 +28,9 @@ describe("CalendarPreviewPane", () => {
       "aria-pressed",
       "true",
     );
+    expect(
+      screen.queryByRole("button", { name: /Calendars/ }),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("Sprint Planning Meeting")).toBeInTheDocument();
   });
 
@@ -35,6 +39,7 @@ describe("CalendarPreviewPane", () => {
       <CalendarPreviewPane
         content={SAMPLE_REM_CONTENT}
         filePath="calendar/reminders.rem"
+        fileRevision="root-revision"
       />,
     );
 
@@ -59,6 +64,7 @@ describe("CalendarPreviewPane", () => {
       <CalendarPreviewPane
         content={SAMPLE_REM_CONTENT}
         filePath="calendar/reminders.rem"
+        fileRevision="root-revision"
       />,
     );
 
@@ -72,13 +78,18 @@ describe("CalendarPreviewPane", () => {
     expect(screen.getByText("Alice")).toBeInTheDocument();
   });
 
-  test("adds a new event and invokes onDraftChange", () => {
-    const handleDraftChange = vi.fn();
+  test("adds a new event and saves it immediately", async () => {
+    const saveCalendarFile = vi.fn(
+      async (_path: string, _content: string, _revision: string) => ({
+        revision: "next-revision",
+      }),
+    );
     render(
       <CalendarPreviewPane
         content={SAMPLE_REM_CONTENT}
         filePath="calendar/reminders.rem"
-        onDraftChange={handleDraftChange}
+        fileRevision="root-revision"
+        onSaveCalendarFile={saveCalendarFile}
       />,
     );
 
@@ -88,6 +99,7 @@ describe("CalendarPreviewPane", () => {
     expect(
       screen.getByRole("heading", { name: "New Calendar Event" }),
     ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Target Calendar")).not.toBeInTheDocument();
 
     const titleInput = screen.getByPlaceholderText(
       /Sprint Planning, Team Standup/,
@@ -96,8 +108,61 @@ describe("CalendarPreviewPane", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add Event" }));
 
-    expect(handleDraftChange).toHaveBeenCalledTimes(1);
-    const updatedContent = handleDraftChange.mock.calls[0]?.[0] ?? "";
+    await waitFor(() => expect(saveCalendarFile).toHaveBeenCalledTimes(1));
+    const [path, updatedContent, revision] =
+      saveCalendarFile.mock.calls[0] ?? [];
+    expect(path).toBe("calendar/reminders.rem");
     expect(updatedContent).toContain("MSG New Design Review");
+    expect(revision).toBe("root-revision");
+  });
+
+  test("loads included calendars and saves new events to the selected source", async () => {
+    const includeFiles = {
+      "calendar/holiday.rem": {
+        content: "REM 2026-10-20 MSG Holiday",
+        revision: "holiday-revision",
+      },
+    };
+    const loadCalendarFile = vi.fn(async (path: string) => {
+      const file = includeFiles[path as keyof typeof includeFiles];
+      if (!file) throw new Error("Not found");
+      return file;
+    });
+    const saveCalendarFile = vi.fn(
+      async (_path: string, _content: string, _revision: string) => ({
+        revision: "saved",
+      }),
+    );
+
+    render(
+      <CalendarPreviewPane
+        content={`INCLUDE holiday.rem\n${SAMPLE_REM_CONTENT}`}
+        filePath="calendar/work.rem"
+        fileRevision="work-revision"
+        onLoadCalendarFile={loadCalendarFile}
+        onSaveCalendarFile={saveCalendarFile}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New Event" }));
+    const targetCalendar = await screen.findByLabelText("Target Calendar");
+    expect(targetCalendar).toBeInTheDocument();
+    fireEvent.change(targetCalendar, {
+      target: { value: "calendar/holiday.rem" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/Sprint Planning, Team Standup/),
+      {
+        target: { value: "Holiday Follow-up" },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add Event" }));
+
+    await waitFor(() => expect(saveCalendarFile).toHaveBeenCalledTimes(1));
+    const [path, updatedContent, revision] =
+      saveCalendarFile.mock.calls[0] ?? [];
+    expect(path).toBe("calendar/holiday.rem");
+    expect(updatedContent).toContain("MSG Holiday Follow-up");
+    expect(revision).toBe("holiday-revision");
   });
 });
