@@ -10,7 +10,7 @@ from typing import Any
 
 LOGGER = logging.getLogger("openlia.ingestion.metadata")
 
-KNOWN_DOCUMENT_TYPES = [
+SUGGESTED_DOCUMENT_TYPES = [
     "invoice",
     "receipt",
     "bank_statement",
@@ -62,8 +62,11 @@ def _llm_extract(
             "title": {"type": "string", "description": "Concise, descriptive document title (e.g. 'March 2026 Chase Statement' or 'Electric Utility Invoice')"},
             "document_type": {
                 "type": "string",
-                "enum": KNOWN_DOCUMENT_TYPES,
-                "description": "Category of the document",
+                "description": (
+                    "Specific category of the document. Prefer a concise, lowercase label; "
+                    f"suggested values include {', '.join(SUGGESTED_DOCUMENT_TYPES)}. "
+                    "Use a more specific category when appropriate."
+                ),
             },
             "correspondent": {"type": ["string", "null"], "description": "Sender, institution, bank, merchant, or organization (e.g. 'Chase Bank', 'Apple', 'IRS')"},
             "document_date": {"type": ["string", "null"], "description": "Explicit date stated inside the document (YYYY-MM-DD or null)"},
@@ -108,8 +111,10 @@ def _llm_extract(
                 clean_tags.append(clean)
 
         doc_type = parsed.get("document_type")
-        if doc_type not in KNOWN_DOCUMENT_TYPES:
+        if not isinstance(doc_type, str) or not doc_type.strip():
             doc_type = "other"
+        else:
+            doc_type = doc_type.strip().lower()[:100]
 
         return {
             "title": parsed["title"].strip()[:200],

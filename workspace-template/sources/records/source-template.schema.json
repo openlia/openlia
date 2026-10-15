@@ -7,7 +7,7 @@
     "id": {"type": ["string", "null"], "pattern": "^src_[A-Za-z0-9_-]+$"},
     "kind": {"type": ["string", "null"], "enum": ["chat", "text", "file", "pdf", "image", "excel", "csv", "youtube", "other", null]},
     "title": {"type": ["string", "null"]},
-    "document_type": {"type": ["string", "null"], "enum": ["invoice", "receipt", "bank_statement", "contract", "tax_document", "medical_record", "id_document", "manual", "note", "video_transcript", "other", null]},
+    "document_type": {"type": ["string", "null"], "description": "Specific document category. Suggested values include invoice, receipt, bank_statement, contract, tax_document, medical_record, id_document, manual, note, video_transcript, and other.", "examples": ["invoice", "receipt", "bank_statement", "contract", "tax_document", "medical_record", "id_document", "manual", "note", "video_transcript", "other"]},
     "correspondent": {"type": ["string", "null"]},
     "document_date": {"type": ["string", "null"]},
     "tags": {"type": "array", "items": {"type": "string"}},
