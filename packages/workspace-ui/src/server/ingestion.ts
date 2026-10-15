@@ -1,23 +1,23 @@
+import { Database } from "bun:sqlite";
+import { createHash, randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { basename, extname, join, relative, resolve } from "node:path";
-import { randomBytes } from "node:crypto";
-import { Database } from "bun:sqlite";
 import YAML from "yaml";
 import type {
   IngestionArtifact,
   IngestionCallbackStatus,
   IngestionDetailResponse,
+  IngestionListItem,
   IngestionLiveAction,
   IngestionLiveEvent,
   IngestionLiveJob,
-  IngestionListItem,
   IngestionOverviewResponse,
   SourceBacklink,
   SourceDocument,
@@ -57,6 +57,8 @@ interface SourceRecord extends Record<string, unknown> {
   processing?: {
     status: string;
     last_job_id?: string | null;
+    updated_at?: string | null;
+    error?: string | null;
     error_code?: string | null;
     error_summary?: string | null;
   };
@@ -110,14 +112,17 @@ export class IngestionService {
 
   private getDb(): Database | null {
     if (this.db) return this.db;
+    let db: Database | undefined;
     try {
       if (!existsSync(this.ingestionRoot)) {
         mkdirSync(this.ingestionRoot, { recursive: true });
       }
       const dbPath = join(this.ingestionRoot, "queue.sqlite");
-      this.db = new Database(dbPath);
-      this.db.run("PRAGMA journal_mode = WAL;");
-      this.db.run(`
+      db = new Database(dbPath);
+      db.run("PRAGMA busy_timeout = 30000;");
+      db.run("PRAGMA journal_mode = WAL;");
+      db.run("PRAGMA synchronous = FULL;");
+      db.run(`
         CREATE VIRTUAL TABLE IF NOT EXISTS source_fts USING fts5(
             source_id UNINDEXED,
             title,
@@ -130,35 +135,48 @@ export class IngestionService {
             review_status UNINDEXED,
             processing_status UNINDEXED,
             lifecycle UNINDEXED,
-            tokenize = 'unicode61 remove_diacritics 2'
+            tokenize = 'porter unicode61'
         );
       `);
-      this.db.run(`
+      // Keep this compatible with IngestionQueue, including UI-first startup.
+      db.run(`
         CREATE TABLE IF NOT EXISTS jobs (
             job_id TEXT PRIMARY KEY,
-            idempotency_key TEXT UNIQUE,
-            intake_id TEXT,
-            source_id TEXT,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            intake_id TEXT NOT NULL,
+            source_id TEXT NOT NULL,
             version_id TEXT,
-            operation TEXT,
-            requested_outputs TEXT,
-            state TEXT,
+            operation TEXT NOT NULL,
+            requested_outputs TEXT NOT NULL,
+            state TEXT NOT NULL,
             lease_owner TEXT,
+            lease_generation INTEGER NOT NULL DEFAULT 0,
             lease_expires_at REAL,
-            attempts INTEGER,
+            attempts INTEGER NOT NULL DEFAULT 0,
             next_attempt_at REAL,
             error_code TEXT,
             error_summary TEXT,
             password_profile TEXT,
-            continuation TEXT,
+            continuation TEXT NOT NULL,
             result TEXT,
             heartbeat_at REAL,
-            created_at REAL,
-            updated_at REAL
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
         );
       `);
-      return this.db;
+      const columns = db.query("PRAGMA table_info(jobs)").all() as Array<{
+        name: string;
+      }>;
+      // Earlier UI builds could create a table without the worker lease fence.
+      if (!columns.some((column) => column.name === "lease_generation")) {
+        db.run(
+          "ALTER TABLE jobs ADD COLUMN lease_generation INTEGER NOT NULL DEFAULT 0",
+        );
+      }
+      this.db = db;
+      return db;
     } catch {
+      db?.close();
       return null;
     }
   }
@@ -768,6 +786,8 @@ export class IngestionService {
     const sourceId = `src_${randomBytes(6).toString("hex")}`;
     const versionId = "ver_001";
     const jobId = `job_${randomBytes(6).toString("hex")}`;
+    const intakeId = `intake_${randomBytes(6).toString("hex")}`;
+    const artifactId = `art_${randomBytes(6).toString("hex")}`;
     const nowIso = new Date().toISOString();
     const nowEpoch = Date.now() / 1000;
 
@@ -788,11 +808,17 @@ export class IngestionService {
         kind = "text";
       else kind = "file";
     }
+    if (
+      !["chat", "text", "file", "pdf", "image", "excel", "csv"].includes(kind)
+    ) {
+      throw new Error("unsupported upload kind");
+    }
 
     const title = options?.title ?? (basename(file.name, rawExt) || file.name);
 
     // 1. Write original artifact
-    const artifactRel = `sources/artifacts/${sourceId}/${versionId}/${file.name}`;
+    const extension = /^\.[a-z0-9]{1,12}$/.test(rawExt) ? rawExt : ".bin";
+    const artifactRel = `sources/artifacts/${sourceId}/${versionId}/original${extension}`;
     const artifactAbs = join(this.workspaceRoot, artifactRel);
     mkdirSync(
       join(this.workspaceRoot, "sources", "artifacts", sourceId, versionId),
@@ -804,7 +830,7 @@ export class IngestionService {
 
     // 2. Write source record
     const sourceRecord: SourceRecord = {
-      schema: 1,
+      $schema: "./source-template.schema.json",
       id: sourceId,
       title,
       kind,
@@ -813,9 +839,12 @@ export class IngestionService {
       document_date: null,
       tags: [],
       summary: null,
+      status: "captured",
       processing: {
-        status: "queued",
-        last_job_id: jobId,
+        status: "captured",
+        last_job_id: null,
+        updated_at: nowIso,
+        error: null,
       },
       review: {
         status: "unreviewed",
@@ -823,15 +852,25 @@ export class IngestionService {
       },
       lifecycle: "active",
       captured_at: nowIso,
+      sensitivity: "personal",
+      password_profile: null,
+      authorization: { scope: "ingestion", source: "direct-request" },
       origin: {
-        capture_method: "upload",
-        filename: file.name,
+        channel: "workspace-ui",
+        source_url: null,
+        provider: null,
+        provider_item_id: null,
+        message_id: null,
       },
       versions: [
         {
           id: versionId,
-          captured_at: nowIso,
+          original_artifact_id: artifactId,
+          content_sha256: createHash("sha256").update(file.data).digest("hex"),
+          media_type: Bun.file(file.name).type || "application/octet-stream",
           original_ref: artifactRel,
+          received_at: nowIso,
+          retained: true,
           extractions: [],
         },
       ],
@@ -840,57 +879,120 @@ export class IngestionService {
     const recordDir = join(this.workspaceRoot, "sources", "records");
     mkdirSync(recordDir, { recursive: true });
     const recordFile = join(recordDir, `${sourceId}.md`);
-    writeFileSync(
-      recordFile,
-      `---\n${YAML.stringify(sourceRecord)}---\n\n# ${title}\n`,
-      "utf8",
-    );
+    const writeSource = () =>
+      writeFileSync(
+        recordFile,
+        `---\n${YAML.stringify(sourceRecord)}---\n\n# Source Record\n`,
+        "utf8",
+      );
+    writeSource();
 
-    // 3. Insert job into SQLite jobs table
+    const continuation = {
+      next_action: "triage",
+      conversation_ref: null,
+      request_ref: null,
+    };
+    const intake: IntakeRecord = {
+      $schema: "./ingestion-template.schema.json",
+      intake_id: intakeId,
+      source_id: sourceId,
+      version_id: versionId,
+      captured_at: nowIso,
+      kind,
+      operation: "extract",
+      requested_outputs: ["text"],
+      status: "captured",
+      job_id: null,
+      continuation,
+      authorization: sourceRecord.authorization,
+      artifact_refs: [artifactId],
+      extraction_refs: [],
+      candidate_ids: [],
+      record_refs: [],
+      retry_count: 0,
+      last_error: null,
+      unresolved_questions: [],
+      callback: { event_id: null, delivery_status: "pending" },
+    };
+    const intakeDir = join(this.workspaceRoot, "inbox", "ingestion");
+    mkdirSync(intakeDir, { recursive: true });
+    const intakeFile = join(intakeDir, `${intakeId}.md`);
+    const writeIntake = () =>
+      writeFileSync(
+        intakeFile,
+        `---\n${YAML.stringify(intake)}---\n\n# Ingestion Intake\n`,
+        "utf8",
+      );
+    writeIntake();
+
+    // Publish the intake before making its job visible to the worker. On queue
+    // failure it remains captured so ingestion_recover can resubmit it.
     const db = this.getDb();
-    if (db) {
-      try {
+    try {
+      if (!db) throw new Error("ingestion queue is unavailable");
+      db.transaction(() => {
         db.run(
           `INSERT INTO jobs (
             job_id, idempotency_key, intake_id, source_id, version_id,
             operation, requested_outputs, state, attempts, next_attempt_at,
-            created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'extract', '["text"]', 'queued', 0, ?, ?, ?)`,
+            created_at, updated_at, continuation
+          ) VALUES (?, ?, ?, ?, ?, 'extract', '["text"]', 'queued', 0, ?, ?, ?, ?)`,
           [
             jobId,
             `upload_${sourceId}_${versionId}`,
-            null,
+            intakeId,
             sourceId,
             versionId,
             nowEpoch,
             nowEpoch,
             nowEpoch,
+            JSON.stringify(continuation),
           ],
         );
-
-        let initialContent = "";
+        intake.status = "queued";
+        intake.job_id = jobId;
+        sourceRecord.processing = {
+          status: "queued",
+          last_job_id: jobId,
+          updated_at: nowIso,
+          error: null,
+        };
+        writeSource();
+        writeIntake();
+        // Seed the cache before commit so it cannot overwrite/duplicate the
+        // worker's completed index entry. Cache failure does not reject a job.
         try {
-          if (
-            kind === "text" ||
-            [".txt", ".md", ".json", ".csv"].includes(rawExt)
-          ) {
-            initialContent = new TextDecoder().decode(
-              file.data.slice(0, 50000),
-            );
-          }
-        } catch {}
-
-        // 4. Upsert into FTS
-        db.run(
-          `INSERT INTO source_fts (
-            source_id, title, correspondent, document_type, tags, summary,
-            content, document_date, review_status, processing_status, lifecycle
-          ) VALUES (?, ?, '', '', '', '', ?, '', 'unreviewed', 'queued', 'active')`,
-          [sourceId, title, initialContent],
-        );
-      } catch {
-        // Continue
-      }
+          const initialContent =
+            kind === "text" || [".txt", ".md", ".json", ".csv"].includes(rawExt)
+              ? new TextDecoder().decode(file.data.slice(0, 50000))
+              : "";
+          db.run(
+            `INSERT INTO source_fts (
+              source_id, title, correspondent, document_type, tags, summary,
+              content, document_date, review_status, processing_status, lifecycle
+            ) VALUES (?, ?, '', '', '', '', ?, '', 'unreviewed', 'queued', 'active')`,
+            [sourceId, title, initialContent],
+          );
+        } catch {
+          // The worker rebuilds the source index after extraction.
+        }
+      }).immediate();
+    } catch (error) {
+      intake.status = "captured";
+      intake.job_id = null;
+      intake.last_error = "queue_submission_failed";
+      sourceRecord.processing = {
+        status: "captured",
+        last_job_id: null,
+        updated_at: nowIso,
+        error: "queue_submission_failed",
+      };
+      writeSource();
+      writeIntake();
+      throw new Error(
+        `ingestion queue submission failed; retained source ${sourceId} and intake ${intakeId} for recovery`,
+        { cause: error },
+      );
     }
 
     return {

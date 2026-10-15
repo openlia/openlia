@@ -1,8 +1,20 @@
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import YAML from "yaml";
 import { createWorkspaceHandler } from "./app";
+import { validateRecordContent } from "./validator";
 
 let root = "";
 let ingestionRoot = "";
@@ -17,6 +29,18 @@ beforeEach(() => {
   ingestionRoot = mkdtempSync(join(tmpdir(), "openlia-ingestion-runtime-"));
   mkdirSync(join(root, "inbox", "ingestion"), { recursive: true });
   mkdirSync(join(root, "sources", "records"), { recursive: true });
+  for (const [directory, template] of [
+    ["sources/records", "source-template"],
+    ["inbox/ingestion", "ingestion-template"],
+  ]) {
+    for (const extension of ["md", "schema.json"]) {
+      const path = `${directory}/${template}.${extension}`;
+      copyFileSync(
+        join(import.meta.dir, "../../../../workspace-template", path),
+        join(root, path),
+      );
+    }
+  }
   mkdirSync(
     join(
       root,
@@ -279,6 +303,43 @@ describe("ingestion HTTP endpoints", () => {
     expect(uploadPayload.source_id.startsWith("src_")).toBe(true);
     expect(uploadPayload.job_id.startsWith("job_")).toBe(true);
 
+    const db = new Database(join(ingestionRoot, "queue.sqlite"), {
+      readonly: true,
+    });
+    const job = db
+      .query("SELECT * FROM jobs WHERE job_id = ?")
+      .get(uploadPayload.job_id) as {
+      intake_id: string;
+      continuation: string;
+      lease_generation: number;
+    };
+    expect(job.intake_id.startsWith("intake_")).toBe(true);
+    expect(JSON.parse(job.continuation).next_action).toBe("triage");
+    expect(job.lease_generation).toBe(0);
+    db.close();
+    for (const path of [
+      `sources/records/${uploadPayload.source_id}.md`,
+      `inbox/ingestion/${job.intake_id}.md`,
+    ]) {
+      const validation = validateRecordContent(
+        root,
+        path,
+        readFileSync(join(root, path), "utf8"),
+      );
+      expect(validation.errors).toEqual([]);
+      expect(validation.valid).toBe(true);
+    }
+    const sourceText = readFileSync(
+      join(root, `sources/records/${uploadPayload.source_id}.md`),
+      "utf8",
+    );
+    const source = YAML.parse(sourceText.split("---")[1] ?? "");
+    const original = readFileSync(join(root, source.versions[0].original_ref));
+    expect(source.versions[0].content_sha256).toBe(
+      createHash("sha256").update(original).digest("hex"),
+    );
+    expect(source.versions[0].media_type).toBe("text/plain;charset=utf-8");
+
     // Verify it is searchable
     const searchRes = await request(
       `/api/workspace/ingestion/search?q=agreement`,
@@ -294,5 +355,91 @@ describe("ingestion HTTP endpoints", () => {
         (m) => m.source_id === uploadPayload.source_id,
       ),
     ).toBe(true);
+  });
+
+  test("uploads an image with valid provenance through multipart intake", async () => {
+    const data = readFileSync(
+      join(import.meta.dir, "../../../../tests/fixtures/ingestion/sample.jpg"),
+    );
+    const form = new FormData();
+    form.append(
+      "files",
+      new File([data], "receipt.jpg", { type: "image/jpeg" }),
+    );
+    const response = await handler(
+      new Request("http://localhost/api/workspace/ingestion/upload", {
+        method: "POST",
+        body: form,
+      }),
+    );
+    expect(response.status).toBe(200);
+    const upload = (await response.json()) as { source_id: string };
+    const path = `sources/records/${upload.source_id}.md`;
+    const content = readFileSync(join(root, path), "utf8");
+    expect(validateRecordContent(root, path, content).errors).toEqual([]);
+    const source = YAML.parse(content.split("---")[1] ?? "");
+    expect(source.kind).toBe("image");
+    expect(source.versions[0].media_type).toBe("image/jpeg");
+    expect(source.versions[0].content_sha256).toBe(
+      createHash("sha256").update(data).digest("hex"),
+    );
+    expect(readFileSync(join(root, source.versions[0].original_ref))).toEqual(
+      data,
+    );
+  });
+
+  test.each([
+    "unavailable",
+    "insert failure",
+  ])("reports queue %s and retains a recoverable intake", async (failure) => {
+    if (failure === "unavailable") {
+      writeFileSync(join(ingestionRoot, "queue.sqlite"), "not a database");
+    } else {
+      await request("/api/workspace/ingestion/search");
+      const db = new Database(join(ingestionRoot, "queue.sqlite"));
+      db.run(`CREATE TRIGGER reject_upload BEFORE INSERT ON jobs
+          BEGIN SELECT RAISE(ABORT, 'queue submission rejected'); END`);
+      db.close();
+    }
+    const response = await handler(
+      new Request("http://localhost/api/workspace/ingestion/upload", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "Retain this document", kind: "text" }),
+      }),
+    );
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      error: "upload_failed",
+    });
+    const intakeName = readdirSync(join(root, "inbox/ingestion")).find(
+      (name) => name.startsWith("intake_") && name !== "intake_1.md",
+    );
+    expect(intakeName).toBeDefined();
+    if (!intakeName) throw new Error("recoverable intake was not retained");
+    const intakeContent = readFileSync(
+      join(root, "inbox/ingestion", intakeName),
+      "utf8",
+    );
+    expect(
+      validateRecordContent(
+        root,
+        `inbox/ingestion/${intakeName}`,
+        intakeContent,
+      ).errors,
+    ).toEqual([]);
+    const intake = YAML.parse(intakeContent.split("---")[1] ?? "");
+    expect(intake.status).toBe("captured");
+    expect(intake.job_id).toBeNull();
+    expect(intake.last_error).toBe("queue_submission_failed");
+    const path = `sources/records/${intake.source_id}.md`;
+    const content = readFileSync(join(root, path), "utf8");
+    expect(validateRecordContent(root, path, content).errors).toEqual([]);
+    const source = YAML.parse(content.split("---")[1] ?? "");
+    expect(source.processing.status).toBe("captured");
+    expect(
+      readFileSync(join(root, source.versions[0].original_ref), "utf8"),
+    ).toBe("Retain this document");
   });
 });

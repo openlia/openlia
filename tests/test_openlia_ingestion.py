@@ -114,6 +114,77 @@ class IngestionTests(unittest.TestCase):
     # Queue, Leases, and Continuation Tests
     # =========================================================================
 
+    @unittest.skipUnless(shutil.which("bun"), "Bun is required for UI/worker integration")
+    def test_ui_upload_is_processed_by_worker_in_either_startup_order(self):
+        for worker_first in (True, False):
+            with self.subTest(worker_first=worker_first):
+                ingestion_dir = self.root / ("worker-first" if worker_first else "ui-first")
+                if worker_first:
+                    self.queue_mod.IngestionQueue(ingestion_dir)
+                script = f"""
+                    import {{ IngestionService }} from './packages/workspace-ui/src/server/ingestion.ts';
+                    const service = new IngestionService({{
+                        workspaceRoot: {json.dumps(str(self.workspace))},
+                        ingestionRoot: {json.dumps(str(ingestion_dir))},
+                    }});
+                    console.log(JSON.stringify(service.upload({{
+                        name: 'agreement.txt',
+                        data: new TextEncoder().encode('Service agreement terms for 2026'),
+                    }})));
+                """
+                completed = subprocess.run(
+                    ["bun", "-e", script], cwd=REPO_ROOT,
+                    capture_output=True, text=True, check=True,
+                )
+                uploaded = json.loads(completed.stdout)
+                queue = self.queue_mod.IngestionQueue(ingestion_dir)
+                job = queue.claim("integration-worker")
+                self.assertIsNotNone(job)
+                self.assertEqual(job["job_id"], uploaded["job_id"])
+                self.assertEqual(job["lease_generation"], 1)
+                intake = self.publisher.load_intake(job["intake_id"])
+                self.assertEqual(intake["source_id"], uploaded["source_id"])
+                self.assertEqual(intake["status"], "queued")
+                result = self.adapters.process_job(
+                    job, self.publisher, self.passwords, None, db=queue,
+                )
+                self.assertEqual(result["status"], "completed")
+                self.assertIsNotNone(queue.finish(job, result))
+                source = self.publisher.load_source(uploaded["source_id"])
+                self.assertEqual(source["processing"]["status"], "complete")
+                self.assertTrue(source["versions"][0]["extractions"])
+                self.assertEqual(queue.get(job["job_id"])["state"], "completed")
+
+    @unittest.skipUnless(shutil.which("bun"), "Bun is required for UI/worker integration")
+    def test_ui_created_legacy_database_gains_worker_lease_fence(self):
+        import sqlite3
+
+        ingestion_dir = self.root / "legacy-ui"
+        ingestion_dir.mkdir()
+        with sqlite3.connect(ingestion_dir / "queue.sqlite") as db:
+            db.execute("""CREATE TABLE jobs (
+                job_id TEXT PRIMARY KEY, idempotency_key TEXT UNIQUE,
+                intake_id TEXT, source_id TEXT, version_id TEXT, operation TEXT,
+                requested_outputs TEXT, state TEXT, lease_owner TEXT,
+                lease_expires_at REAL, attempts INTEGER, next_attempt_at REAL,
+                error_code TEXT, error_summary TEXT, password_profile TEXT,
+                continuation TEXT, result TEXT, heartbeat_at REAL,
+                created_at REAL, updated_at REAL
+            )""")
+        subprocess.run(
+            ["bun", "-e", f"""
+                import {{ IngestionService }} from './packages/workspace-ui/src/server/ingestion.ts';
+                new IngestionService({{
+                    workspaceRoot: {json.dumps(str(self.workspace))},
+                    ingestionRoot: {json.dumps(str(ingestion_dir))},
+                }}).upload({{ name: 'legacy.txt', data: new TextEncoder().encode('Legacy queue') }});
+            """], cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+        )
+        queue = self.queue_mod.IngestionQueue(ingestion_dir)
+        job = queue.claim("legacy-worker")
+        self.assertIsNotNone(job)
+        self.assertEqual(job["lease_generation"], 1)
+
     def test_capture_and_idempotent_submission(self):
         captured = self.publisher.capture(
             {"kind": "text", "title": "Example", "content": "one\ntwo"}
