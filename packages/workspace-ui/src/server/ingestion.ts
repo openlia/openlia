@@ -660,7 +660,7 @@ export class IngestionService {
         "extractions",
       );
       if (existsSync(extRoot)) {
-        for (const extId of readdirSync(extRoot)) {
+        for (const extId of orderedExtractionIds(extRoot, latestVersion)) {
           if (!safeId.test(extId)) continue;
           const extDir = join(extRoot, extId);
           if (statSync(extDir, { throwIfNoEntry: false })?.isDirectory()) {
@@ -781,6 +781,9 @@ export class IngestionService {
     const db = this.getDb();
     if (db) {
       try {
+        const existing = db
+          .query("SELECT content FROM source_fts WHERE source_id = ? LIMIT 1")
+          .get(sourceId) as { content?: string } | null;
         db.run("DELETE FROM source_fts WHERE source_id = ?", [sourceId]);
         db.run(
           `INSERT INTO source_fts (
@@ -794,7 +797,7 @@ export class IngestionService {
             record.document_type ?? "",
             (record.tags ?? []).join(" "),
             record.summary ?? "",
-            "",
+            existing?.content ?? "",
             record.document_date ?? "",
             record.review?.status ?? "unreviewed",
             record.processing?.status ?? "complete",
@@ -1129,7 +1132,7 @@ export class IngestionService {
           "extractions",
         );
         if (existsSync(extRoot)) {
-          for (const extId of readdirSync(extRoot)) {
+          for (const extId of orderedExtractionIds(extRoot, latestVersion)) {
             const extDir = join(extRoot, extId);
             for (const candidate of [
               "text.md",
@@ -1471,4 +1474,19 @@ function arrayOfStrings(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function orderedExtractionIds(
+  root: string,
+  version: Record<string, unknown> | null | undefined,
+): string[] {
+  const directoryIds = readdirSync(root).filter((id) => safeId.test(id));
+  const declaredIds = arrayOfStrings(version?.extractions).filter((id) =>
+    safeId.test(id),
+  );
+  const declared = new Set(declaredIds);
+  return [
+    ...declaredIds.reverse(),
+    ...directoryIds.reverse().filter((id) => !declared.has(id)),
+  ];
 }

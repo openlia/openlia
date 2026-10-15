@@ -229,7 +229,7 @@ class IngestionRuntime:
         if request.get("file_path"):
             path = Path(str(request["file_path"])).expanduser()
             payload = hashlib.sha256(path.read_bytes()).hexdigest()
-        material = {"kind": request.get("kind"), "payload": payload, "url": request.get("url"), "operation": request.get("operation", "extract"), "outputs": outputs, "password_profile": request.get("password_profile")}
+        material = {"kind": request.get("kind"), "payload": payload, "url": request.get("url"), "operation": request.get("operation", "extract"), "outputs": outputs, "password_profile": request.get("password_profile"), "continuation": request.get("continuation") or {}}
         return hashlib.sha256(_json(material).encode()).hexdigest()
 
     def status(self, args: dict, **kwargs) -> str:
@@ -366,10 +366,10 @@ class IngestionRuntime:
             if args.get("include_content", True):
                 extracted_text = ""
                 versions = source.get("versions") or []
-                selected_version = next((v for v in versions if v.get("id") == version_id), versions[-1] if versions else None)
+                selected_version = _select_version(source, version_id)
                 if selected_version:
                     ver_id = selected_version.get("id")
-                    for ext in selected_version.get("extractions", []):
+                    for ext in reversed(selected_version.get("extractions", [])):
                         ext_dir = self.publisher.artifacts / source_id / ver_id / "extractions" / ext
                         for candidate_name in ["text.md", "transcript.md", "tables.json"]:
                             candidate = ext_dir / candidate_name
@@ -388,10 +388,10 @@ class IngestionRuntime:
             backlinks = find_backlinks(self.workspace_root, source_id)
             extractions = []
             versions = source.get("versions") or []
-            selected_version = next((v for v in versions if v.get("id") == version_id), versions[-1] if versions else None)
+            selected_version = _select_version(source, version_id)
             if selected_version:
                 ver_id = selected_version.get("id")
-                for ext in selected_version.get("extractions", []):
+                for ext in reversed(selected_version.get("extractions", [])):
                     ext_dir = self.publisher.artifacts / source_id / ver_id / "extractions" / ext
                     extractions.append({"extraction_id": ext, "version_id": ver_id, "path": str(ext_dir)})
 
@@ -453,7 +453,7 @@ class IngestionRuntime:
                 document_type=source.get("document_type"),
                 tags=source.get("tags"),
                 summary=source.get("summary"),
-                content="",
+                content=self.queue.get_source_fts_content(source["id"]),
                 document_date=source.get("document_date"),
                 review_status=source.get("review", {}).get("status", "unreviewed"),
                 processing_status=source.get("processing", {}).get("status", "complete"),
@@ -484,7 +484,7 @@ class IngestionRuntime:
                 document_type=source.get("document_type"),
                 tags=source.get("tags"),
                 summary=source.get("summary"),
-                content="",
+                content=self.queue.get_source_fts_content(source["id"]),
                 document_date=source.get("document_date"),
                 review_status=source.get("review", {}).get("status", "unreviewed"),
                 processing_status=source.get("processing", {}).get("status", "complete"),
@@ -561,11 +561,21 @@ class IngestionRuntime:
         try:
             if not self._publication_allowed():
                 return
+            current_job = self.queue.get(job["job_id"])
+            retrying = current_job.get("state") == "retryable-failure"
+            intake_status = "processing" if retrying else status
+            source_status = "processing" if retrying or status == "awaiting-unlock" else status
             intake = self.publisher.load_intake(job["intake_id"])
-            intake["status"] = status
+            intake["status"] = intake_status
             intake["last_error"] = code
             intake["retry_count"] = job.get("attempts", 0)
             self.publisher.update_intake(intake)
+            source = self.publisher.load_source(job["source_id"])
+            source["status"] = source_status
+            source.setdefault("processing", {})["status"] = source_status
+            source["processing"]["error"] = message[:500]
+            source["processing"]["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            self.publisher.update_source(source)
         except Exception:
             LOGGER.warning("could not update failed intake record", exc_info=True)
 
@@ -645,3 +655,13 @@ class _LeasePublisher:
     def publish_extraction(self, *args, **kwargs):
         self._check()
         return self._publisher.publish_extraction(*args, **kwargs)
+
+
+def _select_version(source: dict, version_id: str | None) -> dict | None:
+    versions = source.get("versions") or []
+    if version_id:
+        selected = next((version for version in versions if version.get("id") == version_id), None)
+        if selected is None:
+            raise KeyError(f"version not found: {version_id}")
+        return selected
+    return versions[-1] if versions else None

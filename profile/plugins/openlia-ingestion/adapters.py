@@ -26,8 +26,8 @@ def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
     intake = publisher.load_intake(job["intake_id"]) if job.get("intake_id") else None
     kind = source.get("kind")
     if kind == "file":
-        versions = source.get("versions") or []
-        ext = Path(versions[-1].get("original_ref", "")).suffix.lower() if versions else ""
+        version = _version_for_job(source, job.get("version_id"))
+        ext = Path(version.get("original_ref", "")).suffix.lower() if version else ""
         if ext == ".pdf":
             kind = "pdf"
         elif ext in {".xlsx", ".xls"}:
@@ -40,10 +40,13 @@ def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
             kind = "text"
     if intake:
         intake["status"] = "processing"
+        intake["last_error"] = None
         publisher.update_intake(intake)
     source.setdefault("processing", {})
+    source["status"] = "processing"
     source["processing"]["status"] = "processing"
     source["processing"]["last_job_id"] = job.get("job_id")
+    source["processing"]["error"] = None
     publisher.update_source(source)
     if kind in {"chat", "text"}:
         result = _text(source, intake or {}, job, publisher)
@@ -61,6 +64,7 @@ def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
         raise AdapterError("unsupported_kind", "source kind is not supported")
     if intake:
         intake["status"] = "complete" if result["status"] == "completed" else "partial"
+        intake["last_error"] = None
         intake["retry_count"] = max(intake.get("retry_count") or 0, job.get("attempts", 0))
         publisher.update_intake(intake)
 
@@ -72,10 +76,10 @@ def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
     # Extract text from latest extraction for LLM metadata tagging
     extracted_text = ""
     try:
-        versions = source.get("versions") or []
-        if versions:
-            ver_id = versions[-1].get("id")
-            for ext in versions[-1].get("extractions", []):
+        version = _version_for_job(source, job.get("version_id"))
+        if version:
+            ver_id = version.get("id")
+            for ext in reversed(version.get("extractions", [])):
                 ext_dir = publisher.artifacts / source["id"] / ver_id / "extractions" / ext
                 for candidate_name in ["text.md", "transcript.md", "tables.json"]:
                     candidate = ext_dir / candidate_name
@@ -144,11 +148,16 @@ def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
     return result
 
 
-def _original(source: dict) -> tuple[bytes, dict]:
+def _original(source: dict, version_id: str | None = None) -> tuple[bytes, dict]:
     versions = source.get("versions") or []
     if not versions:
         raise AdapterError("original_missing", "retained original is not available")
-    version = versions[-1]
+    if version_id:
+        version = next((item for item in versions if item.get("id") == version_id), None)
+        if version is None:
+            raise AdapterError("version_not_found", "requested source version is not available")
+    else:
+        version = versions[-1]
     path = Path(os.environ.get("OPENLIA_WORKSPACE_ROOT", "/opt/data/workspace")) / version["original_ref"]
     try:
         return path.read_bytes(), version
@@ -156,15 +165,25 @@ def _original(source: dict) -> tuple[bytes, dict]:
         raise AdapterError("original_unreadable", "retained original cannot be read") from exc
 
 
+def _version_for_job(source: dict, version_id: str | None) -> dict | None:
+    versions = source.get("versions") or []
+    if version_id:
+        version = next((item for item in versions if item.get("id") == version_id), None)
+        if version is None:
+            raise AdapterError("version_not_found", "requested source version is not available")
+        return version
+    return versions[-1] if versions else None
+
+
 def _text(source, intake, job, publisher) -> dict:
-    data, version = _original(source)
+    data, version = _original(source, job.get("version_id"))
     text = data.decode("utf-8", errors="replace")
     result = publisher.publish_extraction(source, intake, version["id"], "text", "text/markdown", ".md", text.encode("utf-8"), {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"lines": len(text.splitlines())}})
     return {"status": "completed", "artifact_refs": [result["artifact_id"]], "extraction_refs": [result["extraction_id"]], "summary": {"lines": len(text.splitlines()), "warnings": result["warnings"]}, "continuation": job.get("continuation", {})}
 
 
 def _csv(source, intake, job, publisher) -> dict:
-    data, version = _original(source)
+    data, version = _original(source, job.get("version_id"))
     text = data.decode("utf-8-sig", errors="replace")
     try:
         dialect = csv.Sniffer().sniff(text[:8192])
@@ -181,7 +200,7 @@ def _csv(source, intake, job, publisher) -> dict:
 
 
 def _excel(source, intake, job, publisher, password_store) -> dict:
-    data, version = _original(source)
+    data, version = _original(source, job.get("version_id"))
     profile = job.get("password_profile")
     if not profile and _office_is_encrypted(data):
         raise AdapterError("password_required", "encrypted workbook requires a document-password profile")
@@ -227,24 +246,30 @@ def _excel(source, intake, job, publisher, password_store) -> dict:
 
 
 def _pdf(source, intake, job, publisher, password_store, llm) -> dict:
-    data, version = _original(source)
+    data, version = _original(source, job.get("version_id"))
     path = Path(version["original_ref"])
     absolute = Path(os.environ.get("OPENLIA_WORKSPACE_ROOT", "/opt/data/workspace")) / path
     password = password_store.resolve(job["password_profile"]) if job.get("password_profile") else None
+    pages = _pdf_pages(absolute, password)
+    if pages > 100:
+        raise AdapterError("page_limit", "PDF exceeds the page limit")
     text_command = ["pdftotext"] + (["-opw", password] if password else []) + ["-layout", str(absolute), "-"]
     text = _command(text_command, "pdf_text")
-    if text.strip():
+    page_texts = _split_pdf_pages(text, pages)
+    missing_pages = [page for page, page_text in enumerate(page_texts, start=1) if not page_text.strip()]
+    if not missing_pages:
         result = publisher.publish_extraction(source, intake, version["id"], "text", "text/markdown", ".md", text.encode("utf-8"), {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"text_layer": True}})
         return {"status": "completed", "artifact_refs": [result["artifact_id"]], "extraction_refs": [result["extraction_id"]], "summary": {"warnings": result["warnings"]}, "continuation": job.get("continuation", {})}
     if llm is None:
         raise AdapterError("vision_unavailable", "scanned PDF requires a configured vision model", retryable=False)
-    pages = _pdf_pages(absolute, password)
-    if pages > 100:
-        raise AdapterError("page_limit", "PDF exceeds the page limit")
     extracted = []
     warnings = []
     with tempfile.TemporaryDirectory(prefix="openlia-pdf-") as temporary:
         for page in range(1, pages + 1):
+            page_text = page_texts[page - 1]
+            if page_text.strip():
+                extracted.append(f"## Page {page}\n\n{page_text.strip()}\n")
+                continue
             output = Path(temporary) / f"page-{page}"
             ppm_command = ["pdftoppm"] + (["-opw", password] if password else []) + ["-f", str(page), "-l", str(page), "-png", "-r", "150", "-singlefile", str(absolute), str(output)]
             _command(ppm_command, "pdf_render")
@@ -257,7 +282,7 @@ def _pdf(source, intake, job, publisher, password_store, llm) -> dict:
 
 
 def _image(source, intake, job, publisher, llm) -> dict:
-    data, version = _original(source)
+    data, version = _original(source, job.get("version_id"))
     if llm is None:
         raise AdapterError("vision_unavailable", "image ingestion requires a configured vision model")
     try:
@@ -285,8 +310,10 @@ def _youtube(source, intake, job, publisher) -> dict:
         version_id = job.get("version_id") or source.get("versions", [{}])[-1].get("id")
         if not version_id:
             raise AdapterError("version_missing", "YouTube version was not allocated")
-        if not source.get("versions"):
-            source["versions"] = [{"id": version_id, "original_artifact_id": f"art_{uuid.uuid4().hex}", "content_sha256": __import__("hashlib").sha256(original).hexdigest(), "media_type": "application/json", "original_ref": f"sources/artifacts/{source['id']}/{version_id}/original.json", "received_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(), "retained": True, "extractions": []}]
+        version = next((item for item in source.get("versions", []) if item.get("id") == version_id), None)
+        if version is None:
+            version = {"id": version_id, "original_artifact_id": f"art_{uuid.uuid4().hex}", "content_sha256": __import__("hashlib").sha256(original).hexdigest(), "media_type": "application/json", "original_ref": f"sources/artifacts/{source['id']}/{version_id}/original.json", "received_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(), "retained": True, "extractions": []}
+            source["versions"] = [*source.get("versions", []), version]
             publisher.update_source(source)
         publisher.publish_bytes(f"sources/artifacts/{source['id']}/{version_id}/original.json", original)
         transcript = None
@@ -303,11 +330,11 @@ def _youtube(source, intake, job, publisher) -> dict:
             chosen = direct_en[0] if direct_en else subtitle_files[0]
             transcript = _vtt_text(chosen.read_text(encoding="utf-8", errors="replace"))
         if transcript:
-            result = publisher.publish_extraction(source, intake, version_id, "transcript", "text/markdown", ".md", transcript.encode("utf-8"), {"input_artifact_id": source["versions"][0].get("original_artifact_id"), "coverage": {"transcript": True}, "complete": True})
+            result = publisher.publish_extraction(source, intake, version_id, "transcript", "text/markdown", ".md", transcript.encode("utf-8"), {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"transcript": True}, "complete": True})
             status, warnings = "completed", result["warnings"]
         else:
             warnings = ["transcript_unavailable"]
-            result = publisher.publish_extraction(source, intake, version_id, "transcript", "text/markdown", ".md", b"Transcript unavailable; the source did not provide a retained transcript.", {"input_artifact_id": source["versions"][0].get("original_artifact_id"), "coverage": {"transcript": False}, "warnings": warnings, "complete": False})
+            result = publisher.publish_extraction(source, intake, version_id, "transcript", "text/markdown", ".md", b"Transcript unavailable; the source did not provide a retained transcript.", {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"transcript": False}, "warnings": warnings, "complete": False})
             status = "partial"
     return {"status": status, "artifact_refs": [result["artifact_id"]], "extraction_refs": [result["extraction_id"]], "summary": {"warnings": warnings}, "continuation": job.get("continuation", {})}
 
@@ -351,6 +378,16 @@ def _pdf_pages(path: Path, password: str | None = None) -> int:
     if not match:
         raise AdapterError("pdf_pages_unknown", "PDF page count was unavailable")
     return int(match.group(1))
+
+
+def _split_pdf_pages(text: str, pages: int) -> list[str]:
+    """Split pdftotext output while accounting for its trailing form feed."""
+    page_texts = text.split("\f")
+    if len(page_texts) > pages and not page_texts[-1].strip():
+        page_texts.pop()
+    if len(page_texts) < pages:
+        page_texts.extend([""] * (pages - len(page_texts)))
+    return page_texts[:pages]
 
 
 def _decrypt_office(data: bytes, profile: str | None, password_store) -> bytes:

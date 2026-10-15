@@ -400,6 +400,29 @@ describe("ingestion HTTP endpoints", () => {
       "needs-review": 1,
     });
 
+    const updateRes = await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${uploadPayload.source_id}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ tags: ["updated"] }),
+        },
+      ),
+    );
+    expect(updateRes.status).toBe(200);
+    const searchAfterUpdate = await request(
+      `/api/workspace/ingestion/search?q=agreement`,
+    );
+    const searchAfterUpdatePayload = (await searchAfterUpdate.json()) as {
+      matches: Array<{ source_id: string }>;
+    };
+    expect(
+      searchAfterUpdatePayload.matches.some(
+        (match) => match.source_id === uploadPayload.source_id,
+      ),
+    ).toBe(true);
+
     const markReviewedRes = await handler(
       new Request(
         `http://localhost/api/workspace/ingestion/sources/${uploadPayload.source_id}`,

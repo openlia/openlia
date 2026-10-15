@@ -8,6 +8,7 @@ provides_tools:
   - ingestion_status
   - ingestion_retry
   - ingestion_acknowledge
+  - ingestion_complete_action
   - ingestion_recover
   - save_document_password
   - list_document_password_profiles

@@ -205,6 +205,12 @@ class IngestionTests(unittest.TestCase):
             (self.workspace / "sources/artifacts" / captured["source"]["id"] / captured["version"]["id"] / "original.txt").exists()
         )
 
+    def test_idempotency_includes_continuation_context(self):
+        runtime = self.runtime_mod.IngestionRuntime(MockHermesContext())
+        first = json.loads(runtime.capture({"kind": "text", "content": "same content", "next_action": "create task"}))
+        second = json.loads(runtime.capture({"kind": "text", "content": "same content", "next_action": "review finance"}))
+        self.assertNotEqual(first["job_id"], second["job_id"])
+
     def test_lease_generation_fences_second_worker(self):
         captured = self.publisher.capture(
             {"kind": "text", "title": "Example", "content": "one"}
@@ -271,6 +277,37 @@ class IngestionTests(unittest.TestCase):
         extraction_file = list(self.workspace.glob(f"sources/artifacts/{captured['source']['id']}/**/text.md"))
         self.assertTrue(len(extraction_file) == 1)
         self.assertIn("Hermes Agent ingestion runtime", extraction_file[0].read_text(encoding="utf-8"))
+
+    def test_job_uses_requested_version_instead_of_latest(self):
+        captured = self.publisher.capture(
+            {"kind": "text", "title": "Versioned text", "content": "old version"}
+        )
+        source = captured["source"]
+        new_version_id = "ver_new"
+        new_ref = f"sources/artifacts/{source['id']}/{new_version_id}/original.txt"
+        self.publisher.publish_bytes(new_ref, b"new version")
+        source["versions"].append(
+            {
+                "id": new_version_id,
+                "original_artifact_id": "art_new",
+                "content_sha256": "0" * 64,
+                "media_type": "text/plain",
+                "original_ref": new_ref,
+                "received_at": source["captured_at"],
+                "retained": True,
+                "extractions": [],
+            }
+        )
+        self.publisher.update_source(source)
+        result = self.adapters._text(
+            source,
+            {},
+            {"version_id": captured["version"]["id"], "continuation": {}},
+            self.publisher,
+        )
+        self.assertEqual(result["status"], "completed")
+        old_text = list(self.workspace.glob(f"sources/artifacts/{source['id']}/{captured['version']['id']}/extractions/*/text.md"))[0]
+        self.assertEqual(old_text.read_text(encoding="utf-8"), "old version")
 
     def test_csv_fixture_extraction(self):
         fixture_path = self._copy_fixture("sample.csv")
@@ -545,6 +582,49 @@ class IngestionTests(unittest.TestCase):
             self.adapters.process_job(job, self.publisher, self.passwords, None)
         self.assertEqual(ctx.exception.code, "vision_unavailable")
 
+    def test_mixed_pdf_ocr_only_fills_pages_without_text(self):
+        fixture_path = self._copy_fixture("sample_text.pdf")
+        source = self.publisher.capture({"kind": "pdf", "title": "Mixed PDF", "file_path": str(fixture_path)})["source"]
+        published = []
+
+        class ExtractionPublisher:
+            def publish_extraction(self, *args, **kwargs):
+                published.append(args)
+                return {
+                    "artifact_id": "art_mixed",
+                    "extraction_id": "ext_mixed",
+                    "warnings": [],
+                    "complete": True,
+                }
+
+        publisher = ExtractionPublisher()
+        mock_llm = MockVisionLLM(text="OCR page two")
+        image_data = (FIXTURES_DIR / "sample.png").read_bytes()
+
+        def mock_command(command, code):
+            if command[0] == "pdftotext":
+                return "Text page one\f"
+            output = Path(command[-1] + ".png")
+            output.write_bytes(image_data)
+            return ""
+
+        with patch.object(self.adapters, "_pdf_pages", return_value=2), patch.object(self.adapters, "_command", side_effect=mock_command):
+            result = self.adapters._pdf(
+                source,
+                {},
+                {"version_id": source["versions"][0]["id"], "continuation": {}},
+                publisher,
+                self.passwords,
+                mock_llm,
+            )
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(mock_llm.calls), 1)
+        self.assertEqual(len(published), 1)
+        published_text = published[0][6].decode("utf-8")
+        self.assertIn("Text page one", published_text)
+        self.assertIn("OCR page two", published_text)
+
     def test_image_png_and_jpg_extraction(self):
         mock_llm = MockVisionLLM(text="OpenLia Visual Capture: Total Due $99.95")
         for ext in ["sample.png", "sample.jpg"]:
@@ -778,6 +858,31 @@ class IngestionTests(unittest.TestCase):
         self.assertNotIn("private-follow-up", snapshot_text)
         self.assertNotIn("private-request", snapshot_text)
 
+    def test_terminal_failure_updates_source_processing_status(self):
+        runtime = self.runtime_mod.IngestionRuntime(MockHermesContext())
+        captured = self.publisher.capture({"kind": "text", "content": "failure status"})
+        job = self.queue.submit(
+            {
+                "idempotency_key": "job-terminal-failure",
+                "intake_id": captured["intake"]["intake_id"],
+                "source_id": captured["source"]["id"],
+                "version_id": captured["version"]["id"],
+                "operation": "extract",
+                "requested_outputs": ["text"],
+                "continuation": {},
+            }
+        )
+        claimed = self.queue.claim("failure-worker")
+        self.assertIsNotNone(claimed)
+        self.queue.fail(claimed, "unsupported_kind", "unsupported source", False)
+        runtime._update_failure(claimed, "unsupported_kind", "unsupported source")
+        source = self.publisher.load_source(captured["source"]["id"])
+        intake = self.publisher.load_intake(captured["intake"]["intake_id"])
+        self.assertEqual(source["status"], "failed")
+        self.assertEqual(source["processing"]["status"], "failed")
+        self.assertEqual(source["processing"]["error"], "unsupported source")
+        self.assertEqual(intake["status"], "failed")
+
     def test_runtime_password_management_tools(self):
         ctx = MockHermesContext()
         runtime = self.runtime_mod.IngestionRuntime(ctx)
@@ -844,6 +949,25 @@ class IngestionTests(unittest.TestCase):
         result = self.adapters.process_job(job, self.publisher, self.passwords, None, db=self.queue)
         self.assertEqual(result["status"], "completed")
 
+        source = self.publisher.load_source(source_id)
+        intake = self.publisher.load_intake(captured["intake"]["intake_id"])
+        self.publisher.publish_extraction(
+            source,
+            intake,
+            version_id,
+            "text",
+            "text/markdown",
+            ".md",
+            b"latest extraction content",
+            {"complete": True},
+        )
+        latest_doc = json.loads(
+            self.runtime_mod.IngestionRuntime(MockHermesContext()).get_document(
+                {"source_id": source_id}
+            )
+        )
+        self.assertEqual(latest_doc["content"], "latest extraction content")
+
         # 3. Reference builder & parser
         uri = references_mod.build_source_uri(source_id, version_id, page=2)
         self.assertEqual(uri, f"openlia://source/{source_id}#{version_id}/p2")
@@ -851,6 +975,8 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(parsed["source_id"], source_id)
         self.assertEqual(parsed["version_id"], version_id)
         self.assertEqual(parsed["page"], 2)
+        version_uri = references_mod.build_source_uri(source_id, version_id)
+        self.assertEqual(references_mod.parse_source_uri(version_uri)["version_id"], version_id)
 
         citation = references_mod.build_markdown_citation(source_id, "Contract Agreement", version_id=version_id, page=2)
         self.assertIn("[Contract Agreement (v. ", citation)
@@ -884,6 +1010,7 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(tool_search_resp["total"], 1)
         self.assertEqual(tool_search_resp["matches"][0]["source_id"], source_id)
         self.assertIn("openlia://source/", tool_search_resp["matches"][0]["canonical_uri"])
+        self.assertIn(source_id, tool_search_resp["matches"][0]["markdown_citation"])
 
         # ingestion_tag tool
         tool_tag_resp = json.loads(runtime.tag_document({"source_id": source_id, "tags": ["finance", "audit_2026"]}))
@@ -901,6 +1028,7 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(tool_update_resp["document"]["correspondent"], "ACME Corp")
         self.assertEqual(tool_update_resp["document"]["document_type"], "contract")
         self.assertEqual(tool_update_resp["document"]["review"]["status"], "reviewed")
+        self.assertEqual(self.queue.search_sources(query="revenue audit")["total"], 1)
 
         # ingestion_get_document tool
         tool_get_resp = json.loads(runtime.get_document({"source_id": source_id}))
