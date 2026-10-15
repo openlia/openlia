@@ -78,6 +78,22 @@ describe("CalendarPreviewPane", () => {
     expect(screen.getByText("Alice")).toBeInTheDocument();
   });
 
+  test("surfaces unsupported Remind clauses in the preview", () => {
+    render(
+      <CalendarPreviewPane
+        content="REM Mon OMIT Sat Sun MSG Working Day"
+        filePath="calendar/reminders.rem"
+        fileRevision="root-revision"
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        /OMIT is not fully evaluated by the workspace calendar preview/,
+      ),
+    ).toBeInTheDocument();
+  });
+
   test("adds a new event and saves it immediately", async () => {
     const saveCalendarFile = vi.fn(
       async (_path: string, _content: string, _revision: string) => ({
@@ -163,6 +179,54 @@ describe("CalendarPreviewPane", () => {
       saveCalendarFile.mock.calls[0] ?? [];
     expect(path).toBe("calendar/holiday.rem");
     expect(updatedContent).toContain("MSG Holiday Follow-up");
+    expect(revision).toBe("holiday-revision");
+  });
+
+  test("edits an included THROUGH occurrence without collapsing its rule", async () => {
+    const today = new Date();
+    const start = new Date(today.getTime() - 86400000)
+      .toISOString()
+      .slice(0, 10);
+    const end = new Date(today.getTime() + 86400000).toISOString().slice(0, 10);
+    const loadCalendarFile = vi.fn(async (path: string) => {
+      if (path !== "calendar/holiday.rem") throw new Error("Not found");
+      return {
+        content: `REM ${start} THROUGH ${end} MSG Included Break`,
+        revision: "holiday-revision",
+      };
+    });
+    const saveCalendarFile = vi.fn(
+      async (_path: string, _content: string, _revision: string) => ({
+        revision: "saved-holiday-revision",
+      }),
+    );
+
+    render(
+      <CalendarPreviewPane
+        content="INCLUDE holiday.rem"
+        filePath="calendar/reminders.rem"
+        fileRevision="root-revision"
+        onLoadCalendarFile={loadCalendarFile}
+        onSaveCalendarFile={saveCalendarFile}
+      />,
+    );
+
+    const occurrences = await screen.findAllByText("Included Break");
+    const occurrence = occurrences[0];
+    if (!occurrence) throw new Error("Expected included occurrence");
+    fireEvent.click(occurrence);
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByDisplayValue("Included Break"), {
+      target: { value: "Updated Included Break" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => expect(saveCalendarFile).toHaveBeenCalledTimes(1));
+    const [path, updatedContent, revision] =
+      saveCalendarFile.mock.calls[0] ?? [];
+    expect(path).toBe("calendar/holiday.rem");
+    expect(updatedContent).toContain(`THROUGH ${end}`);
+    expect(updatedContent).toContain("MSG Updated Included Break");
     expect(revision).toBe("holiday-revision");
   });
 });

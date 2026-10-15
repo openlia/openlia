@@ -181,6 +181,11 @@ export function CalendarPreviewPane({
     [calendarFiles],
   );
 
+  const parseWarnings = useMemo(
+    () => parsedCalendarFiles.flatMap(({ parsed }) => parsed.warnings),
+    [parsedCalendarFiles],
+  );
+
   // Build one source per file in the selected calendar's include tree.
   const sources: CalendarSource[] = useMemo(() => {
     return parsedCalendarFiles.map(({ file, parsed }, index) => {
@@ -393,6 +398,25 @@ export function CalendarPreviewPane({
             role="status"
           >
             Loading included calendars...
+          </div>
+        )}
+        {parseWarnings.length > 0 && (
+          <div
+            className="shrink-0 border-b border-warning/30 bg-warning/10 px-3 py-2 text-xs text-base-content"
+            role="status"
+          >
+            <div className="font-semibold">
+              Some Remind rules are previewed approximately.
+            </div>
+            <ul className="mt-1 max-h-24 overflow-y-auto list-disc pl-4">
+              {parseWarnings.map((warning) => (
+                <li
+                  key={`${warning.sourceFile}:${warning.lineNumber}:${warning.message}`}
+                >
+                  {warning.sourceFile}:{warning.lineNumber} {warning.message}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
         <div className="min-h-0 min-w-0 flex-1">

@@ -1,4 +1,10 @@
-import type { CalendarEvent } from "./types";
+import type {
+  CalendarEvent,
+  RemindInfoEntry,
+  RemindParseWarning,
+  RemindSchedule,
+  RemindScheduleKind,
+} from "./types";
 
 const MONTHS: Record<string, number> = {};
 for (const [index, name] of [
@@ -36,21 +42,511 @@ const WEEKDAYS: Record<string, number> = {
   sunday: 0,
 };
 
-export function parseInfoClauses(text: string): Record<string, string> {
-  const results: Record<string, string> = {};
-  const pattern = /INFO\s+"([^":]+):\s*([^"]*)"/gi;
+const WEEKDAY_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+const CLAUSE_WORDS = new Set([
+  "addomit",
+  "after",
+  "at",
+  "before",
+  "complete-through",
+  "duration",
+  "from",
+  "info",
+  "max-overdue",
+  "noqueue",
+  "omit",
+  "omitfunc",
+  "priority",
+  "scanfrom",
+  "sched",
+  "tag",
+  "through",
+  "timezone",
+  "todo",
+  "tz",
+  "until",
+  "warn",
+]);
+
+const UNSUPPORTED_CLAUSES = new Set([
+  "addomit",
+  "after",
+  "before",
+  "complete-through",
+  "max-overdue",
+  "noqueue",
+  "omit",
+  "omitfunc",
+  "scanfrom",
+  "sched",
+  "todo",
+  "tz",
+  "warn",
+]);
+
+interface ParsedDateValue {
+  iso: string;
+  consumed: number;
+}
+
+interface ParsedDateSpec {
+  dateSpec: string;
+  startDate?: string;
+  anchorDate?: string | undefined;
+  kind: RemindScheduleKind;
+  weekdays: number[];
+  dayOfMonth?: number | undefined;
+  month?: number | undefined;
+  year?: number | undefined;
+  anchorDay?: number | undefined;
+  invalid: boolean;
+}
+
+interface ParsedSchedule {
+  schedule: RemindSchedule;
+  date: string;
+  repeat?: string | undefined;
+  infoText: string;
+}
+
+function isValidDate(year: number, month: number, day: number): boolean {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+function toIsoDate(year: number, month: number, day: number): string | null {
+  return isValidDate(year, month, day)
+    ? `${year.toString().padStart(4, "0")}-${month
+        .toString()
+        .padStart(2, "0")}-${day.toString().padStart(2, "0")}`
+    : null;
+}
+
+function tokenize(text: string): string[] {
+  return text.match(/\S+/g) ?? [];
+}
+
+function stripInfoClauses(text: string): string {
+  return text.replace(/INFO\s+"(?:\\.|[^"\\])*"/gi, " ");
+}
+
+function decodeRemindText(value: string): string {
+  return value.replace(/%%/g, "%");
+}
+
+function parseInfoEntries(text: string): RemindInfoEntry[] {
+  const entries: RemindInfoEntry[] = [];
+  const pattern = /INFO\s+"((?:\\.|[^"\\])*)"/gi;
   let match: RegExpExecArray | null = pattern.exec(text);
   while (match !== null) {
-    const headerToken = match[1];
-    const valToken = match[2];
-    if (headerToken && valToken !== undefined) {
-      const header = headerToken.trim().toLowerCase();
-      const val = valToken.trim().replace(/\\"/g, '"').replace(/\\n/g, "\n");
-      results[header] = val;
+    const raw = match[1] ?? "";
+    const colon = raw.indexOf(":");
+    if (colon > 0) {
+      const header = raw.slice(0, colon).trim().toLowerCase();
+      const value = raw
+        .slice(colon + 1)
+        .trim()
+        .replace(/\\n/g, "\n")
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, "\\");
+      entries.push({
+        header,
+        value,
+        raw: match[0],
+      });
     }
     match = pattern.exec(text);
   }
+  return entries;
+}
+
+export function parseInfoClauses(text: string): Record<string, string> {
+  const results: Record<string, string> = {};
+  for (const entry of parseInfoEntries(text)) {
+    results[entry.header] = entry.value;
+  }
   return results;
+}
+
+function findKeywordOutsideQuotes(text: string, keyword: string): number {
+  const pattern = new RegExp(`\\b${keyword}\\b`, "gi");
+  let quote = false;
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (char === "\\" && quote && !escaped) {
+      escaped = true;
+      continue;
+    }
+    if (char === '"' && !escaped) quote = !quote;
+    escaped = false;
+
+    if (!quote) {
+      pattern.lastIndex = index;
+      const match = pattern.exec(text);
+      if (match?.index === index) return index;
+    }
+  }
+
+  return -1;
+}
+
+function parseDateAt(tokens: string[], start: number): ParsedDateValue | null {
+  const token = tokens[start];
+  if (!token) return null;
+
+  const isoMatch = token.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (isoMatch) {
+    const year = Number(isoMatch[1]);
+    const month = Number(isoMatch[2]);
+    const day = Number(isoMatch[3]);
+    const iso = toIsoDate(year, month, day);
+    return iso ? { iso, consumed: 1 } : null;
+  }
+
+  const first = tokens[start]?.toLowerCase();
+  const second = tokens[start + 1]?.toLowerCase();
+  const third = tokens[start + 2]?.toLowerCase();
+  if (!first || !second || !third) return null;
+
+  const yearToken = [first, second, third].find((value) =>
+    /^\d{4}$/.test(value),
+  );
+  const monthToken = [first, second, third].find((value) => value in MONTHS);
+  const dayToken = [first, second, third].find((value) =>
+    /^\d{1,2}$/.test(value),
+  );
+  if (!yearToken || !monthToken || !dayToken) return null;
+
+  const iso = toIsoDate(
+    Number(yearToken),
+    MONTHS[monthToken] ?? 0,
+    Number(dayToken),
+  );
+  return iso ? { iso, consumed: 3 } : null;
+}
+
+function isDateSpecToken(token: string): boolean {
+  const lower = token.toLowerCase();
+  return (
+    lower in WEEKDAYS ||
+    lower in MONTHS ||
+    /^\d{1,4}$/.test(token) ||
+    /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(token)
+  );
+}
+
+function parseDateSpec(tokens: string[]): ParsedDateSpec {
+  const dateSpec = tokens.join(" ");
+  const weekdays = tokens
+    .map((token) => WEEKDAYS[token.toLowerCase()])
+    .filter((value): value is number => value !== undefined);
+  const monthToken = tokens.find((token) => token.toLowerCase() in MONTHS);
+  const month = monthToken ? MONTHS[monthToken.toLowerCase()] : undefined;
+  const yearToken = tokens.find((token) => /^\d{4}$/.test(token));
+  const year = yearToken ? Number(yearToken) : undefined;
+  const dayToken = tokens.find(
+    (token) => /^\d{1,2}$/.test(token) && Number(token) >= 1,
+  );
+  const dayOfMonth = dayToken ? Number(dayToken) : undefined;
+
+  for (let index = 0; index < tokens.length; index++) {
+    const parsed = parseDateAt(tokens, index);
+    if (parsed) {
+      if (weekdays.length > 0) {
+        const anchorMonth = Number(parsed.iso.slice(5, 7));
+        const anchorDay = Number(parsed.iso.slice(8, 10));
+        return {
+          dateSpec,
+          anchorDate: parsed.iso,
+          kind: "weekday",
+          weekdays,
+          dayOfMonth: dayOfMonth ?? anchorDay,
+          month: month ?? anchorMonth,
+          year: year ?? Number(parsed.iso.slice(0, 4)),
+          anchorDay: dayOfMonth ?? anchorDay,
+          invalid: false,
+        };
+      }
+      return {
+        dateSpec,
+        startDate: parsed.iso,
+        kind: "once",
+        weekdays,
+        dayOfMonth,
+        month,
+        year,
+        anchorDay: weekdays.length > 0 ? dayOfMonth : undefined,
+        invalid: false,
+      };
+    }
+  }
+
+  const hasInvalidFullDate = tokens.some((token) =>
+    /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(token),
+  );
+  if (hasInvalidFullDate || (year !== undefined && month && dayOfMonth)) {
+    if (year !== undefined && month && dayOfMonth) {
+      const maybeIso = toIsoDate(year, month, dayOfMonth);
+      if (maybeIso) {
+        return {
+          dateSpec,
+          startDate: maybeIso,
+          kind: "once",
+          weekdays,
+          dayOfMonth,
+          month,
+          year,
+          anchorDay: weekdays.length > 0 ? dayOfMonth : undefined,
+          invalid: false,
+        };
+      }
+    }
+    return {
+      dateSpec,
+      kind: "daily",
+      weekdays,
+      dayOfMonth,
+      month,
+      year,
+      invalid: true,
+    };
+  }
+
+  let kind: RemindScheduleKind = "daily";
+  if (weekdays.length > 0) kind = "weekday";
+  else if (dayOfMonth !== undefined && month === undefined) kind = "monthly";
+  else if (month !== undefined || year !== undefined) kind = "yearly";
+  else if (dayOfMonth !== undefined) kind = "monthly";
+
+  return {
+    dateSpec,
+    kind,
+    weekdays,
+    dayOfMonth,
+    month,
+    year,
+    anchorDay: weekdays.length > 0 ? dayOfMonth : undefined,
+    invalid: false,
+  };
+}
+
+function readClauseDate(
+  tokens: string[],
+  start: number,
+): { date: ParsedDateValue; raw: string } | null {
+  const date = parseDateAt(tokens, start);
+  if (!date) return null;
+  return {
+    date,
+    raw: tokens.slice(start, start + date.consumed).join(" "),
+  };
+}
+
+function isClauseStart(token: string | undefined): boolean {
+  if (!token) return false;
+  const lower = token.toLowerCase();
+  return CLAUSE_WORDS.has(lower) || lower === "once" || /^\*\d+$/.test(token);
+}
+
+function addUnsupported(unsupported: string[], clause: string): void {
+  if (!unsupported.includes(clause)) unsupported.push(clause);
+}
+
+function parseSchedule(
+  remHead: string,
+): ParsedSchedule & { unsupportedClauses: string[] } {
+  const withoutInfo = stripInfoClauses(remHead);
+  const tokens = tokenize(withoutInfo);
+  const dateTokens: string[] = [];
+  const preservedClauses: string[] = [];
+  const unsupportedClauses: string[] = [];
+  let repeat: string | undefined;
+  let intervalDays: number | undefined;
+  let endDate: string | undefined;
+  let endKeyword: "THROUGH" | "UNTIL" | undefined;
+  let fromDate: string | undefined;
+  let advanceDays: number | undefined;
+  let advanceToken: string | undefined;
+  let backDays: number | undefined;
+  let backToken: string | undefined;
+
+  for (let index = 1; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (!token) continue;
+    const lower = token.toLowerCase();
+
+    if (lower === "once") {
+      preservedClauses.push("ONCE");
+      continue;
+    }
+    if (
+      lower === "at" ||
+      lower === "duration" ||
+      lower === "tag" ||
+      lower === "priority"
+    ) {
+      index++;
+      continue;
+    }
+    if (/^\*\d+$/.test(token)) {
+      const days = Number(token.slice(1));
+      if (days > 0) {
+        repeat = token;
+        intervalDays = days;
+      }
+      continue;
+    }
+    if (/^\+\+?\d+$/.test(token)) {
+      advanceDays = Number(token.replace(/^\+\+?/, ""));
+      advanceToken = token;
+      preservedClauses.push(token);
+      continue;
+    }
+    if (/^--?\d+$/.test(token)) {
+      backDays = Number(token.replace(/^--?/, ""));
+      backToken = token;
+      preservedClauses.push(token);
+      if (backDays !== 7) addUnsupported(unsupportedClauses, token);
+      continue;
+    }
+
+    if (lower === "through" || lower === "until") {
+      const clauseDate = readClauseDate(tokens, index + 1);
+      if (clauseDate) {
+        endDate = clauseDate.date.iso;
+        endKeyword = lower.toUpperCase() as "THROUGH" | "UNTIL";
+        index += clauseDate.date.consumed;
+      } else {
+        addUnsupported(unsupportedClauses, lower.toUpperCase());
+        preservedClauses.push(token);
+      }
+      continue;
+    }
+    if (lower === "from") {
+      const clauseDate = readClauseDate(tokens, index + 1);
+      if (clauseDate) {
+        fromDate = clauseDate.date.iso;
+        index += clauseDate.date.consumed;
+      } else {
+        addUnsupported(unsupportedClauses, "FROM");
+        preservedClauses.push(token);
+      }
+      continue;
+    }
+    if (lower === "scanfrom") {
+      const clauseDate = readClauseDate(tokens, index + 1);
+      const raw = clauseDate
+        ? tokens.slice(index, index + 1 + clauseDate.date.consumed).join(" ")
+        : token;
+      preservedClauses.push(raw);
+      addUnsupported(unsupportedClauses, "SCANFROM");
+      if (clauseDate) index += clauseDate.date.consumed;
+      continue;
+    }
+    if (lower === "omit") {
+      const clauseTokens = [token];
+      while (index + 1 < tokens.length && !isClauseStart(tokens[index + 1])) {
+        index++;
+        clauseTokens.push(tokens[index] ?? "");
+      }
+      preservedClauses.push(clauseTokens.join(" "));
+      addUnsupported(unsupportedClauses, "OMIT");
+      continue;
+    }
+    if (
+      lower === "omitfunc" ||
+      lower === "sched" ||
+      lower === "warn" ||
+      lower === "tz" ||
+      lower === "timezone" ||
+      lower === "max-overdue" ||
+      lower === "complete-through"
+    ) {
+      const clauseDate =
+        lower === "complete-through" ? readClauseDate(tokens, index + 1) : null;
+      const consumed = clauseDate?.date.consumed ?? 1;
+      preservedClauses.push(
+        tokens.slice(index, index + 1 + consumed).join(" "),
+      );
+      addUnsupported(unsupportedClauses, token.toUpperCase());
+      index += consumed;
+      continue;
+    }
+    if (UNSUPPORTED_CLAUSES.has(lower)) {
+      preservedClauses.push(token.toUpperCase());
+      addUnsupported(unsupportedClauses, token.toUpperCase());
+      continue;
+    }
+    if (lower === "addomit") {
+      preservedClauses.push(token.toUpperCase());
+      addUnsupported(unsupportedClauses, "ADDOMIT");
+      continue;
+    }
+    if (isDateSpecToken(token)) {
+      dateTokens.push(token);
+      continue;
+    }
+
+    preservedClauses.push(token);
+    addUnsupported(unsupportedClauses, token.toUpperCase());
+  }
+
+  const parsedDate = parseDateSpec(dateTokens);
+  const schedule: RemindSchedule = {
+    kind: parsedDate.kind,
+    dateSpec: parsedDate.dateSpec || undefined,
+    startDate: parsedDate.startDate,
+    anchorDate: parsedDate.anchorDate,
+    endDate,
+    endKeyword,
+    fromDate,
+    repeat,
+    intervalDays,
+    advanceDays,
+    advanceToken,
+    backDays,
+    backToken,
+    weekdays: parsedDate.weekdays,
+    dayOfMonth: parsedDate.dayOfMonth,
+    month: parsedDate.month,
+    year: parsedDate.year,
+    anchorDay: parsedDate.anchorDay,
+    isRecurring:
+      !parsedDate.invalid &&
+      (parsedDate.dateSpec.length === 0
+        ? unsupportedClauses.length === 0
+        : parsedDate.kind !== "once" ||
+          repeat !== undefined ||
+          endKeyword === "THROUGH"),
+    preservedClauses,
+    unsupportedClauses,
+  };
+
+  let date = parsedDate.startDate ?? "unspecified";
+  if (!parsedDate.startDate && parsedDate.weekdays.length > 0) {
+    date = WEEKDAY_NAMES[parsedDate.weekdays[0] ?? 0] ?? "unspecified";
+  } else if (!parsedDate.startDate && parsedDate.dayOfMonth !== undefined) {
+    date = parsedDate.dayOfMonth.toString();
+  }
+  if (parsedDate.invalid) {
+    date = "unspecified";
+    addUnsupported(unsupportedClauses, "INVALID DATE");
+  }
+
+  return {
+    schedule,
+    date,
+    repeat,
+    infoText: withoutInfo,
+    unsupportedClauses,
+  };
 }
 
 export function parseRemLine(
@@ -59,130 +555,56 @@ export function parseRemLine(
   sourceFile: string = "calendar/reminders.rem",
 ): CalendarEvent | null {
   const clean = statement.trim();
-  if (!clean.toUpperCase().startsWith("REM ")) {
-    return null;
-  }
+  if (!/^REM(?:\s|$)/i.test(clean)) return null;
 
-  const msgSplit = clean.split(/\b(?:MSG|msg)\b/);
-  if (msgSplit.length < 2) {
-    return null;
-  }
+  const msgIndex = findKeywordOutsideQuotes(clean, "MSG");
+  if (msgIndex < 0) return null;
 
-  const remHead = msgSplit[0] ?? "";
-  const summary = msgSplit.slice(1).join("MSG").trim();
+  const remHead = clean.slice(0, msgIndex).trim();
+  const rawSummary = clean.slice(msgIndex + 3).trim();
+  const summary = decodeRemindText(rawSummary);
+  const rawInfoEntries = parseInfoEntries(remHead);
+  const info: Record<string, string> = {};
+  for (const entry of rawInfoEntries) info[entry.header] = entry.value;
+  const parsed = parseSchedule(remHead);
 
-  const info = parseInfoClauses(remHead);
-
-  // Time: AT HH:MM
-  const timeMatch = remHead.match(/\bAT\s+([0-9]{1,2}:[0-9]{2})\b/i);
+  const timeMatch = parsed.infoText.match(/\bAT\s+([0-9]{1,2}:[0-9]{2})\b/i);
   const timeStr = timeMatch?.[1] ? timeMatch[1].padStart(5, "0") : undefined;
 
-  // Duration: DURATION H:MM or DURATION M
-  const durMatch = remHead.match(/\bDURATION\s+([0-9]+(?::[0-9]{2})?)\b/i);
+  const durMatch = parsed.infoText.match(
+    /\bDURATION\s+([0-9]+(?::[0-9]{2})?)\b/i,
+  );
   let durationMins = 0;
   const durStr = durMatch?.[1];
   if (durStr) {
     if (durStr.includes(":")) {
-      const [h, m] = durStr.split(":");
-      durationMins = parseInt(h ?? "0", 10) * 60 + parseInt(m ?? "0", 10);
+      const [hours, minutes] = durStr.split(":");
+      durationMins =
+        parseInt(hours ?? "0", 10) * 60 + parseInt(minutes ?? "0", 10);
     } else {
       durationMins = parseInt(durStr, 10);
     }
   } else if (timeStr) {
-    // Default to 60 minutes if time is specified but duration isn't
     durationMins = 60;
   }
 
-  // Tags: TAG <name>
   const tags: string[] = [];
   const tagPattern = /\bTAG\s+([^\s\\]+)/gi;
-  let tagMatch: RegExpExecArray | null = tagPattern.exec(remHead);
+  let tagMatch: RegExpExecArray | null = tagPattern.exec(parsed.infoText);
   while (tagMatch !== null) {
-    if (tagMatch[1]) {
-      tags.push(tagMatch[1]);
-    }
-    tagMatch = tagPattern.exec(remHead);
+    if (tagMatch[1]) tags.push(tagMatch[1]);
+    tagMatch = tagPattern.exec(parsed.infoText);
   }
 
-  // Priority: PRIORITY <num>
-  const prioMatch = remHead.match(/\bPRIORITY\s+([0-9]+)\b/i);
+  const prioMatch = parsed.infoText.match(/\bPRIORITY\s+([0-9]+)\b/i);
   const priority = prioMatch?.[1] ? parseInt(prioMatch[1], 10) : undefined;
-
-  // Date and repeat
-  // Only inspect the trigger prefix, never quoted INFO text or clause values.
-  const tokens: string[] = [];
-  for (const token of remHead.trim().split(/\s+/).slice(1)) {
-    const low = token.toLowerCase();
-    if (
-      !(low in WEEKDAYS) &&
-      !(low in MONTHS) &&
-      !/^(?:[0-9]+|[0-9]{4}[-/][0-9]{2}[-/][0-9]{2}|\*[0-9]+|[+-][0-9]+)$/.test(
-        token,
-      )
-    )
-      break;
-    tokens.push(token);
-  }
-  let dateStr = "";
-  let repeatStr: string | undefined;
-
-  for (const token of tokens) {
-    if (token.startsWith("*")) {
-      repeatStr = token;
-      continue;
-    }
-    // Match ISO date YYYY-MM-DD
-    if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(token)) {
-      dateStr = token;
-      break;
-    }
-    // Match YYYY/MM/DD
-    if (/^[0-9]{4}\/[0-9]{2}\/[0-9]{2}$/.test(token)) {
-      dateStr = token.replace(/\//g, "-");
-      break;
-    }
-  }
-
-  if (!dateStr) {
-    // Remind also accepts named-month dates in either order.
-    const namedDate = tokens
-      .join(" ")
-      .match(
-        /\b(?:([0-9]{1,2})\s+([a-z]+)|([a-z]+)\s+([0-9]{1,2}))\s+([0-9]{4})\b/i,
-      );
-    if (namedDate) {
-      const day = Number(namedDate[1] ?? namedDate[4]);
-      const month = MONTHS[(namedDate[2] ?? namedDate[3] ?? "").toLowerCase()];
-      const year = Number(namedDate[5]);
-      if (month) {
-        const date = new Date(Date.UTC(year, month - 1, day));
-        if (
-          date.getUTCFullYear() === year &&
-          date.getUTCMonth() === month - 1 &&
-          date.getUTCDate() === day
-        ) {
-          dateStr = date.toISOString().slice(0, 10);
-        }
-      }
-    }
-  }
-
-  if (!dateStr) {
-    for (const token of tokens) {
-      const low = token.toLowerCase();
-      if (low in WEEKDAYS) {
-        dateStr = low;
-        break;
-      }
-    }
-  }
 
   const attendeesVal =
     info.attendees || info.attendee || info.participants || "";
   const attendees = attendeesVal
     ? attendeesVal
         .split(",")
-        .map((a) => a.trim())
+        .map((attendee) => attendee.trim())
         .filter(Boolean)
     : [];
 
@@ -194,12 +616,9 @@ export function parseRemLine(
     info["map-link"] ||
     info.gmap ||
     undefined;
-
   if (location && !mapUrl) {
     const urlMatch = location.match(/\((https?:\/\/[^)]+)\)/);
-    if (urlMatch) {
-      mapUrl = urlMatch[1];
-    }
+    if (urlMatch) mapUrl = urlMatch[1];
   }
 
   const callUrl =
@@ -211,14 +630,12 @@ export function parseRemLine(
     info["call-url"] ||
     info.url ||
     undefined;
-
   const description =
     info.description ||
     info.agenda ||
     info.details ||
     info.summary ||
     undefined;
-
   const note =
     info["event-note"] ||
     info.event_note ||
@@ -226,12 +643,14 @@ export function parseRemLine(
     info["note-path"] ||
     undefined;
 
-  const id = `${sourceFile}:${lineNumber}:${summary.slice(0, 20).replace(/\s+/g, "_")}`;
+  const id = `${sourceFile}:${lineNumber}:${summary
+    .slice(0, 20)
+    .replace(/\s+/g, "_")}`;
 
   return {
     id,
     summary,
-    date: dateStr || "unspecified",
+    date: parsed.date,
     time: timeStr,
     duration: durationMins,
     attendees,
@@ -242,7 +661,17 @@ export function parseRemLine(
     note,
     tags,
     priority,
-    repeat: repeatStr,
+    repeat: parsed.repeat,
+    advanceDays: parsed.schedule.advanceDays,
+    advanceToken: parsed.schedule.advanceToken,
+    schedule: parsed.schedule,
+    info,
+    rawInfoEntries,
+    rawSummary,
+    unsupportedClauses:
+      parsed.unsupportedClauses.length > 0
+        ? parsed.unsupportedClauses
+        : undefined,
     sourceFile,
     lineNumber,
     rawStatement: statement,
@@ -252,135 +681,316 @@ export function parseRemLine(
 export function parseRemindFile(
   content: string,
   sourceFile: string = "calendar/reminders.rem",
-): { events: CalendarEvent[]; includedFiles: string[] } {
+): {
+  events: CalendarEvent[];
+  includedFiles: string[];
+  warnings: RemindParseWarning[];
+} {
   const events: CalendarEvent[] = [];
   const includedFiles: string[] = [];
-
+  const warnings: RemindParseWarning[] = [];
   const lines = content.split(/\r?\n/);
   let currentBlock: string[] = [];
   let blockStartLine = 1;
+  let conditionalDepth = 0;
 
-  for (let idx = 0; idx < lines.length; idx++) {
-    const rawLine = lines[idx];
+  const flushBlock = (fullStatement: string) => {
+    if (
+      !fullStatement ||
+      fullStatement.startsWith("#") ||
+      fullStatement.startsWith(";")
+    ) {
+      return;
+    }
+    if (/^INCLUDE(?:\s|\t)/i.test(fullStatement)) {
+      const includePath = fullStatement
+        .slice(7)
+        .trim()
+        .replace(/^["']|["']$/g, "");
+      if (includePath) includedFiles.push(includePath);
+      return;
+    }
+
+    const command = fullStatement.match(/^([A-Za-z][A-Za-z-]*)\b/)?.[1];
+    if (command && /^(?:IF|IFTRIG)$/i.test(command)) {
+      conditionalDepth++;
+      warnings.push({
+        sourceFile,
+        lineNumber: blockStartLine,
+        message: `${command.toUpperCase()} blocks are not evaluated by the workspace calendar preview.`,
+      });
+      return;
+    }
+    if (command && /^(?:ELSEIF?|ENDIF)$/i.test(command)) {
+      if (/^ENDIF$/i.test(command))
+        conditionalDepth = Math.max(0, conditionalDepth - 1);
+      warnings.push({
+        sourceFile,
+        lineNumber: blockStartLine,
+        message: `${command.toUpperCase()} is not evaluated by the workspace calendar preview.`,
+      });
+      return;
+    }
+    if (conditionalDepth > 0) {
+      if (/^REM(?:\s|$)/i.test(fullStatement)) {
+        warnings.push({
+          sourceFile,
+          lineNumber: blockStartLine,
+          message:
+            "REM inside an unsupported conditional block is not displayed.",
+        });
+      }
+      return;
+    }
+
+    if (!/^REM(?:\s|$)/i.test(fullStatement)) {
+      warnings.push({
+        sourceFile,
+        lineNumber: blockStartLine,
+        message: `${command?.toUpperCase() || "This"} directive is not evaluated by the workspace calendar preview.`,
+      });
+      return;
+    }
+
+    const event = parseRemLine(fullStatement, blockStartLine, sourceFile);
+    if (!event) {
+      if (/^REM(?:\s|$)/i.test(fullStatement)) {
+        warnings.push({
+          sourceFile,
+          lineNumber: blockStartLine,
+          message:
+            "This REM entry is not displayed because the preview currently supports MSG reminders only.",
+        });
+      }
+      return;
+    }
+    events.push(event);
+    for (const clause of event.unsupportedClauses ?? []) {
+      warnings.push({
+        sourceFile,
+        lineNumber: blockStartLine,
+        message: `${clause} is not fully evaluated by the workspace calendar preview.`,
+      });
+    }
+  };
+
+  for (let index = 0; index < lines.length; index++) {
+    const rawLine = lines[index];
     if (rawLine === undefined) continue;
     const line = rawLine.trimEnd();
-
-    if (currentBlock.length === 0) {
-      blockStartLine = idx + 1;
-    }
+    if (currentBlock.length === 0) blockStartLine = index + 1;
 
     if (line.endsWith("\\")) {
       currentBlock.push(line.slice(0, -1).trimEnd());
     } else {
       currentBlock.push(line);
-      const fullStatement = currentBlock.join(" ").trim();
+      flushBlock(currentBlock.join(" ").trim());
       currentBlock = [];
-
-      if (!fullStatement || fullStatement.startsWith("#")) {
-        continue;
-      }
-
-      if (
-        fullStatement.toUpperCase().startsWith("INCLUDE ") ||
-        fullStatement.toUpperCase().startsWith("INCLUDE\t")
-      ) {
-        const includePath = fullStatement
-          .slice(7)
-          .trim()
-          .replace(/^["']|["']$/g, "");
-        if (includePath) {
-          includedFiles.push(includePath);
-        }
-        continue;
-      }
-
-      const event = parseRemLine(fullStatement, blockStartLine, sourceFile);
-      if (event) {
-        events.push(event);
-      }
     }
   }
+  if (currentBlock.length > 0) flushBlock(currentBlock.join(" ").trim());
 
-  return { events, includedFiles };
+  return { events, includedFiles, warnings };
+}
+
+function escapeInfoValue(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n");
+}
+
+function canonicalInfoHeader(header: string): string {
+  return header
+    .split(/[-_]/g)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("-");
+}
+
+interface InfoField {
+  group: string;
+  header: string;
+  value: string | undefined;
+}
+
+function infoFieldForHeader(
+  header: string,
+  event: Partial<CalendarEvent>,
+): InfoField | null {
+  switch (header) {
+    case "location":
+    case "venue":
+    case "address":
+      return { group: "location", header: "Location", value: event.location };
+    case "map-url":
+    case "map_url":
+    case "map":
+    case "map-link":
+    case "gmap":
+      return { group: "map", header: "Map-Url", value: event.mapUrl };
+    case "video-link":
+    case "video_link":
+    case "video-url":
+    case "call":
+    case "call-link":
+    case "call-url":
+    case "url":
+      return { group: "call", header: "Video-Link", value: event.callUrl };
+    case "attendees":
+    case "attendee":
+    case "participants":
+      return {
+        group: "attendees",
+        header: "Attendees",
+        value:
+          event.attendees && event.attendees.length > 0
+            ? event.attendees.join(", ")
+            : undefined,
+      };
+    case "description":
+    case "agenda":
+    case "details":
+    case "summary":
+      return {
+        group: "description",
+        header: "Description",
+        value: event.description,
+      };
+    case "event-note":
+    case "event_note":
+    case "note":
+    case "note-path":
+      return { group: "note", header: "Event-Note", value: event.note };
+    default:
+      return null;
+  }
+}
+
+function sourceInfoHeader(
+  event: Partial<CalendarEvent>,
+  group: string,
+): string | undefined {
+  const aliases: Record<string, string[]> = {
+    location: ["location", "venue", "address"],
+    map: ["map-url", "map_url", "map", "map-link", "gmap"],
+    call: [
+      "video-link",
+      "video_link",
+      "video-url",
+      "call",
+      "call-link",
+      "call-url",
+      "url",
+    ],
+    attendees: ["attendees", "attendee", "participants"],
+    description: ["description", "agenda", "details", "summary"],
+    note: ["event-note", "event_note", "note", "note-path"],
+  };
+  return aliases[group]?.find((header) =>
+    Object.hasOwn(event.info ?? {}, header),
+  );
+}
+
+function infoEntriesForEvent(event: Partial<CalendarEvent>): RemindInfoEntry[] {
+  if (event.rawInfoEntries) return event.rawInfoEntries;
+  return Object.entries(event.info ?? {}).map(([header, value]) => ({
+    header,
+    value,
+    raw: `INFO "${canonicalInfoHeader(header)}: ${escapeInfoValue(value)}"`,
+  }));
+}
+
+function scheduleTokens(event: Partial<CalendarEvent>): string[] {
+  const schedule = event.schedule;
+  if (!schedule) {
+    const dateStr = event.date || new Date().toISOString().slice(0, 10);
+    const tokens = [dateStr];
+    if (event.repeat) tokens.push(`*${event.repeat.replace(/^\*/, "")}`);
+    return tokens;
+  }
+
+  const tokens: string[] = [];
+  if (schedule.dateSpec) tokens.push(schedule.dateSpec);
+  for (const clause of schedule.preservedClauses ?? []) tokens.push(clause);
+  if (schedule.repeat && !tokens.includes(schedule.repeat)) {
+    tokens.push(schedule.repeat);
+  }
+  if (schedule.endKeyword && schedule.endDate) {
+    tokens.push(schedule.endKeyword, schedule.endDate);
+  }
+  if (schedule.fromDate) tokens.push("FROM", schedule.fromDate);
+  return tokens;
 }
 
 export function formatRemStatement(event: Partial<CalendarEvent>): string {
-  const dateStr = event.date || new Date().toISOString().slice(0, 10);
-  const tokens = ["REM", dateStr];
+  const tokens = ["REM", ...scheduleTokens(event)];
 
-  if (event.repeat) {
-    tokens.push(`*${event.repeat.replace(/^\*/, "")}`);
-  }
-
-  if (event.time) {
-    tokens.push("AT", event.time);
-  }
-
+  if (event.time) tokens.push("AT", event.time);
   if (event.duration && event.duration > 0) {
     const hours = Math.floor(event.duration / 60);
-    const mins = event.duration % 60;
-    const durStr =
-      hours > 0 && mins > 0
-        ? `${hours}:${mins.toString().padStart(2, "0")}`
+    const minutes = event.duration % 60;
+    const duration =
+      hours > 0 && minutes > 0
+        ? `${hours}:${minutes.toString().padStart(2, "0")}`
         : `${event.duration}`;
-    tokens.push("DURATION", durStr);
+    tokens.push("DURATION", duration);
   }
-
   if (event.priority !== undefined) {
     tokens.push("PRIORITY", event.priority.toString());
   }
-
-  if (event.tags && event.tags.length > 0) {
-    for (const tag of event.tags) {
-      if (tag.trim()) {
-        tokens.push("TAG", tag.trim());
-      }
-    }
+  for (const tag of event.tags ?? []) {
+    if (tag.trim()) tokens.push("TAG", tag.trim());
   }
 
   const infoClauses: string[] = [];
-
-  if (event.location) {
-    const cleanLoc = event.location.trim().replace(/"/g, '\\"');
-    infoClauses.push(`INFO "Location: ${cleanLoc}"`);
+  const addInfo = (header: string, value: string | undefined) => {
+    if (value) infoClauses.push(`INFO "${header}: ${escapeInfoValue(value)}"`);
+  };
+  const emittedInfoGroups = new Set<string>();
+  for (const entry of infoEntriesForEvent(event)) {
+    const field = infoFieldForHeader(entry.header, event);
+    if (!field) {
+      infoClauses.push(entry.raw);
+      continue;
+    }
+    const isSourceEntry = sourceInfoHeader(event, field.group) === entry.header;
+    if (!isSourceEntry || (field.value && field.value === entry.value)) {
+      infoClauses.push(entry.raw);
+      emittedInfoGroups.add(field.group);
+    } else if (field.value && !emittedInfoGroups.has(field.group)) {
+      addInfo(field.header, field.value);
+      emittedInfoGroups.add(field.group);
+    }
   }
 
-  if (event.mapUrl) {
-    const cleanMap = event.mapUrl.trim().replace(/"/g, '\\"');
-    infoClauses.push(`INFO "Map-Url: ${cleanMap}"`);
+  const fields: InfoField[] = [
+    { group: "location", header: "Location", value: event.location },
+    { group: "map", header: "Map-Url", value: event.mapUrl },
+    { group: "call", header: "Video-Link", value: event.callUrl },
+    {
+      group: "attendees",
+      header: "Attendees",
+      value:
+        event.attendees && event.attendees.length > 0
+          ? event.attendees.join(", ")
+          : undefined,
+    },
+    { group: "description", header: "Description", value: event.description },
+    { group: "note", header: "Event-Note", value: event.note },
+  ];
+  for (const field of fields) {
+    if (field.value && !emittedInfoGroups.has(field.group)) {
+      addInfo(field.header, field.value);
+    }
   }
 
-  if (event.callUrl) {
-    const cleanCall = event.callUrl.trim().replace(/"/g, '\\"');
-    infoClauses.push(`INFO "Video-Link: ${cleanCall}"`);
-  }
-
-  if (event.attendees && event.attendees.length > 0) {
-    const cleanAtt = event.attendees.join(", ").replace(/"/g, '\\"');
-    infoClauses.push(`INFO "Attendees: ${cleanAtt}"`);
-  }
-
-  if (event.description) {
-    const cleanDesc = event.description
-      .trim()
-      .replace(/"/g, '\\"')
-      .replace(/\n/g, "\\n");
-    infoClauses.push(`INFO "Description: ${cleanDesc}"`);
-  }
-
-  if (event.note) {
-    const cleanNote = event.note.trim().replace(/"/g, '\\"');
-    infoClauses.push(`INFO "Event-Note: ${cleanNote}"`);
-  }
-
-  const cleanSummary = (event.summary || "Untitled Event")
-    .trim()
-    .replace(/\n/g, " ");
-
+  const summary = event.summary || "Untitled Event";
+  const cleanSummary =
+    event.rawSummary && decodeRemindText(event.rawSummary) === summary
+      ? event.rawSummary
+      : summary.trim().replace(/\n/g, " ").replace(/%/g, "%%");
   const lines = [`${tokens.join(" ")} \\`];
-  for (const clause of infoClauses) {
-    lines.push(`    ${clause} \\`);
-  }
+  for (const clause of infoClauses) lines.push(`    ${clause} \\`);
   lines.push(`    MSG ${cleanSummary}`);
   return lines.join("\n");
 }
@@ -399,28 +1009,27 @@ export function updateEventInFile(
   originalEvent: CalendarEvent,
   updatedEvent: Partial<CalendarEvent>,
 ): string {
+  const preserveSchedule =
+    originalEvent.schedule?.isRecurring === true ||
+    updatedEvent.date === undefined ||
+    updatedEvent.date === originalEvent.date;
   const newStatement = formatRemStatement({
     ...originalEvent,
     ...updatedEvent,
+    schedule: preserveSchedule ? originalEvent.schedule : undefined,
   });
 
   if (originalEvent.rawStatement) {
     const rawNormalized = originalEvent.rawStatement.trim();
     const contentLines = content.split(/\r?\n/);
+    if (content.includes(rawNormalized))
+      return content.replace(rawNormalized, newStatement);
 
-    // Try finding by statement match
-    const wholeContent = content;
-    if (wholeContent.includes(rawNormalized)) {
-      return wholeContent.replace(rawNormalized, newStatement);
-    }
-
-    // Try finding by line number if possible
     if (
       originalEvent.lineNumber &&
       originalEvent.lineNumber > 0 &&
       originalEvent.lineNumber <= contentLines.length
     ) {
-      // Find the block starting at lineNumber
       let endLine = originalEvent.lineNumber - 1;
       while (
         endLine < contentLines.length &&
@@ -436,8 +1045,6 @@ export function updateEventInFile(
       return contentLines.join("\n");
     }
   }
-
-  // Fallback to append if original not found
   return addEventToFile(content, updatedEvent);
 }
 
@@ -464,8 +1071,167 @@ export function deleteEventFromFile(
     lines.splice(event.lineNumber - 1, endLine - event.lineNumber + 2);
     return `${lines.join("\n").trimEnd()}\n`;
   }
-
   return content;
+}
+
+function isoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function dateFromIso(value: string): Date {
+  return new Date(`${value}T00:00:00Z`);
+}
+
+function dateIsBefore(left: string, right: string): boolean {
+  return left < right;
+}
+
+function dateIsAfter(left: string, right: string): boolean {
+  return left > right;
+}
+
+function addDays(value: string, days: number): string {
+  const date = dateFromIso(value);
+  date.setUTCDate(date.getUTCDate() + days);
+  return isoDate(date);
+}
+
+function daysBetween(start: string, end: string): number {
+  return Math.round(
+    (dateFromIso(end).getTime() - dateFromIso(start).getTime()) / 86400000,
+  );
+}
+
+function matchesSchedule(date: string, schedule: RemindSchedule): boolean {
+  if (schedule.fromDate && dateIsBefore(date, schedule.fromDate)) return false;
+  if (schedule.endDate && dateIsAfter(date, schedule.endDate)) return false;
+
+  if (schedule.startDate) {
+    if (schedule.repeat && schedule.intervalDays) {
+      const elapsed = daysBetween(schedule.startDate, date);
+      return elapsed >= 0 && elapsed % schedule.intervalDays === 0;
+    }
+    if (schedule.endKeyword === "THROUGH" && !schedule.repeat) {
+      return !dateIsBefore(date, schedule.startDate);
+    }
+    return date === schedule.startDate;
+  }
+
+  const current = dateFromIso(date);
+  const weekday = current.getUTCDay();
+  if (schedule.kind === "weekday") {
+    if (schedule.backDays === 7) {
+      if (!(schedule.weekdays ?? []).includes(weekday)) return false;
+      const target = schedule.anchorDate
+        ? dateFromIso(schedule.anchorDate)
+        : new Date(
+            Date.UTC(
+              schedule.year ?? current.getUTCFullYear(),
+              schedule.month !== undefined
+                ? schedule.month - 1
+                : current.getUTCMonth() + 1,
+              schedule.anchorDay ?? 1,
+            ),
+          );
+      while (target.getUTCDay() !== weekday) {
+        target.setUTCDate(target.getUTCDate() + 1);
+      }
+      target.setUTCDate(target.getUTCDate() - schedule.backDays);
+      return isoDate(target) === date;
+    }
+
+    if (schedule.anchorDate) {
+      const anchor = dateFromIso(schedule.anchorDate);
+      if (
+        current.getUTCFullYear() !== anchor.getUTCFullYear() ||
+        current.getUTCMonth() !== anchor.getUTCMonth()
+      ) {
+        return false;
+      }
+    }
+    if (
+      schedule.month !== undefined &&
+      current.getUTCMonth() + 1 !== schedule.month
+    ) {
+      return false;
+    }
+    if (
+      schedule.year !== undefined &&
+      current.getUTCFullYear() !== schedule.year
+    ) {
+      return false;
+    }
+    if (schedule.anchorDay !== undefined) {
+      const firstCandidate = new Date(
+        Date.UTC(
+          current.getUTCFullYear(),
+          current.getUTCMonth(),
+          schedule.anchorDay,
+        ),
+      );
+      if (firstCandidate.getUTCMonth() !== current.getUTCMonth()) return false;
+      while (!(schedule.weekdays ?? []).includes(firstCandidate.getUTCDay())) {
+        firstCandidate.setUTCDate(firstCandidate.getUTCDate() + 1);
+      }
+      return isoDate(firstCandidate) === date;
+    }
+    if (!(schedule.weekdays ?? []).includes(weekday)) return false;
+    return true;
+  }
+
+  if (schedule.kind === "monthly") {
+    return (
+      schedule.dayOfMonth === current.getUTCDate() &&
+      (schedule.year === undefined ||
+        schedule.year === current.getUTCFullYear())
+    );
+  }
+
+  if (schedule.kind === "annual" || schedule.kind === "yearly") {
+    if (
+      schedule.year !== undefined &&
+      schedule.year !== current.getUTCFullYear()
+    ) {
+      return false;
+    }
+    if (
+      schedule.month !== undefined &&
+      current.getUTCMonth() + 1 !== schedule.month
+    ) {
+      return false;
+    }
+    return (
+      schedule.dayOfMonth === undefined ||
+      schedule.dayOfMonth === current.getUTCDate()
+    );
+  }
+
+  return true;
+}
+
+function expandUsingSchedule(
+  event: CalendarEvent,
+  startIso: string,
+  endIso: string,
+): CalendarEvent[] {
+  const schedule = event.schedule;
+  if (!schedule) return [];
+  if (!schedule.isRecurring && !schedule.startDate) return [];
+
+  const result: CalendarEvent[] = [];
+  for (
+    let current = startIso;
+    !dateIsAfter(current, endIso);
+    current = addDays(current, 1)
+  ) {
+    if (!matchesSchedule(current, schedule)) continue;
+    result.push({
+      ...event,
+      id: `${event.id}_${current}`,
+      date: current,
+    });
+  }
+  return result;
 }
 
 export function expandEventsForRange(
@@ -474,45 +1240,36 @@ export function expandEventsForRange(
   endIso: string,
 ): CalendarEvent[] {
   const result: CalendarEvent[] = [];
-  const startDate = new Date(`${startIso}T00:00:00Z`);
-  const endDate = new Date(`${endIso}T23:59:59Z`);
-
-  for (const ev of events) {
-    const evDateLow = ev.date.toLowerCase();
-
-    // Specific ISO date
-    if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(ev.date)) {
-      if (ev.date >= startIso && ev.date <= endIso) {
-        result.push(ev);
-      }
+  for (const event of events) {
+    if (event.schedule) {
+      result.push(...expandUsingSchedule(event, startIso, endIso));
       continue;
     }
 
-    // Weekday recurrence (mon, tue, wed...)
-    if (evDateLow in WEEKDAYS) {
-      const targetWeekday = WEEKDAYS[evDateLow];
-      const cur = new Date(startDate.getTime());
+    if (/^\d{4}-\d{2}-\d{2}$/.test(event.date)) {
+      if (event.date >= startIso && event.date <= endIso) result.push(event);
+      continue;
+    }
 
-      while (cur <= endDate) {
-        if (cur.getUTCDay() === targetWeekday) {
-          const dateStr = cur.toISOString().slice(0, 10);
-          result.push({
-            ...ev,
-            id: `${ev.id}_${dateStr}`,
-            date: dateStr,
-          });
-        }
-        cur.setUTCDate(cur.getUTCDate() + 1);
+    const weekday = WEEKDAYS[event.date.toLowerCase()];
+    if (weekday === undefined) continue;
+    for (
+      let current = dateFromIso(startIso);
+      current <= dateFromIso(endIso);
+      current.setUTCDate(current.getUTCDate() + 1)
+    ) {
+      if (current.getUTCDay() === weekday) {
+        const date = isoDate(current);
+        result.push({ ...event, id: `${event.id}_${date}`, date });
       }
     }
   }
 
-  // Sort by date, time, priority
-  return result.sort((a, b) => {
-    if (a.date !== b.date) return a.date.localeCompare(b.date);
-    const timeA = a.time || "23:59";
-    const timeB = b.time || "23:59";
+  return result.sort((left, right) => {
+    if (left.date !== right.date) return left.date.localeCompare(right.date);
+    const timeA = left.time || "23:59";
+    const timeB = right.time || "23:59";
     if (timeA !== timeB) return timeA.localeCompare(timeB);
-    return (a.priority ?? 500) - (b.priority ?? 500);
+    return (left.priority ?? 500) - (right.priority ?? 500);
   });
 }
