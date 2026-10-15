@@ -1,6 +1,21 @@
 import { useId, useState } from "react";
 import type { CalendarEvent, CalendarSource } from "./types";
 
+function scheduleLabel(event: CalendarEvent): string | null {
+  const schedule = event.schedule;
+  if (!schedule?.isRecurring) return null;
+
+  const parts = [schedule.dateSpec || "daily"];
+  if (schedule.repeat) parts.push(schedule.repeat);
+  if (schedule.advanceToken) parts.push(schedule.advanceToken);
+  if (schedule.backToken) parts.push(schedule.backToken);
+  if (schedule.endKeyword && schedule.endDate) {
+    parts.push(schedule.endKeyword, schedule.endDate);
+  }
+  if (schedule.fromDate) parts.push("FROM", schedule.fromDate);
+  return parts.join(" ");
+}
+
 export interface EventModalProps {
   event: CalendarEvent | null;
   mode: "view" | "edit" | "create";
@@ -186,6 +201,27 @@ export function EventModal({
               )}
             </div>
 
+            {scheduleLabel(event) && (
+              <div className="rounded-md border border-primary/20 bg-primary/5 p-2 text-xs">
+                <div className="font-semibold text-primary">
+                  Recurring series
+                </div>
+                <code className="mt-1 block break-words text-[11px]">
+                  {scheduleLabel(event)}
+                </code>
+                <div className="mt-1 text-base-content/60">
+                  Edits apply to the full Remind rule, not only this occurrence.
+                </div>
+              </div>
+            )}
+
+            {event.unsupportedClauses &&
+              event.unsupportedClauses.length > 0 && (
+                <div className="alert alert-warning py-2 text-xs">
+                  Preview limitations: {event.unsupportedClauses.join(", ")}.
+                </div>
+              )}
+
             {/* Video Call Button */}
             {event.callUrl && (
               <div className="flex items-center gap-3 rounded-lg bg-primary/10 p-2.5 border border-primary/20">
@@ -370,6 +406,7 @@ export function EventModal({
                   type="date"
                   className="input input-sm input-bordered w-full font-mono"
                   value={date}
+                  disabled={Boolean(event?.schedule?.isRecurring)}
                   onChange={(e) => setDate(e.target.value)}
                   required
                 />
@@ -403,6 +440,12 @@ export function EventModal({
                 />
               </div>
             </div>
+            {event?.schedule?.isRecurring && (
+              <div className="text-[11px] text-base-content/60">
+                This is a recurring occurrence. The date is read-only; saving
+                changes the full series rule.
+              </div>
+            )}
 
             {/* Calendar Source */}
             {mode === "create" && sources.length > 1 && (

@@ -31,9 +31,6 @@ describe("remindParser", () => {
   });
 
   test.each([
-    'REM 15 AT 07:30 INFO "Description: Nop bai thu hoach 2026-10-27 ngay mon" MSG Test',
-    'REM AT 07:30 INFO "Location: thu" MSG Test',
-    "REM 15 TAG thu MSG Test",
     'REM 31 Feb 2026 INFO "Description: thu" MSG Test',
   ])("does not infer dates or weekdays from metadata: %s", (statement) => {
     const { events } = parseRemindFile(statement);
@@ -41,6 +38,170 @@ describe("remindParser", () => {
     expect(expandEventsForRange(events, "2026-10-01", "2026-10-31")).toEqual(
       [],
     );
+  });
+
+  test("treats a date-less timed reminder as a daily rule", () => {
+    const { events } = parseRemindFile(
+      'REM AT 07:30 DURATION 30 INFO "Location: thu" MSG Daily',
+    );
+    expect(
+      expandEventsForRange(events, "2026-10-01", "2026-10-03").map(
+        (event) => event.date,
+      ),
+    ).toEqual(["2026-10-01", "2026-10-02", "2026-10-03"]);
+  });
+
+  test("expands THROUGH and UNTIL ranges inclusively", () => {
+    const content = `REM 15 Oct 2026 THROUGH 19 Oct 2026 MSG Lina Break
+REM Fri UNTIL 30 Oct 2026 MSG Friday Class
+`;
+    const { events } = parseRemindFile(content, "calendar/holiday.rem");
+
+    expect(events[0]?.schedule?.endKeyword).toBe("THROUGH");
+    expect(
+      expandEventsForRange(events.slice(0, 1), "2026-10-15", "2026-10-19").map(
+        (event) => event.date,
+      ),
+    ).toEqual([
+      "2026-10-15",
+      "2026-10-16",
+      "2026-10-17",
+      "2026-10-18",
+      "2026-10-19",
+    ]);
+    expect(
+      expandEventsForRange(events.slice(1), "2026-10-01", "2026-11-05").map(
+        (event) => event.date,
+      ),
+    ).toEqual([
+      "2026-10-02",
+      "2026-10-09",
+      "2026-10-16",
+      "2026-10-23",
+      "2026-10-30",
+    ]);
+  });
+
+  test("supports interval, multi-weekday, monthly, annual, and FROM rules", () => {
+    const content = `REM 2026-10-14 *14 MSG Sprint Planning
+REM Mon Wed Fri MSG Gym
+REM 15 MSG Monthly Billing
+REM Oct 15 MSG Anniversary
+REM Mon FROM 2026-10-12 UNTIL 2026-10-26 MSG Bounded Standup
+`;
+    const { events } = parseRemindFile(content);
+
+    expect(
+      expandEventsForRange(events.slice(0, 1), "2026-10-01", "2026-11-30").map(
+        (event) => event.date,
+      ),
+    ).toEqual(["2026-10-14", "2026-10-28", "2026-11-11", "2026-11-25"]);
+    expect(
+      expandEventsForRange(events.slice(1, 2), "2026-10-12", "2026-10-18").map(
+        (event) => event.date,
+      ),
+    ).toEqual(["2026-10-12", "2026-10-14", "2026-10-16"]);
+    expect(
+      expandEventsForRange(events.slice(2, 3), "2026-10-01", "2026-11-30").map(
+        (event) => event.date,
+      ),
+    ).toEqual(["2026-10-15", "2026-11-15"]);
+    expect(
+      expandEventsForRange(events.slice(3, 4), "2026-10-01", "2027-10-31").map(
+        (event) => event.date,
+      ),
+    ).toEqual(["2026-10-15", "2027-10-15"]);
+    expect(
+      expandEventsForRange(events.slice(4), "2026-10-01", "2026-10-31").map(
+        (event) => event.date,
+      ),
+    ).toEqual(["2026-10-12", "2026-10-19", "2026-10-26"]);
+  });
+
+  test("does not skip clauses after interval and backward modifiers", () => {
+    const { events } = parseRemindFile(
+      "REM 2026-10-14 *14 UNTIL 2026-10-28 AT 09:00 MSG Sprint",
+    );
+    expect(events[0]?.schedule?.endDate).toBe("2026-10-28");
+    expect(events[0]?.time).toBe("09:00");
+    expect(
+      expandEventsForRange(events, "2026-10-01", "2026-11-30").map(
+        (event) => event.date,
+      ),
+    ).toEqual(["2026-10-14", "2026-10-28"]);
+
+    const backward = parseRemindFile("REM Mon 1 -7 Nov MSG Last Monday")
+      .events[0];
+    expect(backward?.schedule?.dateSpec).toBe("Mon 1 Nov");
+  });
+
+  test("matches native backward and anchored weekday forms", () => {
+    const { events } = parseRemindFile("REM Mon 1 -7 Nov MSG Last Monday");
+    expect(events[0]?.unsupportedClauses).toBeUndefined();
+    expect(
+      expandEventsForRange(events, "2026-11-01", "2026-11-30").map(
+        (event) => event.date,
+      ),
+    ).toEqual([]);
+    expect(
+      expandEventsForRange(events, "2026-10-01", "2026-10-31").map(
+        (event) => event.date,
+      ),
+    ).toEqual(["2026-10-26"]);
+
+    const anchored = parseRemindFile(
+      "REM Mon 2026-10-15 MSG First Monday After Date",
+    ).events;
+    expect(
+      expandEventsForRange(anchored, "2026-10-01", "2026-10-31").map(
+        (event) => event.date,
+      ),
+    ).toEqual(["2026-10-19"]);
+
+    const multiWeekday = parseRemindFile(
+      "REM Mon Tue 1 Oct MSG First Weekday",
+    ).events;
+    expect(
+      expandEventsForRange(multiWeekday, "2026-10-01", "2026-10-31").map(
+        (event) => event.date,
+      ),
+    ).toEqual(["2026-10-05"]);
+  });
+
+  test("handles cross-year THROUGH ranges and literal Remind percent escapes", () => {
+    const { events } = parseRemindFile(
+      "REM 28 Dec 2026 THROUGH 1 Jan 2027 MSG New year 100%%",
+    );
+    expect(events[0]?.summary).toBe("New year 100%");
+    expect(
+      expandEventsForRange(events, "2026-12-28", "2027-01-01").map(
+        (event) => event.date,
+      ),
+    ).toEqual([
+      "2026-12-28",
+      "2026-12-29",
+      "2026-12-30",
+      "2026-12-31",
+      "2027-01-01",
+    ]);
+  });
+
+  test("keeps advance warnings on the rule without adding warning-day events", () => {
+    const { events } = parseRemindFile(
+      "REM 15 Oct 2026 +2 THROUGH 19 Oct 2026 MSG Break",
+    );
+    expect(events[0]?.schedule?.advanceToken).toBe("+2");
+    expect(
+      expandEventsForRange(events, "2026-10-13", "2026-10-19").map(
+        (event) => event.date,
+      ),
+    ).toEqual([
+      "2026-10-15",
+      "2026-10-16",
+      "2026-10-17",
+      "2026-10-18",
+      "2026-10-19",
+    ]);
   });
 
   test("uses the trigger weekday rather than dates inside INFO clauses", () => {
@@ -174,6 +335,45 @@ REM 2026-10-14 AT 14:00 DURATION 60 MSG 1:1 Sync
     expect(events[0]?.date).toBe("2026-10-21");
   });
 
+  test("preserves unchanged Remind substitutions and INFO entries", () => {
+    const content =
+      'REM 2026-10-15 INFO "Location: Office" INFO "Venue: Auditorium" INFO "x_custom: keep" MSG Due %b';
+    const { events } = parseRemindFile(content);
+    const event = events[0];
+    if (!event) throw new Error("Expected event");
+
+    const updated = updateEventInFile(content, event, { location: "Room" });
+    expect(updated).toContain('INFO "Location: Room"');
+    expect(updated).toContain('INFO "Venue: Auditorium"');
+    expect(updated).toContain('INFO "x_custom: keep"');
+    expect(updated).toContain("MSG Due %b");
+    expect(updated).not.toContain("MSG Due %%b");
+  });
+
+  test("allows a one-off date edit without preserving the old date", () => {
+    const content = "REM 2026-10-15 MSG One-off";
+    const event = parseRemindFile(content).events[0];
+    if (!event) throw new Error("Expected event");
+
+    const updated = updateEventInFile(content, event, {
+      date: "2026-10-16",
+    });
+    expect(updated).toContain("REM 2026-10-16");
+    expect(updated).not.toContain("REM 2026-10-15");
+  });
+
+  test("reports and suppresses reminders inside unsupported conditionals", () => {
+    const { events, warnings } = parseRemindFile(
+      "IF 0\nREM 2026-10-15 MSG Hidden\nENDIF",
+    );
+    expect(events).toHaveLength(0);
+    expect(warnings.map((warning) => warning.message)).toEqual([
+      "IF blocks are not evaluated by the workspace calendar preview.",
+      "REM inside an unsupported conditional block is not displayed.",
+      "ENDIF is not evaluated by the workspace calendar preview.",
+    ]);
+  });
+
   test("adds, updates, and deletes events in file content", () => {
     let content = "# My Calendar\n";
     content = addEventToFile(content, {
@@ -205,5 +405,26 @@ REM 2026-10-14 AT 14:00 DURATION 60 MSG 1:1 Sync
     expect(content).not.toContain("Updated Meeting Title");
     const { events: finalEvents } = parseRemindFile(content);
     expect(finalEvents.length).toBe(0);
+  });
+
+  test("preserves the Remind rule when updating an expanded occurrence", () => {
+    const content = `REM 15 Oct 2026 THROUGH 19 Oct 2026 TAG holiday \\
+    INFO "Source: openlia://source/holiday" \\
+    MSG Lina Break
+`;
+    const { events } = parseRemindFile(content, "calendar/holiday.rem");
+    const occurrence = expandEventsForRange(
+      events,
+      "2026-10-17",
+      "2026-10-17",
+    )[0];
+    if (!occurrence) throw new Error("Expected expanded occurrence");
+
+    const updated = updateEventInFile(content, occurrence, {
+      summary: "Updated Lina Break",
+    });
+    expect(updated).toContain("REM 15 Oct 2026 THROUGH 2026-10-19");
+    expect(updated).toContain('INFO "Source: openlia://source/holiday"');
+    expect(updated).toContain("MSG Updated Lina Break");
   });
 });

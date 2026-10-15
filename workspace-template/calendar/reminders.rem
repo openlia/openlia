@@ -2,7 +2,11 @@
 # Powered by Remind (https://manpages.debian.org/testing/remind/remind.1.en.html)
 #
 # Syntax:
-#   REM <date_spec> [AT <time>] [DURATION <duration>] [TAG <tags>] [INFO "<Header>: <Value>"]... MSG <Summary>
+#   REM <date_spec> [*N] [FROM <date>] [UNTIL <date> | THROUGH <date>] [AT <time>] \
+#       [DURATION <duration>] [TAG <tags>] [INFO "<Header>: <Value>"]... MSG <Summary>
+#   Common date specs include weekdays, multiple weekdays, monthly day numbers,
+#   annual month/day pairs, and bounded date ranges. Native Remind remains the
+#   source of truth; the workspace preview reports unsupported advanced clauses.
 #
 # Supported INFO Headers:
 #   INFO "Attendees: Name <email>, [[Person]]"
