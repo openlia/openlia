@@ -57,8 +57,8 @@ test.describe("copied workspace visual verification", () => {
     await expect(event).toBeVisible();
     await event.click();
     await expect(
-      page.getByRole("textbox", { name: "Code editor" }),
-    ).not.toHaveValue("");
+      page.getByRole("article", { name: "Markdown preview" }),
+    ).toBeVisible();
     await captureScreenshot(page, testInfo, "copied-calendar-document");
   });
 

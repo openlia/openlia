@@ -4,6 +4,8 @@ import { defineConfig, devices } from "@playwright/test";
 const packageRoot = fileURLToPath(new URL(".", import.meta.url));
 const realWorkspace = process.env.WORKSPACE_UI_E2E_MODE === "real";
 const baseURL = "http://127.0.0.1:5173";
+const e2eWorkspace = `${packageRoot}/.e2e-workspace`;
+const e2eSkills = `${packageRoot}/.e2e-skills`;
 
 export default defineConfig({
   testDir: `${packageRoot}/e2e`,
@@ -53,5 +55,14 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 120_000,
     url: baseURL,
+    ...(realWorkspace
+      ? {
+          env: {
+            OPENLIA_SKILLS_ROOT: e2eSkills,
+            OPENLIA_WORKSPACE_ROOT: e2eWorkspace,
+            WORKSPACE_UI_E2E_FIXTURE: "true",
+          },
+        }
+      : {}),
   },
 });

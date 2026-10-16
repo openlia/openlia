@@ -281,7 +281,11 @@ export function createWorkspaceHandler(
     maxEditableBytes: options.maxEditableBytes,
     skillsRoot,
   });
-  const staticRoot = options.staticRoot ?? join(import.meta.dir, "public");
+  const staticRoot =
+    options.staticRoot ??
+    (typeof import.meta.dir === "string"
+      ? join(import.meta.dir, "public")
+      : join(process.cwd(), "public"));
   const publicOrigin = normalizeOrigin(options.publicOrigin);
   const releaseSha256 = options.releaseSha256?.trim() || undefined;
   if (options.publicOrigin && !publicOrigin)
@@ -611,7 +615,7 @@ export function createWorkspaceHandler(
           workspaceRoot: options.workspaceRoot,
         });
         const dateStr = new Date().toISOString().slice(0, 10);
-        return new Response(zipBytes, {
+        return new Response(zipBytes as unknown as ArrayBuffer, {
           headers: {
             ...securityHeaders(),
             "Content-Disposition": `attachment; filename="openlia-workspace-${dateStr}.zip"`,
@@ -735,11 +739,10 @@ export function createWorkspaceHandler(
             const results = [];
             for (const [, value] of formData.entries()) {
               if (
-                value instanceof File ||
-                (typeof value === "object" &&
-                  value !== null &&
-                  "name" in value &&
-                  "arrayBuffer" in value)
+                typeof value === "object" &&
+                value !== null &&
+                "name" in value &&
+                "arrayBuffer" in value
               ) {
                 const file = value as File;
                 const buffer = new Uint8Array(await file.arrayBuffer());

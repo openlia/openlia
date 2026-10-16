@@ -76,8 +76,9 @@ func TestDetectWorkspaceServeRootsDoesNotRequireMemories(t *testing.T) {
 
 func TestExtractWorkspaceUIBundle(t *testing.T) {
 	fakeAssets := fstest.MapFS{
-		"packages/workspace-ui/dist/server.js":         &fstest.MapFile{Data: []byte("console.log('test');")},
-		"packages/workspace-ui/dist/public/index.html": &fstest.MapFile{Data: []byte("<!DOCTYPE html><html></html>")},
+		"packages/workspace-ui/dist/server.js":              &fstest.MapFile{Data: []byte("console.log('test');")},
+		"packages/workspace-ui/dist/client/assets/index.js": &fstest.MapFile{Data: []byte("console.log('client');")},
+		"packages/workspace-ui/dist/server/server.js":       &fstest.MapFile{Data: []byte("console.log('start');")},
 	}
 
 	cacheDir, err := extractWorkspaceUIBundle(fakeAssets)
@@ -91,9 +92,9 @@ func TestExtractWorkspaceUIBundle(t *testing.T) {
 		t.Fatalf("extracted server.js incorrect or missing: %v", err)
 	}
 
-	htmlData, err := os.ReadFile(filepath.Join(cacheDir, "public", "index.html"))
-	if err != nil || string(htmlData) != "<!DOCTYPE html><html></html>" {
-		t.Fatalf("extracted index.html incorrect or missing: %v", err)
+	clientData, err := os.ReadFile(filepath.Join(cacheDir, "client", "assets", "index.js"))
+	if err != nil || string(clientData) != "console.log('client');" {
+		t.Fatalf("extracted client asset incorrect or missing: %v", err)
 	}
 
 	// Calling again should reuse cached directory

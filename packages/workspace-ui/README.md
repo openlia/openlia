@@ -4,6 +4,11 @@ The Workspace UI is a React client and Bun HTTP server for browsing and editing
 workspace documents. The client has an explicit `WorkspaceApi` boundary so
 frontend work does not require OpenLia, Hermes, Go, or Docker.
 
+The client is built on TanStack Start, TanStack Router, and TanStack Query.
+TanStack Start owns the SSR request, typed route tree, and server-function
+transport. The existing REST endpoints remain available for compatibility and
+for browser-native binary uploads and downloads.
+
 ## Requirements
 
 - Bun `1.2.22` or newer
@@ -117,10 +122,10 @@ local-only and must not be committed.
 
 ## Playwright Screenshots
 
-Install the local Chromium browser once:
+Install the local Chromium and WebKit browsers once:
 
 ```sh
-bunx playwright install chromium
+bunx playwright install chromium webkit
 ```
 
 Run the mock visual catalog:
@@ -161,6 +166,11 @@ bun run preview
 port `8089` using `.preview-workspace/`. Set
 `OPENLIA_WORKSPACE_ROOT` and `OPENLIA_WORKSPACE_UI_PORT` to use another root or
 port.
+
+The production build emits a bundled `dist/server.js` launcher, Start's SSR
+bundle under `dist/server/`, and browser assets under `dist/client/assets/`.
+The launcher serves browser assets, Start routes, `/health`, and the compatible
+`/api/*` endpoints from one Bun process.
 
 The OpenLia root scripts remain available for full-repository checks and
 release packaging. They delegate Workspace UI build, typecheck, and test

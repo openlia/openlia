@@ -43,6 +43,17 @@ test.describe("mock visual catalog", () => {
     await captureScreenshot(page, testInfo, "workspace-overview");
   });
 
+  test("SSR applies a nonce to inline scripts", async ({ page }) => {
+    const response = await page.goto("/");
+    expect(response).not.toBeNull();
+    const csp = response?.headers()["content-security-policy"] ?? "";
+    const nonce = csp.match(/script-src[^;]*'nonce-([^']+)'/)?.[1];
+    expect(nonce).toBeTruthy();
+    expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
+    const html = await response?.text();
+    expect(html).toContain(`nonce="${nonce}"`);
+  });
+
   test("mobile files drawer", async ({ page }, testInfo) => {
     test.skip(
       testInfo.project.name !== "mobile",

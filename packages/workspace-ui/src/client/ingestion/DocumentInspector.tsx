@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import type { SourceDocument, SourceUpdateRequest } from "../../shared/api";
-import { api } from "../api";
+import type { WorkspaceApi } from "../api";
 
 export interface DocumentInspectorProps {
+  api: WorkspaceApi;
   document: SourceDocument | null;
   loading: boolean;
   onUpdate: (updated: SourceDocument) => void;
@@ -11,6 +12,7 @@ export interface DocumentInspectorProps {
 }
 
 export function DocumentInspector({
+  api,
   document,
   loading,
   onUpdate,

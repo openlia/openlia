@@ -145,11 +145,13 @@ export async function verifyFirebaseIdToken(
 
   const signedData = new TextEncoder().encode(`${headerPart}.${payloadPart}`);
   const signature = parseBase64Url(signaturePart);
+  const signatureBytes = new Uint8Array(signature.byteLength);
+  signatureBytes.set(signature);
 
   const isValid = await crypto.subtle.verify(
     "RSASSA-PKCS1-v1_5",
     cryptoKey,
-    signature,
+    signatureBytes,
     signedData,
   );
 

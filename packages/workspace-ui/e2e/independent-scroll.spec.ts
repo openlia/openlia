@@ -2,6 +2,8 @@
 
 import { expect, type Locator, type Page, test } from "@playwright/test";
 
+const realWorkspace = process.env.WORKSPACE_UI_E2E_MODE === "real";
+
 async function expectScrollable(container: Locator) {
   await expect
     .poll(() =>
@@ -50,6 +52,8 @@ async function expectBoundedWorkspace(page: Page) {
 }
 
 test.describe("workspace pane scrolling", () => {
+  test.skip(realWorkspace, "Scroll catalog uses the mock workspace fixture");
+
   test("keeps the skills navigator scrollable", async ({ page }, testInfo) => {
     await page.setViewportSize({
       height: 400,

@@ -45,11 +45,14 @@ func TestEmbeddedBunRuntimeAssets(t *testing.T) {
 	for _, path := range []string{
 		"packages/openlia-browser/dist/server.js",
 		"packages/workspace-ui/dist/server.js",
-		"packages/workspace-ui/dist/public/index.html",
 		"docker/workspace-ui.Dockerfile",
 	} {
 		if _, err := fs.ReadFile(releaseAssets, path); err != nil {
 			t.Fatalf("embedded Bun runtime is missing %s: %v", path, err)
 		}
+	}
+	entries, err := fs.ReadDir(releaseAssets, "packages/workspace-ui/dist/client/assets")
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("embedded workspace-ui client assets are missing: %v", err)
 	}
 }
