@@ -1,0 +1,286 @@
+import type {
+  AuthLoginResponse,
+  AuthSessionResponse,
+  IngestionDetailResponse,
+  IngestionOverviewResponse,
+  MigrationActionResponse,
+  MigrationDetailResponse,
+  MigrationFeedbackRequest,
+  MigrationListResponse,
+  SourceDocument,
+  SourceSearchResponse,
+  SourceUpdateRequest,
+  SourceUploadResponse,
+  SkillCreateRequest,
+  SkillDetailResponse,
+  SkillFileResponse,
+  SkillSuccessResponse,
+  SkillWriteResponse,
+  SkillsListResponse,
+  WorkspaceActivityResponse,
+  WorkspaceDeleteResponse,
+  WorkspaceDiagnosticsResponse,
+  WorkspaceFile,
+  WorkspaceFileMetadata,
+  WorkspaceGitStatus,
+  WorkspaceMoveResponse,
+  WorkspaceRenameResponse,
+  WorkspaceSettings,
+  WorkspaceSystemInfo,
+  WorkspaceTreeResponse,
+  WorkspaceWriteResponse,
+} from "../shared/api";
+import { isMemoryDocument, memoryFilename } from "../shared/memory";
+import { ApiError, httpWorkspaceApi, type WorkspaceApi } from "./api";
+import {
+  workspaceServerRequest,
+  type WorkspaceServerRequest,
+} from "../server/start-api";
+
+function isErrorResponse(
+  value: unknown,
+): value is { error: string; ok: false; schema: 1 } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "schema" in value &&
+    value.schema === 1 &&
+    "ok" in value &&
+    value.ok === false &&
+    "error" in value &&
+    typeof value.error === "string"
+  );
+}
+
+async function request<T>(input: WorkspaceServerRequest): Promise<T> {
+  const response = await workspaceServerRequest({ data: input });
+  if (response.status < 200 || response.status >= 300) {
+    throw new ApiError(
+      response.status,
+      isErrorResponse(response.payload)
+        ? { ...response.payload, schema: 1 }
+        : null,
+    );
+  }
+  return response.payload as T;
+}
+
+export const startWorkspaceApi: WorkspaceApi = {
+  ...httpWorkspaceApi,
+  loadSession: () =>
+    request<AuthSessionResponse>({ path: "/api/auth/session" }),
+  login: (password) =>
+    request<AuthLoginResponse>({
+      body: { password },
+      method: "POST",
+      path: "/api/auth/login",
+    }),
+  loginWithFirebase: (idToken) =>
+    request<AuthLoginResponse>({
+      body: { idToken },
+      method: "POST",
+      path: "/api/auth/firebase-login",
+    }),
+  logout: () =>
+    request<AuthLoginResponse>({ method: "POST", path: "/api/auth/logout" }),
+  loadTree: () =>
+    request<WorkspaceTreeResponse>({ path: "/api/workspace/tree" }),
+  loadFile: (path) =>
+    request<WorkspaceFile>({
+      path: isMemoryDocument(path)
+        ? `/api/memory/file?${new URLSearchParams({ name: memoryFilename(path) })}`
+        : `/api/workspace/file?${new URLSearchParams({ path })}`,
+    }),
+  saveFile: (path, content, expectedRevision) =>
+    request<WorkspaceWriteResponse>({
+      body: {
+        content,
+        expected_revision: expectedRevision,
+        ...(isMemoryDocument(path) ? { name: memoryFilename(path) } : { path }),
+      },
+      method: "PUT",
+      path: isMemoryDocument(path) ? "/api/memory/file" : "/api/workspace/file",
+    }),
+  loadFileMetadata: (path) =>
+    request<WorkspaceFileMetadata>({
+      path: isMemoryDocument(path)
+        ? `/api/memory/metadata?${new URLSearchParams({ name: memoryFilename(path) })}`
+        : `/api/workspace/metadata?${new URLSearchParams({ path })}`,
+    }),
+  deleteFile: (path, expectedRevision) =>
+    request<WorkspaceDeleteResponse>({
+      body: { expected_revision: expectedRevision, path },
+      method: "DELETE",
+      path: "/api/workspace/file",
+    }),
+  renameFile: (path, newName, expectedRevision) =>
+    request<WorkspaceRenameResponse>({
+      body: { expected_revision: expectedRevision, new_name: newName, path },
+      method: "POST",
+      path: "/api/workspace/rename",
+    }),
+  moveFile: (sourcePath, destinationPath, expectedRevision) =>
+    request<WorkspaceMoveResponse>({
+      body: {
+        destination_path: destinationPath,
+        expected_revision: expectedRevision,
+        source_path: sourcePath,
+      },
+      method: "POST",
+      path: "/api/workspace/move",
+    }),
+  loadDiagnostics: () =>
+    request<WorkspaceDiagnosticsResponse>({
+      path: "/api/workspace/diagnostics",
+    }),
+  loadSettings: () =>
+    request<WorkspaceSettings>({ path: "/api/workspace/settings" }),
+  updateSettings: (settings) =>
+    request<WorkspaceSettings>({
+      body: settings,
+      method: "PUT",
+      path: "/api/workspace/settings",
+    }),
+  loadSystemInfo: () =>
+    request<WorkspaceSystemInfo>({ path: "/api/system/info" }),
+  loadGitStatus: () =>
+    request<WorkspaceGitStatus>({ path: "/api/workspace/git/status" }),
+  loadActivity: () =>
+    request<WorkspaceActivityResponse>({ path: "/api/workspace/activity" }),
+  loadIngestion: (options) => {
+    const params = new URLSearchParams();
+    if (options?.query) params.set("q", options.query);
+    if (options?.status) params.set("status", options.status);
+    if (options?.limit) params.set("limit", String(options.limit));
+    const query = params.toString();
+    return request<IngestionOverviewResponse>({
+      path: `/api/workspace/ingestion${query ? `?${query}` : ""}`,
+    });
+  },
+  loadIngestionDetail: (intakeId) =>
+    request<IngestionDetailResponse>({
+      path: `/api/workspace/ingestion/${encodeURIComponent(intakeId)}`,
+    }),
+  searchSources: (options) => {
+    const params = new URLSearchParams();
+    if (options?.query) params.set("q", options.query);
+    if (options?.tags?.length) params.set("tags", options.tags.join(","));
+    if (options?.correspondent)
+      params.set("correspondent", options.correspondent);
+    if (options?.document_type)
+      params.set("document_type", options.document_type);
+    if (options?.review_status)
+      params.set("review_status", options.review_status);
+    if (options?.processing_status)
+      params.set("processing_status", options.processing_status);
+    if (options?.lifecycle) params.set("lifecycle", options.lifecycle);
+    if (options?.offset !== undefined)
+      params.set("offset", String(options.offset));
+    if (options?.limit !== undefined)
+      params.set("limit", String(options.limit));
+    const query = params.toString();
+    return request<SourceSearchResponse>({
+      path: `/api/workspace/ingestion/search${query ? `?${query}` : ""}`,
+    });
+  },
+  loadSource: (sourceId) =>
+    request<SourceDocument>({
+      path: `/api/workspace/ingestion/sources/${encodeURIComponent(sourceId)}`,
+    }),
+  updateSource: (sourceId, updates: SourceUpdateRequest) =>
+    request<SourceDocument>({
+      body: updates,
+      method: "PATCH",
+      path: `/api/workspace/ingestion/sources/${encodeURIComponent(sourceId)}`,
+    }),
+  uploadDocumentJson: (body) =>
+    request<SourceUploadResponse>({
+      body,
+      method: "POST",
+      path: "/api/workspace/ingestion/upload",
+    }),
+  loadMigrations: async () => {
+    const response = await request<MigrationListResponse>({
+      path: "/api/workspace/migration",
+    });
+    return response.migrations;
+  },
+  loadMigrationDetail: (id) =>
+    request<MigrationDetailResponse>({
+      path: `/api/workspace/migration/${encodeURIComponent(id)}`,
+    }),
+  submitMigrationFeedback: (id, body: MigrationFeedbackRequest) =>
+    request<MigrationActionResponse>({
+      body,
+      method: "POST",
+      path: `/api/workspace/migration/${encodeURIComponent(id)}/feedback`,
+    }),
+  approveMigration: (id, revisionId) =>
+    request<MigrationActionResponse>({
+      body: { revision_id: revisionId },
+      method: "POST",
+      path: `/api/workspace/migration/${encodeURIComponent(id)}/approve`,
+    }),
+  discardMigration: (id) =>
+    request<MigrationActionResponse>({
+      body: {},
+      method: "POST",
+      path: `/api/workspace/migration/${encodeURIComponent(id)}/discard`,
+    }),
+  stopMigration: (id) =>
+    request<MigrationActionResponse>({
+      body: {},
+      method: "POST",
+      path: `/api/workspace/migration/${encodeURIComponent(id)}/stop`,
+    }),
+  resumeMigration: (id) =>
+    request<MigrationActionResponse>({
+      body: {},
+      method: "POST",
+      path: `/api/workspace/migration/${encodeURIComponent(id)}/resume`,
+    }),
+  wakeMigration: (id) =>
+    request<MigrationActionResponse>({
+      body: {},
+      method: "POST",
+      path: `/api/workspace/migration/${encodeURIComponent(id)}/wake`,
+    }),
+  loadSkills: () => request<SkillsListResponse>({ path: "/api/skills/list" }),
+  loadSkillDetail: (id) =>
+    request<SkillDetailResponse>({
+      path: `/api/skills/detail?${new URLSearchParams({ id })}`,
+    }),
+  loadSkillFile: (id, path) =>
+    request<SkillFileResponse>({
+      path: `/api/skills/file?${new URLSearchParams({ id, path })}`,
+    }),
+  saveSkillFile: (id, path, content, expectedRevision) =>
+    request<SkillWriteResponse>({
+      body: {
+        content,
+        expected_revision: expectedRevision,
+        id,
+        path,
+      },
+      method: "PUT",
+      path: "/api/skills/file",
+    }),
+  toggleSkillEnable: (id, enabled) =>
+    request<SkillSuccessResponse>({
+      body: { enabled, id },
+      method: "POST",
+      path: "/api/skills/toggle-enable",
+    }),
+  toggleSkillPin: (id, pinned) =>
+    request<SkillSuccessResponse>({
+      body: { id, pinned },
+      method: "POST",
+      path: "/api/skills/toggle-pin",
+    }),
+  createSkill: (requestBody: SkillCreateRequest) =>
+    request<SkillSuccessResponse>({
+      body: requestBody,
+      method: "POST",
+      path: "/api/skills/create",
+    }),
+};

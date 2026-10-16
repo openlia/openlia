@@ -1,7 +1,8 @@
 import { useState, useRef, type DragEvent } from "react";
-import { api } from "../api";
+import type { WorkspaceApi } from "../api";
 
 export interface UploadModalProps {
+  api: WorkspaceApi;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -9,6 +10,7 @@ export interface UploadModalProps {
 }
 
 export function UploadModal({
+  api,
   isOpen,
   onClose,
   onSuccess,

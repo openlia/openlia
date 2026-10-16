@@ -18,9 +18,19 @@ import {
   MarkdownPreview,
   WorkspaceHeader,
 } from "./components";
+import { FrontmatterBlock } from "./FrontmatterBlock";
 import { buildCanonicalWorkspaceUri, buildWorkspaceLink } from "./openliaLinks";
 
 describe("workspace presentation components", () => {
+  test("keeps raw YAML text safe while Prism loads", async () => {
+    const rawYaml = 'description: "<img src=x onerror=alert(1)>"';
+    render(<FrontmatterBlock data={{ name: "unsafe" }} rawYaml={rawYaml} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "YAML" }));
+    expect(screen.getByText(rawYaml)).toBeInTheDocument();
+    expect(screen.queryByRole("img")).toBeNull();
+  });
+
   test("renders safe GFM structures semantically", () => {
     const { container } = render(
       <MarkdownPreview

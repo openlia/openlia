@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const packageRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react({ jsxRuntime: "automatic" })],
   test: {
     environment: "happy-dom",
     include: [

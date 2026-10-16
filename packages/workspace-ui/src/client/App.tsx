@@ -6,6 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
+import type { QueryClient } from "@tanstack/react-query";
+import { workspaceKeys } from "./queries/useWorkspaceQueries";
 import type {
   SkillDetail,
   SkillFileEntry,
@@ -23,7 +25,9 @@ import type {
   WorkspaceSettings,
   WorkspaceSystemInfo,
   WorkspaceTreeEntry,
+  WorkspaceTreeResponse,
   FirebaseClientConfig,
+  AuthSessionResponse,
 } from "../shared/api";
 import { ApiError, httpWorkspaceApi, type WorkspaceApi } from "./api";
 import {
@@ -375,7 +379,20 @@ function LoginScreen({
   );
 }
 
-export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
+export interface WorkspaceInitialData {
+  session: AuthSessionResponse;
+  tree?: WorkspaceTreeResponse | undefined;
+}
+
+export function App({
+  api = httpWorkspaceApi,
+  initialData,
+  queryClient,
+}: {
+  api?: WorkspaceApi;
+  initialData?: WorkspaceInitialData;
+  queryClient?: QueryClient;
+} = {}) {
   const initialRoute = useRef(
     typeof window !== "undefined"
       ? parseRoute(window.location)
@@ -399,14 +416,18 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
   );
 
   // Documents state
-  const [tree, setTree] = useState<WorkspaceTreeEntry[]>([]);
-  const [treeTruncated, setTreeTruncated] = useState(false);
+  const [tree, setTree] = useState<WorkspaceTreeEntry[]>(
+    () => initialData?.tree?.entries ?? [],
+  );
+  const [treeTruncated, setTreeTruncated] = useState(
+    () => initialData?.tree?.truncated ?? false,
+  );
   const [filter, setFilter] = useState(() => initialRoute.current.filter ?? "");
   const [file, setFile] = useState<WorkspaceFile | null>(null);
   const [artifact, setArtifact] = useState<WorkspaceFileMetadata | null>(null);
   const [draft, setDraft] = useState("");
   const [git, setGit] = useState<WorkspaceGitStatus | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !initialData?.session);
   const [fileLoading, setFileLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -537,15 +558,27 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
   const [revealToken, setRevealToken] = useState(0);
 
   // Auth & Navigation state
-  const [authReady, setAuthReady] = useState(false);
-  const [authRequired, setAuthRequired] = useState(false);
+  const [authReady, setAuthReady] = useState(() =>
+    Boolean(initialData?.session),
+  );
+  const [authRequired, setAuthRequired] = useState(
+    () => initialData?.session.auth_required ?? false,
+  );
   const [authProvider, setAuthProvider] = useState<
     "password" | "firebase" | "none"
-  >("none");
+  >(
+    () =>
+      initialData?.session.auth_provider ??
+      (initialData?.session.auth_required ? "password" : "none"),
+  );
   const [firebaseConfig, setFirebaseConfig] = useState<
     FirebaseClientConfig | undefined
-  >(undefined);
-  const [needsLogin, setNeedsLogin] = useState(false);
+  >(() => initialData?.session.firebase_config);
+  const [needsLogin, setNeedsLogin] = useState(() =>
+    Boolean(
+      initialData?.session.auth_required && !initialData.session.authenticated,
+    ),
+  );
   const [firebaseAccount, setFirebaseAccount] =
     useState<FirebaseAccount | null>(null);
   const [password, setPassword] = useState("");
@@ -573,6 +606,13 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
     file: WorkspaceFile;
     draft: string;
   } | null>(null);
+  const initialDataRef = useRef(initialData);
+
+  function clearWorkspaceCache() {
+    if (!queryClient) return;
+    void queryClient.cancelQueries({ queryKey: workspaceKeys.all });
+    queryClient.removeQueries({ queryKey: workspaceKeys.all });
+  }
 
   useEffect(() => {
     if (authProvider !== "firebase" || !firebaseConfig) {
@@ -721,8 +761,10 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
       setAuthReady(false);
       setLoading(true);
       setWorkspaceError("");
+      const bootstrap = initialDataRef.current;
+      initialDataRef.current = undefined;
       try {
-        const session = await api.loadSession();
+        const session = bootstrap?.session ?? (await api.loadSession());
         if (isActive && !isActive()) return;
         setAuthRequired(session.auth_required);
         setAuthProvider(
@@ -748,7 +790,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
           ingestionResponse,
           migrationsResponse,
         ] = await Promise.all([
-          api.loadTree(),
+          bootstrap?.tree ?? api.loadTree(),
           api.loadGitStatus().catch(() => null),
           api.loadSkills().catch(() => ({
             categories: [],
@@ -1206,6 +1248,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
   }, [activeTab, artifact?.path, file?.path, selectedSkillDetail]);
 
   function handleUnauthorized() {
+    clearWorkspaceCache();
     setTree([]);
     setSkills([]);
     setGit(null);
@@ -1415,6 +1458,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
   async function performSignOut() {
     await api.logout().catch(() => undefined);
     await signOutFirebase(firebaseConfig).catch(() => undefined);
+    clearWorkspaceCache();
     setTree([]);
     setSkills([]);
     setGit(null);
@@ -2650,6 +2694,7 @@ export function App({ api = httpWorkspaceApi }: { api?: WorkspaceApi } = {}) {
       ) : activeTab === "ingestion" ? (
         <div className="workspace-layout xl:grid-cols-1">
           <IngestionSection
+            api={api}
             detail={ingestionDetail}
             detailLoading={ingestionDetailLoading}
             loading={ingestionLoading}

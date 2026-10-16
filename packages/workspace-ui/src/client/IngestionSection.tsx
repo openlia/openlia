@@ -6,7 +6,7 @@ import type {
   SourceDocument,
   SourceSearchResponse,
 } from "../shared/api";
-import { api } from "./api";
+import type { WorkspaceApi } from "./api";
 import { DocumentCard } from "./ingestion/DocumentCard";
 import {
   DocumentFilterBar,
@@ -17,6 +17,7 @@ import { DocumentInspector } from "./ingestion/DocumentInspector";
 import { UploadModal } from "./ingestion/UploadModal";
 
 export interface IngestionSectionProps {
+  api: WorkspaceApi;
   overview: IngestionOverviewResponse | null;
   detail: IngestionDetailResponse | null;
   detailLoading: boolean;
@@ -213,6 +214,7 @@ function DetailPane({
 }
 
 export function IngestionSection({
+  api,
   overview,
   detail,
   detailLoading,
@@ -301,6 +303,7 @@ export function IngestionSection({
     selectedCorrespondent,
     selectedDocType,
     selectedSourceId,
+    api.searchSources,
   ]);
 
   useEffect(() => {
@@ -329,7 +332,7 @@ export function IngestionSection({
     return () => {
       cancelled = true;
     };
-  }, [selectedSourceId, scope]);
+  }, [selectedSourceId, scope, api.loadSource]);
 
   // Global drag-and-drop listener to open upload modal
   function handleWindowDragOver(e: DragEvent<HTMLDivElement>) {
@@ -533,6 +536,7 @@ export function IngestionSection({
           {/* Document Inspector (Right Column) */}
           <section className="flex-1 min-w-0 flex flex-col overflow-hidden bg-base-100">
             <DocumentInspector
+              api={api}
               document={selectedSource}
               loading={sourceLoading}
               onUpdate={(updated) => {
@@ -549,6 +553,7 @@ export function IngestionSection({
 
       {/* Upload Modal */}
       <UploadModal
+        api={api}
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
         initialFiles={droppedFiles}

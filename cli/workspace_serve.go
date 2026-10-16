@@ -251,12 +251,32 @@ func findDockerExecutable() (string, error) {
 }
 
 func extractWorkspaceUIBundle(assets fs.FS) (string, error) {
-	serverBytes, err := fs.ReadFile(assets, "packages/workspace-ui/dist/server.js")
+	_, err := fs.ReadFile(assets, "packages/workspace-ui/dist/server.js")
 	if err != nil {
 		return "", fmt.Errorf("read embedded server.js: %w", err)
 	}
-	hash := sha256.Sum256(serverBytes)
-	hashHex := hex.EncodeToString(hash[:8])
+
+	hash := sha256.New()
+	distPrefix := "packages/workspace-ui/dist"
+	err = fs.WalkDir(assets, distPrefix, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		data, err := fs.ReadFile(assets, path)
+		if err != nil {
+			return err
+		}
+		_, _ = hash.Write([]byte(path))
+		_, _ = hash.Write(data)
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("hash embedded workspace-ui bundle: %w", err)
+	}
+	hashHex := hex.EncodeToString(hash.Sum(nil)[:8])
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -273,7 +293,6 @@ func extractWorkspaceUIBundle(assets fs.FS) (string, error) {
 		return "", fmt.Errorf("create cache dir: %w", err)
 	}
 
-	distPrefix := "packages/workspace-ui/dist"
 	err = fs.WalkDir(assets, distPrefix, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr

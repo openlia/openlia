@@ -1,20 +1,15 @@
-import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import { defineConfig } from "vite";
 
-const clientRoot = fileURLToPath(new URL("./src/client", import.meta.url));
-const publicOutput = fileURLToPath(new URL("./dist/public", import.meta.url));
 const backendUrl =
   process.env.OPENLIA_WORKSPACE_UI_BACKEND_URL ?? "http://127.0.0.1:8089";
 const backendOrigin = new URL(backendUrl).origin;
 
 export default defineConfig(() => ({
-  plugins: [react(), tailwindcss()],
-  root: clientRoot,
+  plugins: [tanstackStart(), tailwindcss(), react()],
   build: {
-    outDir: publicOutput,
-    emptyOutDir: true,
     sourcemap: false,
   },
   server: {

@@ -3,7 +3,7 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client"],
+    "types": ["vite/client", "bun", "@testing-library/jest-dom"],
     "noEmit": true
   },
   "include": ["src/client/**/*.ts", "src/client/**/*.tsx", "src/shared/**/*.ts"]

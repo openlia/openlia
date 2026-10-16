@@ -1,6 +1,4 @@
-import Prism from "prismjs";
-import "prismjs/components/prism-yaml";
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 export interface FrontmatterBlockProps {
   data: Record<string, unknown>;
@@ -13,16 +11,35 @@ export function FrontmatterBlock({ data, rawYaml }: FrontmatterBlockProps) {
   const [copied, setCopied] = useState(false);
   const copyTimeoutId = useId();
 
-  const highlightedYaml = useMemo(() => {
-    try {
-      return Prism.highlight(
-        rawYaml,
-        Prism.languages.yaml || Prism.languages.extend("clike", {}),
-        "yaml",
-      );
-    } catch {
-      return rawYaml;
-    }
+  const [highlightedYaml, setHighlightedYaml] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setHighlightedYaml(null);
+    void import("prismjs")
+      .then(async (prismModule) => {
+        const Prism = prismModule.default;
+        (globalThis as { Prism?: typeof Prism }).Prism = Prism;
+        await import("prismjs/components/prism-yaml");
+        if (!active) return;
+        try {
+          setHighlightedYaml(
+            Prism.highlight(
+              rawYaml,
+              Prism.languages.yaml || Prism.languages.extend("clike", {}),
+              "yaml",
+            ),
+          );
+        } catch {
+          setHighlightedYaml(null);
+        }
+      })
+      .catch(() => {
+        if (active) setHighlightedYaml(null);
+      });
+    return () => {
+      active = false;
+    };
   }, [rawYaml]);
 
   const handleCopy = async () => {
@@ -338,11 +355,15 @@ export function FrontmatterBlock({ data, rawYaml }: FrontmatterBlockProps) {
             </div>
           ) : (
             <pre className="overflow-x-auto rounded-lg bg-base-300/60 p-3.5 font-mono text-xs leading-relaxed">
-              <code
-                className="language-yaml"
-                // biome-ignore lint/security/noDangerouslySetInnerHtml: syntax highlighting HTML produced safely by Prism.js
-                dangerouslySetInnerHTML={{ __html: highlightedYaml }}
-              />
+              {highlightedYaml === null ? (
+                <code className="language-yaml">{rawYaml}</code>
+              ) : (
+                <code
+                  className="language-yaml"
+                  // biome-ignore lint/security/noDangerouslySetInnerHtml: syntax highlighting HTML produced safely by Prism.js
+                  dangerouslySetInnerHTML={{ __html: highlightedYaml }}
+                />
+              )}
             </pre>
           )}
         </div>

@@ -22,6 +22,7 @@ const ingestionRoot =
   (process.env.HERMES_HOME
     ? join(process.env.HERMES_HOME, "ingestion")
     : undefined);
+const e2eFixture = process.env.WORKSPACE_UI_E2E_FIXTURE === "true";
 
 mkdirSync(workspaceRoot, { recursive: true });
 const examplePath = join(workspaceRoot, "notes.md");
@@ -30,6 +31,27 @@ if (!existsSync(examplePath))
     examplePath,
     "# Workspace UI\n\nEdit this document while developing the real backend.\n",
   );
+
+if (!process.env.OPENLIA_WORKSPACE_ROOT || e2eFixture) {
+  mkdirSync(join(workspaceRoot, "archive"), { recursive: true });
+  const readmePath = join(workspaceRoot, "README.md");
+  if (!existsSync(readmePath))
+    writeFileSync(
+      readmePath,
+      "# Real workspace fixture\n\nThis file verifies the Bun-backed workspace path.\n",
+    );
+  const calendarFixture = join(
+    workspaceRoot,
+    "calendar",
+    "2026-09-23-lunch-marukame-fe-dev-2.md",
+  );
+  mkdirSync(join(workspaceRoot, "calendar"), { recursive: true });
+  if (!existsSync(calendarFixture))
+    writeFileSync(
+      calendarFixture,
+      "# Calendar fixture\n\nCreated for real workspace verification.\n",
+    );
+}
 
 mkdirSync(skillsRoot, { recursive: true });
 mkdirSync(memoriesRoot, { recursive: true });
@@ -73,7 +95,7 @@ const children = [
     stderr: "inherit",
     stdout: "inherit",
   }),
-  Bun.spawn(["bun", "run", "vite"], {
+  Bun.spawn(["bun", "--bun", "run", "vite"], {
     cwd: packageRoot,
     env: environment,
     stderr: "inherit",

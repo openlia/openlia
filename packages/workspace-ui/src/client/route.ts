@@ -265,9 +265,30 @@ export function navigateRoute(
   const currentUrl = `${window.location.pathname}${window.location.search}`;
   if (targetUrl === currentUrl) return;
 
+  if (workspaceRouter) {
+    if (options?.replace) workspaceRouter.history.replace(targetUrl);
+    else workspaceRouter.history.push(targetUrl);
+    return;
+  }
+
   if (options?.replace) {
     window.history.replaceState(null, "", targetUrl);
   } else {
     window.history.pushState(null, "", targetUrl);
   }
+}
+
+interface WorkspaceRouterHistory {
+  history: {
+    push(path: string): void;
+    replace(path: string): void;
+  };
+}
+
+let workspaceRouter: WorkspaceRouterHistory | undefined;
+
+export function installWorkspaceRouter(
+  router: WorkspaceRouterHistory | undefined,
+): void {
+  workspaceRouter = router;
 }
