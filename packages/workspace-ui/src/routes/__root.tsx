@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import {
   HeadContent,
-  Outlet,
   Scripts,
   useRouter,
   createRootRouteWithContext,
@@ -9,6 +8,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { installWorkspaceRouter } from "../client/route";
 import { createWorkspaceClientApi } from "../client/runtimeApi";
+import { WorkspaceRoute } from "./-WorkspaceRoute";
 import {
   workspaceSessionQueryOptions,
   workspaceTreeQueryOptions,
@@ -21,6 +21,7 @@ export interface RouterContext {
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   ssr: "data-only",
+  staleTime: Infinity,
   loader: async ({ context, location }) => {
     const scenario = new URL(
       String(location.href),
@@ -86,5 +87,6 @@ function RootComponent() {
   const router = useRouter();
   installWorkspaceRouter(router);
 
-  return <Outlet />;
+  // Keep the workspace mounted while child routes update the URL.
+  return <WorkspaceRoute />;
 }

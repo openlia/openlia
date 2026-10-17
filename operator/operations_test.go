@@ -1128,6 +1128,9 @@ func TestGeneratedAttachmentsContainWorkspaceUIWhenEnabled(t *testing.T) {
 					t.Fatalf("generated Compose missing %q:\n%s", expected, text)
 				}
 			}
+			if strings.Contains(text, "target: /ingestion\n        read_only: true") {
+				t.Fatal("Workspace UI ingestion mount must be writable")
+			}
 			if test.host == "0.0.0.0" {
 				for _, expected := range []string{"OPENLIA_WORKSPACE_UI_AUTH_REQUIRED: \"true\"", "OPENLIA_WORKSPACE_UI_SESSION_DB: /var/lib/openlia/sessions.sqlite", "target: /run/openlia-secrets/workspace-ui-password.hash", "target: /var/lib/openlia", "read_only: true"} {
 					if !strings.Contains(text, expected) {
