@@ -11,6 +11,8 @@ import type {
   WorkspaceActivityResponse,
   WorkspaceDeleteResponse,
   WorkspaceDiagnosticsResponse,
+  WorkspaceDomainInfo,
+  WorkspaceDomainsResponse,
   WorkspaceErrorResponse,
   WorkspaceFile,
   WorkspaceFileMetadata,
@@ -75,6 +77,8 @@ export interface WorkspaceApi {
     destinationPath: string,
     expectedRevision: string,
   ): Promise<WorkspaceMoveResponse>;
+  loadCreatableDomains(): Promise<WorkspaceDomainsResponse>;
+  createFile(domain: string, name: string): Promise<WorkspaceFile>;
   loadDiagnostics(): Promise<WorkspaceDiagnosticsResponse>;
   loadSettings(): Promise<WorkspaceSettings>;
   updateSettings(settings: WorkspaceSettings): Promise<WorkspaceSettings>;
@@ -427,6 +431,28 @@ function isWorkspaceSystemInfo(value: unknown): value is WorkspaceSystemInfo {
   );
 }
 
+function isWorkspaceDomainInfo(value: unknown): value is WorkspaceDomainInfo {
+  return (
+    isObject(value) &&
+    typeof value.path === "string" &&
+    typeof value.label === "string" &&
+    (value.template_path === undefined ||
+      typeof value.template_path === "string") &&
+    (value.purpose === undefined || typeof value.purpose === "string")
+  );
+}
+
+function isWorkspaceDomainsResponse(
+  value: unknown,
+): value is WorkspaceDomainsResponse {
+  return (
+    isObject(value) &&
+    value.schema === 1 &&
+    Array.isArray(value.domains) &&
+    value.domains.every(isWorkspaceDomainInfo)
+  );
+}
+
 function isSkillsListResponse(value: unknown): value is SkillsListResponse {
   return (
     isObject(value) &&
@@ -575,6 +601,17 @@ export const httpWorkspaceApi: WorkspaceApi = {
         method: "POST",
       },
     ),
+  loadCreatableDomains: () =>
+    requestJson<WorkspaceDomainsResponse>(
+      "/api/workspace/creatable-domains",
+      isWorkspaceDomainsResponse,
+    ),
+  createFile: (domain, name) =>
+    requestJson<WorkspaceFile>("/api/workspace/create-file", isWorkspaceFile, {
+      body: JSON.stringify({ domain, name }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }),
   loadDiagnostics: () =>
     requestJson<WorkspaceDiagnosticsResponse>(
       "/api/workspace/diagnostics",

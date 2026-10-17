@@ -10,7 +10,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { WorkspaceDiagnosticsResponse } from "../shared/api";
+import type {
+  WorkspaceDiagnosticsResponse,
+  WorkspaceDomainsResponse,
+  WorkspaceFile,
+} from "../shared/api";
 import { createWorkspaceHandler } from "./app";
 import { revision } from "./workspace";
 
@@ -1200,5 +1204,119 @@ describe("workspace HTTP handler", () => {
     } finally {
       mockJwksServer.stop();
     }
+  });
+
+  test("lists creatable domains while excluding disallowed domains", async () => {
+    // Write a workspace.yaml with allowed and disallowed domains
+    writeFileSync(
+      join(root, "workspace.yaml"),
+      `domains:
+  - path: inbox
+    kind: core
+    label: Inbox
+  - path: tasks
+    kind: core
+    label: Tasks
+    template: tasks/task-template.md
+  - path: sources
+    kind: extension
+    label: Sources
+    template: sources/records/source-template.md
+  - path: archive
+    kind: core
+    label: Archive
+  - path: goals
+    kind: core
+    label: Goals
+    template: goals/goal-template.md
+`,
+    );
+
+    const res = await request("/api/workspace/creatable-domains");
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as WorkspaceDomainsResponse;
+    expect(data.schema).toBe(1);
+    const paths = data.domains.map((d: { path: string }) => d.path);
+    expect(paths).toContain("tasks");
+    expect(paths).toContain("goals");
+    expect(paths).not.toContain("inbox");
+    expect(paths).not.toContain("sources");
+    expect(paths).not.toContain("archive");
+  });
+
+  test("creates a new domain file initialized with template content", async () => {
+    mkdirSync(join(root, "tasks"), { recursive: true });
+    writeFileSync(
+      join(root, "tasks/task-template.md"),
+      `---\n$schema: ./task-template.schema.json\nstatus: todo\n---\n\n# New Task\n`,
+    );
+
+    const res = await request("/api/workspace/create-file", {
+      body: JSON.stringify({
+        domain: "tasks",
+        name: "test-task",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+
+    expect(res.status).toBe(201);
+    const file = (await res.json()) as WorkspaceFile;
+    expect(file.schema).toBe(1);
+    expect(file.path).toBe("tasks/test-task.md");
+    expect(file.content).toContain("# New Task");
+    expect(file.content).toContain("status: todo");
+    expect(existsSync(join(root, "tasks/test-task.md"))).toBe(true);
+    expect(readFileSync(join(root, "tasks/test-task.md"), "utf-8")).toBe(
+      file.content,
+    );
+
+    // Collision check: creating same file returns 409
+    const collisionRes = await request("/api/workspace/create-file", {
+      body: JSON.stringify({
+        domain: "tasks",
+        name: "test-task.md",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    expect(collisionRes.status).toBe(409);
+    expect(await collisionRes.json()).toEqual({
+      schema: 1,
+      ok: false,
+      error: "destination_exists",
+    });
+
+    // Disallowed domain check returns 403
+    const disallowedRes = await request("/api/workspace/create-file", {
+      body: JSON.stringify({
+        domain: "inbox",
+        name: "note.md",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    expect(disallowedRes.status).toBe(403);
+    expect(await disallowedRes.json()).toEqual({
+      schema: 1,
+      ok: false,
+      error: "domain_not_allowed",
+    });
+
+    // Invalid filename check returns 400
+    const invalidRes = await request("/api/workspace/create-file", {
+      body: JSON.stringify({
+        domain: "tasks",
+        name: "nested/sub.md",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    expect(invalidRes.status).toBe(400);
+    expect(await invalidRes.json()).toEqual({
+      schema: 1,
+      ok: false,
+      error: "invalid_filename",
+    });
   });
 });

@@ -13,6 +13,7 @@ import type {
   WorkspaceRenameRequest,
   WorkspaceSystemInfo,
   WorkspaceWriteRequest,
+  WorkspaceCreateFileRequest,
   SourceUpdateRequest,
 } from "../shared/api";
 import { Authenticator } from "./auth";
@@ -1210,6 +1211,40 @@ export function createWorkspaceHandler(
         url.pathname === "/api/workspace/diagnostics"
       ) {
         return json(service.diagnostics());
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname === "/api/workspace/creatable-domains"
+      ) {
+        return json({ schema: 1, domains: service.creatableDomains() });
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/workspace/create-file"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, maxDeleteRequestBytes);
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        const body: unknown = bodyResult.value;
+        if (!isObject(body))
+          return json(
+            { schema: 1, ok: false, error: "request_body_must_be_json" },
+            400,
+          );
+        const createRequest = body as Partial<WorkspaceCreateFileRequest>;
+        const file = service.createFile(
+          createRequest.domain,
+          createRequest.name,
+        );
+        return json(file, 201);
       }
       if (request.method === "GET" && url.pathname === "/api/skills/list") {
         return json(skillService.list());

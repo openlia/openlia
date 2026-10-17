@@ -613,3 +613,20 @@ export interface MigrationActionResponse {
   revision_id?: string;
   error?: string;
 }
+
+export interface WorkspaceDomainInfo {
+  path: string;
+  label: string;
+  template_path?: string | undefined;
+  purpose?: string | undefined;
+}
+
+export interface WorkspaceDomainsResponse {
+  schema: 1;
+  domains: WorkspaceDomainInfo[];
+}
+
+export interface WorkspaceCreateFileRequest {
+  domain: string;
+  name: string;
+}

@@ -5,6 +5,8 @@ import type {
   WorkspaceActivityResponse,
   WorkspaceDeleteResponse,
   WorkspaceDiagnosticsResponse,
+  WorkspaceDomainInfo,
+  WorkspaceDomainsResponse,
   WorkspaceErrorResponse,
   WorkspaceFile,
   WorkspaceFileMetadata,
@@ -42,6 +44,87 @@ export interface MockWorkspaceOptions {
 }
 
 const modifiedAt = "2026-09-22T00:00:00.000Z";
+
+export const mockCreatableDomains: WorkspaceDomainInfo[] = [
+  {
+    path: "tasks",
+    label: "Tasks",
+    template_path: "tasks/task-template.md",
+    purpose: "Concrete actions that can be completed.",
+  },
+  {
+    path: "goals",
+    label: "Goals",
+    template_path: "goals/goal-template.md",
+    purpose: "Outcomes and the reasons they matter.",
+  },
+  {
+    path: "projects",
+    label: "Projects",
+    template_path: "projects/project-template.md",
+    purpose: "Bounded outcomes with milestones, tasks, risks, and decisions.",
+  },
+  {
+    path: "ideas",
+    label: "Ideas",
+    template_path: "ideas/idea-template.md",
+    purpose: "Possible future work and observations.",
+  },
+  {
+    path: "decisions",
+    label: "Decisions",
+    template_path: "decisions/decision-template.md",
+    purpose: "Questions, options, evidence, trade-offs, and outcomes.",
+  },
+  {
+    path: "monitors",
+    label: "Monitors",
+    template_path: "monitors/monitor-template.md",
+    purpose: "Conditions to watch for change over time.",
+  },
+  {
+    path: "areas",
+    label: "Areas",
+    template_path: "areas/area-template.md",
+    purpose: "Ongoing responsibilities without a fixed end date.",
+  },
+  {
+    path: "calendar",
+    label: "Calendar",
+    template_path: "calendar/event-note-template.md",
+    purpose: "Planning notes, meeting agendas, and event context.",
+  },
+  {
+    path: "people",
+    label: "People",
+    template_path: "people/person-template.md",
+    purpose: "Relationship context and person records.",
+  },
+  {
+    path: "shopping",
+    label: "Shopping",
+    template_path: "shopping/item-template.md",
+    purpose: "Product research and purchase candidates.",
+  },
+  {
+    path: "travel",
+    label: "Travel",
+    template_path: "travel/trip-template.md",
+    purpose: "Trips, itineraries, and travel research.",
+  },
+  {
+    path: "finance",
+    label: "Finance",
+    template_path: "finance/finance-template.md",
+    purpose: "Budgets, spending notes, and financial reviews.",
+  },
+  {
+    path: "knowledge/claims",
+    label: "Claims",
+    template_path: "knowledge/claims/claim-template.md",
+    purpose: "Reusable personal claims with provenance and lifecycle metadata.",
+  },
+];
 
 function error(
   status: number,
@@ -685,6 +768,70 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         previous_path: sourcePath,
         revision: currentRev,
         schema: 1,
+      };
+    },
+    async loadCreatableDomains(): Promise<WorkspaceDomainsResponse> {
+      requireAuthentication();
+      return {
+        domains: mockCreatableDomains,
+        schema: 1,
+      };
+    },
+    async createFile(domain: string, name: string): Promise<WorkspaceFile> {
+      requireAuthentication();
+      const matched = mockCreatableDomains.find((d) => d.path === domain);
+      if (!matched) {
+        throw error(403, "domain_not_allowed");
+      }
+      let filename = name.trim();
+      if (!filename.toLowerCase().endsWith(".md")) {
+        filename = `${filename}.md`;
+      }
+      if (
+        filename.includes("/") ||
+        filename.includes("\\") ||
+        filename.includes("..")
+      ) {
+        throw error(400, "invalid_filename");
+      }
+      if (
+        filename.endsWith("-template.md") ||
+        filename.endsWith(".schema.json")
+      ) {
+        throw error(400, "invalid_filename");
+      }
+      const newPath = `${matched.path}/${filename}`;
+      if (fileContents[newPath] !== undefined) {
+        throw error(409, "destination_exists");
+      }
+
+      // Starter template content
+      const templateContent =
+        domain === "tasks"
+          ? `---\n$schema: ./task-template.schema.json\nstatus: todo\npriority: medium\ndue_date: null\nlinked_project: null\nlinked_area: null\ncontext_tags: []\ncompleted_at: null\n---\n\n# ${filename.replace(/\.md$/i, "")}\n\n## Action\n`
+          : `---\n$schema: ./${domain}-template.schema.json\n---\n\n# ${filename.replace(/\.md$/i, "")}\n`;
+
+      const nextRev = `sha256:mock-${++saveCount}`;
+      fileContents[newPath] = templateContent;
+      fileRevisions[newPath] = nextRev;
+
+      const newEntry: WorkspaceTreeEntry = {
+        ...metadata(newPath, templateContent),
+        kind: "file",
+      };
+      if (
+        !entries.some((e) => e.kind === "directory" && e.path === matched.path)
+      ) {
+        entries.push({ kind: "directory", path: matched.path });
+      }
+      entries.push(newEntry);
+
+      return {
+        ...metadata(newPath, templateContent),
+        content: templateContent,
+        revision: nextRev,
+        schema: 1,
+        validation: { errors: [], valid: true },
       };
     },
     async loadDiagnostics(): Promise<WorkspaceDiagnosticsResponse> {
