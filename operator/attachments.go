@@ -367,7 +367,7 @@ func generateAttachmentsFile(config Config) error {
 		builder.Write(memories)
 		builder.WriteString("\n        target: /memories\n      - type: bind\n        source: ")
 		builder.Write(ingestion)
-		builder.WriteString("\n        target: /ingestion\n        read_only: true\n      - type: bind\n        source: ")
+		builder.WriteString("\n        target: /ingestion\n      - type: bind\n        source: ")
 		builder.Write(migrations)
 		builder.WriteString("\n        target: /migrations")
 		if !isFirebase && config.WorkspaceUIAuthRequired {
