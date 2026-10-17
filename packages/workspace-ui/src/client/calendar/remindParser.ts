@@ -651,6 +651,7 @@ export function parseRemLine(
     id,
     summary,
     date: parsed.date,
+    endDate: parsed.schedule.endDate,
     time: timeStr,
     duration: durationMins,
     attendees,
@@ -902,9 +903,16 @@ function infoEntriesForEvent(event: Partial<CalendarEvent>): RemindInfoEntry[] {
 
 function scheduleTokens(event: Partial<CalendarEvent>): string[] {
   const schedule = event.schedule;
+  const targetStartDate =
+    event.date || schedule?.startDate || new Date().toISOString().slice(0, 10);
+  const targetEndDate =
+    event.endDate !== undefined ? event.endDate : schedule?.endDate;
+
   if (!schedule) {
-    const dateStr = event.date || new Date().toISOString().slice(0, 10);
-    const tokens = [dateStr];
+    const tokens = [targetStartDate];
+    if (targetEndDate && targetEndDate !== targetStartDate) {
+      tokens.push("THROUGH", targetEndDate);
+    }
     if (event.repeat) tokens.push(`*${event.repeat.replace(/^\*/, "")}`);
     return tokens;
   }
@@ -915,8 +923,11 @@ function scheduleTokens(event: Partial<CalendarEvent>): string[] {
   if (schedule.repeat && !tokens.includes(schedule.repeat)) {
     tokens.push(schedule.repeat);
   }
-  if (schedule.endKeyword && schedule.endDate) {
-    tokens.push(schedule.endKeyword, schedule.endDate);
+  const endKeyword =
+    schedule.endKeyword || (targetEndDate ? "THROUGH" : undefined);
+  const endDate = targetEndDate || schedule.endDate;
+  if (endKeyword && endDate) {
+    tokens.push(endKeyword, endDate);
   }
   if (schedule.fromDate) tokens.push("FROM", schedule.fromDate);
   return tokens;
@@ -1013,10 +1024,24 @@ export function updateEventInFile(
     originalEvent.schedule?.isRecurring === true ||
     updatedEvent.date === undefined ||
     updatedEvent.date === originalEvent.date;
+  const targetSchedule =
+    preserveSchedule && originalEvent.schedule
+      ? {
+          ...originalEvent.schedule,
+          endDate:
+            updatedEvent.endDate !== undefined
+              ? updatedEvent.endDate
+              : originalEvent.schedule.endDate,
+          startDate:
+            updatedEvent.date !== undefined
+              ? updatedEvent.date
+              : originalEvent.schedule.startDate,
+        }
+      : undefined;
   const newStatement = formatRemStatement({
     ...originalEvent,
     ...updatedEvent,
-    schedule: preserveSchedule ? originalEvent.schedule : undefined,
+    schedule: targetSchedule,
   });
 
   if (originalEvent.rawStatement) {

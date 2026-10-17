@@ -24,6 +24,7 @@ syntax.
 ## When to Use
 
 - Use when viewing, querying, scheduling, rescheduling, or canceling calendar events, meetings, appointments, and reminders.
+- Use when scheduling multi-day events, holidays, vacations, conferences, offsites, and date ranges.
 - Use to check today's agenda, multi-day lookaheads, upcoming deadlines, and event conflicts.
 - Use when events contain rich metadata such as attendees (names, emails, wiki links), physical locations (addresses, rooms, Google Maps links), video conferencing links (Zoom, Google Meet, Microsoft Teams), tags, and descriptions.
 - Use to manage recurring schedules (daily standups, weekly 1:1s, monthly reviews, bi-weekly paydays, annual anniversaries).
@@ -43,7 +44,7 @@ Calendar entries are maintained in the workspace using [Remind](https://manpages
 
 Remind specifies events with the `REM` command:
 ```remind
-REM <date_spec> [AT <time>] [DURATION <duration>] [TAG <tags>] \
+REM <date_spec> [THROUGH <end_date>] [AT <time>] [DURATION <duration>] [TAG <tag>]... \
     [INFO "<Header>: <Value>"]... \
     MSG <Summary>
 ```
@@ -64,6 +65,8 @@ Standardized INFO headers supported by OpenLia:
 ### Date & Time Specification Reference
 
 - **Specific Date**: `2026-10-15` or `15 Oct 2026`
+- **Multi-Day Range (Inclusive)**: `REM 15 Oct 2026 THROUGH 19 Oct 2026 TAG holiday MSG Autumn Break` or `REM 2026-10-15 THROUGH 2026-10-19 MSG School Holiday`
+- **Range vs. Duration Principle**: Use `THROUGH` to express inclusive multi-day calendar spans. Do NOT use `DURATION` as a substitute for a date range; `DURATION` specifies the length of an occurrence on a single day (e.g. `DURATION 1:30`), not the calendar span of a holiday.
 - **Time & Duration**: `AT 10:00 DURATION 1:00` (or `DURATION 60`)
 - **Advance Warning**: `+3` (warn 3 days ahead) or `AT 14:00 +15` (warn 15 minutes ahead)
 - **Weekly Recurrence**: `REM Mon AT 09:00 DURATION 0:30 MSG Team Standup`
@@ -133,10 +136,23 @@ REM 2026-10-15 AT 10:00 DURATION 1:00 TAG meeting TAG client \
     INFO "Description: Quarterly client sync and roadmap review" \
     INFO "Event-Note: openlia://workspace/calendar/2026-10-15-client-review.md" \
     MSG Client Roadmap Review
+
+# Multi-day holiday or date range (inclusive dates):
+REM 15 Oct 2026 THROUGH 19 Oct 2026 \
+    TAG holiday TAG school TAG lina \
+    INFO "Description: Lina — Nghỉ giữa học kỳ I" \
+    MSG Lina — Nghỉ giữa học kỳ I
 ```
 
 Keep `MSG` last. Repeat `TAG` for each tag. Use at most one `INFO` clause for
 each header, and keep header names free of whitespace before the colon.
+
+**Multi-Day Scheduling Rule**: When scheduling multi-day events (school holidays,
+family vacations, multi-day conferences, business trips), always use
+`THROUGH <end_date>` to express the inclusive date range. Never create duplicate
+single-day reminders for each consecutive day, and never misuse `DURATION` to
+represent multi-day spans. This ensures logical event integrity across both native
+Remind notifications and workspace calendar views.
 
 Remind accepts UTF-8 event text. Preserve Vietnamese, Japanese, Korean, and
 other Unicode text exactly as authored. Never transliterate, strip accents,

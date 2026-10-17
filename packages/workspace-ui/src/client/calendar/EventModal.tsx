@@ -1,8 +1,9 @@
 import { useId, useState } from "react";
-import type { CalendarEvent, CalendarSource } from "./types";
+import type { CalendarEvent, CalendarSource, LogicalEvent } from "./types";
 
-function scheduleLabel(event: CalendarEvent): string | null {
-  const schedule = event.schedule;
+function scheduleLabel(event: LogicalEvent | CalendarEvent): string | null {
+  const schedule =
+    "rawEvent" in event ? event.rawEvent.schedule : event.schedule;
   if (!schedule?.isRecurring) return null;
 
   const parts = [schedule.dateSpec || "daily"];
@@ -17,7 +18,7 @@ function scheduleLabel(event: CalendarEvent): string | null {
 }
 
 export interface EventModalProps {
-  event: CalendarEvent | null;
+  event: LogicalEvent | CalendarEvent | null;
   mode: "view" | "edit" | "create";
   presetDate?: string | undefined;
   presetTime?: string | undefined;
@@ -48,9 +49,12 @@ export function EventModal({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Accessible field IDs
+  // Field IDs
   const summaryId = useId();
-  const dateId = useId();
+  const startDateId = useId();
+  const endDateId = useId();
+  const isRangeId = useId();
+  const allDayId = useId();
   const timeId = useId();
   const durationId = useId();
   const sourceId = useId();
@@ -62,11 +66,35 @@ export function EventModal({
   const noteId = useId();
   const tagsId = useId();
 
-  // Form state
-  const [summary, setSummary] = useState(event?.summary || "");
-  const [date, setDate] = useState(
-    event?.date || presetDate || new Date().toISOString().slice(0, 10),
+  // Helper getters from either LogicalEvent or CalendarEvent
+  const eventTitle = event ? ("title" in event ? event.title : event.summary) : "";
+  const initialStartDate = event
+    ? "startDate" in event
+      ? event.startDate
+      : event.date
+    : presetDate || new Date().toISOString().slice(0, 10);
+  const initialEndDate = event
+    ? "endDate" in event && event.endDate
+      ? event.endDate
+      : initialStartDate
+    : initialStartDate;
+  const initialIsRange = Boolean(
+    event &&
+      (("isRange" in event && event.isRange) ||
+        ("endDate" in event && event.endDate && event.endDate !== initialStartDate)),
   );
+  const initialAllDay = event
+    ? "allDay" in event
+      ? event.allDay
+      : !event.time
+    : !presetTime;
+
+  // Form state
+  const [summary, setSummary] = useState(eventTitle);
+  const [startDate, setStartDate] = useState(initialStartDate);
+  const [endDate, setEndDate] = useState(initialEndDate);
+  const [isRange, setIsRange] = useState(initialIsRange);
+  const [allDay, setAllDay] = useState(initialAllDay);
   const [time, setTime] = useState(event?.time || presetTime || "");
   const [duration, setDuration] = useState(event?.duration?.toString() || "60");
   const [location, setLocation] = useState(event?.location || "");
@@ -82,9 +110,27 @@ export function EventModal({
     event?.sourceFile || currentFilePath,
   );
 
+  const isRecurring = Boolean(
+    event &&
+      ("isRecurring" in event
+        ? event.isRecurring
+        : event.schedule?.isRecurring),
+  );
+
+  const sourceRule = event
+    ? "sourceRule" in event
+      ? event.sourceRule
+      : event.rawStatement
+    : undefined;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!summary.trim() || isSaving) return;
+
+    if (isRange && endDate < startDate) {
+      setSaveError("End date must be greater than or equal to start date.");
+      return;
+    }
 
     const attendeeList = attendees
       .split(",")
@@ -96,7 +142,9 @@ export function EventModal({
       .map((t) => t.trim())
       .filter(Boolean);
 
-    const durMins = parseInt(duration, 10) || (time ? 60 : 0);
+    const durMins = allDay
+      ? 0
+      : parseInt(duration, 10) || (time ? 60 : 0);
 
     setIsSaving(true);
     setSaveError(null);
@@ -104,8 +152,9 @@ export function EventModal({
       await onSave(
         {
           summary: summary.trim(),
-          date: date.trim(),
-          time: time.trim() || undefined,
+          date: startDate.trim(),
+          endDate: isRange && endDate >= startDate ? endDate.trim() : undefined,
+          time: allDay ? undefined : time.trim() || undefined,
           duration: durMins,
           location: location.trim() || undefined,
           mapUrl: mapUrl.trim() || undefined,
@@ -131,12 +180,13 @@ export function EventModal({
 
   const handleDelete = async () => {
     if (!event || !onDelete || isSaving) return;
-    if (!confirm(`Delete event "${event.summary}"?`)) return;
+    if (!confirm(`Delete event "${eventTitle}"?`)) return;
 
     setIsSaving(true);
     setSaveError(null);
     try {
-      await onDelete(event);
+      const raw = "rawEvent" in event ? event.rawEvent : event;
+      await onDelete(raw);
       onClose();
     } catch (error) {
       setSaveError(
@@ -160,7 +210,7 @@ export function EventModal({
                 ? "New Calendar Event"
                 : mode === "edit"
                   ? "Edit Event"
-                  : event?.summary}
+                  : eventTitle}
             </h3>
             {event?.sourceFile && mode === "view" && (
               <span className="badge badge-sm badge-outline shrink-0 font-mono text-[10px]">
@@ -181,15 +231,26 @@ export function EventModal({
         {/* View Mode */}
         {mode === "view" && event && (
           <div className="py-4 flex flex-col gap-3 text-sm">
-            {/* Date and Time */}
-            <div className="flex items-center gap-2 text-base-content/80">
+            {/* Date and Time / Range */}
+            <div className="flex items-center gap-2 text-base-content/80 flex-wrap">
               <span className="font-semibold text-base-content">
-                📅 Date & Time:
+                📅 Date:
               </span>
-              <span>{event.date}</span>
+              {"startDate" in event && event.isRange ? (
+                <span>
+                  <strong>{event.startDate}</strong> to{" "}
+                  <strong>{event.endDate}</strong>{" "}
+                  <span className="badge badge-sm badge-ghost ml-1">
+                    {event.durationDays} days
+                  </span>
+                </span>
+              ) : (
+                <span>{"startDate" in event ? event.startDate : event.date}</span>
+              )}
+
               {event.time && (
                 <>
-                  <span>
+                  <span className="ml-1">
                     at <strong className="font-mono">{event.time}</strong>
                   </span>
                   {event.duration > 0 && (
@@ -199,8 +260,27 @@ export function EventModal({
                   )}
                 </>
               )}
+
+              {"allDay" in event && event.allDay && (
+                <span className="badge badge-sm badge-neutral">all day</span>
+              )}
             </div>
 
+            {/* Tags */}
+            {event.tags.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-semibold text-xs text-base-content/70">
+                  Tags:
+                </span>
+                {event.tags.map((t) => (
+                  <span key={t} className="badge badge-sm badge-primary">
+                    #{t}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Recurring schedule note */}
             {scheduleLabel(event) && (
               <div className="rounded-md border border-primary/20 bg-primary/5 p-2 text-xs">
                 <div className="font-semibold text-primary">
@@ -322,15 +402,15 @@ export function EventModal({
               </div>
             )}
 
-            {/* Raw REM Statement (collapsible) */}
-            {event.rawStatement && (
+            {/* Raw Remind Statement / Source Rule */}
+            {sourceRule && (
               <details className="collapse collapse-arrow bg-base-200/30 border border-base-content/10 rounded-box text-xs">
-                <summary className="collapse-title font-mono text-[11px] py-1.5 min-h-0 text-base-content/60">
-                  Raw Remind statement
+                <summary className="collapse-title font-mono text-[11px] py-1.5 min-h-0 text-base-content/70 font-semibold">
+                  Source Remind Rule
                 </summary>
                 <div className="collapse-content">
-                  <pre className="overflow-x-auto font-mono text-[11px] text-base-content/80 whitespace-pre-wrap">
-                    {event.rawStatement}
+                  <pre className="overflow-x-auto font-mono text-[11px] text-base-content/90 whitespace-pre-wrap">
+                    {sourceRule}
                   </pre>
                 </div>
               </details>
@@ -395,57 +475,163 @@ export function EventModal({
               />
             </div>
 
-            {/* Date, Time, Duration */}
-            <div className="grid grid-cols-3 gap-2">
+            {/* Range and All-day Toggles */}
+            <div className="flex items-center gap-4 py-1">
+              <label
+                htmlFor={isRangeId}
+                className="flex items-center gap-2 cursor-pointer"
+              >
+                <input
+                  id={isRangeId}
+                  type="checkbox"
+                  className="checkbox checkbox-xs checkbox-primary"
+                  checked={isRange}
+                  disabled={isRecurring}
+                  onChange={(e) => {
+                    setIsRange(e.target.checked);
+                    if (e.target.checked && endDate < startDate) {
+                      setEndDate(startDate);
+                    }
+                  }}
+                />
+                <span className="text-xs font-semibold">
+                  Multi-day Date Range (THROUGH)
+                </span>
+              </label>
+
+              <label
+                htmlFor={allDayId}
+                className="flex items-center gap-2 cursor-pointer"
+              >
+                <input
+                  id={allDayId}
+                  type="checkbox"
+                  className="checkbox checkbox-xs"
+                  checked={allDay}
+                  onChange={(e) => setAllDay(e.target.checked)}
+                />
+                <span className="text-xs">All-day event</span>
+              </label>
+            </div>
+
+            {/* Date Pickers */}
+            <div className="grid grid-cols-2 gap-2">
               <div className="form-control">
-                <label className="label py-1" htmlFor={dateId}>
-                  <span className="label-text font-semibold">Date *</span>
+                <label className="label py-1" htmlFor={startDateId}>
+                  <span className="label-text font-semibold">
+                    {isRange ? "Start Date *" : "Date *"}
+                  </span>
                 </label>
                 <input
-                  id={dateId}
+                  id={startDateId}
                   type="date"
                   className="input input-sm input-bordered w-full font-mono"
-                  value={date}
-                  disabled={Boolean(event?.schedule?.isRecurring)}
-                  onChange={(e) => setDate(e.target.value)}
+                  value={startDate}
+                  disabled={isRecurring}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    if (isRange && endDate < e.target.value) {
+                      setEndDate(e.target.value);
+                    }
+                  }}
                   required
                 />
               </div>
 
-              <div className="form-control">
-                <label className="label py-1" htmlFor={timeId}>
-                  <span className="label-text">Start Time</span>
-                </label>
-                <input
-                  id={timeId}
-                  type="time"
-                  className="input input-sm input-bordered w-full font-mono"
-                  value={time}
-                  onChange={(e) => setTime(e.target.value)}
-                />
-              </div>
-
-              <div className="form-control">
-                <label className="label py-1" htmlFor={durationId}>
-                  <span className="label-text">Duration (mins)</span>
-                </label>
-                <input
-                  id={durationId}
-                  type="number"
-                  min="0"
-                  step="5"
-                  className="input input-sm input-bordered w-full font-mono"
-                  value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
-                />
-              </div>
+              {isRange && (
+                <div className="form-control">
+                  <label className="label py-1" htmlFor={endDateId}>
+                    <span className="label-text font-semibold">
+                      End Date (Inclusive) *
+                    </span>
+                  </label>
+                  <input
+                    id={endDateId}
+                    type="date"
+                    min={startDate}
+                    className="input input-sm input-bordered w-full font-mono"
+                    value={endDate}
+                    disabled={isRecurring}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    required
+                  />
+                </div>
+              )}
             </div>
-            {event?.schedule?.isRecurring && (
-              <div className="text-[11px] text-base-content/60">
-                This is a recurring occurrence. The date is read-only; saving
-                changes the full series rule.
+
+            {/* Time & Duration (if not all day) */}
+            {!allDay && (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="form-control">
+                  <label className="label py-1" htmlFor={timeId}>
+                    <span className="label-text">Start Time</span>
+                  </label>
+                  <input
+                    id={timeId}
+                    type="time"
+                    className="input input-sm input-bordered w-full font-mono"
+                    value={time}
+                    onChange={(e) => setTime(e.target.value)}
+                  />
+                </div>
+
+                <div className="form-control">
+                  <label className="label py-1" htmlFor={durationId}>
+                    <span className="label-text">Duration (minutes)</span>
+                  </label>
+                  <input
+                    id={durationId}
+                    type="number"
+                    min="0"
+                    step="5"
+                    className="input input-sm input-bordered w-full font-mono"
+                    value={duration}
+                    onChange={(e) => setDuration(e.target.value)}
+                  />
+                </div>
               </div>
             )}
+
+            {isRecurring && (
+              <div className="text-[11px] text-base-content/60">
+                This is a recurring occurrence. Dates are read-only; saving changes
+                updates the recurring series rule.
+              </div>
+            )}
+
+            {/* Tags */}
+            <div className="form-control">
+              <label className="label py-1" htmlFor={tagsId}>
+                <span className="label-text font-semibold">
+                  Tags (space-separated)
+                </span>
+              </label>
+              <input
+                id={tagsId}
+                type="text"
+                className="input input-sm input-bordered w-full font-mono"
+                placeholder="holiday school lina"
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+              />
+            </div>
+
+            {/* Attendees */}
+            <div className="form-control">
+              <label className="label py-1" htmlFor={attendeesId}>
+                <span className="label-text">
+                  Attendees (comma-separated names or emails)
+                </span>
+              </label>
+              <input
+                id={attendeesId}
+                type="text"
+                className="input input-sm input-bordered w-full"
+                placeholder="Alice, Bob <bob@example.com>"
+                value={attendees}
+                onChange={(e) => setAttendees(e.target.value)}
+              />
+            </div>
 
             {/* Calendar Source */}
             {mode === "create" && sources.length > 1 && (
@@ -518,21 +704,6 @@ export function EventModal({
               </div>
             </div>
 
-            {/* Attendees */}
-            <div className="form-control">
-              <label className="label py-1" htmlFor={attendeesId}>
-                <span className="label-text">Attendees (comma separated)</span>
-              </label>
-              <input
-                id={attendeesId}
-                type="text"
-                className="input input-sm input-bordered w-full"
-                placeholder="Alice, Bob <bob@example.com>"
-                value={attendees}
-                onChange={(e) => setAttendees(e.target.value)}
-              />
-            </div>
-
             {/* Description */}
             <div className="form-control">
               <label className="label py-1" htmlFor={descriptionId}>
@@ -540,66 +711,51 @@ export function EventModal({
               </label>
               <textarea
                 id={descriptionId}
-                className="textarea textarea-bordered textarea-sm w-full h-18"
-                placeholder="Meeting agenda, discussion topics..."
+                rows={2}
+                className="textarea textarea-sm textarea-bordered w-full leading-relaxed"
+                placeholder="Meeting agenda, details, or notes..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
             </div>
 
-            {/* Companion Markdown Note */}
+            {/* Companion Note Path */}
             <div className="form-control">
               <label className="label py-1" htmlFor={noteId}>
                 <span className="label-text">
-                  Companion Note (workspace path)
+                  Companion Markdown Note Path
                 </span>
               </label>
               <input
                 id={noteId}
                 type="text"
                 className="input input-sm input-bordered w-full font-mono"
-                placeholder="calendar/YYYY-MM-DD-meeting.md"
+                placeholder="calendar/2026-10-15-meeting.md"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
               />
             </div>
 
-            {/* Tags */}
-            <div className="form-control">
-              <label className="label py-1" htmlFor={tagsId}>
-                <span className="label-text">Tags (space separated)</span>
-              </label>
-              <input
-                id={tagsId}
-                type="text"
-                className="input input-sm input-bordered w-full font-mono"
-                placeholder="meeting sprint 1on1"
-                value={tags}
-                onChange={(e) => setTags(e.target.value)}
-              />
-            </div>
-
-            {/* Actions */}
+            {/* Error banner */}
             {saveError && (
               <div className="alert alert-error py-2 text-xs" role="alert">
                 {saveError}
               </div>
             )}
-            <div className="modal-action border-t border-base-content/10 pt-3 flex justify-end gap-2">
+
+            {/* Form Actions */}
+            <div className="modal-action border-t border-base-content/10 pt-3 flex items-center justify-end gap-2">
               <button
                 type="button"
                 className="btn btn-sm btn-ghost"
+                onClick={onClose}
                 disabled={isSaving}
-                onClick={() => {
-                  if (mode === "edit") setMode("view");
-                  else onClose();
-                }}
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="btn btn-sm btn-primary shadow-xs"
+                className="btn btn-sm btn-primary"
                 disabled={isSaving}
               >
                 {isSaving
@@ -612,12 +768,6 @@ export function EventModal({
           </form>
         )}
       </div>
-      <button
-        type="button"
-        className="modal-backdrop bg-black/40"
-        onClick={onClose}
-        aria-label="Close backdrop"
-      />
     </div>
   );
 }

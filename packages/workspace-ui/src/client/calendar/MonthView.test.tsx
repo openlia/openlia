@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import { MonthView } from "./MonthView";
-import type { CalendarEvent, CalendarSource } from "./types";
+import type { CalendarSource, LogicalEvent } from "./types";
 
 const SOURCE: CalendarSource = {
   path: "calendar/reminders.rem",
@@ -15,15 +15,36 @@ const SOURCE: CalendarSource = {
   eventCount: 4,
 };
 
-function createEvent(id: string): CalendarEvent {
+function createLogicalEvent(
+  id: string,
+  startDate: string = "2026-10-13",
+  endDate: string = "2026-10-13",
+): LogicalEvent {
+  const isRange = startDate !== endDate;
   return {
     id,
-    summary: `Event ${id}`,
-    date: "2026-10-13",
+    ruleId: id,
+    title: `Event ${id}`,
+    startDate,
+    endDate,
+    allDay: !isRange,
     duration: 30,
+    durationDays: isRange ? 5 : 1,
     attendees: [],
     tags: [],
     sourceFile: SOURCE.path,
+    sourceRule: `REM ${startDate} MSG Event ${id}`,
+    isRange,
+    isRecurring: false,
+    rawEvent: {
+      id,
+      summary: `Event ${id}`,
+      date: startDate,
+      duration: 30,
+      attendees: [],
+      tags: [],
+      sourceFile: SOURCE.path,
+    },
   };
 }
 
@@ -33,10 +54,10 @@ describe("MonthView", () => {
       <MonthView
         currentDate={new Date("2026-10-15T00:00:00Z")}
         events={[
-          createEvent("1"),
-          createEvent("2"),
-          createEvent("3"),
-          createEvent("4"),
+          createLogicalEvent("1"),
+          createLogicalEvent("2"),
+          createLogicalEvent("3"),
+          createLogicalEvent("4"),
         ]}
         sources={[SOURCE]}
         onSelectEvent={() => {}}
@@ -58,5 +79,30 @@ describe("MonthView", () => {
 
     const eventButton = screen.getByText("Event 1").closest("button");
     expect(eventButton).toHaveClass("shrink-0");
+  });
+
+  test("renders multi-day event spanning across week boundaries with continuation cues", () => {
+    // 2026-10-15 is Thursday (Week 1), 2026-10-19 is Monday (Week 2)
+    const holiday = createLogicalEvent("holiday", "2026-10-15", "2026-10-19");
+    holiday.title = "Lina Autumn Break";
+
+    render(
+      <MonthView
+        currentDate={new Date("2026-10-15T00:00:00Z")}
+        events={[holiday]}
+        sources={[SOURCE]}
+        onSelectEvent={() => {}}
+        onNewEventOnDate={() => {}}
+      />,
+    );
+
+    // Event should be present across both week rows
+    const holidayElements = screen.getAllByText("Lina Autumn Break");
+    expect(holidayElements).toHaveLength(2);
+
+    // Week 1 segment continues next week (▶)
+    expect(screen.getByText("▶")).toBeInTheDocument();
+    // Week 2 segment continues from prior week (◀)
+    expect(screen.getByText("◀")).toBeInTheDocument();
   });
 });

@@ -67,9 +67,38 @@ export interface CalendarEvent {
   rawInfoEntries?: RemindInfoEntry[] | undefined;
   rawSummary?: string | undefined;
   unsupportedClauses?: string[] | undefined;
+  endDate?: string | undefined; // YYYY-MM-DD (inclusive end date for ranges)
   sourceFile: string;
   lineNumber?: number | undefined;
   rawStatement?: string | undefined;
+}
+
+export interface LogicalEvent {
+  id: string;
+  ruleId: string;
+  title: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD (inclusive)
+  allDay: boolean;
+  time?: string | undefined; // HH:MM (24-hour)
+  duration: number; // in minutes (0 if unspecified or untimed)
+  durationDays: number; // inclusive day count (1 for single-day, >=1 for multi-day)
+  tags: string[];
+  attendees: string[];
+  location?: string | undefined;
+  mapUrl?: string | undefined;
+  callUrl?: string | undefined;
+  description?: string | undefined;
+  note?: string | undefined;
+  priority?: number | undefined;
+  sourceFile: string;
+  lineNumber?: number | undefined;
+  sourceRule: string; // original raw statement
+  isRange: boolean; // true if startDate !== endDate
+  isRecurring: boolean;
+  rawEvent: CalendarEvent;
+  info?: Record<string, string> | undefined;
+  unsupportedClauses?: string[] | undefined;
 }
 
 export interface CalendarSource {
@@ -86,4 +115,7 @@ export interface CalendarSource {
 
 export interface CalendarFilterState {
   enabledSources: Set<string>;
+  selectedTags: Set<string>;
+  selectedPeople: Set<string>;
+  searchQuery: string;
 }

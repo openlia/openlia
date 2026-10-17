@@ -1,15 +1,24 @@
 import { useState } from "react";
-import type { CalendarEvent, CalendarSource } from "./types";
+import { daysBetween } from "./eventInterpretation";
+import type { CalendarSource, LogicalEvent } from "./types";
 
 export interface GanttViewProps {
   currentDate: Date;
-  events: CalendarEvent[];
+  events: LogicalEvent[];
   sources: CalendarSource[];
-  onSelectEvent: (event: CalendarEvent) => void;
+  onSelectEvent: (event: LogicalEvent) => void;
   onNewEventOnDate: (dateIso: string) => void;
 }
 
-const DAY_WIDTH = 120; // pixels per day on Gantt timeline
+type GanttRange = 7 | 14 | 30 | 60 | 90;
+
+const RANGE_CONFIG: Record<GanttRange, { label: string; dayWidth: number }> = {
+  7: { label: "7 Days", dayWidth: 140 },
+  14: { label: "14 Days", dayWidth: 110 },
+  30: { label: "1 Month", dayWidth: 70 },
+  60: { label: "2 Months", dayWidth: 48 },
+  90: { label: "Quarter", dayWidth: 38 },
+};
 
 export function GanttView({
   currentDate,
@@ -18,11 +27,12 @@ export function GanttView({
   onSelectEvent,
   onNewEventOnDate: _onNewEventOnDate,
 }: GanttViewProps) {
-  const [rangeDays, setRangeDays] = useState<7 | 14 | 30>(14);
+  const [rangeDays, setRangeDays] = useState<GanttRange>(14);
 
   const todayIso = new Date().toISOString().slice(0, 10);
+  const dayWidth = RANGE_CONFIG[rangeDays].dayWidth;
 
-  // Compute start date of Gantt timeline (e.g. Monday of current week or first of month)
+  // Compute start date of Gantt timeline: Monday of current week
   const curr = new Date(
     Date.UTC(
       currentDate.getFullYear(),
@@ -52,19 +62,17 @@ export function GanttView({
     };
   });
 
-  const firstDay = days[0];
-  const lastDay = days[days.length - 1];
-  const startIso = firstDay ? firstDay.iso : "";
-  const endIso = lastDay ? lastDay.iso : "";
+  const startIso = days[0]?.iso ?? "";
+  const endIso = days[days.length - 1]?.iso ?? "";
 
-  // Filter events within range
+  // Filter events active within this Gantt timeline window
+  // (event overlaps [startIso, endIso])
   const visibleEvents = events
-    .filter((ev) => ev.date >= startIso && ev.date <= endIso)
+    .filter((ev) => ev.startDate <= endIso && ev.endDate >= startIso)
     .sort((a, b) => {
-      if (a.date !== b.date) return a.date.localeCompare(b.date);
-      const timeA = a.time || "00:00";
-      const timeB = b.time || "00:00";
-      return timeA.localeCompare(timeB);
+      if (a.startDate !== b.startDate) return a.startDate.localeCompare(b.startDate);
+      if (a.isRange !== b.isRange) return a.isRange ? -1 : 1;
+      return (a.time || "00:00").localeCompare(b.time || "00:00");
     });
 
   const sourceMap = new Map<string, CalendarSource>();
@@ -72,13 +80,7 @@ export function GanttView({
     sourceMap.set(src.path, src);
   }
 
-  // Calculate day index map
-  const dayIndexMap = new Map<string, number>();
-  for (const d of days) {
-    dayIndexMap.set(d.iso, d.index);
-  }
-
-  const totalWidth = rangeDays * DAY_WIDTH;
+  const totalWidth = rangeDays * dayWidth;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-base-100">
@@ -87,38 +89,32 @@ export function GanttView({
         <span className="font-semibold text-base-content/70">
           Gantt Schedule ({visibleEvents.length} events)
         </span>
-        <div className="join border border-base-content/15 rounded-md bg-base-100">
-          <button
-            type="button"
-            className={`btn btn-xs join-item ${rangeDays === 7 ? "btn-primary" : "btn-ghost"}`}
-            onClick={() => setRangeDays(7)}
-          >
-            7 Days
-          </button>
-          <button
-            type="button"
-            className={`btn btn-xs join-item ${rangeDays === 14 ? "btn-primary" : "btn-ghost"}`}
-            onClick={() => setRangeDays(14)}
-          >
-            14 Days
-          </button>
-          <button
-            type="button"
-            className={`btn btn-xs join-item ${rangeDays === 30 ? "btn-primary" : "btn-ghost"}`}
-            onClick={() => setRangeDays(30)}
-          >
-            30 Days
-          </button>
+        <div className="join border border-base-content/15 rounded-md bg-base-100 p-0.5">
+          {([7, 14, 30, 60, 90] as GanttRange[]).map((r) => (
+            <button
+              key={r}
+              type="button"
+              className={`btn btn-xs join-item ${
+                rangeDays === r ? "btn-primary" : "btn-ghost"
+              }`}
+              onClick={() => setRangeDays(r)}
+            >
+              {RANGE_CONFIG[r].label}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Main Gantt Body */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Table: Event Details */}
-        <div className="w-72 shrink-0 border-r border-base-content/10 flex flex-col bg-base-100 overflow-y-auto">
+        {/* Left Panel: Event Title, Dates & Tags */}
+        <div className="w-80 shrink-0 border-r border-base-content/10 flex flex-col bg-base-100 overflow-y-auto">
           {/* Header */}
-          <div className="h-12 border-b border-base-content/10 bg-base-200/50 px-3 flex items-center font-semibold text-xs text-base-content/70">
-            Event / Task
+          <div className="h-12 border-b border-base-content/10 bg-base-200/50 px-3 flex items-center justify-between font-semibold text-xs text-base-content/70">
+            <span>Event / Task</span>
+            <span className="text-[11px] font-normal text-base-content/50">
+              Duration
+            </span>
           </div>
 
           {/* Event Rows */}
@@ -129,26 +125,55 @@ export function GanttView({
           ) : (
             visibleEvents.map((ev) => {
               const src = sourceMap.get(ev.sourceFile);
+              const isMultiDay = ev.isRange || ev.durationDays > 1;
+
               return (
                 <button
                   type="button"
                   key={ev.id}
-                  className="h-10 border-b border-base-content/5 px-3 flex items-center justify-between gap-1 hover:bg-base-200/50 cursor-pointer transition-colors w-full text-left"
+                  className="h-11 border-b border-base-content/5 px-3 flex items-center justify-between gap-2 hover:bg-base-200/50 cursor-pointer transition-colors w-full text-left"
                   onClick={() => onSelectEvent(ev)}
                 >
-                  <div className="truncate flex items-center gap-1.5">
-                    <span
-                      className={`h-2 w-2 rounded-full shrink-0 ${src?.bgClass || "bg-primary"}`}
-                    />
-                    <span
-                      className="text-xs font-medium text-base-content truncate"
-                      title={ev.summary}
-                    >
-                      {ev.summary}
-                    </span>
+                  <div className="truncate flex flex-col min-w-0">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <span
+                        className={`h-2 w-2 rounded-full shrink-0 ${
+                          src?.bgClass || "bg-primary"
+                        }`}
+                      />
+                      <span
+                        className="text-xs font-semibold text-base-content truncate"
+                        title={ev.title}
+                      >
+                        {ev.title}
+                      </span>
+                    </div>
+
+                    {/* Tags preview */}
+                    {ev.tags.length > 0 && (
+                      <div className="flex items-center gap-1 mt-0.5 truncate pl-3.5">
+                        {ev.tags.slice(0, 2).map((tag) => (
+                          <span
+                            key={tag}
+                            className="text-[10px] text-primary/80 font-mono"
+                          >
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div className="shrink-0 text-[10px] text-base-content/60 font-mono">
-                    {ev.time || "all day"}
+
+                  <div className="shrink-0 text-right font-mono text-[10px] text-base-content/60">
+                    {isMultiDay ? (
+                      <span className="badge badge-xs badge-ghost font-mono">
+                        {ev.durationDays}d
+                      </span>
+                    ) : ev.time ? (
+                      ev.time
+                    ) : (
+                      "all day"
+                    )}
                   </div>
                 </button>
               );
@@ -156,7 +181,7 @@ export function GanttView({
           )}
         </div>
 
-        {/* Right Area: Timeline Header & Horizontal Bars */}
+        {/* Right Panel: Timeline Header & Horizontal Bars */}
         <div className="flex-1 overflow-x-auto overflow-y-auto relative">
           <div
             style={{ width: `${totalWidth}px` }}
@@ -170,7 +195,7 @@ export function GanttView({
                   className={`flex flex-col items-center justify-center border-r border-base-content/10 text-xs shrink-0 ${
                     day.isToday ? "bg-primary/10 font-bold" : ""
                   }`}
-                  style={{ width: `${DAY_WIDTH}px` }}
+                  style={{ width: `${dayWidth}px` }}
                 >
                   <span className="text-[10px] opacity-70 uppercase tracking-wide">
                     {day.dayName}
@@ -186,7 +211,7 @@ export function GanttView({
               ))}
             </div>
 
-            {/* Timeline Grid & Event Bars */}
+            {/* Timeline Grid & Continuous Event Bars */}
             <div className="relative flex-1">
               {/* Vertical Day Lines */}
               <div className="pointer-events-none absolute inset-0 flex z-0">
@@ -196,30 +221,42 @@ export function GanttView({
                     className={`border-r border-base-content/5 h-full shrink-0 ${
                       day.isToday ? "bg-primary/[0.02]" : ""
                     }`}
-                    style={{ width: `${DAY_WIDTH}px` }}
+                    style={{ width: `${dayWidth}px` }}
                   />
                 ))}
               </div>
 
-              {/* Rows with Horizontal Duration Bars */}
+              {/* Rows with Continuous Horizontal Bars */}
               {visibleEvents.map((ev) => {
-                const dayIndex = dayIndexMap.get(ev.date) ?? -1;
-                if (dayIndex === -1) return null;
+                const rawStartOffset = daysBetween(startIso, ev.startDate);
+                const rawEndOffset = daysBetween(startIso, ev.endDate);
 
-                // Position calculation
-                let leftOffset = dayIndex * DAY_WIDTH;
-                let barWidth = DAY_WIDTH * 0.9;
+                const clampedStartOffset = Math.max(0, rawStartOffset);
+                const clampedEndOffset = Math.min(rangeDays - 1, rawEndOffset);
 
-                if (ev.time) {
+                const spanDays = Math.max(
+                  1,
+                  clampedEndOffset - clampedStartOffset + 1,
+                );
+
+                let leftOffset = clampedStartOffset * dayWidth;
+                let barWidth = spanDays * dayWidth - 4;
+
+                const isMultiDay = ev.isRange || ev.durationDays > 1;
+
+                if (!isMultiDay && ev.time) {
                   const parts = ev.time.split(":");
                   const h = parseInt(parts[0] ?? "0", 10) || 0;
                   const m = parseInt(parts[1] ?? "0", 10) || 0;
                   const minutesIntoDay = h * 60 + m;
-                  leftOffset += (minutesIntoDay / 1440) * DAY_WIDTH;
+                  leftOffset += (minutesIntoDay / 1440) * dayWidth;
 
                   const durMins = ev.duration > 0 ? ev.duration : 60;
-                  barWidth = Math.max(30, (durMins / 1440) * DAY_WIDTH);
+                  barWidth = Math.max(28, (durMins / 1440) * dayWidth);
                 }
+
+                const continuesPrior = rawStartOffset < 0;
+                const continuesAfter = rawEndOffset >= rangeDays;
 
                 const src = sourceMap.get(ev.sourceFile);
                 const bg = src?.bgClass || "bg-primary/20";
@@ -229,28 +266,40 @@ export function GanttView({
                 return (
                   <div
                     key={ev.id}
-                    className="h-10 border-b border-base-content/5 relative flex items-center z-10"
+                    className="h-11 border-b border-base-content/5 relative flex items-center z-10 px-1"
                   >
                     <button
                       type="button"
-                      className={`absolute h-7 rounded-md border shadow-xs px-2 flex items-center gap-1.5 cursor-pointer hover:shadow-md transition-shadow truncate text-left ${bg} ${border} ${text}`}
+                      className={`absolute h-7 border shadow-xs px-2 flex items-center gap-1.5 cursor-pointer hover:shadow-md transition-shadow truncate text-left ${bg} ${border} ${text} ${
+                        continuesPrior ? "rounded-l-none border-l-0 pl-1" : "rounded-l-md"
+                      } ${
+                        continuesAfter ? "rounded-r-none border-r-0 pr-1" : "rounded-r-md"
+                      }`}
                       style={{
                         left: `${leftOffset}px`,
                         width: `${barWidth}px`,
-                        minWidth: "60px",
+                        minWidth: "32px",
                       }}
                       onClick={() => onSelectEvent(ev)}
-                      title={`${ev.summary} (${ev.date}${ev.time ? ` at ${ev.time}` : ""})`}
+                      title={`${ev.title} (${ev.startDate}${isMultiDay ? ` → ${ev.endDate}` : ""})`}
                     >
+                      {continuesPrior && (
+                        <span className="text-[10px] opacity-75 shrink-0">◀</span>
+                      )}
                       {ev.callUrl && (
                         <span className="text-[10px] shrink-0">📹</span>
                       )}
                       <span className="text-xs font-semibold truncate leading-none">
-                        {ev.summary}
+                        {ev.title}
                       </span>
-                      {ev.duration > 0 && (
+                      {isMultiDay && (
                         <span className="text-[10px] opacity-75 shrink-0 ml-auto font-mono">
-                          {ev.duration}m
+                          {ev.durationDays}d
+                        </span>
+                      )}
+                      {continuesAfter && (
+                        <span className="text-[10px] opacity-75 shrink-0 ml-1">
+                          ▶
                         </span>
                       )}
                     </button>
