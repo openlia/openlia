@@ -395,13 +395,14 @@ export function filterLogicalEvents(
     // 3. Attendees / People filter: event must include any selected person
     if (filters.selectedPeople.size > 0) {
       const attendeesLower = event.attendees.map((a) => a.toLowerCase());
-      const matchesAnyPerson = Array.from(filters.selectedPeople).some((person) =>
-        attendeesLower.some(
-          (att) =>
-            att === person.toLowerCase() ||
-            att.includes(person.toLowerCase()) ||
-            person.toLowerCase().includes(att),
-        ),
+      const matchesAnyPerson = Array.from(filters.selectedPeople).some(
+        (person) =>
+          attendeesLower.some(
+            (att) =>
+              att === person.toLowerCase() ||
+              att.includes(person.toLowerCase()) ||
+              person.toLowerCase().includes(att),
+          ),
       );
       if (!matchesAnyPerson) return false;
     }

@@ -70,7 +70,8 @@ export function GanttView({
   const visibleEvents = events
     .filter((ev) => ev.startDate <= endIso && ev.endDate >= startIso)
     .sort((a, b) => {
-      if (a.startDate !== b.startDate) return a.startDate.localeCompare(b.startDate);
+      if (a.startDate !== b.startDate)
+        return a.startDate.localeCompare(b.startDate);
       if (a.isRange !== b.isRange) return a.isRange ? -1 : 1;
       return (a.time || "00:00").localeCompare(b.time || "00:00");
     });
@@ -271,9 +272,13 @@ export function GanttView({
                     <button
                       type="button"
                       className={`absolute h-7 border shadow-xs px-2 flex items-center gap-1.5 cursor-pointer hover:shadow-md transition-shadow truncate text-left ${bg} ${border} ${text} ${
-                        continuesPrior ? "rounded-l-none border-l-0 pl-1" : "rounded-l-md"
+                        continuesPrior
+                          ? "rounded-l-none border-l-0 pl-1"
+                          : "rounded-l-md"
                       } ${
-                        continuesAfter ? "rounded-r-none border-r-0 pr-1" : "rounded-r-md"
+                        continuesAfter
+                          ? "rounded-r-none border-r-0 pr-1"
+                          : "rounded-r-md"
                       }`}
                       style={{
                         left: `${leftOffset}px`,
@@ -284,7 +289,9 @@ export function GanttView({
                       title={`${ev.title} (${ev.startDate}${isMultiDay ? ` → ${ev.endDate}` : ""})`}
                     >
                       {continuesPrior && (
-                        <span className="text-[10px] opacity-75 shrink-0">◀</span>
+                        <span className="text-[10px] opacity-75 shrink-0">
+                          ◀
+                        </span>
                       )}
                       {ev.callUrl && (
                         <span className="text-[10px] shrink-0">📹</span>

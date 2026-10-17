@@ -67,7 +67,11 @@ export function EventModal({
   const tagsId = useId();
 
   // Helper getters from either LogicalEvent or CalendarEvent
-  const eventTitle = event ? ("title" in event ? event.title : event.summary) : "";
+  const eventTitle = event
+    ? "title" in event
+      ? event.title
+      : event.summary
+    : "";
   const initialStartDate = event
     ? "startDate" in event
       ? event.startDate
@@ -81,7 +85,9 @@ export function EventModal({
   const initialIsRange = Boolean(
     event &&
       (("isRange" in event && event.isRange) ||
-        ("endDate" in event && event.endDate && event.endDate !== initialStartDate)),
+        ("endDate" in event &&
+          event.endDate &&
+          event.endDate !== initialStartDate)),
   );
   const initialAllDay = event
     ? "allDay" in event
@@ -142,9 +148,7 @@ export function EventModal({
       .map((t) => t.trim())
       .filter(Boolean);
 
-    const durMins = allDay
-      ? 0
-      : parseInt(duration, 10) || (time ? 60 : 0);
+    const durMins = allDay ? 0 : parseInt(duration, 10) || (time ? 60 : 0);
 
     setIsSaving(true);
     setSaveError(null);
@@ -233,9 +237,7 @@ export function EventModal({
           <div className="py-4 flex flex-col gap-3 text-sm">
             {/* Date and Time / Range */}
             <div className="flex items-center gap-2 text-base-content/80 flex-wrap">
-              <span className="font-semibold text-base-content">
-                📅 Date:
-              </span>
+              <span className="font-semibold text-base-content">📅 Date:</span>
               {"startDate" in event && event.isRange ? (
                 <span>
                   <strong>{event.startDate}</strong> to{" "}
@@ -245,7 +247,9 @@ export function EventModal({
                   </span>
                 </span>
               ) : (
-                <span>{"startDate" in event ? event.startDate : event.date}</span>
+                <span>
+                  {"startDate" in event ? event.startDate : event.date}
+                </span>
               )}
 
               {event.time && (
@@ -594,8 +598,8 @@ export function EventModal({
 
             {isRecurring && (
               <div className="text-[11px] text-base-content/60">
-                This is a recurring occurrence. Dates are read-only; saving changes
-                updates the recurring series rule.
+                This is a recurring occurrence. Dates are read-only; saving
+                changes updates the recurring series rule.
               </div>
             )}
 
@@ -722,9 +726,7 @@ export function EventModal({
             {/* Companion Note Path */}
             <div className="form-control">
               <label className="label py-1" htmlFor={noteId}>
-                <span className="label-text">
-                  Companion Markdown Note Path
-                </span>
+                <span className="label-text">Companion Markdown Note Path</span>
               </label>
               <input
                 id={noteId}

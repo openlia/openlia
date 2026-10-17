@@ -151,8 +151,7 @@ export function MonthView({
 
             // Events active in this week
             const weekActiveEvents = events.filter(
-              (ev) =>
-                ev.startDate <= weekEndIso && ev.endDate >= weekStartIso,
+              (ev) => ev.startDate <= weekEndIso && ev.endDate >= weekStartIso,
             );
 
             // Sort: Multi-day ranges first (longer first), then by start date
@@ -316,9 +315,13 @@ export function MonthView({
                           gridRow: seg.track,
                         }}
                         className={`flex shrink-0 min-w-0 items-center gap-1 truncate px-1.5 py-0.5 text-left text-xs font-medium border shadow-2xs hover:opacity-85 transition-opacity cursor-pointer ${bg} ${border} ${text} ${
-                          seg.continuesPrior ? "rounded-l-none border-l-0 pl-1" : "rounded-l"
+                          seg.continuesPrior
+                            ? "rounded-l-none border-l-0 pl-1"
+                            : "rounded-l"
                         } ${
-                          seg.continuesAfter ? "rounded-r-none border-r-0 pr-1" : "rounded-r"
+                          seg.continuesAfter
+                            ? "rounded-r-none border-r-0 pr-1"
+                            : "rounded-r"
                         }`}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -335,12 +338,18 @@ export function MonthView({
                           </span>
                         )}
                         {ev.callUrl && (
-                          <span title="Video Meeting" className="shrink-0 text-[10px]">
+                          <span
+                            title="Video Meeting"
+                            className="shrink-0 text-[10px]"
+                          >
                             📹
                           </span>
                         )}
                         {ev.location && !ev.callUrl && (
-                          <span title="Location" className="shrink-0 text-[10px]">
+                          <span
+                            title="Location"
+                            className="shrink-0 text-[10px]"
+                          >
                             📍
                           </span>
                         )}
