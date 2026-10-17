@@ -229,4 +229,112 @@ describe("CalendarPreviewPane", () => {
     expect(updatedContent).toContain("MSG Updated Included Break");
     expect(revision).toBe("holiday-revision");
   });
+
+  test("renders a THROUGH holiday as one continuous event in Gantt view", () => {
+    const holidayContent = `REM 2026-10-15 THROUGH 2026-10-19 \\
+    TAG holiday TAG lina \\
+    MSG Lina Autumn Holiday
+`;
+    render(
+      <CalendarPreviewPane
+        content={holidayContent}
+        filePath="calendar/reminders.rem"
+        fileRevision="root-revision"
+      />,
+    );
+
+    // Switch to Gantt view
+    fireEvent.click(screen.getByRole("button", { name: "Gantt" }));
+
+    // In Gantt view, "Lina Autumn Holiday" should appear in the left list and timeline bar
+    const matches = screen.getAllByText("Lina Autumn Holiday");
+    expect(matches.length).toBeGreaterThanOrEqual(1);
+
+    // Should indicate duration of 5 days (5d) in both row and timeline bar
+    expect(screen.getAllByText("5d")).toHaveLength(2);
+    expect(screen.getByText("#holiday")).toBeInTheDocument();
+  });
+
+  test("filters calendar events by tag", () => {
+    const multiTagContent = `REM 2026-10-15 TAG holiday MSG Family Vacation
+REM 2026-10-16 AT 10:00 TAG sprint MSG Sprint Meeting
+`;
+    render(
+      <CalendarPreviewPane
+        content={multiTagContent}
+        filePath="calendar/reminders.rem"
+        fileRevision="root-revision"
+      />,
+    );
+
+    // Both events initially present
+    expect(screen.getByText("Family Vacation")).toBeInTheDocument();
+    expect(screen.getByText("Sprint Meeting")).toBeInTheDocument();
+
+    // Toggle filter bar
+    fireEvent.click(screen.getByLabelText("Filter events"));
+
+    // Click #holiday tag badge
+    const holidayTagBtn = screen.getByRole("button", { name: "#holiday" });
+    fireEvent.click(holidayTagBtn);
+
+    // Family Vacation remains, Sprint Meeting is filtered out
+    expect(screen.getByText("Family Vacation")).toBeInTheDocument();
+    expect(screen.queryByText("Sprint Meeting")).not.toBeInTheDocument();
+
+    // Reset filters
+    fireEvent.click(screen.getByRole("button", { name: "Reset filters" }));
+    expect(screen.getByText("Sprint Meeting")).toBeInTheDocument();
+  });
+
+  test("creates a new multi-day THROUGH range event", async () => {
+    const saveCalendarFile = vi.fn(
+      async (_path: string, _content: string, _revision: string) => ({
+        revision: "next-rev",
+      }),
+    );
+    render(
+      <CalendarPreviewPane
+        content={SAMPLE_REM_CONTENT}
+        filePath="calendar/reminders.rem"
+        fileRevision="root-revision"
+        onSaveCalendarFile={saveCalendarFile}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New Event" }));
+
+    // Set title
+    const titleInput = screen.getByPlaceholderText(
+      /Sprint Planning, Team Standup/,
+    );
+    fireEvent.change(titleInput, { target: { value: "Lina Mid-term Break" } });
+
+    // Enable multi-day range
+    const rangeCheckbox = screen.getByLabelText(
+      /Multi-day Date Range \(THROUGH\)/,
+    );
+    fireEvent.click(rangeCheckbox);
+
+    // Start Date & End Date
+    const startDateInput = screen.getByLabelText("Start Date *");
+    fireEvent.change(startDateInput, { target: { value: "2026-10-15" } });
+
+    const endDateInput = screen.getByLabelText("End Date (Inclusive) *");
+    fireEvent.change(endDateInput, { target: { value: "2026-10-19" } });
+
+    // Add tags
+    const tagsInput = screen.getByPlaceholderText("holiday school lina");
+    fireEvent.change(tagsInput, { target: { value: "holiday school lina" } });
+
+    // Submit
+    fireEvent.click(screen.getByRole("button", { name: "Add Event" }));
+
+    await waitFor(() => expect(saveCalendarFile).toHaveBeenCalledTimes(1));
+    const [path, updatedContent] = saveCalendarFile.mock.calls[0] ?? [];
+    expect(path).toBe("calendar/reminders.rem");
+    expect(updatedContent).toContain("2026-10-15 THROUGH 2026-10-19");
+    expect(updatedContent).toContain("TAG holiday TAG school TAG lina");
+    expect(updatedContent).toContain("MSG Lina Mid-term Break");
+  });
 });

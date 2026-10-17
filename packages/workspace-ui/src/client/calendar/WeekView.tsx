@@ -1,17 +1,27 @@
 import { useEffect, useRef } from "react";
-import type { CalendarEvent, CalendarSource } from "./types";
+import { daysBetween } from "./eventInterpretation";
+import type { CalendarSource, LogicalEvent } from "./types";
 
 export interface WeekViewProps {
   currentDate: Date;
-  events: CalendarEvent[];
+  events: LogicalEvent[];
   sources: CalendarSource[];
-  onSelectEvent: (event: CalendarEvent) => void;
+  onSelectEvent: (event: LogicalEvent) => void;
   onNewEventOnTime: (dateIso: string, timeStr?: string) => void;
 }
 
 const HOUR_HEIGHT = 56; // pixels per hour
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+interface AllDaySegment {
+  event: LogicalEvent;
+  colStart: number;
+  colSpan: number;
+  continuesPrior: boolean;
+  continuesAfter: boolean;
+  track: number;
+}
 
 export function WeekView({
   currentDate,
@@ -58,26 +68,92 @@ export function WeekView({
     };
   });
 
-  // Split into timed events and untimed events per day
-  const timedByDate = new Map<string, CalendarEvent[]>();
-  const untimedByDate = new Map<string, CalendarEvent[]>();
-
-  for (const day of weekDays) {
-    timedByDate.set(day.iso, []);
-    untimedByDate.set(day.iso, []);
-  }
-
-  for (const ev of events) {
-    if (ev.time) {
-      timedByDate.get(ev.date)?.push(ev);
-    } else {
-      untimedByDate.get(ev.date)?.push(ev);
-    }
-  }
+  const weekStartIso = weekDays[0]?.iso ?? "";
+  const weekEndIso = weekDays[6]?.iso ?? "";
 
   const sourceMap = new Map<string, CalendarSource>();
   for (const src of sources) {
     sourceMap.set(src.path, src);
+  }
+
+  // 1. Separate all-day and multi-day events for the top strip
+  const allDayEvents = events.filter((ev) => {
+    const isMultiDay = ev.isRange || ev.durationDays > 1;
+    return (
+      (ev.allDay || isMultiDay) &&
+      ev.startDate <= weekEndIso &&
+      ev.endDate >= weekStartIso
+    );
+  });
+
+  // Sort: longer spans first, then start date
+  const sortedAllDay = [...allDayEvents].sort((a, b) => {
+    if (a.durationDays !== b.durationDays)
+      return b.durationDays - a.durationDays;
+    return a.startDate.localeCompare(b.startDate);
+  });
+
+  const occupiedTracks: boolean[][] = [];
+  const allDaySegments: AllDaySegment[] = [];
+
+  for (const ev of sortedAllDay) {
+    const segStartIso =
+      ev.startDate < weekStartIso ? weekStartIso : ev.startDate;
+    const segEndIso = ev.endDate > weekEndIso ? weekEndIso : ev.endDate;
+
+    const startOffset = Math.max(0, daysBetween(weekStartIso, segStartIso));
+    const endOffset = Math.min(6, daysBetween(weekStartIso, segEndIso));
+
+    const colStart = startOffset + 1;
+    const colSpan = Math.max(1, endOffset - startOffset + 1);
+
+    let track = 1;
+    while (true) {
+      if (!occupiedTracks[track]) {
+        occupiedTracks[track] = Array(7).fill(false);
+      }
+      let trackFree = true;
+      for (let c = startOffset; c <= endOffset; c++) {
+        if (occupiedTracks[track]?.[c]) {
+          trackFree = false;
+          break;
+        }
+      }
+      if (trackFree) {
+        for (let c = startOffset; c <= endOffset; c++) {
+          const row = occupiedTracks[track];
+          if (row) row[c] = true;
+        }
+        break;
+      }
+      track++;
+    }
+
+    allDaySegments.push({
+      event: ev,
+      colStart,
+      colSpan,
+      continuesPrior: ev.startDate < weekStartIso,
+      continuesAfter: ev.endDate > weekEndIso,
+      track,
+    });
+  }
+
+  const maxAllDayTrack = allDaySegments.reduce(
+    (max, seg) => Math.max(max, seg.track),
+    0,
+  );
+
+  // 2. Timed events grouped by day
+  const timedByDate = new Map<string, LogicalEvent[]>();
+  for (const day of weekDays) {
+    timedByDate.set(day.iso, []);
+  }
+
+  for (const ev of events) {
+    if (!ev.allDay && !ev.isRange && ev.durationDays === 1 && ev.time) {
+      timedByDate.get(ev.startDate)?.push(ev);
+    }
   }
 
   // Calculate current time line for today
@@ -87,56 +163,102 @@ export function WeekView({
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-base-100">
-      {/* Week Header (Sticky Days) */}
-      <div className="flex border-b border-base-content/10 bg-base-200/50">
-        {/* Time gutter spacer */}
-        <div className="w-16 shrink-0 border-r border-base-content/10 py-2 text-center text-xs text-base-content/50">
-          Time
-        </div>
-
-        {/* 7 Day Headers */}
-        <div className="grid flex-1 grid-cols-7 divide-x divide-base-content/10">
-          {weekDays.map((day) => (
-            <div
-              key={day.iso}
-              className={`flex flex-col items-center py-2 text-center ${
-                day.isToday ? "bg-primary/5" : ""
-              }`}
-            >
-              <span className="text-xs font-semibold text-base-content/70">
-                {day.name}
-              </span>
-              <span
-                className={`mt-0.5 flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
-                  day.isToday
-                    ? "bg-primary text-primary-content"
-                    : "text-base-content"
+      {/* Sticky Week Header & All-Day Strip */}
+      <div className="flex flex-col border-b border-base-content/10 bg-base-200/50">
+        {/* Day Name / Number Row */}
+        <div className="flex">
+          <div className="w-16 shrink-0 border-r border-base-content/10 py-2 text-center text-xs text-base-content/50">
+            Time
+          </div>
+          <div className="grid flex-1 grid-cols-7 divide-x divide-base-content/10">
+            {weekDays.map((day) => (
+              <div
+                key={day.iso}
+                className={`flex flex-col items-center py-2 text-center ${
+                  day.isToday ? "bg-primary/5" : ""
                 }`}
               >
-                {day.date.getUTCDate()}
-              </span>
-
-              {/* Untimed / All-day badges */}
-              {untimedByDate.get(day.iso)?.length ? (
-                <div className="mt-1 flex w-full flex-col gap-1 px-1">
-                  {untimedByDate.get(day.iso)?.map((ev) => (
-                    <button
-                      key={ev.id}
-                      type="button"
-                      className="truncate rounded bg-base-300 px-1 py-0.5 text-left text-[11px] font-medium text-base-content hover:opacity-80"
-                      onClick={() => onSelectEvent(ev)}
-                    >
-                      {ev.summary}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ))}
+                <span className="text-xs font-semibold text-base-content/70">
+                  {day.name}
+                </span>
+                <span
+                  className={`mt-0.5 flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
+                    day.isToday
+                      ? "bg-primary text-primary-content"
+                      : "text-base-content"
+                  }`}
+                >
+                  {day.date.getUTCDate()}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
+
+        {/* All-Day / Multi-Day Connected Bar Strip */}
+        {allDaySegments.length > 0 && (
+          <div className="flex border-t border-base-content/10 bg-base-200/30">
+            <div className="w-16 shrink-0 border-r border-base-content/10 px-1 py-1 text-right text-[10px] font-semibold text-base-content/50 uppercase tracking-wider">
+              All Day
+            </div>
+            <div
+              className="grid flex-1 grid-cols-7 gap-x-1 gap-y-1 p-1 min-h-[1.75rem]"
+              style={{
+                gridTemplateRows: `repeat(${maxAllDayTrack}, minmax(1.35rem, auto))`,
+              }}
+            >
+              {allDaySegments.map((seg) => {
+                const ev = seg.event;
+                const src = sourceMap.get(ev.sourceFile);
+                const bg = src?.bgClass || "bg-primary/20";
+                const border = src?.borderClass || "border-primary/40";
+                const text = src?.textClass || "text-primary";
+
+                return (
+                  <button
+                    key={`allday_${ev.id}`}
+                    type="button"
+                    style={{
+                      gridColumn: `${seg.colStart} / span ${seg.colSpan}`,
+                      gridRow: seg.track,
+                    }}
+                    className={`flex min-w-0 items-center gap-1 truncate px-1.5 py-0.5 text-left text-xs font-medium border shadow-2xs hover:opacity-85 transition-opacity cursor-pointer ${bg} ${border} ${text} ${
+                      seg.continuesPrior
+                        ? "rounded-l-none border-l-0 pl-1"
+                        : "rounded-l"
+                    } ${
+                      seg.continuesAfter
+                        ? "rounded-r-none border-r-0 pr-1"
+                        : "rounded-r"
+                    }`}
+                    onClick={() => onSelectEvent(ev)}
+                    title={`${ev.title} (${ev.startDate}${ev.isRange ? ` → ${ev.endDate}` : ""})`}
+                  >
+                    {seg.continuesPrior && (
+                      <span className="text-[10px] opacity-75 shrink-0">◀</span>
+                    )}
+                    <span className="min-w-0 truncate font-semibold">
+                      {ev.title}
+                    </span>
+                    {ev.tags.length > 0 && (
+                      <span className="opacity-60 text-[10px] truncate">
+                        #{ev.tags[0]}
+                      </span>
+                    )}
+                    {seg.continuesAfter && (
+                      <span className="text-[10px] opacity-75 shrink-0 ml-auto">
+                        ▶
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Hourly Scroll Area */}
+      {/* Hourly Scroll Area for Timed Events */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto relative">
         <div className="flex" style={{ height: `${24 * HOUR_HEIGHT}px` }}>
           {/* Time Gutter */}
@@ -174,7 +296,9 @@ export function WeekView({
               return (
                 <div
                   key={day.iso}
-                  className={`relative z-10 h-full ${day.isToday ? "bg-primary/[0.02]" : ""}`}
+                  className={`relative z-10 h-full ${
+                    day.isToday ? "bg-primary/[0.02]" : ""
+                  }`}
                 >
                   {/* Today current time marker line */}
                   {day.isToday && (
@@ -224,7 +348,7 @@ export function WeekView({
                         <div className="flex items-start justify-between gap-1 overflow-hidden">
                           <div className="truncate">
                             <div className="text-xs font-bold leading-tight truncate">
-                              {ev.summary}
+                              {ev.title}
                             </div>
                             <div className="text-[10px] opacity-80 font-medium">
                               {ev.time} - {endTimeStr}

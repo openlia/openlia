@@ -1,17 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import { resolveRelativePath } from "../openliaLinks";
 import { CalendarToolbar } from "./CalendarToolbar";
+import {
+  extractFilterOptions,
+  filterLogicalEvents,
+  interpretLogicalEvents,
+} from "./eventInterpretation";
 import { EventModal } from "./EventModal";
 import { GanttView } from "./GanttView";
 import { MonthView } from "./MonthView";
 import {
   addEventToFile,
   deleteEventFromFile,
-  expandEventsForRange,
   parseRemindFile,
   updateEventInFile,
 } from "./remindParser";
-import type { CalendarEvent, CalendarSource, CalendarViewMode } from "./types";
+import type {
+  CalendarEvent,
+  CalendarFilterState,
+  CalendarSource,
+  CalendarViewMode,
+  LogicalEvent,
+} from "./types";
 import { WeekView } from "./WeekView";
 
 export interface CalendarPreviewPaneProps {
@@ -87,11 +97,19 @@ export function CalendarPreviewPane({
   >(() => new Map());
   const [includesLoading, setIncludesLoading] = useState(false);
 
+  // Filter state
+  const [filterState, setFilterState] = useState<CalendarFilterState>({
+    enabledSources: new Set(),
+    selectedTags: new Set(),
+    selectedPeople: new Set(),
+    searchQuery: "",
+  });
+
   // Modal state
   const [modalState, setModalState] = useState<{
     isOpen: boolean;
     mode: "view" | "edit" | "create";
-    event: CalendarEvent | null;
+    event: LogicalEvent | null;
     presetDate?: string | undefined;
     presetTime?: string | undefined;
   }>({
@@ -245,8 +263,8 @@ export function CalendarPreviewPane({
     }
   };
 
-  // Expand events for the active visible date window
-  const visibleExpandedEvents = useMemo(() => {
+  // Convert raw events into normalized logical events for the active visible date window
+  const interpretedEvents = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
 
@@ -267,17 +285,27 @@ export function CalendarPreviewPane({
       startIso = mon.toISOString().slice(0, 10);
       endIso = sun.toISOString().slice(0, 10);
     } else {
-      // Gantt: 35 days window
-      startIso = new Date(currentDate.getTime() - 7 * 86400000)
+      // Gantt: 90 days window to accommodate zoom levels
+      startIso = new Date(currentDate.getTime() - 14 * 86400000)
         .toISOString()
         .slice(0, 10);
-      endIso = new Date(currentDate.getTime() + 35 * 86400000)
+      endIso = new Date(currentDate.getTime() + 95 * 86400000)
         .toISOString()
         .slice(0, 10);
     }
 
-    return expandEventsForRange(allRawEvents, startIso, endIso);
+    return interpretLogicalEvents(allRawEvents, startIso, endIso);
   }, [allRawEvents, currentDate, viewMode]);
+
+  // Extract filter options (tags, attendees) from interpreted events
+  const { tags: availableTags, people: availablePeople } = useMemo(() => {
+    return extractFilterOptions(interpretedEvents);
+  }, [interpretedEvents]);
+
+  // Apply active filters to logical events
+  const visibleEvents = useMemo(() => {
+    return filterLogicalEvents(interpretedEvents, filterState);
+  }, [interpretedEvents, filterState]);
 
   // Navigation handlers
   const handlePrev = () => {
@@ -355,7 +383,11 @@ export function CalendarPreviewPane({
       modalState.mode === "create"
         ? addEventToFile(source.content, eventData)
         : modalState.event
-          ? updateEventInFile(source.content, modalState.event, eventData)
+          ? updateEventInFile(
+              source.content,
+              modalState.event.rawEvent,
+              eventData,
+            )
           : source.content;
 
     await saveCalendarFile(sourcePath, updatedContent);
@@ -388,6 +420,10 @@ export function CalendarPreviewPane({
           })
         }
         onSwitchToEdit={onSwitchToEdit}
+        availableTags={availableTags}
+        availablePeople={availablePeople}
+        filterState={filterState}
+        onFilterChange={setFilterState}
       />
 
       {/* Active Calendar View */}
@@ -423,7 +459,7 @@ export function CalendarPreviewPane({
           {viewMode === "month" && (
             <MonthView
               currentDate={currentDate}
-              events={visibleExpandedEvents}
+              events={visibleEvents}
               sources={sources}
               onSelectEvent={(ev) =>
                 setModalState({ isOpen: true, mode: "view", event: ev })
@@ -442,7 +478,7 @@ export function CalendarPreviewPane({
           {viewMode === "week" && (
             <WeekView
               currentDate={currentDate}
-              events={visibleExpandedEvents}
+              events={visibleEvents}
               sources={sources}
               onSelectEvent={(ev) =>
                 setModalState({ isOpen: true, mode: "view", event: ev })
@@ -462,7 +498,7 @@ export function CalendarPreviewPane({
           {viewMode === "gantt" && (
             <GanttView
               currentDate={currentDate}
-              events={visibleExpandedEvents}
+              events={visibleEvents}
               sources={sources}
               onSelectEvent={(ev) =>
                 setModalState({ isOpen: true, mode: "view", event: ev })

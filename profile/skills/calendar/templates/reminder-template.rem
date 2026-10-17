@@ -2,7 +2,7 @@
 # Reference: https://manpages.debian.org/testing/remind/remind.1.en.html
 #
 # Syntax:
-#   REM <date_spec> [AT <time>] [DURATION <duration>] [TAG <tag>]... [INFO "<Header>: <Value>"]... MSG <Summary>
+#   REM <date_spec> [THROUGH <end_date>] [AT <time>] [DURATION <duration>] [TAG <tag>]... [INFO "<Header>: <Value>"]... MSG <Summary>
 #
 # Square brackets above denote optional syntax; do not copy them into literal
 # prose. Remind parses bracketed text as an expression. Use parentheses for
@@ -40,3 +40,10 @@
 #     INFO "Video-Link: https://zoom.us/j/1234567890" \
 #     INFO "Attendees: openlia://workspace/people/engineering-team.md" \
 #     MSG Daily Standup
+
+# Example 4: Multi-day holiday or date range (inclusive dates)
+# REM 15 Oct 2026 THROUGH 19 Oct 2026 \
+#     TAG holiday TAG school TAG lina \
+#     INFO "Description: Lina — Nghỉ giữa học kỳ I" \
+#     MSG Lina — Nghỉ giữa học kỳ I
+
