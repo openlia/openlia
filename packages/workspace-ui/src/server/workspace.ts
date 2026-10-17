@@ -22,6 +22,7 @@ import type {
   WorkspaceCommitChange,
   WorkspaceDeleteResponse,
   WorkspaceDiagnosticsResponse,
+  WorkspaceDomainInfo,
   WorkspaceFile,
   WorkspaceFileMetadata,
   WorkspaceGitStatus,
@@ -32,7 +33,11 @@ import type {
   WorkspaceUncommittedChange,
   WorkspaceWriteResponse,
 } from "../shared/api";
-import { validateEntireWorkspace, validateRecordContent } from "./validator";
+import {
+  findDomainTemplate,
+  validateEntireWorkspace,
+  validateRecordContent,
+} from "./validator";
 import YAML from "yaml";
 import { MEMORY_DOCUMENT_PREFIX } from "../shared/memory";
 
@@ -100,6 +105,95 @@ const configurationBasenames = new Set([
   "workspace.yaml",
   WORKSPACE_SETTINGS_FILE,
 ]);
+
+export const creationDisallowedDomains = new Set([
+  "archive",
+  "inbox",
+  "inbox/daily-briefing",
+  "inbox/ingestion",
+  "sources",
+]);
+
+export const DEFAULT_CREATABLE_DOMAINS: WorkspaceDomainInfo[] = [
+  {
+    path: "tasks",
+    label: "Tasks",
+    template_path: "tasks/task-template.md",
+    purpose: "Concrete actions that can be completed.",
+  },
+  {
+    path: "goals",
+    label: "Goals",
+    template_path: "goals/goal-template.md",
+    purpose: "Outcomes and the reasons they matter.",
+  },
+  {
+    path: "projects",
+    label: "Projects",
+    template_path: "projects/project-template.md",
+    purpose: "Bounded outcomes with milestones, tasks, risks, and decisions.",
+  },
+  {
+    path: "ideas",
+    label: "Ideas",
+    template_path: "ideas/idea-template.md",
+    purpose: "Possible future work and observations.",
+  },
+  {
+    path: "decisions",
+    label: "Decisions",
+    template_path: "decisions/decision-template.md",
+    purpose: "Questions, options, evidence, trade-offs, and outcomes.",
+  },
+  {
+    path: "monitors",
+    label: "Monitors",
+    template_path: "monitors/monitor-template.md",
+    purpose: "Conditions to watch for change over time.",
+  },
+  {
+    path: "areas",
+    label: "Areas",
+    template_path: "areas/area-template.md",
+    purpose: "Ongoing responsibilities without a fixed end date.",
+  },
+  {
+    path: "calendar",
+    label: "Calendar",
+    template_path: "calendar/event-note-template.md",
+    purpose: "Planning notes, meeting agendas, and event context.",
+  },
+  {
+    path: "people",
+    label: "People",
+    template_path: "people/person-template.md",
+    purpose: "Relationship context and person records.",
+  },
+  {
+    path: "shopping",
+    label: "Shopping",
+    template_path: "shopping/item-template.md",
+    purpose: "Product research and purchase candidates.",
+  },
+  {
+    path: "travel",
+    label: "Travel",
+    template_path: "travel/trip-template.md",
+    purpose: "Trips, itineraries, and travel research.",
+  },
+  {
+    path: "finance",
+    label: "Finance",
+    template_path: "finance/finance-template.md",
+    purpose: "Budgets, spending notes, and financial reviews.",
+  },
+  {
+    path: "knowledge/claims",
+    label: "Claims",
+    template_path: "knowledge/claims/claim-template.md",
+    purpose: "Reusable personal claims with provenance and lifecycle metadata.",
+  },
+];
 
 export interface WorkspaceServiceOptions {
   workspaceRoot: string;
@@ -710,6 +804,171 @@ export class WorkspaceService {
 
   diagnostics(): WorkspaceDiagnosticsResponse {
     return validateEntireWorkspace(this.workspaceRoot);
+  }
+
+  creatableDomains(): WorkspaceDomainInfo[] {
+    const workspaceYamlPath = join(this.workspaceRoot, "workspace.yaml");
+    if (existsSync(workspaceYamlPath)) {
+      try {
+        const raw = readFileSync(workspaceYamlPath, "utf-8");
+        const parsed = YAML.parse(raw);
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          Array.isArray(parsed.domains)
+        ) {
+          const list: WorkspaceDomainInfo[] = [];
+          for (const item of parsed.domains) {
+            if (
+              !item ||
+              typeof item !== "object" ||
+              typeof item.path !== "string"
+            )
+              continue;
+            const domainPath = item.path
+              .replaceAll("\\", "/")
+              .replace(/^\/+/, "")
+              .replace(/\/+$/, "");
+            if (!domainPath || creationDisallowedDomains.has(domainPath))
+              continue;
+            if (
+              domainPath.startsWith("sources/") ||
+              domainPath.startsWith("inbox/") ||
+              domainPath.startsWith("archive/")
+            )
+              continue;
+            if (protectedPath(domainPath)) continue;
+
+            // Must have a template
+            let templateRel =
+              typeof item.template === "string"
+                ? item.template.replaceAll("\\", "/")
+                : undefined;
+            if (!templateRel) {
+              const info = findDomainTemplate(
+                this.workspaceRoot,
+                `${domainPath}/dummy.md`,
+              );
+              if (info) templateRel = info.templateRelativePath;
+            }
+            if (!templateRel) continue;
+
+            list.push({
+              path: domainPath,
+              label: typeof item.label === "string" ? item.label : domainPath,
+              purpose:
+                typeof item.purpose === "string" ? item.purpose : undefined,
+              template_path: templateRel,
+            });
+          }
+          if (list.length > 0) {
+            return list;
+          }
+        }
+      } catch {}
+    }
+
+    return DEFAULT_CREATABLE_DOMAINS;
+  }
+
+  createFile(domainValue: unknown, nameValue: unknown): WorkspaceFile {
+    if (typeof domainValue !== "string" || !domainValue.trim()) {
+      throw new WorkspaceError(
+        "domain must be a non-empty string",
+        400,
+        "invalid_domain",
+      );
+    }
+    const domain = domainValue
+      .trim()
+      .replaceAll("\\", "/")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
+    const allowed = this.creatableDomains();
+    const matchedDomain = allowed.find((d) => d.path === domain);
+    if (!matchedDomain) {
+      throw new WorkspaceError(
+        `domain "${domain}" does not allow file creation`,
+        403,
+        "domain_not_allowed",
+      );
+    }
+
+    if (typeof nameValue !== "string" || !nameValue.trim()) {
+      throw new WorkspaceError(
+        "name must be a non-empty string",
+        400,
+        "invalid_filename",
+      );
+    }
+    let filename = nameValue.trim();
+    if (
+      filename.includes("/") ||
+      filename.includes("\\") ||
+      filename.includes("..")
+    ) {
+      throw new WorkspaceError(
+        "filename cannot contain path separators",
+        400,
+        "invalid_filename",
+      );
+    }
+    if (
+      filename.endsWith("-template.md") ||
+      filename.endsWith(".schema.json")
+    ) {
+      throw new WorkspaceError(
+        "filename cannot use protected template or schema name",
+        400,
+        "invalid_filename",
+      );
+    }
+    if (!filename.toLowerCase().endsWith(".md")) {
+      filename = `${filename}.md`;
+    }
+
+    const relativePath = `${matchedDomain.path}/${filename}`;
+    const absolute = resolve(this.workspaceRoot, relativePath);
+    if (existsSync(absolute)) {
+      throw new WorkspaceError(
+        `file "${relativePath}" already exists`,
+        409,
+        "destination_exists",
+      );
+    }
+
+    // Determine template content
+    let templateContent = "";
+    let templateAbsolute: string | null = null;
+    if (matchedDomain.template_path) {
+      const candidate = resolve(
+        this.workspaceRoot,
+        matchedDomain.template_path,
+      );
+      if (existsSync(candidate)) {
+        templateAbsolute = candidate;
+      }
+    }
+    if (!templateAbsolute) {
+      const info = findDomainTemplate(this.workspaceRoot, relativePath);
+      if (info) {
+        templateAbsolute = resolve(
+          this.workspaceRoot,
+          info.templateRelativePath,
+        );
+      }
+    }
+
+    if (templateAbsolute && existsSync(templateAbsolute)) {
+      templateContent = readFileSync(templateAbsolute, "utf-8");
+    } else {
+      templateContent = `# ${filename.replace(/\.md$/i, "")}\n`;
+    }
+
+    // Perform atomic write with expectedRevision for empty file
+    const emptyRevision = revision(new Uint8Array());
+    this.write(relativePath, templateContent, emptyRevision);
+    return this.read(relativePath);
   }
 
   private executeMoveOrRename(

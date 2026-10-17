@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { WorkspaceTreeEntry } from "../../../shared/api";
+import type {
+  WorkspaceDomainInfo,
+  WorkspaceTreeEntry,
+} from "../../../shared/api";
 import {
   isMemoryDocument,
   MEMORY_DOCUMENT_PREFIX,
@@ -91,10 +94,12 @@ export function matchedFiles(nodes: TreeNode[], query: string): number {
 
 export function FileNavigator({
   entries,
+  creatableDomains,
   filter,
   loading,
   mobileOpen,
   onClose,
+  onCreateFile,
   onFilterChange,
   onOpenFile,
   onRenameFile,
@@ -109,10 +114,12 @@ export function FileNavigator({
   workspaceError,
 }: {
   entries: WorkspaceTreeEntry[];
+  creatableDomains?: WorkspaceDomainInfo[] | undefined;
   filter: string;
   loading: boolean;
   mobileOpen: boolean;
   onClose: () => void;
+  onCreateFile?: ((domain?: string) => void) | undefined;
   onFilterChange: (value: string) => void;
   onOpenFile: (path: string) => void;
   onRenameFile?: ((path: string) => void) | undefined;
@@ -215,6 +222,10 @@ export function FileNavigator({
   const showWorkspaceSection = workspaceNodes.some((node) =>
     nodeMatches(node, query),
   );
+  const creatableDomainSet = useMemo(
+    () => new Set(creatableDomains?.map((d) => d.path) ?? []),
+    [creatableDomains],
+  );
 
   function renderNodes(nodesToRender: TreeNode[], depth = 0): ReactNode {
     return (
@@ -227,56 +238,86 @@ export function FileNavigator({
           const hasChildren = isDirectory && node.children.length > 0;
           const childrenVisible = hasChildren && (!isCollapsed || forcedOpen);
           const directoryId = `workspace-directory-${encodeURIComponent(node.path)}`;
+          const isCreatable = creatableDomainSet.has(node.path);
           return (
             <li key={node.path}>
               {isDirectory ? (
                 <>
-                  {hasChildren ? (
-                    <button
-                      aria-controls={directoryId}
-                      aria-expanded={childrenVisible}
-                      className="workspace-tree-row workspace-tree-directory"
-                      disabled={forcedOpen}
-                      onClick={() => {
-                        setCollapsed((current) => {
-                          const next = new Set(current);
-                          if (next.has(node.path)) next.delete(node.path);
-                          else next.add(node.path);
-                          return next;
-                        });
-                      }}
-                      style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
-                      title={
-                        forcedOpen
-                          ? "Clear search to collapse folders"
-                          : node.path
-                      }
-                      type="button"
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="workspace-tree-chevron"
+                  <div className="group relative flex items-center">
+                    {hasChildren ? (
+                      <button
+                        aria-controls={directoryId}
+                        aria-expanded={childrenVisible}
+                        className={`workspace-tree-row workspace-tree-directory flex-1 ${onCreateFile && isCreatable ? "pr-7" : ""}`}
+                        disabled={forcedOpen}
+                        onClick={() => {
+                          setCollapsed((current) => {
+                            const next = new Set(current);
+                            if (next.has(node.path)) next.delete(node.path);
+                            else next.add(node.path);
+                            return next;
+                          });
+                        }}
+                        style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
+                        title={
+                          forcedOpen
+                            ? "Clear search to collapse folders"
+                            : node.path
+                        }
+                        type="button"
                       >
-                        {childrenVisible ? "▾" : "▸"}
-                      </span>
-                      <span className="truncate">{node.name}</span>
-                    </button>
-                  ) : (
-                    <div
-                      aria-label={`${node.name}, empty folder`}
-                      className="workspace-tree-row workspace-tree-directory workspace-tree-empty-directory"
-                      role="treeitem"
-                      style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
-                      tabIndex={-1}
-                      title={`${node.path} (empty)`}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="workspace-tree-chevron"
-                      />
-                      <span className="truncate">{node.name}</span>
-                    </div>
-                  )}
+                        <span
+                          aria-hidden="true"
+                          className="workspace-tree-chevron"
+                        >
+                          {childrenVisible ? "▾" : "▸"}
+                        </span>
+                        <span className="truncate">{node.name}</span>
+                      </button>
+                    ) : (
+                      <div
+                        aria-label={`${node.name}, empty folder`}
+                        className={`workspace-tree-row workspace-tree-directory workspace-tree-empty-directory flex-1 ${onCreateFile && isCreatable ? "pr-7" : ""}`}
+                        role="treeitem"
+                        style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
+                        tabIndex={-1}
+                        title={`${node.path} (empty)`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="workspace-tree-chevron"
+                        />
+                        <span className="truncate">{node.name}</span>
+                      </div>
+                    )}
+                    {onCreateFile && isCreatable && (
+                      <button
+                        aria-label={`Create file in ${node.name}`}
+                        className="btn btn-ghost btn-xs btn-square absolute right-1 z-10 h-5 w-5 text-base-content/60 hover:text-base-content opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCreateFile(node.path);
+                        }}
+                        title={`Create file in ${node.name}`}
+                        type="button"
+                      >
+                        <svg
+                          aria-hidden="true"
+                          className="h-3.5 w-3.5"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M12 4.5v15m7.5-7.5h-15"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                   {childrenVisible && (
                     <div id={directoryId}>
                       {renderNodes(node.children, depth + 1)}
@@ -476,15 +517,27 @@ export function FileNavigator({
                   : `${totalFiles} files`}
               </p>
             </div>
-            {query && (
-              <button
-                className="btn btn-ghost btn-xs"
-                onClick={() => onFilterChange("")}
-                type="button"
-              >
-                Clear
-              </button>
-            )}
+            <div className="flex items-center gap-1">
+              {query && (
+                <button
+                  className="btn btn-ghost btn-xs"
+                  onClick={() => onFilterChange("")}
+                  type="button"
+                >
+                  Clear
+                </button>
+              )}
+              {onCreateFile && (
+                <button
+                  className="btn btn-ghost btn-xs text-primary font-medium"
+                  onClick={() => onCreateFile()}
+                  title="Create new file"
+                  type="button"
+                >
+                  + New File
+                </button>
+              )}
+            </div>
           </div>
           <label className="sr-only" htmlFor="workspace-file-filter">
             Find files

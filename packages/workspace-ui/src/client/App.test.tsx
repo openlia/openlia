@@ -1546,4 +1546,40 @@ messages:
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/migration");
   });
+
+  test("creates a new domain file via UI, initializes with template, and opens in editor view", async () => {
+    window.history.replaceState(null, "", "/");
+    render(<App api={createMockWorkspaceApi()} />);
+
+    // Click "+ New File" in the file navigator header
+    const newFileBtn = await screen.findByRole("button", {
+      name: "+ New File",
+    });
+    fireEvent.click(newFileBtn);
+
+    // Modal opens
+    expect(await screen.findByText("Create New File")).toBeInTheDocument();
+
+    // Select domain "tasks" and enter filename
+    const select = screen.getByRole("combobox", { name: "Domain" });
+    fireEvent.change(select, { target: { value: "tasks" } });
+
+    const input = screen.getByRole("textbox", { name: "File Name" });
+    fireEvent.change(input, { target: { value: "refactor-auth" } });
+
+    expect(screen.getByText("tasks/refactor-auth.md")).toBeInTheDocument();
+
+    // Submit creation
+    fireEvent.click(screen.getByRole("button", { name: "Create File" }));
+
+    // Modal closes and file opens in editor view with template content
+    const editor = await screen.findByRole("textbox", { name: "Code editor" });
+    expect(editor).toHaveTextContent("$schema: ./task-template.schema.json");
+    expect(editor).toHaveTextContent("# refactor-auth");
+
+    // File is present in tree
+    expect(
+      await screen.findByRole("button", { name: "refactor-auth.md" }),
+    ).toBeInTheDocument();
+  });
 });

@@ -25,6 +25,7 @@ export {
 export { ActivitySection } from "./ActivitySection";
 export { GitActivitySection } from "./GitActivitySection";
 export { IngestionSection } from "./IngestionSection";
+export { CreateFileDialog } from "./CreateFileDialog";
 export { MoveFileDialog } from "./MoveFileDialog";
 export { RenameFileDialog } from "./RenameFileDialog";
 export { isJournalPath, isMarkdownPath, isRemindPath } from "./CodeEditor";

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
+import { CreateFileDialog } from "./CreateFileDialog";
 import { MoveFileDialog } from "./MoveFileDialog";
 import { RenameFileDialog } from "./RenameFileDialog";
 import { FileNavigator } from "./components";
@@ -343,5 +344,153 @@ describe("FileNavigator Action Menu", () => {
 
     fireEvent.click(deleteBtn);
     expect(onDeleteFile).toHaveBeenCalledWith("sample.pdf");
+  });
+
+  test("renders + New File header button and directory quick-action on creatable domains", () => {
+    const handleCreateFile = vi.fn();
+
+    render(
+      <FileNavigator
+        creatableDomains={[
+          {
+            path: "tasks",
+            label: "Tasks",
+            template_path: "tasks/task-template.md",
+          },
+          {
+            path: "goals",
+            label: "Goals",
+            template_path: "goals/goal-template.md",
+          },
+        ]}
+        entries={[
+          { kind: "directory", path: "tasks" },
+          { kind: "directory", path: "inbox" },
+          {
+            editable: true,
+            kind: "file",
+            modified_at: "2026-09-22T00:00:00.000Z",
+            path: "tasks/sample.md",
+            size: 10,
+          },
+        ]}
+        filter=""
+        loading={false}
+        mobileOpen={false}
+        onClose={() => {}}
+        onCreateFile={handleCreateFile}
+        onFilterChange={() => {}}
+        onOpenFile={() => {}}
+        onRetry={() => {}}
+        selectedPath={undefined}
+        truncated={false}
+        workspaceError=""
+      />,
+    );
+
+    // Header "+ New File" button
+    const newFileBtn = screen.getByRole("button", { name: "+ New File" });
+    expect(newFileBtn).toBeInTheDocument();
+    fireEvent.click(newFileBtn);
+    expect(handleCreateFile).toHaveBeenCalledWith();
+
+    // Tasks directory has quick-create button
+    const taskCreateBtn = screen.getByRole("button", {
+      name: "Create file in tasks",
+    });
+    expect(taskCreateBtn).toBeInTheDocument();
+    fireEvent.click(taskCreateBtn);
+    expect(handleCreateFile).toHaveBeenCalledWith("tasks");
+
+    // Inbox directory (not creatable) does NOT have quick-create button
+    expect(
+      screen.queryByRole("button", { name: "Create file in inbox" }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("CreateFileDialog", () => {
+  const domains = [
+    {
+      path: "tasks",
+      label: "Tasks",
+      template_path: "tasks/task-template.md",
+      purpose: "Concrete actions",
+    },
+    {
+      path: "goals",
+      label: "Goals",
+      template_path: "goals/goal-template.md",
+      purpose: "Outcomes that matter",
+    },
+  ];
+
+  test("renders with initial domain, updates target preview, and submits", () => {
+    const handleCreate = vi.fn();
+    const handleCancel = vi.fn();
+
+    render(
+      <CreateFileDialog
+        availableDomains={domains}
+        initialDomain="goals"
+        isCreating={false}
+        isOpen={true}
+        onCancel={handleCancel}
+        onCreate={handleCreate}
+      />,
+    );
+
+    expect(screen.getByText("Create New File")).toBeInTheDocument();
+    expect(screen.getByText("Outcomes that matter")).toBeInTheDocument();
+
+    const input = screen.getByRole("textbox", { name: "File Name" });
+    fireEvent.change(input, { target: { value: "fitness-goals" } });
+
+    expect(screen.getByText("goals/fitness-goals.md")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create File" }));
+    expect(handleCreate).toHaveBeenCalledWith("goals", "fitness-goals.md");
+  });
+
+  test("validates against empty names, path separators, template names, and existing paths", () => {
+    const handleCreate = vi.fn();
+
+    render(
+      <CreateFileDialog
+        availableDomains={domains}
+        existingPaths={new Set(["tasks/existing.md"])}
+        initialDomain="tasks"
+        isCreating={false}
+        isOpen={true}
+        onCancel={() => {}}
+        onCreate={handleCreate}
+      />,
+    );
+
+    const input = screen.getByRole("textbox", { name: "File Name" });
+    const submitBtn = screen.getByRole("button", { name: "Create File" });
+
+    // Path slash error
+    fireEvent.change(input, { target: { value: "sub/task" } });
+    fireEvent.click(submitBtn);
+    expect(
+      screen.getByText("File name cannot contain path separators"),
+    ).toBeInTheDocument();
+
+    // Template protection
+    fireEvent.change(input, { target: { value: "my-template.md" } });
+    fireEvent.click(submitBtn);
+    expect(
+      screen.getByText("Cannot create a template or schema file directly"),
+    ).toBeInTheDocument();
+
+    // Existing file error
+    fireEvent.change(input, { target: { value: "existing" } });
+    fireEvent.click(submitBtn);
+    expect(
+      screen.getByText('File "existing.md" already exists in tasks'),
+    ).toBeInTheDocument();
+
+    expect(handleCreate).not.toHaveBeenCalled();
   });
 });

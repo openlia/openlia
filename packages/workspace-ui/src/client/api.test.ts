@@ -181,4 +181,61 @@ describe("HTTP workspace API", () => {
       undefined,
     );
   });
+
+  test("loads creatable domains through HTTP contract", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            domains: [
+              {
+                path: "tasks",
+                label: "Tasks",
+                template_path: "tasks/task-template.md",
+              },
+            ],
+            schema: 1,
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await httpWorkspaceApi.loadCreatableDomains();
+    expect(res.schema).toBe(1);
+    expect(res.domains.length).toBe(1);
+    expect(res.domains[0]?.path).toBe("tasks");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/workspace/creatable-domains",
+      undefined,
+    );
+  });
+
+  test("sends file creation through HTTP contract", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            content: "# My Task",
+            editable: true,
+            modified_at: "2026-09-28T00:00:00.000Z",
+            path: "tasks/my-task.md",
+            revision: "sha256:task-rev",
+            schema: 1,
+            size: 9,
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const created = await httpWorkspaceApi.createFile("tasks", "my-task.md");
+    expect(created.path).toBe("tasks/my-task.md");
+    expect(created.content).toBe("# My Task");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/workspace/create-file",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ domain: "tasks", name: "my-task.md" }),
+      }),
+    );
+  });
 });

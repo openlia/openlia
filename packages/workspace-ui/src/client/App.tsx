@@ -19,6 +19,7 @@ import type {
   MigrationSummary,
   WorkspaceActivityResponse,
   WorkspaceDiagnosticsResponse,
+  WorkspaceDomainInfo,
   WorkspaceFile,
   WorkspaceFileMetadata,
   WorkspaceGitStatus,
@@ -41,6 +42,7 @@ import { CreateSkillModal } from "./CreateSkillModal";
 import { ConfigurationPage } from "./ConfigurationPage";
 import { isMemoryDocument } from "../shared/memory";
 import {
+  CreateFileDialog,
   DeleteFileDialog,
   DirtyDraftDialog,
   DocumentInspector,
@@ -534,6 +536,14 @@ export function App({
   } | null>(null);
   const [moving, setMoving] = useState(false);
   const [moveError, setMoveError] = useState("");
+  const [pendingCreateFile, setPendingCreateFile] = useState<{
+    domain?: string | undefined;
+  } | null>(null);
+  const [creatingFile, setCreatingFile] = useState(false);
+  const [createFileError, setCreateFileError] = useState("");
+  const [creatableDomains, setCreatableDomains] = useState<
+    WorkspaceDomainInfo[]
+  >([]);
 
   // Skills state
   const [skills, setSkills] = useState<SkillSummary[]>([]);
@@ -664,6 +674,24 @@ export function App({
     }
     return Array.from(set).sort();
   }, [tree]);
+
+  const existingPaths = useMemo(
+    () => new Set(tree.map((entry) => entry.path)),
+    [tree],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .loadCreatableDomains()
+      .then((res) => {
+        if (!cancelled && res?.domains) setCreatableDomains(res.domains);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
 
   const appStateRef = useRef({
     activeTab,
@@ -1966,6 +1994,61 @@ export function App({
     }
   }
 
+  async function handleCreateFile(
+    domain: string,
+    filename: string,
+  ): Promise<void> {
+    if (!pendingCreateFile || creatingFile) return;
+    setCreatingFile(true);
+    setCreateFileError("");
+    try {
+      if (file && docDirty) {
+        const saved = await save();
+        if (!saved) {
+          setCreatingFile(false);
+          return;
+        }
+      }
+      const created = await api.createFile(domain, filename);
+      setPendingCreateFile(null);
+      const [treeRes, nextGit, nextActivity, nextDiag] = await Promise.all([
+        api.loadTree().catch(() => null),
+        api.loadGitStatus().catch(() => null),
+        api.loadActivity().catch(() => null),
+        api.loadDiagnostics().catch(() => null),
+      ]);
+      if (treeRes) {
+        setTree(treeRes.entries);
+        setTreeTruncated(treeRes.truncated);
+      }
+      if (nextGit) setGit(nextGit);
+      if (nextActivity) setActivity(nextActivity);
+      if (nextDiag) setDiagnostics(nextDiag);
+      await openFile(created.path, { requestedView: "edit" });
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 401) {
+        setPendingCreateFile(null);
+        handleUnauthorized();
+      } else if (caught instanceof ApiError && caught.status === 409) {
+        setCreateFileError(
+          "A file with this name already exists in this domain.",
+        );
+      } else if (caught instanceof ApiError && caught.status === 403) {
+        setCreateFileError("File creation is not allowed in this domain.");
+      } else if (caught instanceof ApiError && caught.status === 400) {
+        setCreateFileError(
+          caught.payload?.error === "invalid_filename"
+            ? "File name is invalid. Ensure it does not contain path separators or protected template names."
+            : "Invalid file creation request.",
+        );
+      } else {
+        setCreateFileError("The file could not be created. Try again.");
+      }
+    } finally {
+      setCreatingFile(false);
+    }
+  }
+
   async function handleRename(newName: string): Promise<void> {
     if (!pendingRename || renaming) return;
     setRenaming(true);
@@ -2507,6 +2590,7 @@ export function App({
           }`}
         >
           <FileNavigator
+            creatableDomains={creatableDomains}
             entries={tree}
             filter={filter}
             loading={loading}
@@ -2514,6 +2598,10 @@ export function App({
             onClose={() => {
               setFilesOpen(false);
               filesButtonRef.current?.focus();
+            }}
+            onCreateFile={(domain) => {
+              setCreateFileError("");
+              setPendingCreateFile({ domain });
             }}
             onDeleteFile={(path) => requestDelete(path)}
             downloadUrl={api.downloadUrl}
@@ -2855,6 +2943,22 @@ export function App({
             setMoveError("");
           }}
           onMove={(destinationPath) => void handleMove(destinationPath)}
+        />
+      )}
+
+      {pendingCreateFile && (
+        <CreateFileDialog
+          availableDomains={creatableDomains}
+          error={createFileError}
+          existingPaths={existingPaths}
+          initialDomain={pendingCreateFile.domain}
+          isCreating={creatingFile}
+          isOpen={true}
+          onCancel={() => {
+            setPendingCreateFile(null);
+            setCreateFileError("");
+          }}
+          onCreate={(domain, name) => void handleCreateFile(domain, name)}
         />
       )}
 
