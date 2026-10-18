@@ -6,6 +6,7 @@ import type {
 } from "../../shared/api";
 import { suggestPasswordProfiles } from "../../shared/passwordSuggester";
 import type { WorkspaceApi } from "../api";
+import { UploadModal } from "./UploadModal";
 
 export interface DocumentInspectorProps {
   api: WorkspaceApi;
@@ -16,6 +17,7 @@ export interface DocumentInspectorProps {
   rawUrl: (path: string) => string;
   onOpenPasswordManager?: () => void;
   passwordProfilesVersion?: number;
+  onDelete?: (deletedSourceId: string) => void;
 }
 
 interface ParsedPage {
@@ -29,7 +31,8 @@ function parsePagesFromContent(content: string | undefined): ParsedPage[] {
   if (matches.length === 0) return [];
   const pages: ParsedPage[] = [];
   for (let i = 0; i < matches.length; i++) {
-    const match = matches[i]!;
+    const match = matches[i];
+    if (!match) continue;
     const pageNumber = Number(match[1]);
     const startIdx = (match.index ?? 0) + match[0].length;
     const endIdx =
@@ -50,9 +53,10 @@ export function DocumentInspector({
   loading,
   onUpdate,
   onOpenFile,
-  rawUrl,
+  rawUrl: _rawUrl,
   onOpenPasswordManager,
   passwordProfilesVersion,
+  onDelete,
 }: DocumentInspectorProps) {
   const [activeTab, setActiveTab] = useState<
     "content" | "metadata" | "backlinks"
@@ -64,6 +68,18 @@ export function DocumentInspector({
   const [copiedPageCitation, setCopiedPageCitation] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Version and lifecycle management state
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
+    null,
+  );
+  const [isReplaceModalOpen, setIsReplaceModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [annotateBacklinks, setAnnotateBacklinks] = useState(true);
+  const [deleting, setDeleting] = useState(false);
+  const [selectedVersionData, setSelectedVersionData] =
+    useState<SourceDocument | null>(null);
+  const [selectedVersionLoading, setSelectedVersionLoading] = useState(false);
 
   // Password unlock & retry state
   const [retryPassword, setRetryPassword] = useState("");
@@ -107,6 +123,11 @@ export function DocumentInspector({
       );
       setAssignedPasswordProfile(document.password_profile ?? "");
       setSelectedPage(null);
+      setSelectedVersionId(null);
+      setSelectedVersionData(null);
+      setSelectedVersionLoading(false);
+      setIsDeleteModalOpen(false);
+      setIsReplaceModalOpen(false);
       setSaveError(null);
       setRetryMessage(null);
     }
@@ -135,6 +156,50 @@ export function DocumentInspector({
     };
   }, [document, api, passwordProfilesVersion]);
 
+  const latestDocumentVersion =
+    document?.versions[document.versions.length - 1];
+  const latestVersionId = latestDocumentVersion
+    ? String(latestDocumentVersion.id ?? latestDocumentVersion.version_id ?? "")
+    : null;
+
+  useEffect(() => {
+    if (
+      !document ||
+      !selectedVersionId ||
+      selectedVersionId === latestVersionId
+    ) {
+      setSelectedVersionData(null);
+      setSelectedVersionLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSelectedVersionLoading(true);
+    api
+      .loadSource(document.id, selectedVersionId)
+      .then((versionDocument) => {
+        if (!cancelled) setSelectedVersionData(versionDocument);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setSelectedVersionData(null);
+          setSelectedVersionId(null);
+          setSaveError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load the selected version",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSelectedVersionLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api, document, latestVersionId, selectedVersionId]);
+
   // Compute smart password suggestions for this document
   const suggestions = useMemo(() => {
     if (!document || passwordProfiles.length === 0) return [];
@@ -150,9 +215,13 @@ export function DocumentInspector({
 
   const topSuggestion = suggestions.length > 0 ? suggestions[0] : null;
 
+  const displayedContent = selectedVersionData
+    ? selectedVersionData.content
+    : document?.content;
+
   const pages = useMemo(
-    () => parsePagesFromContent(document?.content ?? undefined),
-    [document?.content],
+    () => parsePagesFromContent(displayedContent ?? undefined),
+    [displayedContent],
   );
 
   if (loading) {
@@ -209,6 +278,45 @@ export function DocumentInspector({
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function toggleArchiveStatus() {
+    if (!document) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const nextLifecycle =
+        document.lifecycle === "archived" ? "active" : "archived";
+      const updated = await api.updateSource(document.id, {
+        lifecycle: nextLifecycle,
+      });
+      onUpdate(updated);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to toggle archive status",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteSource() {
+    if (!document) return;
+    setDeleting(true);
+    setSaveError(null);
+    try {
+      await api.deleteSource(document.id, {
+        annotate_backlinks: annotateBacklinks,
+      });
+      setIsDeleteModalOpen(false);
+      onDelete?.(document.id);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to delete document",
+      );
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -350,17 +458,26 @@ export function DocumentInspector({
     setTimeout(() => setCopiedCitation(false), 1500);
   }
 
+  const versions = (document.versions ?? []) as Array<Record<string, unknown>>;
   const latestVersion =
-    document.versions.length > 0
-      ? (document.versions[document.versions.length - 1] as {
+    versions.length > 0
+      ? (versions[versions.length - 1] as {
+          id?: string;
           version_id?: string;
           original_ref?: string;
           mime_type?: string;
         })
       : null;
-  const latestVersionId = latestVersion?.version_id ?? "ver_001";
-  const originalRef = latestVersion?.original_ref;
-  const sourceRawHref = api.sourceRawUrl(document.id, latestVersionId);
+  const currentVersion = selectedVersionId
+    ? ((versions.find(
+        (v) =>
+          ((v.id as string) ?? (v.version_id as string)) === selectedVersionId,
+      ) as typeof latestVersion) ?? latestVersion)
+    : latestVersion;
+  const currentVersionId =
+    currentVersion?.id ?? currentVersion?.version_id ?? "ver_001";
+  const originalRef = currentVersion?.original_ref;
+  const sourceRawHref = api.sourceRawUrl(document.id, currentVersionId);
   const previewUrl =
     selectedPage && document.kind === "pdf"
       ? `${sourceRawHref}#page=${selectedPage}`
@@ -368,7 +485,7 @@ export function DocumentInspector({
 
   function copyPageCitation(pageNum: number) {
     if (!document) return;
-    const citation = `[${document.title}, p. ${pageNum}](${document.canonical_uri}#${latestVersionId}/p${pageNum})`;
+    const citation = `[${document.title}, p. ${pageNum}](${document.canonical_uri}#${currentVersionId}/p${pageNum})`;
     navigator.clipboard.writeText(citation);
     setCopiedPageCitation(true);
     setTimeout(() => setCopiedPageCitation(false), 1500);
@@ -377,8 +494,9 @@ export function DocumentInspector({
   const activePageContent =
     selectedPage !== null
       ? (pages.find((p) => p.pageNumber === selectedPage)?.content ??
+        displayedContent ??
         document.content)
-      : document.content;
+      : displayedContent;
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-y-auto bg-base-100">
@@ -394,6 +512,9 @@ export function DocumentInspector({
                 <span className="badge badge-outline badge-xs capitalize">
                   {document.document_type}
                 </span>
+              )}
+              {document.lifecycle === "archived" && (
+                <span className="badge badge-warning badge-xs">Archived</span>
               )}
               {document.processing.status !== "complete" && (
                 <span className="badge badge-info badge-xs">
@@ -417,6 +538,72 @@ export function DocumentInspector({
                 Captured: {new Date(document.captured_at).toLocaleDateString()}
               </span>
             </div>
+
+            {/* Version Selector */}
+            {versions.length > 1 && (
+              <div className="mt-3 flex items-center gap-2 text-xs">
+                <span className="font-semibold text-base-content/60">
+                  Version:
+                </span>
+                <div className="join">
+                  {versions.map((ver, idx) => {
+                    const vid =
+                      (ver.id as string) ??
+                      (ver.version_id as string) ??
+                      `ver_${String(idx + 1).padStart(3, "0")}`;
+                    const isLatest = idx === versions.length - 1;
+                    const isCurrent = vid === currentVersionId;
+                    return (
+                      <button
+                        key={vid}
+                        type="button"
+                        className={`join-item btn btn-xs ${
+                          isCurrent
+                            ? "btn-active btn-primary"
+                            : "btn-ghost border border-base-content/10"
+                        }`}
+                        onClick={() => setSelectedVersionId(vid)}
+                      >
+                        {vid} {isLatest ? "(latest)" : ""}
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedVersionLoading && (
+                  <span className="loading loading-spinner loading-xs" />
+                )}
+              </div>
+            )}
+
+            {/* Stale Backlinks Warning Banner */}
+            {document.stale_backlinks &&
+              document.stale_backlinks.length > 0 && (
+                <div className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-warning-content flex items-start gap-2">
+                  <svg
+                    className="h-4 w-4 shrink-0 mt-0.5 fill-current"
+                    viewBox="0 0 20 20"
+                  >
+                    <title>Warning: Pinned to older version</title>
+                    <path
+                      fillRule="evenodd"
+                      d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  <div>
+                    <p className="font-semibold">
+                      {document.stale_backlinks.length} backlink(s) are pinned
+                      to older versions of this document.
+                    </p>
+                    <p className="mt-0.5 text-[11px] opacity-80">
+                      References like{" "}
+                      <code>openlia://source/{document.id}#ver_...</code> in
+                      your workspace cite superseded versions. Check the
+                      Backlinks tab for details.
+                    </p>
+                  </div>
+                </div>
+              )}
           </div>
 
           {/* Quick Review & Citation Actions */}
@@ -437,6 +624,14 @@ export function DocumentInspector({
             )}
             <button
               type="button"
+              className="btn btn-outline btn-sm"
+              onClick={() => setIsReplaceModalOpen(true)}
+              title="Upload a new version to replace this source"
+            >
+              Replace / New Version
+            </button>
+            <button
+              type="button"
               className={`btn btn-sm ${
                 isReviewed ? "btn-outline btn-success" : "btn-warning"
               }`}
@@ -444,6 +639,27 @@ export function DocumentInspector({
               disabled={saving}
             >
               {isReviewed ? "✓ Reviewed" : "Mark as Reviewed"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={toggleArchiveStatus}
+              disabled={saving}
+              title={
+                document.lifecycle === "archived"
+                  ? "Restore document to active library"
+                  : "Archive this document"
+              }
+            >
+              {document.lifecycle === "archived" ? "Restore" : "Archive"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm text-error hover:bg-error/10"
+              onClick={() => setIsDeleteModalOpen(true)}
+              title="Delete source and manage backlinks cascade"
+            >
+              Delete...
             </button>
             <button
               type="button"
@@ -1043,11 +1259,21 @@ export function DocumentInspector({
                           <span className="font-medium text-xs truncate">
                             {link.filename}
                           </span>
+                          {link.pinned_version_id && (
+                            <span className="badge badge-warning badge-xs">
+                              pinned: {link.pinned_version_id}
+                            </span>
+                          )}
                         </div>
                         <p className="mt-0.5 truncate font-mono text-[11px] text-base-content/50">
                           {link.path}
                           {link.line_number ? `:${link.line_number}` : ""}
                         </p>
+                        {link.line_excerpt && (
+                          <p className="mt-1 font-mono text-[10px] text-base-content/60 truncate bg-base-200/50 p-1 rounded">
+                            {link.line_excerpt}
+                          </p>
+                        )}
                       </div>
                       <button
                         type="button"
@@ -1075,6 +1301,93 @@ export function DocumentInspector({
           )}
         </div>
       </div>
+
+      {/* Replace / New Version Modal */}
+      {isReplaceModalOpen && (
+        <UploadModal
+          api={api}
+          isOpen={isReplaceModalOpen}
+          targetSourceId={document.id}
+          onClose={() => setIsReplaceModalOpen(false)}
+          onSuccess={async () => {
+            setIsReplaceModalOpen(false);
+            const refreshed = await api.loadSource(document.id);
+            onUpdate(refreshed);
+          }}
+        />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div
+          className="modal modal-open z-50 bg-black/50"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="modal-box max-w-md border border-base-content/10 bg-base-100 p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-error">
+              Delete Source Document
+            </h3>
+            <p className="mt-2 text-sm">
+              Are you sure you want to permanently delete{" "}
+              <strong>{document.title}</strong> (
+              <span className="font-mono text-xs">{document.id}</span>)?
+            </p>
+
+            {document.backlinks && document.backlinks.length > 0 && (
+              <div className="mt-4 rounded-lg border border-warning/30 bg-warning/5 p-3 text-xs">
+                <p className="font-semibold text-warning-content">
+                  {document.backlinks.length} workspace file(s) cite this
+                  source:
+                </p>
+                <ul className="mt-1 max-h-24 overflow-y-auto font-mono text-[11px] text-base-content/70 list-disc list-inside">
+                  {document.backlinks.map((b) => (
+                    <li key={`${b.path}-${b.line_number}`} className="truncate">
+                      {b.path}
+                    </li>
+                  ))}
+                </ul>
+                <label className="mt-3 flex items-center gap-2 cursor-pointer font-medium text-warning-content">
+                  <input
+                    type="checkbox"
+                    className="checkbox checkbox-warning checkbox-xs"
+                    checked={annotateBacklinks}
+                    onChange={(e) => setAnnotateBacklinks(e.target.checked)}
+                  />
+                  <span>
+                    Annotate backlinks in workspace files (recommended)
+                  </span>
+                </label>
+                <p className="mt-1 text-[11px] text-base-content/60">
+                  Rewrites references to{" "}
+                  <code>(deleted source: {document.id})</code> and{" "}
+                  <code>; source-deleted: {document.id}</code> to preserve
+                  history without broken citations.
+                </p>
+              </div>
+            )}
+
+            <div className="modal-action border-t border-base-content/10 pt-4 mt-6">
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setIsDeleteModalOpen(false)}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-error btn-sm"
+                onClick={handleDeleteSource}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting..." : "Delete Permanently"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

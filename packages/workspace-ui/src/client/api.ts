@@ -12,14 +12,13 @@ import type {
   MigrationFeedbackRequest,
   MigrationListResponse,
   MigrationSummary,
-  PasswordSuggestion,
   SkillCreateRequest,
   SkillDetailResponse,
   SkillFileResponse,
   SkillSuccessResponse,
   SkillsListResponse,
   SkillWriteResponse,
-  SourceBacklink,
+  SourceDeleteResponse,
   SourceDocument,
   SourceRetryRequest,
   SourceRetryResponse,
@@ -111,7 +110,10 @@ export interface WorkspaceApi {
         }
       | undefined,
   ): Promise<SourceSearchResponse>;
-  loadSource(sourceId: string): Promise<SourceDocument>;
+  loadSource(
+    sourceId: string,
+    versionId?: string | undefined,
+  ): Promise<SourceDocument>;
   updateSource(
     sourceId: string,
     updates: SourceUpdateRequest,
@@ -139,6 +141,10 @@ export interface WorkspaceApi {
     correspondent?: string | undefined;
     message?: string | undefined;
   }): Promise<DocumentPasswordSuggestResponse>;
+  deleteSource(
+    sourceId: string,
+    options?: { annotate_backlinks?: boolean },
+  ): Promise<SourceDeleteResponse>;
   uploadDocument(formData: FormData): Promise<SourceUploadResponse>;
   uploadDocumentJson(body: {
     title?: string | undefined;
@@ -151,6 +157,8 @@ export interface WorkspaceApi {
     password_label?: string | undefined;
     password_hint?: string | undefined;
     password_description?: string | undefined;
+    source_id?: string | undefined;
+    purge_previous_versions?: boolean | undefined;
   }): Promise<SourceUploadResponse>;
   loadMigrations(): Promise<MigrationSummary[]>;
   loadMigrationDetail(id: string): Promise<MigrationDetailResponse>;
@@ -445,6 +453,16 @@ function isSourceUploadResponse(value: unknown): value is SourceUploadResponse {
   );
 }
 
+function isSourceDeleteResponse(value: unknown): value is SourceDeleteResponse {
+  return (
+    isObject(value) &&
+    value.schema === 1 &&
+    value.ok === true &&
+    typeof value.source_id === "string" &&
+    typeof value.deleted === "boolean"
+  );
+}
+
 function isWorkspaceSettings(value: unknown): value is WorkspaceSettings {
   return (
     isObject(value) &&
@@ -719,11 +737,15 @@ export const httpWorkspaceApi: WorkspaceApi = {
       isSourceSearchResponse,
     );
   },
-  loadSource: (sourceId) =>
-    requestJson<SourceDocument>(
-      `/api/workspace/ingestion/sources/${encodeURIComponent(sourceId)}`,
+  loadSource: (sourceId, versionId) => {
+    const query = versionId
+      ? `?${new URLSearchParams({ version_id: versionId }).toString()}`
+      : "";
+    return requestJson<SourceDocument>(
+      `/api/workspace/ingestion/sources/${encodeURIComponent(sourceId)}${query}`,
       isSourceDocument,
-    ),
+    );
+  },
   updateSource: (sourceId, updates) =>
     requestJson<SourceDocument>(
       `/api/workspace/ingestion/sources/${encodeURIComponent(sourceId)}`,
@@ -803,6 +825,20 @@ export const httpWorkspaceApi: WorkspaceApi = {
         isObject(val) &&
         val.ok === true &&
         Array.isArray((val as any).suggestions),
+    );
+  },
+  deleteSource: (sourceId, options) => {
+    const params = new URLSearchParams();
+    if (options?.annotate_backlinks !== undefined) {
+      params.set("annotate_backlinks", String(options.annotate_backlinks));
+    }
+    const q = params.toString();
+    return requestJson<SourceDeleteResponse>(
+      `/api/workspace/ingestion/sources/${encodeURIComponent(sourceId)}${q ? `?${q}` : ""}`,
+      isSourceDeleteResponse,
+      {
+        method: "DELETE",
+      },
     );
   },
   uploadDocument: (formData) =>

@@ -1096,7 +1096,10 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
       };
     },
 
-    async loadSource(sourceId: string): Promise<SourceDocument> {
+    async loadSource(
+      sourceId: string,
+      _versionId?: string,
+    ): Promise<SourceDocument> {
       requireAuthentication();
       return {
         id: sourceId,
@@ -1147,6 +1150,21 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
       if (versionId) params.set("version_id", versionId);
       const query = params.toString();
       return `/api/workspace/ingestion/sources/${encodeURIComponent(sourceId)}/raw${query ? `?${query}` : ""}`;
+    },
+
+    async deleteSource(
+      sourceId: string,
+      options?: { annotate_backlinks?: boolean },
+    ) {
+      requireAuthentication();
+      return {
+        schema: 1 as const,
+        ok: true as const,
+        source_id: sourceId,
+        deleted: true,
+        backlinks: [],
+        annotated_files: options?.annotate_backlinks !== false ? [] : undefined,
+      };
     },
 
     async retrySource(sourceId: string) {
