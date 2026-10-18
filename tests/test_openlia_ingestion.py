@@ -1524,8 +1524,185 @@ class IngestionTests(unittest.TestCase):
 
                 rec_res = json.loads(proxy_runtime.recover({}))
                 self.assertTrue(rec_res["ok"])
+
+                # Delete document over HTTP with annotate_backlinks
+                del_doc_res = json.loads(
+                    proxy_runtime.delete_document(
+                        {"source_id": source_id, "annotate_backlinks": True}
+                    )
+                )
+                self.assertTrue(del_doc_res["ok"])
+                self.assertTrue(del_doc_res["deleted"])
+                self.assertIn("tasks/verify-remote.md", del_doc_res["annotated_files"])
+                annotated_note = (tasks_dir / "verify-remote.md").read_text(encoding="utf-8")
+                self.assertIn("(deleted source:", annotated_note)
+
+                # Verify source is gone
+                gone_res = json.loads(proxy_runtime.get_document({"source_id": source_id}))
+                self.assertFalse(gone_res["ok"])
         finally:
             sidecar.stop()
+
+    def test_document_version_replacement_and_soft_archive(self):
+        ctx = MockHermesContext()
+        runtime = self.runtime_mod.IngestionRuntime(ctx)
+        runtime.register_tools()
+
+        # 1. Ingest initial document
+        fixture_path = self._copy_fixture("sample.txt")
+        captured = self.publisher.capture(
+            {
+                "kind": "text",
+                "file_path": str(fixture_path),
+                "title": "Original Contract v1",
+                "tags": ["legal", "contract"],
+                "correspondent": "MegaCorp",
+            }
+        )
+        source_id = captured["source"]["id"]
+        self.queue.upsert_source_fts(
+            source_id=source_id,
+            title="Original Contract v1",
+            correspondent="MegaCorp",
+            document_type="contract",
+            tags=["legal", "contract"],
+            summary="",
+            content="Original Contract text terms",
+            document_date="2026-10-18",
+            review_status="unreviewed",
+            processing_status="completed",
+            lifecycle="active",
+        )
+        source_doc = self.queue.get_source(source_id)
+        self.assertIsNotNone(source_doc)
+        self.assertEqual(len(source_doc["versions"]), 1)
+        self.assertEqual(source_doc["versions"][0]["id"], "ver_001")
+        self.assertEqual(source_doc["lifecycle"], "active")
+
+        # 2. Test Soft Archiving and Search Filtering
+        self.assertEqual(self.queue.search_sources(query="Original Contract")["total"], 1)
+        upd_arch = json.loads(
+            runtime.update_document({"source_id": source_id, "lifecycle": "archived"})
+        )
+        self.assertTrue(upd_arch["ok"])
+        self.assertEqual(self.queue.search_sources(query="Original Contract")["total"], 0)
+        self.assertEqual(
+            self.queue.search_sources(query="Original Contract", lifecycle="archived")["total"], 1
+        )
+        self.assertEqual(
+            self.queue.search_sources(query="Original Contract", lifecycle="all")["total"], 1
+        )
+        upd_act = json.loads(
+            runtime.update_document({"source_id": source_id, "lifecycle": "active"})
+        )
+        self.assertTrue(upd_act["ok"])
+        self.assertEqual(self.queue.search_sources(query="Original Contract")["total"], 1)
+
+        # 3. Version Replacement without purge:
+        blobs_dir = self.publisher.blobs / source_id
+        ver_001_dir = blobs_dir / "ver_001"
+        self.assertTrue(ver_001_dir.exists())
+
+        v2_path = self.root / "contract_v2.txt"
+        v2_path.write_text("Updated contract terms v2", encoding="utf-8")
+        self.publisher.capture(
+            {
+                "kind": "text",
+                "file_path": str(v2_path),
+                "title": "Updated Contract v2",
+                "target_source_id": source_id,
+                "purge_previous_versions": False,
+            }
+        )
+        updated_doc = self.queue.get_source(source_id)
+        self.assertEqual(len(updated_doc["versions"]), 2)
+        self.assertEqual(updated_doc["versions"][-1]["id"], "ver_002")
+        self.assertEqual(updated_doc["correspondent"], "MegaCorp")
+        self.assertIn("contract", updated_doc["tags"])
+        ver_002_dir = blobs_dir / "ver_002"
+        self.assertTrue(ver_001_dir.exists())
+        self.assertTrue(ver_002_dir.exists())
+
+        # 4. Version Replacement with purge_previous_versions=True:
+        v3_path = self.root / "contract_v3.txt"
+        v3_path.write_text("Final contract terms v3", encoding="utf-8")
+        self.publisher.capture(
+            {
+                "kind": "text",
+                "file_path": str(v3_path),
+                "title": "Final Contract v3",
+                "target_source_id": source_id,
+                "purge_previous_versions": True,
+            }
+        )
+        doc_v3 = self.queue.get_source(source_id)
+        self.assertEqual(len(doc_v3["versions"]), 1)
+        self.assertEqual(doc_v3["versions"][0]["id"], "ver_003")
+        self.assertFalse(ver_001_dir.exists())
+        self.assertFalse(ver_002_dir.exists())
+        self.assertTrue((blobs_dir / "ver_003").exists())
+
+    def test_document_delete_cascade_and_backlinks_annotation(self):
+        ctx = MockHermesContext()
+        runtime = self.runtime_mod.IngestionRuntime(ctx)
+        runtime.register_tools()
+
+        # Ingest a text file
+        doc_path = self.root / "invoice_to_delete.txt"
+        doc_path.write_text("Vendor Invoice 98765 amount $500", encoding="utf-8")
+        captured = self.publisher.capture(
+            {
+                "kind": "text",
+                "file_path": str(doc_path),
+                "title": "Vendor Invoice 98765",
+            }
+        )
+        source_id = captured["source"]["id"]
+
+        blobs_dir = self.publisher.blobs / source_id
+        self.assertTrue(blobs_dir.exists())
+
+        # Create markdown and journal files with backlinks
+        notes_dir = self.workspace / "finances"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        note_file = notes_dir / "october.md"
+        note_file.write_text(
+            f"# Finances\n- Ref: [Invoice](openlia://source/{source_id})\n",
+            encoding="utf-8",
+        )
+        journal_file = notes_dir / "ledger.journal"
+        journal_file.write_text(
+            f"2026-10-18 MegaCorp\n    expenses:office  $500\n    assets:checking\n    ; source: openlia://source/{source_id}#ver_001\n",
+            encoding="utf-8",
+        )
+
+        # Call ingestion_delete_document tool with annotate_backlinks=True
+        del_resp = json.loads(
+            runtime.delete_document({
+                "source_id": source_id,
+                "annotate_backlinks": True,
+            })
+        )
+        self.assertTrue(del_resp["ok"])
+        self.assertTrue(del_resp["deleted"])
+        self.assertEqual(len(del_resp["backlinks"]), 2)
+        self.assertIn("finances/october.md", del_resp["annotated_files"])
+        self.assertIn("finances/ledger.journal", del_resp["annotated_files"])
+
+        # Verify vault blobs directory on disk was completely purged
+        self.assertFalse(blobs_dir.exists())
+
+        # Verify database record is gone
+        self.assertIsNone(self.queue.get_source(source_id))
+        self.assertEqual(
+            self.queue.search_sources(query="Vendor Invoice", lifecycle="all")["total"], 0
+        )
+
+        # Verify note and journal content were annotated
+        annotated_note = note_file.read_text(encoding="utf-8")
+        self.assertIn(f"[Invoice (deleted source: {source_id})]", annotated_note)
+        annotated_journal = journal_file.read_text(encoding="utf-8")
+        self.assertIn(f"; source-deleted: {source_id}", annotated_journal)
 
 
 if __name__ == "__main__":

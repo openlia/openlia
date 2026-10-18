@@ -646,7 +646,10 @@ export function createWorkspaceHandler(
         request.method === "GET" &&
         url.pathname === "/api/workspace/ingestion/search"
       ) {
-        const query = url.searchParams.get("q") ?? undefined;
+        const query =
+          url.searchParams.get("q") ??
+          url.searchParams.get("query") ??
+          undefined;
         const tagsParam = url.searchParams.get("tags");
         const tags = tagsParam
           ? tagsParam
@@ -923,7 +926,8 @@ export function createWorkspaceHandler(
           const sourceId = decodeURIComponent(
             url.pathname.slice("/api/workspace/ingestion/sources/".length),
           );
-          return json(ingestionService.getSource(sourceId));
+          const versionId = url.searchParams.get("version_id") ?? undefined;
+          return json(ingestionService.getSource(sourceId, versionId));
         } catch (error) {
           if (error instanceof Error && error.message.includes("not found")) {
             return json({ schema: 1, ok: false, error: "not_found" }, 404);
@@ -957,13 +961,70 @@ export function createWorkspaceHandler(
         }
       }
       if (
-        request.method === "POST" &&
-        url.pathname === "/api/workspace/ingestion/upload"
+        request.method === "DELETE" &&
+        url.pathname.startsWith("/api/workspace/ingestion/sources/")
       ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
         try {
+          const sourceId = decodeURIComponent(
+            url.pathname.slice("/api/workspace/ingestion/sources/".length),
+          );
+          const annotate =
+            url.searchParams.get("annotate_backlinks") !== "false";
+          return json(
+            ingestionService.deleteSource(sourceId, {
+              annotate_backlinks: annotate,
+            }),
+          );
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("not found")) {
+            return json({ schema: 1, ok: false, error: "not_found" }, 404);
+          }
+          return json(
+            {
+              schema: 1,
+              ok: false,
+              error: "delete_failed",
+              message: String(error),
+            },
+            400,
+          );
+        }
+      }
+      const isVersionUpload =
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/workspace/ingestion/sources/") &&
+        url.pathname.endsWith("/versions");
+      const isDirectUpload =
+        request.method === "POST" &&
+        url.pathname === "/api/workspace/ingestion/upload";
+
+      if (isVersionUpload || isDirectUpload) {
+        try {
+          let urlSourceId: string | undefined;
+          if (isVersionUpload) {
+            const raw = url.pathname.slice(
+              "/api/workspace/ingestion/sources/".length,
+            );
+            urlSourceId = decodeURIComponent(raw.slice(0, -"/versions".length));
+          }
           const contentType = request.headers.get("content-type") ?? "";
           if (contentType.includes("multipart/form-data")) {
             const formData = await request.formData();
+            const rawSourceId =
+              formData.get("target_source_id") ?? formData.get("source_id");
+            const sourceId =
+              urlSourceId ||
+              (typeof rawSourceId === "string"
+                ? rawSourceId.trim() || undefined
+                : undefined);
+            const purgePreviousVersions =
+              formData.get("purge_previous_versions") === "true" ||
+              formData.get("purge_previous_versions") === "1";
             let passwordProfile =
               typeof formData.get("password_profile") === "string"
                 ? (formData.get("password_profile") as string).trim() ||
@@ -986,6 +1047,21 @@ export function createWorkspaceHandler(
                 ? (formData.get("password_description") as string).trim() ||
                   undefined
                 : undefined;
+
+            let filePasswords: Record<string, string> = {};
+            let filePasswordProfiles: Record<string, string> = {};
+            const rawFilePasswords = formData.get("file_passwords");
+            if (typeof rawFilePasswords === "string") {
+              try {
+                filePasswords = JSON.parse(rawFilePasswords);
+              } catch {}
+            }
+            const rawFileProfiles = formData.get("file_password_profiles");
+            if (typeof rawFileProfiles === "string") {
+              try {
+                filePasswordProfiles = JSON.parse(rawFileProfiles);
+              } catch {}
+            }
 
             if (rawPassword && !passwordProfile) {
               const derivedId = passwordLabel
@@ -1015,13 +1091,27 @@ export function createWorkspaceHandler(
               ) {
                 const file = value as File;
                 const buffer = new Uint8Array(await file.arrayBuffer());
+                let fileProfile =
+                  filePasswordProfiles[file.name] ?? passwordProfile;
+                const filePass = filePasswords[file.name];
+                if (filePass && !fileProfile) {
+                  const derivedId = `cred_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                  const saved = ingestionService.savePasswordProfile(
+                    derivedId,
+                    file.name,
+                    filePass,
+                  );
+                  fileProfile = saved.profile_id;
+                }
                 const res = ingestionService.upload(
                   {
                     name: file.name || "upload.bin",
                     data: buffer,
                   },
                   {
-                    password_profile: passwordProfile,
+                    password_profile: fileProfile,
+                    source_id: sourceId,
+                    purge_previous_versions: purgePreviousVersions,
                   },
                 );
                 results.push(res);
@@ -1041,6 +1131,13 @@ export function createWorkspaceHandler(
             });
           } else {
             const body = (await request.json()) as Record<string, unknown>;
+            const rawSourceId = body.target_source_id ?? body.source_id;
+            const sourceId =
+              urlSourceId ||
+              (typeof rawSourceId === "string"
+                ? rawSourceId.trim() || undefined
+                : undefined);
+            const purgePreviousVersions = body.purge_previous_versions === true;
             const filename =
               (body.filename as string) ||
               `${(body.title as string) || "document"}.txt`;
@@ -1104,6 +1201,8 @@ export function createWorkspaceHandler(
                 title: typeof body.title === "string" ? body.title : undefined,
                 kind: typeof body.kind === "string" ? body.kind : undefined,
                 password_profile: passwordProfile,
+                source_id: sourceId,
+                purge_previous_versions: purgePreviousVersions,
               },
             );
             return json(res);

@@ -604,6 +604,16 @@ class PolicyEnforcer:
             return self._destructive_action(
                 authority, "delete_records", "sources/document-passwords.toml"
             )
+        if tool_name == "ingestion_delete_document":
+            if authority.policy is not None and not _policy_path_allowed(
+                authority, "sources"
+            ):
+                return _block(
+                    "OpenLia policy blocked deletion outside allowed domains: sources."
+                )
+            return self._destructive_action(
+                authority, "delete_records", "sources"
+            )
         if tool_name in {
             "ingestion_capture",
             "save_document_password",

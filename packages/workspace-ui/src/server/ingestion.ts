@@ -6,7 +6,9 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { basename, extname, join, relative, resolve, sep } from "node:path";
@@ -23,6 +25,7 @@ import type {
   IngestionOverviewResponse,
   PasswordSuggestion,
   SourceBacklink,
+  SourceDeleteResponse,
   SourceDocument,
   SourceExtractionItem,
   SourceRetryRequest,
@@ -713,9 +716,12 @@ export class IngestionService {
         params.push(options.processing_status.trim());
       }
 
-      if (options.lifecycle) {
+      const effectiveLifecycle = (options.lifecycle ?? "active")
+        .trim()
+        .toLowerCase();
+      if (effectiveLifecycle && effectiveLifecycle !== "all") {
         conditions.push("lifecycle = ?");
-        params.push(options.lifecycle.trim());
+        params.push(effectiveLifecycle);
       }
 
       if (options.date_from) {
@@ -925,11 +931,12 @@ export class IngestionService {
         (doc.processing?.status ?? "complete") !== options.processing_status
       )
         return false;
-      if (
-        options.lifecycle &&
-        (doc.lifecycle ?? "active") !== options.lifecycle
-      )
-        return false;
+      const effectiveLifecycle = (options.lifecycle ?? "active")
+        .trim()
+        .toLowerCase();
+      if (effectiveLifecycle && effectiveLifecycle !== "all") {
+        if ((doc.lifecycle ?? "active") !== effectiveLifecycle) return false;
+      }
       if (options.tags && options.tags.length > 0) {
         const docTags = new Set(doc.tags ?? []);
         if (!options.tags.some((t) => docTags.has(t))) return false;
@@ -1013,7 +1020,7 @@ export class IngestionService {
     };
   }
 
-  getSource(sourceId: string): SourceDocument {
+  getSource(sourceId: string, requestedVersionId?: string): SourceDocument {
     if (!safeId.test(sourceId)) throw new Error("invalid source id");
     const record = this.readSource(sourceId);
     if (!record || !record.id) throw new Error("source record not found");
@@ -1023,7 +1030,28 @@ export class IngestionService {
     const versions = record.versions ?? [];
     const latestVersion =
       versions.length > 0 ? versions[versions.length - 1] : null;
-    const versionId = latestVersion?.id as string | undefined;
+    const requestedVersion = requestedVersionId?.trim() || undefined;
+    if (requestedVersion && !safeId.test(requestedVersion)) {
+      throw new Error("invalid version id");
+    }
+    const selectedVersion = requestedVersion
+      ? versions.find(
+          (version) =>
+            stringOrNull(version.id) === requestedVersion ||
+            stringOrNull(version.version_id) === requestedVersion,
+        )
+      : latestVersion;
+    if (requestedVersion && !selectedVersion) {
+      throw new Error("source version not found");
+    }
+    const versionId =
+      stringOrNull(selectedVersion?.id) ??
+      stringOrNull(selectedVersion?.version_id) ??
+      undefined;
+    const latestVersionId =
+      stringOrNull(latestVersion?.id) ??
+      stringOrNull(latestVersion?.version_id) ??
+      undefined;
 
     if (versionId) {
       for (const baseRoot of [
@@ -1038,7 +1066,7 @@ export class IngestionService {
         ),
       ]) {
         if (!existsSync(baseRoot)) continue;
-        for (const extId of orderedExtractionIds(baseRoot, latestVersion)) {
+        for (const extId of orderedExtractionIds(baseRoot, selectedVersion)) {
           if (!safeId.test(extId)) continue;
           if (extractions.some((e) => e.extraction_id === extId)) continue;
           const extDir = join(baseRoot, extId);
@@ -1068,6 +1096,12 @@ export class IngestionService {
     }
 
     const backlinks = this.findBacklinks(sourceId);
+    const staleBacklinks = backlinks.filter(
+      (b) =>
+        b.pinned_version_id &&
+        latestVersionId &&
+        b.pinned_version_id !== latestVersionId,
+    );
 
     return {
       id: record.id,
@@ -1100,6 +1134,7 @@ export class IngestionService {
       canonical_uri: `openlia://source/${sourceId}`,
       markdown_citation: `[${record.title ?? "Source Document"}](openlia://source/${sourceId})`,
       backlinks,
+      stale_backlinks: staleBacklinks,
       content: extractedText ? extractedText.slice(0, 50000) : null,
       extractions,
     };
@@ -1223,26 +1258,69 @@ export class IngestionService {
           title?: string | undefined;
           kind?: string | undefined;
           password_profile?: string | null | undefined;
+          source_id?: string | undefined;
+          target_source_id?: string | undefined;
+          purge_previous_versions?: boolean | undefined;
         }
       | undefined,
   ): SourceUploadResponse {
     const rawExt = extname(file.name).toLowerCase();
-    const sourceId = `src_${randomBytes(6).toString("hex")}`;
-    const versionId = "ver_001";
+    const effectiveSourceId = options?.target_source_id || options?.source_id;
+    const existingSource = effectiveSourceId
+      ? this.readSource(effectiveSourceId)
+      : null;
+    const sourceId =
+      existingSource?.id ??
+      effectiveSourceId ??
+      `src_${randomBytes(6).toString("hex")}`;
+    if (!safeId.test(sourceId)) throw new Error("invalid source id");
+
+    const existingVersions = (existingSource?.versions ?? []) as Array<
+      Record<string, unknown>
+    >;
+    let versionId = "ver_001";
+    if (existingSource) {
+      let highest = 0;
+      for (const v of existingVersions) {
+        const vid = stringOrNull(v.id);
+        if (vid) {
+          const m = vid.match(/^ver_(\d+)$/);
+          if (m && m[1]) {
+            highest = Math.max(highest, parseInt(m[1], 10));
+          }
+        }
+      }
+      versionId = `ver_${String(highest + 1).padStart(3, "0")}`;
+    }
+
     const jobId = `job_${randomBytes(6).toString("hex")}`;
     const intakeId = `intake_${randomBytes(6).toString("hex")}`;
     const artifactId = `art_${randomBytes(6).toString("hex")}`;
     const nowIso = new Date().toISOString();
     const nowEpoch = Date.now() / 1000;
-    const passwordProfile = options?.password_profile
-      ? options.password_profile.trim()
-      : null;
+    let passwordProfile =
+      options?.password_profile !== undefined
+        ? options.password_profile
+          ? options.password_profile.trim()
+          : null
+        : (existingSource?.password_profile ?? null);
 
-    let kind = options?.kind;
+    if (!passwordProfile) {
+      const suggestions = this.suggestPasswordProfiles({
+        filename: file.name,
+        title: options?.title,
+      });
+      if (suggestions.length > 0 && suggestions[0]!.score >= 70) {
+        passwordProfile = suggestions[0]!.profile.profile_id;
+      }
+    }
+
+    let kind = options?.kind ?? existingSource?.kind;
     if (!kind) {
       if (rawExt === ".pdf") kind = "pdf";
       else if (rawExt === ".xlsx" || rawExt === ".xls") kind = "excel";
-      else if (rawExt === ".csv") kind = "csv";
+      else if (rawExt === ".csv" || rawExt === ".tsv" || rawExt === ".tab")
+        kind = "csv";
       else if (
         [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"].includes(
           rawExt,
@@ -1250,10 +1328,38 @@ export class IngestionService {
       )
         kind = "image";
       else if (
-        [".txt", ".md", ".json", ".log", ".yaml", ".yml"].includes(rawExt)
+        [
+          ".txt",
+          ".md",
+          ".json",
+          ".log",
+          ".yaml",
+          ".yml",
+          ".vtt",
+          ".srt",
+          ".xml",
+          ".html",
+          ".htm",
+          ".toml",
+          ".ini",
+          ".cfg",
+          ".conf",
+          ".sql",
+          ".sh",
+          ".py",
+          ".js",
+          ".ts",
+        ].includes(rawExt)
       )
         kind = "text";
-      else kind = "file";
+      else {
+        try {
+          new TextDecoder("utf-8", { fatal: true }).decode(file.data);
+          kind = "text";
+        } catch {
+          kind = "file";
+        }
+      }
     }
     if (
       !["chat", "text", "file", "pdf", "image", "excel", "csv"].includes(kind)
@@ -1261,7 +1367,26 @@ export class IngestionService {
       throw new Error("unsupported upload kind");
     }
 
-    const title = options?.title ?? (basename(file.name, rawExt) || file.name);
+    const title =
+      options?.title ??
+      existingSource?.title ??
+      (basename(file.name, rawExt) || file.name);
+
+    if (existingSource && options?.purge_previous_versions) {
+      for (const v of existingVersions) {
+        const vid = stringOrNull(v.id);
+        if (vid) {
+          const prevBlobDir = join(this.ingestionRoot, "blobs", sourceId, vid);
+          if (existsSync(prevBlobDir)) {
+            try {
+              rmSync(prevBlobDir, { recursive: true, force: true });
+            } catch {
+              // ignore
+            }
+          }
+        }
+      }
+    }
 
     // 1. Write original blob into the Ingestion Vault (zero writes to workspaceRoot!)
     const extension = /^\.[a-z0-9]{1,12}$/.test(rawExt) ? rawExt : ".bin";
@@ -1272,16 +1397,35 @@ export class IngestionService {
     });
     writeFileSync(artifactAbs, file.data);
 
+    const newVersionObj = {
+      id: versionId,
+      original_artifact_id: artifactId,
+      filename: file.name,
+      content_sha256: createHash("sha256").update(file.data).digest("hex"),
+      media_type: Bun.file(file.name).type || "application/octet-stream",
+      size_bytes: file.data.byteLength,
+      original_ref: artifactRel,
+      received_at: nowIso,
+      retained: true,
+      extractions: [],
+    };
+
+    const versionsList = existingSource
+      ? options?.purge_previous_versions
+        ? [newVersionObj]
+        : [...existingVersions, newVersionObj]
+      : [newVersionObj];
+
     const sourceRecord: SourceRecord = {
       $schema: "./source-template.schema.json",
       id: sourceId,
       title,
       kind,
-      document_type: null,
-      correspondent: null,
-      document_date: null,
-      tags: [],
-      summary: null,
+      document_type: existingSource?.document_type ?? null,
+      correspondent: existingSource?.correspondent ?? null,
+      document_date: existingSource?.document_date ?? null,
+      tags: existingSource?.tags ?? [],
+      summary: existingSource?.summary ?? null,
       status: "captured",
       processing: {
         status: "captured",
@@ -1289,37 +1433,33 @@ export class IngestionService {
         updated_at: nowIso,
         error: null,
       },
-      review: {
-        status: "unreviewed",
-        reasons: [],
-      },
-      lifecycle: "active",
-      captured_at: nowIso,
-      sensitivity: "personal",
+      review: existingSource
+        ? {
+            status: "needs-review",
+            reasons: ["new_version_uploaded"],
+            reviewed_at: null,
+          }
+        : {
+            status: "unreviewed",
+            reasons: [],
+          },
+      lifecycle: (existingSource?.lifecycle as any) ?? "active",
+      captured_at: existingSource?.captured_at ?? nowIso,
+      sensitivity: (existingSource?.sensitivity as any) ?? "personal",
       password_profile: passwordProfile,
-      custom_fields: {},
-      authorization: { scope: "ingestion", source: "direct-request" },
-      origin: {
+      custom_fields: existingSource?.custom_fields ?? {},
+      authorization: existingSource?.authorization ?? {
+        scope: "ingestion",
+        source: "direct-request",
+      },
+      origin: existingSource?.origin ?? {
         channel: "workspace-ui",
         source_url: null,
         provider: null,
         provider_item_id: null,
         message_id: null,
       },
-      versions: [
-        {
-          id: versionId,
-          original_artifact_id: artifactId,
-          filename: file.name,
-          content_sha256: createHash("sha256").update(file.data).digest("hex"),
-          media_type: Bun.file(file.name).type || "application/octet-stream",
-          size_bytes: file.data.byteLength,
-          original_ref: artifactRel,
-          received_at: nowIso,
-          retained: true,
-          extractions: [],
-        },
-      ],
+      versions: versionsList,
     };
 
     const continuation = {
@@ -1362,6 +1502,28 @@ export class IngestionService {
     try {
       if (!db) throw new Error("ingestion queue is unavailable");
       db.transaction(() => {
+        if (existingSource) {
+          if (options?.purge_previous_versions) {
+            for (const v of existingVersions) {
+              const vid = stringOrNull(v.id);
+              if (vid) {
+                db.run(
+                  "DELETE FROM source_versions WHERE source_id = ? AND version_id = ?",
+                  [sourceId, vid],
+                );
+                db.run(
+                  "DELETE FROM extractions WHERE source_id = ? AND version_id = ?",
+                  [sourceId, vid],
+                );
+              }
+            }
+          }
+          db.run(
+            "DELETE FROM jobs WHERE source_id = ? AND state IN ('queued', 'running', 'retryable-failure', 'awaiting-unlock')",
+            [sourceId],
+          );
+        }
+
         db.run(
           `INSERT INTO jobs (
             job_id, idempotency_key, intake_id, source_id, version_id,
@@ -1410,6 +1572,11 @@ export class IngestionService {
       );
     }
 
+    const allBacklinks = this.findBacklinks(sourceId);
+    const staleBacklinks = allBacklinks.filter(
+      (b) => b.pinned_version_id && b.pinned_version_id !== versionId,
+    );
+
     return {
       schema: 1,
       ok: true,
@@ -1417,6 +1584,8 @@ export class IngestionService {
       version_id: versionId,
       job_id: jobId,
       title,
+      replaced_existing: Boolean(existingSource),
+      ...(staleBacklinks.length > 0 ? { stale_backlinks: staleBacklinks } : {}),
     };
   }
 
@@ -1739,6 +1908,10 @@ export class IngestionService {
       `openlia://source/${sourceId}`,
       `openlia://sources/${sourceId}`,
     ];
+    const escaped = sourceId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const uriRe = new RegExp(
+      `openlia://sources?/${escaped}(?:#([A-Za-z0-9][A-Za-z0-9._-]*)(?:/p\\d+)?)?`,
+    );
 
     const walk = (dir: string) => {
       if (!existsSync(dir)) return;
@@ -1766,11 +1939,18 @@ export class IngestionService {
               const domain =
                 (parts.length > 1 ? parts[0] : "workspace") || "workspace";
               let lineNo = 1;
+              let pinnedVersionId: string | null = null;
+              let lineExcerpt = "";
               const lines = content.split("\n");
               for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
                 if (line && targetTokens.some((tok) => line.includes(tok))) {
                   lineNo = i + 1;
+                  lineExcerpt = line.trim().slice(0, 200);
+                  const m = line.match(uriRe);
+                  if (m && m[1] && !/^p\d+$/.test(m[1])) {
+                    pinnedVersionId = m[1];
+                  }
                   break;
                 }
               }
@@ -1779,6 +1959,8 @@ export class IngestionService {
                 domain,
                 filename: entry.name,
                 line_number: lineNo,
+                pinned_version_id: pinnedVersionId,
+                line_excerpt: lineExcerpt,
               });
             }
           } catch {
@@ -1790,6 +1972,155 @@ export class IngestionService {
 
     walk(this.workspaceRoot);
     return backlinks.sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  annotateDeletedBacklinks(sourceId: string): string[] {
+    const backlinks = this.findBacklinks(sourceId);
+    const modified: string[] = [];
+    const escapedId = sourceId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const ledgerCommentRe = new RegExp(
+      `;\\s*source:\\s*openlia://sources?/${escapedId}(?:#[^\\s)]+)?`,
+      "g",
+    );
+    const mdLinkRe = new RegExp(
+      `\\[([^\\]]+)\\]\\(openlia://sources?/${escapedId}(?:#[^)\\s]+)?\\)`,
+      "g",
+    );
+    const bareUriRe = new RegExp(
+      `openlia://sources?/${escapedId}(?:#[^\\s)"']+)?`,
+      "g",
+    );
+
+    for (const item of backlinks) {
+      const fullPath = resolve(this.workspaceRoot, item.path);
+      if (
+        !fullPath.startsWith(this.workspaceRoot + sep) &&
+        fullPath !== this.workspaceRoot
+      ) {
+        continue;
+      }
+      if (
+        !existsSync(fullPath) ||
+        !statSync(fullPath, { throwIfNoEntry: false })?.isFile()
+      ) {
+        continue;
+      }
+      try {
+        const original = readFileSync(fullPath, "utf8");
+        let updated = original;
+        if (
+          item.filename.endsWith(".hledger") ||
+          item.filename.endsWith(".journal")
+        ) {
+          updated = updated.replace(
+            ledgerCommentRe,
+            `; source-deleted: ${sourceId}`,
+          );
+          updated = updated.replace(bareUriRe, `(deleted source: ${sourceId})`);
+        } else {
+          updated = updated.replace(
+            mdLinkRe,
+            `[$1 (deleted source: ${sourceId})]`,
+          );
+          updated = updated.replace(bareUriRe, `(deleted source: ${sourceId})`);
+        }
+        if (updated !== original) {
+          writeFileSync(fullPath, updated, "utf8");
+          modified.push(item.path);
+        }
+      } catch {
+        // Ignore read/write errors
+      }
+    }
+    return modified;
+  }
+
+  deleteSource(
+    sourceId: string,
+    options?: { annotate_backlinks?: boolean },
+  ): SourceDeleteResponse {
+    if (!safeId.test(sourceId)) throw new Error("invalid source id");
+    if (!this.readSource(sourceId)) throw new Error("source record not found");
+    const db = this.getDb();
+    let deleted = false;
+    if (db) {
+      db.transaction(() => {
+        db.run("DELETE FROM jobs WHERE source_id = ?", [sourceId]);
+        db.run("DELETE FROM source_fts WHERE source_id = ?", [sourceId]);
+        db.run("DELETE FROM extractions WHERE source_id = ?", [sourceId]);
+        db.run("DELETE FROM source_versions WHERE source_id = ?", [sourceId]);
+        db.run("DELETE FROM intakes WHERE source_id = ?", [sourceId]);
+        const res = db.run("DELETE FROM sources WHERE source_id = ?", [
+          sourceId,
+        ]);
+        if (res.changes > 0) deleted = true;
+      }).immediate();
+    }
+
+    const blobDir = join(this.ingestionRoot, "blobs", sourceId);
+    if (existsSync(blobDir)) {
+      try {
+        rmSync(blobDir, { recursive: true, force: true });
+        deleted = true;
+      } catch {
+        // ignore
+      }
+    }
+    const legacyArtDir = join(
+      this.workspaceRoot,
+      "sources",
+      "artifacts",
+      sourceId,
+    );
+    if (existsSync(legacyArtDir)) {
+      try {
+        rmSync(legacyArtDir, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+    }
+    const legacyRec = join(
+      this.workspaceRoot,
+      "sources",
+      "records",
+      `${sourceId}.md`,
+    );
+    if (existsSync(legacyRec)) {
+      try {
+        unlinkSync(legacyRec);
+        deleted = true;
+      } catch {
+        // ignore
+      }
+    }
+    const fallbackJson = join(
+      this.ingestionRoot,
+      "sources",
+      `${sourceId}.json`,
+    );
+    if (existsSync(fallbackJson)) {
+      try {
+        unlinkSync(fallbackJson);
+        deleted = true;
+      } catch {
+        // ignore
+      }
+    }
+
+    const backlinks = this.findBacklinks(sourceId);
+    let annotatedFiles: string[] = [];
+    if (options?.annotate_backlinks !== false) {
+      annotatedFiles = this.annotateDeletedBacklinks(sourceId);
+    }
+
+    return {
+      schema: 1,
+      ok: true,
+      source_id: sourceId,
+      deleted,
+      backlinks,
+      annotated_files: annotatedFiles,
+    };
   }
 
   rebuildFts(): { indexed: number } {

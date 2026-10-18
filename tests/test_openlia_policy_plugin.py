@@ -164,3 +164,11 @@ class PolicyPluginTests(unittest.TestCase):
         )
         self.assertEqual(del_decision["action"], "approve")
         self.assertEqual(del_decision["rule_key"], "openlia.policy.delete_records")
+
+    def test_ingestion_delete_document_policy_classification(self):
+        del_decision = self.policy.pre_tool_call(
+            "ingestion_delete_document", {"source_id": "src_12345678"}
+        )
+        self.assertEqual(del_decision["action"], "approve")
+        self.assertEqual(del_decision["rule_key"], "openlia.policy.delete_records")
+        self.assertIn("delete_records on sources", del_decision["message"])

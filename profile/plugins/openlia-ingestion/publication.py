@@ -31,6 +31,21 @@ def make_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
 
 
+def _next_version_id(existing_versions: list[dict]) -> str:
+    if not existing_versions:
+        return "ver_001"
+    max_num = len(existing_versions)
+    for ver in existing_versions:
+        if not isinstance(ver, dict):
+            continue
+        vid = str(ver.get("id") or "")
+        match = re.fullmatch(r"ver_(\d+)", vid)
+        if match:
+            max_num = max(max_num, int(match.group(1)))
+    return f"ver_{max_num + 1:03d}"
+
+
+
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -113,11 +128,28 @@ class VaultStore:
         if kind not in {"chat", "text", "file", "pdf", "image", "excel", "csv", "youtube"}:
             raise PublicationError("unsupported ingestion kind")
         captured_at = timestamp()
-        source_id = str(request.get("source_id") or make_id("src"))
-        version_id = str(request.get("version_id") or make_id("ver"))
+        raw_source_id = request.get("source_id") or request.get("target_source_id")
+        if raw_source_id is not None:
+            source_id = str(raw_source_id).strip()
+            if not SAFE_ID.fullmatch(source_id):
+                raise PublicationError("invalid source id")
+            existing_source = self.db.get_source(source_id)
+        else:
+            source_id = make_id("src")
+            existing_source = None
+
+        existing_versions = list((existing_source or {}).get("versions") or [])
+        if request.get("version_id"):
+            version_id = str(request["version_id"]).strip()
+            if not SAFE_ID.fullmatch(version_id):
+                raise PublicationError("invalid version id")
+        else:
+            version_id = _next_version_id(existing_versions)
+
         intake_id = str(request.get("intake_id") or make_id("intake"))
-        title = str(request.get("title") or "Untitled source")[:240]
-        origin = {
+        default_title = (existing_source or {}).get("title") or "Untitled source"
+        title = str(request.get("title") or default_title)[:240]
+        origin = (existing_source or {}).get("origin") or {
             "channel": request.get("channel") or "chat",
             "source_url": request.get("url") if kind == "youtube" else None,
             "provider": "youtube" if kind == "youtube" else None,
@@ -128,7 +160,7 @@ class VaultStore:
         version = None
         initial_content = ""
         if kind == "youtube":
-            if not _youtube_url(origin["source_url"]):
+            if not _youtube_url(request.get("url") or origin.get("source_url")):
                 raise PublicationError("only YouTube URLs are supported")
         else:
             data, filename, media_type = self._input_bytes(request, kind)
@@ -153,41 +185,117 @@ class VaultStore:
                 "extractions": [],
             }
 
-        source = {
-            "$schema": "./source-template.schema.json",
-            "id": source_id,
-            "kind": kind,
-            "title": title,
-            "document_type": request.get("document_type"),
-            "correspondent": request.get("correspondent"),
-            "document_date": request.get("document_date"),
-            "tags": [str(t).strip().lower() for t in (request.get("tags") or []) if str(t).strip()],
-            "summary": request.get("summary"),
-            "status": "captured",
-            "processing": {
-                "status": "captured",
-                "last_job_id": None,
-                "updated_at": captured_at,
-                "error": None,
-            },
-            "review": {
-                "status": "unreviewed",
-                "reasons": [],
+        purge_previous = bool(request.get("purge_previous_versions"))
+        if existing_source is not None:
+            if purge_previous:
+                for old_ver in existing_versions:
+                    old_ver_id = str(old_ver.get("id") or "")
+                    if old_ver_id and old_ver_id != version_id:
+                        self.db.delete_version_cascade(source_id, old_ver_id)
+                        shutil.rmtree(self.blobs / source_id / old_ver_id, ignore_errors=True)
+                versions_list = [version] if version else []
+            else:
+                self.db.cancel_source_jobs(source_id, exclude_version_id=version_id)
+                versions_list = [
+                    v for v in existing_versions if v.get("id") != version_id
+                ] + ([version] if version else [])
+
+            raw_tags = request.get("tags")
+            if raw_tags is not None:
+                tags = [str(t).strip().lower() for t in raw_tags if str(t).strip()]
+            else:
+                tags = list(existing_source.get("tags") or [])
+
+            merged_cf = dict(existing_source.get("custom_fields") or {})
+            if isinstance(request.get("custom_fields"), dict):
+                merged_cf.update(request["custom_fields"])
+
+            review_block = {
+                "status": "needs-review",
+                "reasons": ["new_version_uploaded"],
                 "reviewed_at": None,
                 "reviewed_by": None,
-            },
-            "lifecycle": "active",
-            "captured_at": captured_at,
-            "sensitivity": request.get("sensitivity") or "personal",
-            "custom_fields": dict(request.get("custom_fields") or {}),
-            "authorization": {
-                "scope": request.get("authorization_scope") or "ingestion",
-                "source": request.get("authorization_source") or "direct-request",
-            },
-            "origin": origin,
-            "versions": [version] if version else [],
-            "password_profile": request.get("password_profile"),
-        }
+            }
+            source = {
+                "$schema": "./source-template.schema.json",
+                "id": source_id,
+                "kind": kind or existing_source.get("kind") or "file",
+                "title": title,
+                "document_type": request.get("document_type")
+                if request.get("document_type") is not None
+                else existing_source.get("document_type"),
+                "correspondent": request.get("correspondent")
+                if request.get("correspondent") is not None
+                else existing_source.get("correspondent"),
+                "document_date": request.get("document_date")
+                if request.get("document_date") is not None
+                else existing_source.get("document_date"),
+                "tags": tags,
+                "summary": request.get("summary")
+                if request.get("summary") is not None
+                else existing_source.get("summary"),
+                "status": "captured",
+                "processing": {
+                    "status": "captured",
+                    "last_job_id": None,
+                    "updated_at": captured_at,
+                    "error": None,
+                },
+                "review": review_block,
+                "lifecycle": existing_source.get("lifecycle") or "active",
+                "captured_at": existing_source.get("captured_at") or captured_at,
+                "sensitivity": request.get("sensitivity")
+                or existing_source.get("sensitivity")
+                or "personal",
+                "custom_fields": merged_cf,
+                "authorization": existing_source.get("authorization")
+                or {
+                    "scope": request.get("authorization_scope") or "ingestion",
+                    "source": request.get("authorization_source") or "direct-request",
+                },
+                "origin": origin,
+                "versions": versions_list,
+                "password_profile": request.get("password_profile")
+                if request.get("password_profile") is not None
+                else existing_source.get("password_profile"),
+            }
+        else:
+            source = {
+                "$schema": "./source-template.schema.json",
+                "id": source_id,
+                "kind": kind,
+                "title": title,
+                "document_type": request.get("document_type"),
+                "correspondent": request.get("correspondent"),
+                "document_date": request.get("document_date"),
+                "tags": [str(t).strip().lower() for t in (request.get("tags") or []) if str(t).strip()],
+                "summary": request.get("summary"),
+                "status": "captured",
+                "processing": {
+                    "status": "captured",
+                    "last_job_id": None,
+                    "updated_at": captured_at,
+                    "error": None,
+                },
+                "review": {
+                    "status": "unreviewed",
+                    "reasons": [],
+                    "reviewed_at": None,
+                    "reviewed_by": None,
+                },
+                "lifecycle": "active",
+                "captured_at": captured_at,
+                "sensitivity": request.get("sensitivity") or "personal",
+                "custom_fields": dict(request.get("custom_fields") or {}),
+                "authorization": {
+                    "scope": request.get("authorization_scope") or "ingestion",
+                    "source": request.get("authorization_source") or "direct-request",
+                },
+                "origin": origin,
+                "versions": [version] if version else [],
+                "password_profile": request.get("password_profile"),
+            }
+
         self.db.save_source(source)
         self.db.upsert_source_fts(
             source_id=source_id,
@@ -198,9 +306,9 @@ class VaultStore:
             summary=source["summary"],
             content=initial_content,
             document_date=source["document_date"],
-            review_status="unreviewed",
+            review_status=source["review"]["status"],
             processing_status="captured",
-            lifecycle="active",
+            lifecycle=source["lifecycle"],
             custom_fields=source["custom_fields"],
         )
 
@@ -237,7 +345,36 @@ class VaultStore:
             "callback": {"event_id": None, "delivery_status": "not_required"},
         }
         self.db.save_intake(intake)
-        return {"source": source, "intake": intake, "version": version}
+        return {
+            "source": source,
+            "intake": intake,
+            "version": version,
+            "replaced_existing": existing_source is not None,
+            "purged_previous_versions": bool(existing_source is not None and purge_previous),
+        }
+
+    def delete_source(self, source_id: str) -> dict:
+        if not isinstance(source_id, str) or not SAFE_ID.fullmatch(source_id):
+            raise PublicationError("invalid source id")
+        cascade = self.db.delete_source_cascade(source_id)
+        shutil.rmtree(self.blobs / source_id, ignore_errors=True)
+        fallback_json = self.root / "sources" / f"{source_id}.json"
+        if fallback_json.is_file():
+            try:
+                fallback_json.unlink()
+            except OSError:
+                pass
+        if self.workspace_root and self.workspace_root.exists():
+            legacy_rec = self.workspace_root / "sources" / "records" / f"{source_id}.md"
+            if legacy_rec.is_file():
+                try:
+                    legacy_rec.unlink()
+                except OSError:
+                    pass
+            legacy_art = self.workspace_root / "sources" / "artifacts" / source_id
+            if legacy_art.is_dir():
+                shutil.rmtree(legacy_art, ignore_errors=True)
+        return {"source_id": source_id, **cascade}
 
     def load_source(self, source_id: str) -> dict:
         if not isinstance(source_id, str) or not SAFE_ID.fullmatch(source_id):

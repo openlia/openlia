@@ -20,7 +20,13 @@ from .adapters import AdapterError, process_job
 from .db import IngestionQueue
 from .passwords import PasswordProfileError, PasswordProfiles
 from .publication import PublicationError, VaultStore
-from .references import build_markdown_citation, build_source_uri, find_backlinks, parse_source_uri
+from .references import (
+    annotate_deleted_backlinks,
+    build_markdown_citation,
+    build_source_uri,
+    find_backlinks,
+    parse_source_uri,
+)
 from .server import (
     IngestionSidecarServer,
     _resolve_auth_token,
@@ -115,13 +121,21 @@ class IngestionRuntime:
             self.capture,
             {
                 "name": "ingestion_capture",
-                "description": "Durably capture text, a local attachment, a PDF, image, Excel, CSV, or YouTube URL into the standalone Ingestion Vault. Pass wait_seconds (e.g. 15) in interactive chat turns to process and return extracted metadata in a single call, and auto_unlock=true to automatically apply a high-confidence saved password profile.",
+                "description": "Durably capture text, a local attachment, a PDF, image, Excel, CSV, or YouTube URL into the standalone Ingestion Vault, or append/replace a new version on an existing source_id. Pass wait_seconds (e.g. 15) in interactive chat turns to process and return extracted metadata in a single call, and auto_unlock=true to automatically apply a high-confidence saved password profile.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "kind": {
                             "type": "string",
                             "enum": ["chat", "text", "file", "pdf", "image", "excel", "csv", "youtube"],
+                        },
+                        "source_id": {
+                            "type": "string",
+                            "description": "Optional existing source ID (src_...) when uploading a new version or replacement for an already-ingested document.",
+                        },
+                        "purge_previous_versions": {
+                            "type": "boolean",
+                            "description": "When source_id is provided, set true to delete old versions' blobs and extractions (e.g. replacing a corrupt scan). Default false preserves version history.",
                         },
                         "title": {"type": "string"},
                         "content": {"type": "string"},
@@ -319,8 +333,8 @@ class IngestionRuntime:
                         "processing_status": {"type": "string", "description": "Filter by processing status"},
                         "lifecycle": {
                             "type": "string",
-                            "enum": ["active", "archived"],
-                            "description": "Filter by lifecycle",
+                            "enum": ["active", "archived", "all"],
+                            "description": "Filter by lifecycle (default 'active')",
                         },
                         "date_from": {"type": "string", "description": "Earliest document date (YYYY-MM-DD)"},
                         "date_to": {"type": "string", "description": "Latest document date (YYYY-MM-DD)"},
@@ -400,6 +414,29 @@ class IngestionRuntime:
                         "add_tags": {"type": "array", "items": {"type": "string"}},
                         "remove_tags": {"type": "array", "items": {"type": "string"}},
                     },
+                },
+            },
+        )
+        self._register(
+            "ingestion_delete_document",
+            self.delete_document,
+            {
+                "name": "ingestion_delete_document",
+                "description": "Permanently delete a source document, all versions, extractions, FTS index entries, and blob files from the Ingestion Vault, and optionally rewrite any openlia://source/<id> citations in workspace records to non-clickable (deleted source: <id>) annotations.",
+                "parameters": {
+                    "type": "object",
+                    "required": ["source_id"],
+                    "properties": {
+                        "source_id": {
+                            "type": "string",
+                            "description": "Source ID (src_...) or canonical openlia://source/... URI",
+                        },
+                        "annotate_backlinks": {
+                            "type": "boolean",
+                            "description": "Automatically rewrite openlia://source/<id> citations in workspace records to non-clickable deleted-source annotations (default true).",
+                        },
+                    },
+                    "additionalProperties": False,
                 },
             },
         )
@@ -643,6 +680,10 @@ class IngestionRuntime:
                     timeout=max(30.0, wait_seconds + 15.0),
                 )
                 if remote_res is not None:
+                    if remote_res.get("replaced_existing") and remote_res.get("source_id"):
+                        remote_res["stale_backlinks"] = find_backlinks(
+                            self.workspace_root, str(remote_res["source_id"])
+                        )
                     return _json(remote_res)
 
             auto_selected_profile: str | None = None
@@ -751,6 +792,14 @@ class IngestionRuntime:
                 "state": job["state"],
                 "durably_retained": True,
             }
+            if captured.get("replaced_existing"):
+                base_resp["replaced_existing"] = True
+                base_resp["purged_previous_versions"] = bool(
+                    captured.get("purged_previous_versions")
+                )
+                base_resp["stale_backlinks"] = find_backlinks(
+                    self.workspace_root, source["id"]
+                )
             if auto_selected_profile:
                 base_resp["auto_selected_password_profile"] = auto_selected_profile
             if wait_seconds > 0:
@@ -767,6 +816,8 @@ class IngestionRuntime:
             payload = hashlib.sha256(path.read_bytes()).hexdigest()
         material = {
             "kind": request.get("kind"),
+            "source_id": request.get("source_id"),
+            "purge_previous_versions": bool(request.get("purge_previous_versions")),
             "payload": payload,
             "url": request.get("url"),
             "operation": request.get("operation", "extract"),
@@ -1166,11 +1217,23 @@ class IngestionRuntime:
                             }
                         )
                     backlinks = find_backlinks(self.workspace_root, source_id)
+                    doc_obj = remote_res.get("document") or remote_res.get("source") or {}
+                    versions_list = doc_obj.get("versions") or []
+                    latest_ver_id = versions_list[-1].get("id") if versions_list else None
+                    stale_backlinks = [
+                        b
+                        for b in backlinks
+                        if b.get("pinned_version_id")
+                        and b.get("pinned_version_id") != latest_ver_id
+                    ]
                     remote_res["backlinks"] = backlinks
+                    remote_res["stale_backlinks"] = stale_backlinks
                     if isinstance(remote_res.get("document"), dict):
                         remote_res["document"]["backlinks"] = backlinks
+                        remote_res["document"]["stale_backlinks"] = stale_backlinks
                     if isinstance(remote_res.get("source"), dict):
                         remote_res["source"]["backlinks"] = backlinks
+                        remote_res["source"]["stale_backlinks"] = stale_backlinks
                     return _json(remote_res)
 
             source = self.publisher.load_source(source_id)
@@ -1197,6 +1260,13 @@ class IngestionRuntime:
             )
 
             backlinks = find_backlinks(self.workspace_root, source_id)
+            versions_list = source.get("versions") or []
+            latest_ver_id = versions_list[-1].get("id") if versions_list else None
+            stale_backlinks = [
+                b
+                for b in backlinks
+                if b.get("pinned_version_id") and b.get("pinned_version_id") != latest_ver_id
+            ]
             extractions = []
             if selected_version:
                 ver_id = selected_version.get("id")
@@ -1217,6 +1287,7 @@ class IngestionRuntime:
                     source, version_id=version_id, page=page
                 ),
                 "backlinks": backlinks,
+                "stale_backlinks": stale_backlinks,
                 "extractions": extractions,
             }
 
@@ -1234,6 +1305,7 @@ class IngestionRuntime:
                         source, version_id=version_id, page=page
                     ),
                     "backlinks": backlinks,
+                    "stale_backlinks": stale_backlinks,
                 }
             )
         except Exception as exc:
@@ -1381,6 +1453,64 @@ class IngestionRuntime:
             return _json({"ok": True, "source_id": source_id, "tags": current_tags})
         except Exception as exc:
             return _json({"ok": False, "error_code": "tag_failed", "message": str(exc)})
+
+    def delete_document(self, args: dict, **kwargs) -> str:
+        try:
+            raw_id = str(args.get("source_id") or "").strip()
+            parsed = parse_source_uri(raw_id)
+            source_id = parsed["source_id"] if parsed else raw_id
+            annotate_backlinks = bool(args.get("annotate_backlinks", True))
+
+            if self.remote_url:
+                local_backlinks = find_backlinks(self.workspace_root, source_id)
+                qs = f"?annotate_backlinks={'true' if annotate_backlinks else 'false'}"
+                remote_res = self._http_request(
+                    "DELETE", f"/v1/sources/{urllib.parse.quote(source_id)}{qs}"
+                )
+                if remote_res is not None:
+                    if not remote_res.get("ok"):
+                        return _json(
+                            {
+                                "ok": False,
+                                "error_code": "document_not_found",
+                                "message": remote_res.get("message") or "document not found",
+                            }
+                        )
+                    local_annotated = (
+                        annotate_deleted_backlinks(self.workspace_root, source_id)
+                        if annotate_backlinks
+                        else []
+                    )
+                    merged_annotated = sorted(
+                        set(remote_res.get("annotated_files") or []) | set(local_annotated)
+                    )
+                    remote_res["backlinks"] = local_backlinks or remote_res.get("backlinks") or []
+                    remote_res["annotated_files"] = merged_annotated
+                    return _json(remote_res)
+
+            self.publisher.load_source(source_id)
+            backlinks = find_backlinks(self.workspace_root, source_id)
+            annotated_files = (
+                annotate_deleted_backlinks(self.workspace_root, source_id)
+                if annotate_backlinks
+                else []
+            )
+            cascade = self.publisher.delete_source(source_id)
+            self._publish_status()
+            return _json(
+                {
+                    "ok": True,
+                    "source_id": source_id,
+                    "deleted": True,
+                    "backlinks": backlinks,
+                    "annotated_files": annotated_files,
+                    "cascade": cascade,
+                }
+            )
+        except Exception as exc:
+            return _json(
+                {"ok": False, "error_code": "document_not_found", "message": str(exc)}
+            )
 
     def _worker_loop(self):
         owner = f"{os.getpid()}-{uuid.uuid4().hex}"

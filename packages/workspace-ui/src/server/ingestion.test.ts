@@ -742,6 +742,53 @@ describe("ingestion HTTP endpoints", () => {
       password_profile?: string;
     };
     expect(patchedData.password_profile).toBe("protected_financials");
+
+    // 6. Test multipart upload with per-file password mappings
+    const multiForm = new FormData();
+    multiForm.append(
+      "files",
+      new Blob([Buffer.from("file 1 content")], { type: "text/plain" }),
+      "batch_doc1.txt",
+    );
+    multiForm.append(
+      "files",
+      new Blob([Buffer.from("file 2 content")], { type: "text/plain" }),
+      "batch_doc2.txt",
+    );
+    multiForm.append(
+      "file_password_profiles",
+      JSON.stringify({ "batch_doc1.txt": "pdf_vault_profile" }),
+    );
+    multiForm.append(
+      "file_passwords",
+      JSON.stringify({ "batch_doc2.txt": "batch_secret_2" }),
+    );
+
+    const multiUploadRes = await handler(
+      new Request("http://localhost/api/workspace/ingestion/upload", {
+        method: "POST",
+        body: multiForm,
+      }),
+    );
+    expect(multiUploadRes.status).toBe(200);
+    const multiUploadPayload = (await multiUploadRes.json()) as any;
+    expect(multiUploadPayload.ok).toBe(true);
+    expect(multiUploadPayload.uploads.length).toBe(2);
+
+    const doc1Source = (await (
+      await request(
+        `/api/workspace/ingestion/sources/${multiUploadPayload.uploads[0].source_id}`,
+      )
+    ).json()) as any;
+    expect(doc1Source.password_profile).toBe("pdf_vault_profile");
+
+    const doc2Source = (await (
+      await request(
+        `/api/workspace/ingestion/sources/${multiUploadPayload.uploads[1].source_id}`,
+      )
+    ).json()) as any;
+    expect(doc2Source.password_profile).toBeDefined();
+    expect(doc2Source.password_profile.startsWith("cred_")).toBe(true);
   });
 
   test("supports document password profile CRUD operations (create, update without password, delete)", async () => {
@@ -823,5 +870,188 @@ describe("ingestion HTTP endpoints", () => {
       ),
     );
     expect(notFoundRes.status).toBe(404);
+  });
+
+  test("supports version replacement, soft archive filtering, and cascade deletion with backlink annotations", async () => {
+    // 1. Initial upload
+    const v1Res = await handler(
+      new Request("http://localhost/api/workspace/ingestion/upload", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          content: "Master Service Agreement v1",
+          title: "MSA Contract",
+          kind: "text",
+        }),
+      }),
+    );
+    expect(v1Res.status).toBe(200);
+    const v1Data = (await v1Res.json()) as any;
+    expect(v1Data.ok).toBe(true);
+    const sourceId = v1Data.source_id;
+    const v1Id = v1Data.version_id;
+
+    // Create a workspace markdown note citing the document with pinned version
+    const notePath = join(root, "contracts.md");
+    writeFileSync(
+      notePath,
+      `# Legal\nReview [MSA Agreement](openlia://source/${sourceId}#${v1Id}/p1).\n`,
+    );
+
+    // 2. Upload replacement version without purge
+    const v2Res = await handler(
+      new Request("http://localhost/api/workspace/ingestion/upload", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          content: "Master Service Agreement v2 terms",
+          target_source_id: sourceId,
+          kind: "text",
+        }),
+      }),
+    );
+    expect(v2Res.status).toBe(200);
+    const v2Data = (await v2Res.json()) as any;
+    expect(v2Data.replaced_existing).toBe(true);
+    expect(v2Data.source_id).toBe(sourceId);
+    expect(v2Data.version_id).not.toBe(v1Id);
+    expect(v2Data.stale_backlinks.length).toBe(1);
+    expect(v2Data.stale_backlinks[0].pinned_version_id).toBe(v1Id);
+
+    // Verify both versions exist
+    const docRes = await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${sourceId}`,
+      ),
+    );
+    expect(docRes.status).toBe(200);
+    const docData = (await docRes.json()) as any;
+    expect(docData.versions.length).toBe(2);
+
+    // Version-specific reads must return the selected extraction, not latest content.
+    for (const [versionId, content] of [
+      [v1Id, "extracted content from version one"],
+      [v2Data.version_id, "extracted content from version two"],
+    ]) {
+      const extractionDir = join(
+        ingestionRoot,
+        "blobs",
+        sourceId,
+        versionId,
+        "extractions",
+        `ext_${versionId}`,
+      );
+      mkdirSync(extractionDir, { recursive: true });
+      writeFileSync(join(extractionDir, "text.md"), content);
+    }
+    const selectedV1Res = await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${sourceId}?version_id=${v1Id}`,
+      ),
+    );
+    expect(selectedV1Res.status).toBe(200);
+    expect(((await selectedV1Res.json()) as any).content).toContain(
+      "extracted content from version one",
+    );
+
+    // 3. Test soft-archiving & search filtering
+    const searchActive = await handler(
+      new Request("http://localhost/api/workspace/ingestion/search?query=MSA"),
+    );
+    const activeData = (await searchActive.json()) as any;
+    expect(activeData.total).toBe(1);
+
+    // Archive document
+    const archiveRes = await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${sourceId}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ lifecycle: "archived" }),
+        },
+      ),
+    );
+    expect(archiveRes.status).toBe(200);
+
+    // Default search hides archived
+    const searchDefault = await handler(
+      new Request("http://localhost/api/workspace/ingestion/search?query=MSA"),
+    );
+    expect(((await searchDefault.json()) as any).total).toBe(0);
+
+    // Explicit search includes archived
+    const searchAll = await handler(
+      new Request(
+        "http://localhost/api/workspace/ingestion/search?query=MSA&lifecycle=all",
+      ),
+    );
+    expect(((await searchAll.json()) as any).total).toBe(1);
+
+    // Restore to active
+    await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${sourceId}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ lifecycle: "active" }),
+        },
+      ),
+    );
+
+    // 4. Cascade delete source
+    const crossOriginDelete = await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${sourceId}`,
+        {
+          method: "DELETE",
+          headers: { Origin: "https://untrusted.example" },
+        },
+      ),
+    );
+    expect(crossOriginDelete.status).toBe(403);
+    expect(await crossOriginDelete.json()).toMatchObject({
+      error: "origin_not_allowed",
+    });
+
+    const deleteRes = await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${sourceId}?annotate_backlinks=true`,
+        {
+          method: "DELETE",
+        },
+      ),
+    );
+    expect(deleteRes.status).toBe(200);
+    const deleteData = (await deleteRes.json()) as any;
+    expect(deleteData.ok).toBe(true);
+    expect(deleteData.deleted).toBe(true);
+    expect(deleteData.annotated_files).toContain("contracts.md");
+
+    // Workspace note has been annotated
+    const updatedNote = readFileSync(notePath, "utf8");
+    expect(updatedNote).toContain(`(deleted source: ${sourceId})`);
+    expect(updatedNote).not.toContain(`openlia://source/${sourceId}`);
+
+    // Source is 404
+    const getDeleted = await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${sourceId}`,
+      ),
+    );
+    expect(getDeleted.status).toBe(404);
+
+    // Blobs directory completely removed
+    const sourceBlobDir = join(ingestionRoot, "blobs", sourceId);
+    expect(existsSync(sourceBlobDir)).toBe(false);
+
+    const missingDelete = await handler(
+      new Request(
+        "http://localhost/api/workspace/ingestion/sources/src_missing_source",
+        { method: "DELETE" },
+      ),
+    );
+    expect(missingDelete.status).toBe(404);
   });
 });

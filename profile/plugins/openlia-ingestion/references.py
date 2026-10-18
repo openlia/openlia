@@ -80,6 +80,9 @@ def find_backlinks(workspace_root: Path, source_id: str) -> list[dict]:
         return backlinks
 
     target_tokens = [f"openlia://source/{source_id}", f"openlia://sources/{source_id}"]
+    uri_re = re.compile(
+        rf"openlia://sources?/{re.escape(source_id)}(?:#([A-Za-z0-9][A-Za-z0-9._-]*)(?:/p\d+)?)?"
+    )
 
     for dirpath, dirnames, filenames in os.walk(root):
         # Exclude hidden dirs, sources/, node_modules, and legacy intake staging
@@ -98,9 +101,15 @@ def find_backlinks(workspace_root: Path, source_id: str) -> list[dict]:
                     parts = rel.split("/")
                     domain = parts[0] if len(parts) > 1 else "workspace"
                     line_no = 1
+                    pinned_version_id: str | None = None
+                    line_excerpt = ""
                     for idx, line in enumerate(text.splitlines(), start=1):
                         if any(token in line for token in target_tokens):
                             line_no = idx
+                            line_excerpt = line.strip()[:200]
+                            match = uri_re.search(line)
+                            if match and match.group(1) and not re.fullmatch(r"p\d+", match.group(1)):
+                                pinned_version_id = match.group(1)
                             break
                     backlinks.append(
                         {
@@ -108,9 +117,56 @@ def find_backlinks(workspace_root: Path, source_id: str) -> list[dict]:
                             "domain": domain,
                             "filename": filename,
                             "line_number": line_no,
+                            "pinned_version_id": pinned_version_id,
+                            "line_excerpt": line_excerpt,
                         }
                     )
             except OSError:
                 continue
 
     return sorted(backlinks, key=lambda b: b["path"])
+
+
+def annotate_deleted_backlinks(workspace_root: Path, source_id: str) -> list[str]:
+    """Rewrite openlia://source/<id> citations in workspace files to non-clickable deleted-source markers."""
+    root = workspace_root.resolve()
+    if not root.exists():
+        return []
+    backlinks = find_backlinks(root, source_id)
+    modified: list[str] = []
+    escaped_id = re.escape(source_id)
+    ledger_comment_re = re.compile(
+        rf";\s*source:\s*openlia://sources?/{escaped_id}(?:#[^\s)]+)?"
+    )
+    md_link_re = re.compile(
+        rf"\[([^\]]+)\]\(openlia://sources?/{escaped_id}(?:#[^)\s]+)?\)"
+    )
+    bare_uri_re = re.compile(
+        rf"openlia://sources?/{escaped_id}(?:#[^\s)\"']+)?",
+    )
+
+    for item in backlinks:
+        rel = item["path"]
+        filepath = (root / rel).resolve()
+        try:
+            filepath.relative_to(root)
+        except ValueError:
+            continue
+        if not filepath.is_file():
+            continue
+        try:
+            original = filepath.read_text(encoding="utf-8")
+            updated = original
+            if filepath.suffix in {".hledger", ".journal"}:
+                updated = ledger_comment_re.sub(f"; source-deleted: {source_id}", updated)
+                updated = bare_uri_re.sub(f"(deleted source: {source_id})", updated)
+            else:
+                updated = md_link_re.sub(rf"[\1 (deleted source: {source_id})]", updated)
+                updated = bare_uri_re.sub(f"(deleted source: {source_id})", updated)
+            if updated != original:
+                filepath.write_text(updated, encoding="utf-8")
+                modified.append(rel)
+        except OSError:
+            continue
+
+    return modified
