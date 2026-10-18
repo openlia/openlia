@@ -146,6 +146,9 @@ not modify the input or create directories.
 - Do not embed environment-specific HTTP origins; use canonical `openlia://` workspace URIs.
 
 When the user references an ingested document (`src_...` or `openlia://source/src_...`), inspect it via `ingestion_get_document` (including `page` slicing when needed) before proposing or writing domain records. Preserve stable candidate and record references, and mark the source `reviewed` via `ingestion_update_document` after authorized domain writes are durable.
+- **Re-uploaded / Replaced Sources (`new_version_uploaded`)**: When a source has a newer version (`ver_002`) and `review.reasons` includes `"new_version_uploaded"`, inspect `stale_backlinks`. Update any pending `inbox/` review staging notes or `knowledge/claims/` candidates (`status: candidate` or `contested`) that relied on the superseded version before marking the source `reviewed`.
+- **Deleted Sources (`(deleted source: src_...)`)**: If a source cited by a pending `inbox/` review or `knowledge/claims/` record was deleted from the Vault, mark any unverified claim as `contested` or `retracted` unless corroborated by another active source.
+
 
 ## Verification
 

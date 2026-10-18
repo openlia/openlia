@@ -22,7 +22,7 @@ metadata:
 ## Operating Model & Dual-Mode Boundary
 
 - **Separation Principle**: Retained source files, extracted Markdown/tables, and password profiles live permanently in the **Ingestion Vault** (`OPENLIA_INGESTION_ROOT` or a standalone remote Ingestion service via `OPENLIA_INGESTION_URL`). They do **not** create binary or raw files inside `/opt/data/workspace`.
-- **Single Tool Surface**: Always use the `openlia-ingestion` plugin tools (`ingestion_capture`, `ingestion_status`, `ingestion_suggest_passwords`, `retry_ingestion_with_password_profile`, `save_document_password`, `list_document_password_profiles`, `delete_document_password_profile`, `ingestion_search`, `ingestion_get_document`, `ingestion_update_document`, `ingestion_tag`). Whether Ingestion runs embedded in-process or as a separately hosted standalone HTTP service, the plugin transparently handles file transfer, authentication, and local workspace backlink resolution.
+- **Single Tool Surface**: Always use the `openlia-ingestion` plugin tools (`ingestion_capture`, `ingestion_status`, `ingestion_suggest_passwords`, `retry_ingestion_with_password_profile`, `save_document_password`, `list_document_password_profiles`, `delete_document_password_profile`, `ingestion_search`, `ingestion_get_document`, `ingestion_update_document`, `ingestion_tag`, `ingestion_delete_document`). Whether Ingestion runs embedded in-process or as a separately hosted standalone HTTP service, the plugin transparently handles file transfer, authentication, and local workspace backlink resolution.
 - **Canonical Citations**: Reference Vault sources in workspace notes, reviews, and `hledger` journals using canonical URIs:
   - Markdown: `[Document Title](openlia://source/{source_id}#{version_id}/p{page})`
   - hledger comment: `; source: openlia://source/{source_id}#{version_id}/p{page}`
@@ -70,7 +70,32 @@ Avoid loading entire 50-page transcripts into model context at once:
 2. Read `page_count` and `page_outline` (which lists every page number, character length, and preview snippet) along with `summary` and `custom_fields`.
 3. Fetch only the relevant pages via `ingestion_get_document(source_id=..., page=N, max_chars=20000)`.
 
-### 4. Domain Handoffs & Review Lifecycle
+### 4. Version Replacement & Re-Upload (`source_id`)
+
+When a user uploads a corrected, clearer, or revised version of an already-ingested document:
+1. Locate the existing `source_id` via `ingestion_search` if not already known.
+2. Call `ingestion_capture` with `source_id="<existing_source_id>"`:
+   - **Preserve history (default, `purge_previous_versions=False`)**: Use for amended statements, revised contracts, or updated invoices where prior versions (`ver_001`) remain part of the audit trail and the new file becomes `ver_002`.
+   - **Purge previous versions (`purge_previous_versions=True`)**: Use when replacing a blurry photo, corrupt upload, or accidental wrong page where the previous version should be discarded.
+3. Inspect `stale_backlinks` in the response:
+   - If `stale_backlinks` is non-empty, domain records in `workspace/` (e.g. `finance/journal.hledger`, `knowledge/claims/`, `inbox/`) cite this source or an older `#ver_...` pin.
+   - Compare the newly extracted `custom_fields` / text with the prior version and hand off to the appropriate domain skill ([Personal Finance](openlia://skills/personal-finance), [Inbox Triage](openlia://skills/inbox-triage), [Personal Health](openlia://skills/personal-health)) to propose any needed adjustments before updating version pins.
+
+### 5. Soft Archive vs. Hard Deletion (`ingestion_delete_document`)
+
+Always distinguish between **retiring a document from active views** and **permanently purging a document**:
+1. **Soft Archive (`lifecycle="archived"`) — Default for historical/valid documents**:
+   - When a user says "archive this", "hide old statements", or "done with this receipt", call `ingestion_update_document(source_id=..., lifecycle="archived")`.
+   - Archiving hides the document from default active searches (`ingestion_search`) while preserving all blobs, extractions, and `openlia://source/...` citations in `finance/` or `knowledge/claims/`.
+2. **Hard Deletion (`ingestion_delete_document`) — For mistaken, duplicate, or sensitive uploads**:
+   - Before calling `ingestion_delete_document`, call `ingestion_get_document(source_id=..., include_content=False)` to inspect `backlinks`:
+     - **0 backlinks**: Proceed with `ingestion_delete_document(source_id=..., annotate_backlinks=True)` (gated by `delete_records` policy).
+     - **1+ backlinks**: Warn the user which workspace files (`finance/journal.hledger`, `knowledge/claims/...`, etc.) cite this source and ask whether they want to:
+       1. **Archive instead** (`lifecycle="archived"`) to keep evidence links intact,
+       2. **Delete the Vault source and keep domain records** (which automatically rewrites `openlia://source/<id>` citations to non-clickable `(deleted source: <id>)` / `; source-deleted: <id>` markers via `annotate_backlinks=True`), or
+       3. **Delete the Vault source AND reverse/update the derived domain records** via the domain skill.
+
+### 6. Domain Handoffs & Review Lifecycle
 
 - **Personal Finance Handoff**: When `tags` include `"finance"` or `document_type` is `"invoice"`, `"receipt"`, `"statement"`, or `"payslip"`, hand off to [Personal Finance](openlia://skills/personal-finance). Use `custom_fields` (`total_amount`, `currency`, `due_date`, `invoice_number`, `account_hint`) and page slices to stage or post transactions with `; source: openlia://source/{source_id}#{version_id}/p{page}`.
 - **Inbox Triage Handoff**: When the document contains tasks, events, decisions, or durable claims requiring review, follow [Inbox Triage](openlia://skills/inbox-triage) and cite `[Title](openlia://source/{source_id}#{version_id}/p{page})`.
@@ -81,4 +106,5 @@ Avoid loading entire 50-page transcripts into model context at once:
 - Never write raw document passwords to workspace files, `inbox/` notes, or Hermes memory.
 - Never copy raw PDFs, images, or full OCR dumps into `/opt/data/workspace` unless the user explicitly asks to export a file; cite `openlia://source/{source_id}` instead.
 - Never expose a password value in `hint` or `description` fields; `hint` is displayed in plaintext in the UI and chat prompts.
+- Never silently delete a document that has active workspace `backlinks` without surfacing the downstream impact on ledgers or claims.
 - Do not poll `ingestion_status` in a tight loop when `wait_seconds` already timed out on a slow job; report the `job_id` and `source_id` and check on the next turn.

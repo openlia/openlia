@@ -81,10 +81,9 @@ Keep these distinctions explicit:
   completed.
 - Unknown information remains unknown. Do not convert missing allergies,
   medication history, or test results into a negative claim.
-- Preserve source type and stable source references. Raw medical documents and
-  exports belong in an approved private location, not in the tracked workspace.
-- Preserve corrections with `amended`, `entered-in-error`, superseding records,
-  or explicit notes rather than silently replacing history.
+- Preserve source type and stable source references (`openlia://source/{source_id}#{version_id}`). Raw medical documents and exports belong in the Ingestion Vault (`OPENLIA_INGESTION_ROOT`), not in the tracked workspace.
+- Preserve corrections with `amended`, `entered-in-error`, superseding records, or explicit notes rather than silently replacing history. When a lab report or clinical document in the Ingestion Vault is replaced with a new version (`ver_002`), inspect the diff and update or supersede the corresponding `health/history/` or `health/conditions/` record with `amended` status and the new `#ver_002` citation. If an erroneously uploaded medical document is deleted from the Vault (`(deleted source: src_...)`), mark any clinical record derived solely from that upload as `entered-in-error` rather than leaving unverified clinical claims active.
+
 
 Do not diagnose, choose treatment, interpret a result beyond the supplied
 source, or present a workspace summary as medical advice. A clinician remains
