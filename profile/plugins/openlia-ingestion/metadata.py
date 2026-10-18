@@ -1,4 +1,4 @@
-"""Automated LLM document metadata extraction, classification, and heuristic fallback."""
+"""Automated LLM document metadata extraction, classification, custom fields, and heuristic fallback."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ SUGGESTED_DOCUMENT_TYPES = [
     "invoice",
     "receipt",
     "bank_statement",
+    "payslip",
     "contract",
     "tax_document",
     "medical_record",
@@ -26,6 +27,29 @@ SUGGESTED_DOCUMENT_TYPES = [
 
 ISO_DATE_PATTERN = re.compile(r"\b(20\d\d[-/](?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12]\d|3[01]))\b")
 YEAR_MONTH_PATTERN = re.compile(r"\b(20\d\d[-/](?:0[1-9]|1[0-2]))\b")
+AMOUNT_SYMBOL_PATTERN = re.compile(
+    r"(?:total(?:\s+due|\s+paid|\s+amount)?|amount(?:\s+due)?|balance(?:\s+due)?)\s*[:=-]?\s*([\$€£¥₫]|USD|EUR|GBP|VND|CAD|AUD|SGD|JPY)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)",
+    re.IGNORECASE,
+)
+GENERIC_CURRENCY_PATTERN = re.compile(
+    r"\b([\$€£]|USD|EUR|GBP|VND|CAD|AUD|SGD)\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{2})?|[0-9]+\.[0-9]{2})\b"
+)
+INVOICE_NO_PATTERN = re.compile(
+    r"(?:invoice\s*(?:no\.?|number|#)|inv\s*#?)\s*[:=-]?\s*([A-Z0-9][A-Z0-9_-]{2,32})",
+    re.IGNORECASE,
+)
+DUE_DATE_PATTERN = re.compile(
+    r"(?:due\s+date|payment\s+due)\s*[:=-]?\s*(20\d\d[-/](?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12]\d|3[01]))",
+    re.IGNORECASE,
+)
+
+SYMBOL_TO_CURRENCY = {
+    "$": "USD",
+    "€": "EUR",
+    "£": "GBP",
+    "¥": "JPY",
+    "₫": "VND",
+}
 
 
 def extract_document_metadata(
@@ -35,9 +59,8 @@ def extract_document_metadata(
     kind: str,
     existing_title: str | None = None,
 ) -> dict:
-    """Extract semantic title, correspondent, document type, document date, tags, and summary."""
+    """Extract semantic title, correspondent, document type, document date, tags, summary, and custom_fields."""
     clean_text = (text or "").strip()
-    # If LLM is available, attempt structured extraction
     if llm is not None and hasattr(llm, "complete_structured") and len(clean_text) > 30:
         try:
             return _llm_extract(llm, clean_text[:6000], filename, kind, existing_title)
@@ -59,7 +82,10 @@ def _llm_extract(
         "additionalProperties": False,
         "required": ["title", "document_type", "tags", "summary"],
         "properties": {
-            "title": {"type": "string", "description": "Concise, descriptive document title (e.g. 'March 2026 Chase Statement' or 'Electric Utility Invoice')"},
+            "title": {
+                "type": "string",
+                "description": "Concise, descriptive document title (e.g. 'March 2026 Chase Statement' or 'Electric Utility Invoice')",
+            },
             "document_type": {
                 "type": "string",
                 "description": (
@@ -68,11 +94,46 @@ def _llm_extract(
                     "Use a more specific category when appropriate."
                 ),
             },
-            "correspondent": {"type": ["string", "null"], "description": "Sender, institution, bank, merchant, or organization (e.g. 'Chase Bank', 'Apple', 'IRS')"},
-            "document_date": {"type": ["string", "null"], "description": "Explicit date stated inside the document (YYYY-MM-DD or null)"},
-            "tags": {"type": "array", "items": {"type": "string"}, "description": "2 to 6 lowercase semantic tags"},
-            "summary": {"type": "string", "description": "1 to 2 sentence summary of what the document contains"},
-            "review_reasons": {"type": "array", "items": {"type": "string"}, "description": "Any anomalies or uncertain details requiring human attention"},
+            "correspondent": {
+                "type": ["string", "null"],
+                "description": "Sender, institution, bank, merchant, or organization (e.g. 'Chase Bank', 'Apple', 'IRS')",
+            },
+            "document_date": {
+                "type": ["string", "null"],
+                "description": "Explicit date stated inside the document (YYYY-MM-DD or null)",
+            },
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "2 to 6 lowercase semantic tags",
+            },
+            "summary": {
+                "type": "string",
+                "description": "1 to 2 sentence summary of what the document contains",
+            },
+            "custom_fields": {
+                "type": "object",
+                "additionalProperties": False,
+                "description": "Structured domain-specific fields present in the document",
+                "properties": {
+                    "total_amount": {"type": ["number", "string", "null"]},
+                    "currency": {"type": ["string", "null"]},
+                    "due_date": {"type": ["string", "null"]},
+                    "invoice_number": {"type": ["string", "null"]},
+                    "account_hint": {"type": ["string", "null"]},
+                    "effective_date": {"type": ["string", "null"]},
+                    "expiration_date": {"type": ["string", "null"]},
+                    "reference_number": {"type": ["string", "null"]},
+                    "provider_name": {"type": ["string", "null"]},
+                    "visit_date": {"type": ["string", "null"]},
+                    "patient_name": {"type": ["string", "null"]},
+                },
+            },
+            "review_reasons": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Any anomalies or uncertain details requiring human attention",
+            },
         },
     }
 
@@ -83,11 +144,12 @@ def _llm_extract(
         "Instructions:\n"
         "1. Extract a clear title. If existing title is good, you may refine it.\n"
         "2. Identify the correspondent (the external party: bank, vendor, government, author).\n"
-        "3. Detect the document type from the enum.\n"
+        "3. Detect the document type.\n"
         "4. Find the primary document date inside the text (YYYY-MM-DD). If no clear date is found, output null.\n"
         "5. Generate 2 to 5 clean, lowercase tags (e.g. ['finance', 'tax', '2026']).\n"
         "6. Provide a concise 1-2 sentence factual summary.\n"
-        "7. If text is blurry, truncated, or has uncertain dates or numbers, list them in review_reasons."
+        "7. Populate custom_fields (total_amount, currency, due_date, invoice_number, effective_date, expiration_date, provider_name, etc.) when explicitly stated.\n"
+        "8. If text is blurry, truncated, or has uncertain dates or numbers, list them in review_reasons."
     )
 
     result = llm.complete_structured(
@@ -102,7 +164,6 @@ def _llm_extract(
 
     parsed = getattr(result, "parsed", None)
     if isinstance(parsed, dict) and isinstance(parsed.get("title"), str):
-        # Normalize tags
         raw_tags = parsed.get("tags") or []
         clean_tags = []
         for tag in raw_tags:
@@ -116,6 +177,13 @@ def _llm_extract(
         else:
             doc_type = doc_type.strip().lower()[:100]
 
+        heuristic_cf = _extract_heuristic_custom_fields(excerpt)
+        raw_cf = parsed.get("custom_fields") if isinstance(parsed.get("custom_fields"), dict) else {}
+        merged_cf: dict[str, Any] = dict(heuristic_cf)
+        for key, value in raw_cf.items():
+            if value is not None and value != "":
+                merged_cf[str(key)] = value
+
         return {
             "title": parsed["title"].strip()[:200],
             "document_type": doc_type,
@@ -123,10 +191,38 @@ def _llm_extract(
             "document_date": _clean_date(parsed.get("document_date")),
             "tags": clean_tags[:8],
             "summary": (parsed.get("summary") or "").strip()[:500] or None,
+            "custom_fields": merged_cf,
             "review_reasons": [str(r) for r in parsed.get("review_reasons", []) if str(r).strip()],
         }
 
     return _heuristic_extract(excerpt, filename, kind, existing_title)
+
+
+def _extract_heuristic_custom_fields(text: str) -> dict[str, Any]:
+    fields: dict[str, Any] = {}
+    if not text:
+        return fields
+
+    amount_match = AMOUNT_SYMBOL_PATTERN.search(text) or GENERIC_CURRENCY_PATTERN.search(text)
+    if amount_match:
+        raw_curr = amount_match.group(1).upper()
+        currency = SYMBOL_TO_CURRENCY.get(raw_curr, raw_curr)
+        raw_amt = amount_match.group(2).replace(",", "")
+        try:
+            fields["total_amount"] = float(raw_amt) if "." in raw_amt else int(raw_amt)
+        except ValueError:
+            fields["total_amount"] = raw_amt
+        fields["currency"] = currency
+
+    inv_match = INVOICE_NO_PATTERN.search(text)
+    if inv_match:
+        fields["invoice_number"] = inv_match.group(1).strip()
+
+    due_match = DUE_DATE_PATTERN.search(text)
+    if due_match:
+        fields["due_date"] = due_match.group(1).replace("/", "-")
+
+    return fields
 
 
 def _heuristic_extract(
@@ -141,7 +237,6 @@ def _heuristic_extract(
     if not clean_title or clean_title == "Source":
         clean_title = f"{kind.capitalize()} document"
 
-    # Infer document type
     lower = text.lower()
     lower_name = filename.lower()
     doc_type = "other"
@@ -150,12 +245,15 @@ def _heuristic_extract(
     if any(k in lower_name or k in lower for k in ["invoice", "bill to", "tax invoice", "amount due"]):
         doc_type = "invoice"
         tags.extend(["finance", "invoice"])
-    elif any(k in lower_name or k in lower for k in ["receipt", "order confirmation", "total paid"]):
+    elif any(k in lower_name or k in lower for k in ["receipt", "order confirmation", "total paid", "total due"]):
         doc_type = "receipt"
         tags.extend(["finance", "receipt"])
     elif any(k in lower_name or k in lower for k in ["statement", "account balance", "checking account", "bank"]):
         doc_type = "bank_statement"
         tags.extend(["finance", "statement"])
+    elif any(k in lower_name or k in lower for k in ["payslip", "payroll", "net pay", "gross pay"]):
+        doc_type = "payslip"
+        tags.extend(["finance", "payroll"])
     elif any(k in lower_name or k in lower for k in ["contract", "agreement", "terms of service", "signed"]):
         doc_type = "contract"
         tags.extend(["legal", "contract"])
@@ -172,7 +270,6 @@ def _heuristic_extract(
         doc_type = "note"
         tags.extend(["note"])
 
-    # Detect date in text or filename
     doc_date = None
     date_match = ISO_DATE_PATTERN.search(filename) or ISO_DATE_PATTERN.search(text[:2000])
     if date_match:
@@ -182,13 +279,12 @@ def _heuristic_extract(
         if ym_match:
             doc_date = f"{ym_match.group(1).replace('/', '-')}-01"
 
-    # Add kind as tag if appropriate
     if kind in {"pdf", "image", "excel", "csv"} and kind not in tags:
         tags.append(kind)
 
-    # Summary from first lines
     first_lines = [l.strip() for l in text.splitlines() if l.strip() and not l.strip().startswith("#")]
     summary = " ".join(first_lines[:2])[:240] if first_lines else f"Ingested {kind} document."
+    custom_fields = _extract_heuristic_custom_fields(text)
 
     return {
         "title": clean_title[:200],
@@ -197,6 +293,7 @@ def _heuristic_extract(
         "document_date": doc_date,
         "tags": list(dict.fromkeys(tags)),
         "summary": summary,
+        "custom_fields": custom_fields,
         "review_reasons": ["unreviewed_upload"],
     }
 

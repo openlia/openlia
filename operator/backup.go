@@ -347,7 +347,7 @@ func createBackupWithRestart(ctx context.Context, config Config, reason string, 
 		SecretValues: "excluded",
 		Capabilities: "excluded",
 		Components:   []string{"hermes", "meta"},
-		Exclusions:   []string{"open-webui", "secrets", "caches", "bundled-skills", "logs", "ingestion-runtime"},
+		Exclusions:   []string{"open-webui", "secrets", "caches", "bundled-skills", "logs"},
 	}
 	manifestData, err := json.Marshal(manifest)
 	if err != nil {

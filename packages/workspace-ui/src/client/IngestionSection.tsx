@@ -14,6 +14,7 @@ import {
   type ReviewFilter,
 } from "./ingestion/DocumentFilterBar";
 import { DocumentInspector } from "./ingestion/DocumentInspector";
+import { PasswordManagerModal } from "./ingestion/PasswordManagerModal";
 import { UploadModal } from "./ingestion/UploadModal";
 
 export interface IngestionSectionProps {
@@ -251,6 +252,10 @@ export function IngestionSection({
   const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
   const [isWindowDragging, setIsWindowDragging] = useState(false);
 
+  // Password manager modal state
+  const [isPasswordManagerOpen, setIsPasswordManagerOpen] = useState(false);
+  const [passwordProfilesVersion, setPasswordProfilesVersion] = useState(0);
+
   // Perform search query based on active filters
   const performSearch = useCallback(async () => {
     if (scope === "workers") return;
@@ -430,6 +435,7 @@ export function IngestionSection({
           setDroppedFiles([]);
           setIsUploadOpen(true);
         }}
+        onOpenPasswordManager={() => setIsPasswordManagerOpen(true)}
         onRebuildFts={handleRebuildFts}
       />
 
@@ -546,6 +552,8 @@ export function IngestionSection({
               }}
               onOpenFile={onOpenFile}
               rawUrl={rawUrl}
+              onOpenPasswordManager={() => setIsPasswordManagerOpen(true)}
+              passwordProfilesVersion={passwordProfilesVersion}
             />
           </section>
         </div>
@@ -557,9 +565,20 @@ export function IngestionSection({
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
         initialFiles={droppedFiles}
+        onOpenPasswordManager={() => setIsPasswordManagerOpen(true)}
         onSuccess={() => {
           void performSearch();
           onRefresh();
+        }}
+      />
+
+      {/* Password Manager Modal */}
+      <PasswordManagerModal
+        api={api}
+        isOpen={isPasswordManagerOpen}
+        onClose={() => setIsPasswordManagerOpen(false)}
+        onChanged={() => {
+          setPasswordProfilesVersion((v) => v + 1);
         }}
       />
     </div>

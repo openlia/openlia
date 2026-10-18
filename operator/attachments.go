@@ -248,6 +248,7 @@ func generateAttachmentsFile(config Config) error {
 	}
 	var allServices []LochoService
 	browserURL := ""
+	ingestionURL := ""
 	hasOpenLiaBrowserRole := false
 	for _, host := range hosts.Hosts {
 		for _, svc := range host.Services {
@@ -258,6 +259,12 @@ func generateAttachmentsFile(config Config) error {
 					return fmt.Errorf("multiple openlia-browser attachment endpoints are configured")
 				}
 				browserURL = svc.Endpoint
+			}
+			if svc.Role == "openlia-ingestion" {
+				if ingestionURL != "" && ingestionURL != svc.Endpoint {
+					return fmt.Errorf("multiple openlia-ingestion attachment endpoints are configured")
+				}
+				ingestionURL = svc.Endpoint
 			}
 		}
 	}
@@ -281,7 +288,7 @@ func generateAttachmentsFile(config Config) error {
 	}
 
 	var builder strings.Builder
-	hasHermesEnv := config.APIEnabled || config.OpenWebUIHost != "" || config.ExternalNetwork != "" || browserURL != "" || config.WorkspaceUIPublicOrigin != "" || len(allServices) > 0
+	hasHermesEnv := config.APIEnabled || config.OpenWebUIHost != "" || config.ExternalNetwork != "" || browserURL != "" || ingestionURL != "" || config.WorkspaceUIPublicOrigin != "" || len(allServices) > 0
 	schedulerVolumes := append(backupSchedulerIdentityVolumes(config), backupSchedulerCredentialVolumes(config)...)
 	hasGeneratedServices := hasHermesEnv || config.WorkspaceUIHost != "" || config.OpenWebUIHost != "" || len(hosts.Hosts) > 0 || len(schedulerVolumes) > 0
 	if !hasGeneratedServices {
@@ -302,6 +309,9 @@ func generateAttachmentsFile(config Config) error {
 			}
 			if browserURL != "" {
 				fmt.Fprintf(&builder, "      OPENLIA_BROWSER_MCP_URL: %q\n", browserURL)
+			}
+			if ingestionURL != "" {
+				fmt.Fprintf(&builder, "      OPENLIA_INGESTION_URL: %q\n", ingestionURL)
 			}
 			for _, svc := range allServices {
 				if svc.Role != "unassigned" {
@@ -338,6 +348,9 @@ func generateAttachmentsFile(config Config) error {
 			builder.WriteString(fmt.Sprintf("      OPENLIA_RELEASE_SHA256: %q\n", config.OpenLiaReleaseSHA256))
 		}
 		builder.WriteString("      OPENLIA_INGESTION_ROOT: /ingestion\n")
+		if ingestionURL != "" {
+			fmt.Fprintf(&builder, "      OPENLIA_INGESTION_URL: %q\n", ingestionURL)
+		}
 		builder.WriteString("      OPENLIA_MEMORIES_ROOT: /memories\n")
 		builder.WriteString("      OPENLIA_MIGRATIONS_ROOT: /migrations\n")
 		builder.WriteString("      OPENLIA_RUNTIME_ROOT: /var/lib/openlia\n")
@@ -823,7 +836,7 @@ func serviceInventory(host, path string, roles map[string]string) ([]LochoServic
 			role = assigned
 		}
 		endpoint := fmt.Sprintf("http://locho-%s:%d", host, listenPort)
-		if proto == "tcp" && role != "openlia-browser" {
+		if proto == "tcp" && role != "openlia-browser" && role != "openlia-ingestion" {
 			endpoint = fmt.Sprintf("locho-%s:%d", host, listenPort)
 		}
 		services = append(services, LochoService{

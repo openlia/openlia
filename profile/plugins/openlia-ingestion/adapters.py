@@ -1,11 +1,10 @@
-"""Initial bounded adapters for the supported ingestion formats."""
+"""Bounded extraction adapters for supported OpenLia ingestion formats."""
 
 from __future__ import annotations
 
 import csv
 import io
 import json
-import mimetypes
 import os
 import re
 import subprocess
@@ -73,7 +72,7 @@ def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
     source.setdefault("processing", {})
     source["processing"]["status"] = "complete" if result["status"] == "completed" else "partial"
 
-    # Extract text from latest extraction for LLM metadata tagging
+    # Extract text from latest extraction for LLM/heuristic metadata tagging
     extracted_text = ""
     try:
         version = _version_for_job(source, job.get("version_id"))
@@ -93,6 +92,7 @@ def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
 
     try:
         from .metadata import extract_document_metadata
+
         meta = extract_document_metadata(
             llm=llm,
             text=extracted_text,
@@ -100,7 +100,9 @@ def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
             kind=kind,
             existing_title=source.get("title"),
         )
-        if meta.get("title") and (not source.get("title") or source["title"] in {"Untitled source", "Source", "source.txt"}):
+        if meta.get("title") and (
+            not source.get("title") or source["title"] in {"Untitled source", "Source", "source.txt"}
+        ):
             source["title"] = meta["title"]
         if meta.get("document_type") and not source.get("document_type"):
             source["document_type"] = meta["document_type"]
@@ -116,6 +118,12 @@ def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
             source["tags"] = existing_tags
         if meta.get("summary") and not source.get("summary"):
             source["summary"] = meta["summary"]
+        if isinstance(meta.get("custom_fields"), dict) and meta["custom_fields"]:
+            existing_cf = dict(source.get("custom_fields") or {})
+            for k, v in meta["custom_fields"].items():
+                if v is not None and v != "" and k not in existing_cf:
+                    existing_cf[k] = v
+            source["custom_fields"] = existing_cf
         if meta.get("review_reasons"):
             source.setdefault("review", {"status": "unreviewed", "reasons": []})
             for r in meta["review_reasons"]:
@@ -126,10 +134,10 @@ def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
 
     publisher.update_source(source)
 
-    # Sync to SQLite FTS5 if db provided
-    if db is not None:
+    target_db = db or getattr(publisher, "db", None)
+    if target_db is not None and hasattr(target_db, "upsert_source_fts"):
         try:
-            db.upsert_source_fts(
+            target_db.upsert_source_fts(
                 source_id=source["id"],
                 title=source.get("title"),
                 correspondent=source.get("correspondent"),
@@ -141,6 +149,7 @@ def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
                 review_status=source.get("review", {}).get("status", "unreviewed"),
                 processing_status=source.get("processing", {}).get("status", "complete"),
                 lifecycle=source.get("lifecycle", "active"),
+                custom_fields=source.get("custom_fields") if isinstance(source.get("custom_fields"), dict) else None,
             )
         except Exception:
             pass
@@ -148,7 +157,31 @@ def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
     return result
 
 
-def _original(source: dict, version_id: str | None = None) -> tuple[bytes, dict]:
+def _resolve_original_path(original_ref: str, publisher=None) -> Path:
+    if publisher is not None and hasattr(publisher, "resolve_blob_path"):
+        return publisher.resolve_blob_path(original_ref)
+    clean_ref = original_ref.lstrip("/")
+    normalized = (
+        "blobs/" + clean_ref[len("sources/artifacts/") :]
+        if clean_ref.startswith("sources/artifacts/")
+        else clean_ref
+    )
+    candidates = []
+    if os.environ.get("OPENLIA_INGESTION_ROOT"):
+        candidates.append(Path(os.environ["OPENLIA_INGESTION_ROOT"]).expanduser() / normalized)
+    if os.environ.get("HERMES_HOME"):
+        candidates.append(Path(os.environ["HERMES_HOME"]).expanduser() / "ingestion" / normalized)
+    if os.environ.get("OPENLIA_WORKSPACE_ROOT"):
+        ws = Path(os.environ["OPENLIA_WORKSPACE_ROOT"]).expanduser()
+        candidates.append(ws.parent / "ingestion" / normalized)
+        candidates.append(ws / clean_ref)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0] if candidates else Path(clean_ref)
+
+
+def _original(source: dict, version_id: str | None = None, publisher=None) -> tuple[bytes, dict]:
     versions = source.get("versions") or []
     if not versions:
         raise AdapterError("original_missing", "retained original is not available")
@@ -158,7 +191,7 @@ def _original(source: dict, version_id: str | None = None) -> tuple[bytes, dict]
             raise AdapterError("version_not_found", "requested source version is not available")
     else:
         version = versions[-1]
-    path = Path(os.environ.get("OPENLIA_WORKSPACE_ROOT", "/opt/data/workspace")) / version["original_ref"]
+    path = _resolve_original_path(str(version["original_ref"]), publisher)
     try:
         return path.read_bytes(), version
     except OSError as exc:
@@ -176,14 +209,29 @@ def _version_for_job(source: dict, version_id: str | None) -> dict | None:
 
 
 def _text(source, intake, job, publisher) -> dict:
-    data, version = _original(source, job.get("version_id"))
+    data, version = _original(source, job.get("version_id"), publisher)
     text = data.decode("utf-8", errors="replace")
-    result = publisher.publish_extraction(source, intake, version["id"], "text", "text/markdown", ".md", text.encode("utf-8"), {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"lines": len(text.splitlines())}})
-    return {"status": "completed", "artifact_refs": [result["artifact_id"]], "extraction_refs": [result["extraction_id"]], "summary": {"lines": len(text.splitlines()), "warnings": result["warnings"]}, "continuation": job.get("continuation", {})}
+    result = publisher.publish_extraction(
+        source,
+        intake,
+        version["id"],
+        "text",
+        "text/markdown",
+        ".md",
+        text.encode("utf-8"),
+        {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"lines": len(text.splitlines())}},
+    )
+    return {
+        "status": "completed",
+        "artifact_refs": [result["artifact_id"]],
+        "extraction_refs": [result["extraction_id"]],
+        "summary": {"lines": len(text.splitlines()), "warnings": result["warnings"]},
+        "continuation": job.get("continuation", {}),
+    }
 
 
 def _csv(source, intake, job, publisher) -> dict:
-    data, version = _original(source, job.get("version_id"))
+    data, version = _original(source, job.get("version_id"), publisher)
     text = data.decode("utf-8-sig", errors="replace")
     try:
         dialect = csv.Sniffer().sniff(text[:8192])
@@ -194,14 +242,33 @@ def _csv(source, intake, job, publisher) -> dict:
         if index > 100_000:
             raise AdapterError("row_limit", "CSV exceeds the row limit")
         rows.append({"row": index, "values": row})
-    encoded = json.dumps({"encoding": "utf-8", "delimiter": dialect.delimiter, "rows": rows}, ensure_ascii=False, indent=2).encode("utf-8")
-    result = publisher.publish_extraction(source, intake, version["id"], "tables", "application/json", ".json", encoded, {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"rows": len(rows)}})
-    return {"status": "completed", "artifact_refs": [result["artifact_id"]], "extraction_refs": [result["extraction_id"]], "summary": {"rows": len(rows), "warnings": result["warnings"]}, "continuation": job.get("continuation", {})}
+    encoded = json.dumps(
+        {"encoding": "utf-8", "delimiter": dialect.delimiter, "rows": rows},
+        ensure_ascii=False,
+        indent=2,
+    ).encode("utf-8")
+    result = publisher.publish_extraction(
+        source,
+        intake,
+        version["id"],
+        "tables",
+        "application/json",
+        ".json",
+        encoded,
+        {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"rows": len(rows)}},
+    )
+    return {
+        "status": "completed",
+        "artifact_refs": [result["artifact_id"]],
+        "extraction_refs": [result["extraction_id"]],
+        "summary": {"rows": len(rows), "warnings": result["warnings"]},
+        "continuation": job.get("continuation", {}),
+    }
 
 
 def _excel(source, intake, job, publisher, password_store) -> dict:
-    data, version = _original(source, job.get("version_id"))
-    profile = job.get("password_profile")
+    data, version = _original(source, job.get("version_id"), publisher)
+    profile = job.get("password_profile") or (source.get("password_profile") if isinstance(source, dict) else None)
     if not profile and _office_is_encrypted(data):
         raise AdapterError("password_required", "encrypted workbook requires a document-password profile")
     data = _decrypt_office(data, profile, password_store)
@@ -209,6 +276,7 @@ def _excel(source, intake, job, publisher, password_store) -> dict:
     try:
         if suffix == ".xls":
             import xlrd
+
             workbook = xlrd.open_workbook(file_contents=data, encoding_override="utf-8", on_demand=True)
             sheets = []
             for sheet in workbook.sheets():
@@ -218,6 +286,7 @@ def _excel(source, intake, job, publisher, password_store) -> dict:
                 sheets.append({"name": sheet.name, "rows": rows})
         else:
             import openpyxl
+
             with tempfile.NamedTemporaryFile(suffix=suffix or ".xlsx") as temporary:
                 temporary.write(data)
                 temporary.flush()
@@ -231,7 +300,12 @@ def _excel(source, intake, job, publisher, password_store) -> dict:
                         values = []
                         for cell in row:
                             value = cell.value
-                            values.append({"value": value, "formula": value if isinstance(value, str) and value.startswith("=") else None})
+                            values.append(
+                                {
+                                    "value": value,
+                                    "formula": value if isinstance(value, str) and value.startswith("=") else None,
+                                }
+                            )
                         rows.append({"row": row_index, "values": values})
                     sheets.append({"name": sheet.title, "rows": rows})
     except AdapterError:
@@ -241,15 +315,30 @@ def _excel(source, intake, job, publisher, password_store) -> dict:
             raise AdapterError("unlock_failed", "workbook could not be opened with the selected password profile") from exc
         raise AdapterError("workbook_unreadable", "workbook could not be opened") from exc
     encoded = json.dumps({"sheets": sheets}, ensure_ascii=False, indent=2, default=str).encode("utf-8")
-    result = publisher.publish_extraction(source, intake, version["id"], "tables", "application/json", ".json", encoded, {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"sheets": len(sheets)}})
-    return {"status": "completed", "artifact_refs": [result["artifact_id"]], "extraction_refs": [result["extraction_id"]], "summary": {"sheets": len(sheets), "warnings": result["warnings"]}, "continuation": job.get("continuation", {})}
+    result = publisher.publish_extraction(
+        source,
+        intake,
+        version["id"],
+        "tables",
+        "application/json",
+        ".json",
+        encoded,
+        {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"sheets": len(sheets)}},
+    )
+    return {
+        "status": "completed",
+        "artifact_refs": [result["artifact_id"]],
+        "extraction_refs": [result["extraction_id"]],
+        "summary": {"sheets": len(sheets), "warnings": result["warnings"]},
+        "continuation": job.get("continuation", {}),
+    }
 
 
 def _pdf(source, intake, job, publisher, password_store, llm) -> dict:
-    data, version = _original(source, job.get("version_id"))
-    path = Path(version["original_ref"])
-    absolute = Path(os.environ.get("OPENLIA_WORKSPACE_ROOT", "/opt/data/workspace")) / path
-    password = password_store.resolve(job["password_profile"]) if job.get("password_profile") else None
+    data, version = _original(source, job.get("version_id"), publisher)
+    absolute = _resolve_original_path(str(version["original_ref"]), publisher)
+    profile = job.get("password_profile") or (source.get("password_profile") if isinstance(source, dict) else None)
+    password = password_store.resolve(profile) if profile else None
     pages = _pdf_pages(absolute, password)
     if pages > 100:
         raise AdapterError("page_limit", "PDF exceeds the page limit")
@@ -258,8 +347,27 @@ def _pdf(source, intake, job, publisher, password_store, llm) -> dict:
     page_texts = _split_pdf_pages(text, pages)
     missing_pages = [page for page, page_text in enumerate(page_texts, start=1) if not page_text.strip()]
     if not missing_pages:
-        result = publisher.publish_extraction(source, intake, version["id"], "text", "text/markdown", ".md", text.encode("utf-8"), {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"text_layer": True}})
-        return {"status": "completed", "artifact_refs": [result["artifact_id"]], "extraction_refs": [result["extraction_id"]], "summary": {"warnings": result["warnings"]}, "continuation": job.get("continuation", {})}
+        formatted = []
+        for idx, page_text in enumerate(page_texts, start=1):
+            formatted.append(f"## Page {idx}\n\n{page_text.strip()}\n")
+        markdown_text = "\n".join(formatted) if len(page_texts) > 1 else text
+        result = publisher.publish_extraction(
+            source,
+            intake,
+            version["id"],
+            "text",
+            "text/markdown",
+            ".md",
+            markdown_text.encode("utf-8"),
+            {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"text_layer": True, "pages": pages}},
+        )
+        return {
+            "status": "completed",
+            "artifact_refs": [result["artifact_id"]],
+            "extraction_refs": [result["extraction_id"]],
+            "summary": {"pages": pages, "warnings": result["warnings"]},
+            "continuation": job.get("continuation", {}),
+        }
     if llm is None:
         raise AdapterError("vision_unavailable", "scanned PDF requires a configured vision model", retryable=False)
     extracted = []
@@ -271,33 +379,88 @@ def _pdf(source, intake, job, publisher, password_store, llm) -> dict:
                 extracted.append(f"## Page {page}\n\n{page_text.strip()}\n")
                 continue
             output = Path(temporary) / f"page-{page}"
-            ppm_command = ["pdftoppm"] + (["-opw", password] if password else []) + ["-f", str(page), "-l", str(page), "-png", "-r", "150", "-singlefile", str(absolute), str(output)]
+            ppm_command = (
+                ["pdftoppm"]
+                + (["-opw", password] if password else [])
+                + ["-f", str(page), "-l", str(page), "-png", "-r", "150", "-singlefile", str(absolute), str(output)]
+            )
             _command(ppm_command, "pdf_render")
-            page_text, page_warnings = _vision(llm, output.with_suffix(".png").read_bytes(), "image/png", f"Read page {page} exactly. Preserve source language and mark uncertain text.")
+            page_text, page_warnings = _vision(
+                llm,
+                output.with_suffix(".png").read_bytes(),
+                "image/png",
+                f"Read page {page} exactly. Preserve source language and mark uncertain text.",
+            )
             extracted.append(f"## Page {page}\n\n{page_text}\n")
             warnings.extend(page_warnings)
-    result = publisher.publish_extraction(source, intake, version["id"], "text", "text/markdown", ".md", "\n".join(extracted).encode("utf-8"), {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"pages": pages}, "warnings": warnings, "complete": not warnings})
+    result = publisher.publish_extraction(
+        source,
+        intake,
+        version["id"],
+        "text",
+        "text/markdown",
+        ".md",
+        "\n".join(extracted).encode("utf-8"),
+        {
+            "input_artifact_id": version.get("original_artifact_id"),
+            "coverage": {"pages": pages},
+            "warnings": warnings,
+            "complete": not warnings,
+        },
+    )
     status = "completed" if result["complete"] else "partial"
-    return {"status": status, "artifact_refs": [result["artifact_id"]], "extraction_refs": [result["extraction_id"]], "summary": {"pages": pages, "warnings": warnings}, "continuation": job.get("continuation", {})}
+    return {
+        "status": status,
+        "artifact_refs": [result["artifact_id"]],
+        "extraction_refs": [result["extraction_id"]],
+        "summary": {"pages": pages, "warnings": warnings},
+        "continuation": job.get("continuation", {}),
+    }
 
 
 def _image(source, intake, job, publisher, llm) -> dict:
-    data, version = _original(source, job.get("version_id"))
+    data, version = _original(source, job.get("version_id"), publisher)
     if llm is None:
         raise AdapterError("vision_unavailable", "image ingestion requires a configured vision model")
     try:
         from PIL import Image
+
         image = Image.open(io.BytesIO(data))
         image.thumbnail((2400, 2400))
         normalized = io.BytesIO()
         image.convert("RGB").save(normalized, format="PNG")
-        text, warnings = _vision(llm, normalized.getvalue(), "image/png", "Read this image exactly. Preserve source language, describe layout briefly, and mark uncertain text.")
+        text, warnings = _vision(
+            llm,
+            normalized.getvalue(),
+            "image/png",
+            "Read this image exactly. Preserve source language, describe layout briefly, and mark uncertain text.",
+        )
     except AdapterError:
         raise
     except Exception as exc:
         raise AdapterError("image_unreadable", "image could not be normalized") from exc
-    result = publisher.publish_extraction(source, intake, version["id"], "text", "text/markdown", ".md", text.encode("utf-8"), {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"image": True}, "warnings": warnings, "complete": not warnings})
-    return {"status": "completed" if result["complete"] else "partial", "artifact_refs": [result["artifact_id"]], "extraction_refs": [result["extraction_id"]], "summary": {"warnings": warnings}, "continuation": job.get("continuation", {})}
+    result = publisher.publish_extraction(
+        source,
+        intake,
+        version["id"],
+        "text",
+        "text/markdown",
+        ".md",
+        text.encode("utf-8"),
+        {
+            "input_artifact_id": version.get("original_artifact_id"),
+            "coverage": {"image": True},
+            "warnings": warnings,
+            "complete": not warnings,
+        },
+    )
+    return {
+        "status": "completed" if result["complete"] else "partial",
+        "artifact_refs": [result["artifact_id"]],
+        "extraction_refs": [result["extraction_id"]],
+        "summary": {"warnings": warnings},
+        "continuation": job.get("continuation", {}),
+    }
 
 
 def _youtube(source, intake, job, publisher) -> dict:
@@ -305,38 +468,131 @@ def _youtube(source, intake, job, publisher) -> dict:
     if not isinstance(url, str):
         raise AdapterError("url_missing", "YouTube URL is missing")
     with tempfile.TemporaryDirectory(prefix="openlia-youtube-") as temporary:
-        metadata = json.loads(_command(["yt-dlp", "--no-warnings", "--skip-download", "--dump-single-json", url], "youtube_metadata"))
-        original = json.dumps({"id": metadata.get("id"), "title": metadata.get("title"), "channel": metadata.get("channel"), "webpage_url": metadata.get("webpage_url"), "duration": metadata.get("duration")}, ensure_ascii=False, indent=2).encode("utf-8")
+        metadata = json.loads(
+            _command(["yt-dlp", "--no-warnings", "--skip-download", "--dump-single-json", url], "youtube_metadata")
+        )
+        original = json.dumps(
+            {
+                "id": metadata.get("id"),
+                "title": metadata.get("title"),
+                "channel": metadata.get("channel"),
+                "webpage_url": metadata.get("webpage_url"),
+                "duration": metadata.get("duration"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ).encode("utf-8")
         version_id = job.get("version_id") or source.get("versions", [{}])[-1].get("id")
         if not version_id:
             raise AdapterError("version_missing", "YouTube version was not allocated")
         version = next((item for item in source.get("versions", []) if item.get("id") == version_id), None)
+        rel_path = f"blobs/{source['id']}/{version_id}/original.json"
         if version is None:
-            version = {"id": version_id, "original_artifact_id": f"art_{uuid.uuid4().hex}", "content_sha256": __import__("hashlib").sha256(original).hexdigest(), "media_type": "application/json", "original_ref": f"sources/artifacts/{source['id']}/{version_id}/original.json", "received_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(), "retained": True, "extractions": []}
+            version = {
+                "id": version_id,
+                "original_artifact_id": f"art_{uuid.uuid4().hex}",
+                "content_sha256": __import__("hashlib").sha256(original).hexdigest(),
+                "media_type": "application/json",
+                "original_ref": rel_path,
+                "received_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+                "retained": True,
+                "extractions": [],
+            }
             source["versions"] = [*source.get("versions", []), version]
             publisher.update_source(source)
-        publisher.publish_bytes(f"sources/artifacts/{source['id']}/{version_id}/original.json", original)
+        publisher.publish_bytes(rel_path, original)
         transcript = None
         try:
-            subprocess.run(["yt-dlp", "--no-warnings", "--ignore-errors", "--skip-download", "--write-subs", "--write-auto-subs", "--sub-langs", "en.*,en,orig,default", "--sub-format", "vtt", "--output", str(Path(temporary) / "video.%(ext)s"), url], capture_output=True, text=True, timeout=60)
+            subprocess.run(
+                [
+                    "yt-dlp",
+                    "--no-warnings",
+                    "--ignore-errors",
+                    "--skip-download",
+                    "--write-subs",
+                    "--write-auto-subs",
+                    "--sub-langs",
+                    "en.*,en,orig,default",
+                    "--sub-format",
+                    "vtt",
+                    "--output",
+                    str(Path(temporary) / "video.%(ext)s"),
+                    url,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
             subtitle_files = sorted(Path(temporary).glob("*.vtt"))
             if not subtitle_files:
-                subprocess.run(["yt-dlp", "--no-warnings", "--ignore-errors", "--skip-download", "--write-subs", "--write-auto-subs", "--sub-langs", "all,-live_chat", "--sub-format", "vtt", "--output", str(Path(temporary) / "video.%(ext)s"), url], capture_output=True, text=True, timeout=60)
+                subprocess.run(
+                    [
+                        "yt-dlp",
+                        "--no-warnings",
+                        "--ignore-errors",
+                        "--skip-download",
+                        "--write-subs",
+                        "--write-auto-subs",
+                        "--sub-langs",
+                        "all,-live_chat",
+                        "--sub-format",
+                        "vtt",
+                        "--output",
+                        str(Path(temporary) / "video.%(ext)s"),
+                        url,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
                 subtitle_files = sorted(Path(temporary).glob("*.vtt"))
         except (OSError, subprocess.SubprocessError):
             subtitle_files = sorted(Path(temporary).glob("*.vtt"))
         if subtitle_files:
-            direct_en = [f for f in subtitle_files if f.name == "video.en.vtt" or f.name.startswith("video.en.") or f.name.startswith("video.en-")]
+            direct_en = [
+                f
+                for f in subtitle_files
+                if f.name == "video.en.vtt" or f.name.startswith("video.en.") or f.name.startswith("video.en-")
+            ]
             chosen = direct_en[0] if direct_en else subtitle_files[0]
             transcript = _vtt_text(chosen.read_text(encoding="utf-8", errors="replace"))
         if transcript:
-            result = publisher.publish_extraction(source, intake, version_id, "transcript", "text/markdown", ".md", transcript.encode("utf-8"), {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"transcript": True}, "complete": True})
+            result = publisher.publish_extraction(
+                source,
+                intake,
+                version_id,
+                "transcript",
+                "text/markdown",
+                ".md",
+                transcript.encode("utf-8"),
+                {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"transcript": True}, "complete": True},
+            )
             status, warnings = "completed", result["warnings"]
         else:
             warnings = ["transcript_unavailable"]
-            result = publisher.publish_extraction(source, intake, version_id, "transcript", "text/markdown", ".md", b"Transcript unavailable; the source did not provide a retained transcript.", {"input_artifact_id": version.get("original_artifact_id"), "coverage": {"transcript": False}, "warnings": warnings, "complete": False})
+            result = publisher.publish_extraction(
+                source,
+                intake,
+                version_id,
+                "transcript",
+                "text/markdown",
+                ".md",
+                b"Transcript unavailable; the source did not provide a retained transcript.",
+                {
+                    "input_artifact_id": version.get("original_artifact_id"),
+                    "coverage": {"transcript": False},
+                    "warnings": warnings,
+                    "complete": False,
+                },
+            )
             status = "partial"
-    return {"status": status, "artifact_refs": [result["artifact_id"]], "extraction_refs": [result["extraction_id"]], "summary": {"warnings": warnings}, "continuation": job.get("continuation", {})}
+    return {
+        "status": status,
+        "artifact_refs": [result["artifact_id"]],
+        "extraction_refs": [result["extraction_id"]],
+        "summary": {"warnings": warnings},
+        "continuation": job.get("continuation", {}),
+    }
 
 
 def _vtt_text(value: str) -> str:
@@ -365,7 +621,10 @@ def _command(command: list[str], code: str) -> str:
     except subprocess.CalledProcessError as exc:
         detail = ((exc.stderr or "") + " " + (exc.stdout or "")).lower()
         if "password" in detail or "encrypted" in detail:
-            raise AdapterError("password_required" if len(command) < 2 or "-opw" not in command else "password_invalid", "document password is required or was rejected") from exc
+            raise AdapterError(
+                "password_required" if len(command) < 2 or "-opw" not in command else "password_invalid",
+                "document password is required or was rejected",
+            ) from exc
         raise AdapterError(code, f"{code} failed", retryable=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         raise AdapterError(code, f"{code} failed", retryable=True) from exc
@@ -395,6 +654,7 @@ def _decrypt_office(data: bytes, profile: str | None, password_store) -> bytes:
         return data
     try:
         import msoffcrypto
+
         source = io.BytesIO(data)
         office = msoffcrypto.OfficeFile(source)
         if not office.is_encrypted():
@@ -413,15 +673,29 @@ def _decrypt_office(data: bytes, profile: str | None, password_store) -> bytes:
 def _office_is_encrypted(data: bytes) -> bool:
     try:
         import msoffcrypto
+
         return bool(msoffcrypto.OfficeFile(io.BytesIO(data)).is_encrypted())
     except Exception:
         return False
 
 
 def _vision(llm, data: bytes, mime_type: str, instructions: str) -> tuple[str, list[str]]:
-    schema = {"type": "object", "additionalProperties": False, "required": ["text", "warnings"], "properties": {"text": {"type": "string"}, "warnings": {"type": "array", "items": {"type": "string"}}}}
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["text", "warnings"],
+        "properties": {"text": {"type": "string"}, "warnings": {"type": "array", "items": {"type": "string"}}},
+    }
     try:
-        result = llm.complete_structured(task="openlia_ingestion_ocr", instructions=instructions, input=[{"type": "image", "data": data, "mime_type": mime_type}], json_schema=schema, max_tokens=4096, timeout=120, purpose="ingestion_ocr")
+        result = llm.complete_structured(
+            task="openlia_ingestion_ocr",
+            instructions=instructions,
+            input=[{"type": "image", "data": data, "mime_type": mime_type}],
+            json_schema=schema,
+            max_tokens=4096,
+            timeout=120,
+            purpose="ingestion_ocr",
+        )
         parsed = getattr(result, "parsed", None)
         if not isinstance(parsed, dict) or not isinstance(parsed.get("text"), str):
             raise AdapterError("vision_invalid_output", "vision model returned no structured text", retryable=True)

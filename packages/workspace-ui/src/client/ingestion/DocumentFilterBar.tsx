@@ -18,6 +18,7 @@ export interface DocumentFilterBarProps {
   onDocTypeChange: (dt: string | undefined) => void;
   facets: SourceSearchFacets;
   onOpenUpload: () => void;
+  onOpenPasswordManager?: () => void;
   onRebuildFts?: () => void;
 }
 
@@ -36,6 +37,7 @@ export function DocumentFilterBar({
   onDocTypeChange,
   facets,
   onOpenUpload,
+  onOpenPasswordManager,
   onRebuildFts,
 }: DocumentFilterBarProps) {
   const needsReviewCount =
@@ -104,6 +106,17 @@ export function DocumentFilterBar({
         </div>
 
         <div className="flex items-center gap-2">
+          {onOpenPasswordManager && (
+            <button
+              type="button"
+              className="btn btn-outline btn-sm gap-1.5"
+              onClick={onOpenPasswordManager}
+              title="Manage document password profiles"
+            >
+              <span>🔑</span>
+              <span>Passwords</span>
+            </button>
+          )}
           {onRebuildFts && (
             <button
               type="button"

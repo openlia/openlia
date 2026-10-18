@@ -23,8 +23,8 @@ metadata:
 
 ## Operating Model
 
-- **Separation Principle**: `sources/` stores evidence (retained originals and OCR/transcripts); `inbox/` holds items requiring active human attention (unresolved notes, questions, and decisions). Processing jobs live in the runtime database.
-- Document uploads live in `sources/records/{id}.md`. They do NOT create routine intake notes in `inbox/`. The document inbox is a virtual view (`review.status == 'needs-review'` or `'unreviewed'`) queried via `ingestion_search(review_status="needs-review")`.
+- **Separation Principle**: The Ingestion Vault (`OPENLIA_INGESTION_ROOT`) stores evidence (retained originals, OCR/transcripts, and structured `custom_fields`) outside `/opt/data/workspace`; `inbox/` holds items requiring active human attention (unresolved notes, questions, and decisions).
+- Document uploads live in the Ingestion Vault and are referenced via `openlia://source/{source_id}` (or `src_...`). Use [Document Intelligence](openlia://skills/document-intelligence) for single-turn capture (`wait_seconds=15, auto_unlock=True`), smart password profile matching, and page-level inspection (`page_outline`). Document uploads do NOT create files in `workspace/` or routine intake notes in `inbox/`. The document inbox is a virtual view (`review.status == 'needs-review'` or `'unreviewed'`) queried via `ingestion_search(review_status="needs-review")`.
 - Standalone captures and substantive review notes stay in `inbox/` (e.g. `inbox/YYYY-MM-DD-review.md`) and cite evidence using canonical URIs: `[Title](openlia://source/{source_id}#{version_id}/p{page})`.
 - A review file is a staging record, not a final domain record. It preserves the source reference and proposed extractions for human review.
 - One source may produce zero, one, or several candidates. Give each candidate a stable ID such as `C-YYYY-MM-DD-001`.
@@ -46,7 +46,7 @@ metadata:
 - A clear candidate may be filed automatically when the current request or
   standing delegation authorizes the operation. An ambiguous candidate stays
   in the review file and asks for the smallest clarification or approval.
-- Once a source document's triage or review is complete, mark it reviewed via `ingestion_update_document(source_id=..., review={"status": "reviewed"})`. The document stays permanently in `sources/` as evidence for domain records.
+- Once a source document's triage or review is complete, mark it reviewed via `ingestion_update_document(source_id=..., review={"status": "reviewed"})`. The document stays permanently in the Ingestion Vault as evidence for domain records.
 
 ## Chat Intake & Review Procedure (Conversational Mode)
 
@@ -145,11 +145,7 @@ not modify the input or create directories.
   claim, or apply delegation to ambiguous candidates.
 - Do not embed environment-specific HTTP origins; use canonical `openlia://` workspace URIs.
 
-When an ingestion callback supplies an `event_id` and `action_id`, acknowledge
-the event before applying domain writes. Reuse the same `action_id` on retries,
-preserve stable candidate and record references, and mark the action complete
-only after the domain writes are durable. A callback retry with a completed
-action must not create another domain record.
+When the user references an ingested document (`src_...` or `openlia://source/src_...`), inspect it via `ingestion_get_document` (including `page` slicing when needed) before proposing or writing domain records. Preserve stable candidate and record references, and mark the source `reviewed` via `ingestion_update_document` after authorized domain writes are durable.
 
 ## Verification
 

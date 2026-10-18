@@ -1,5 +1,10 @@
-import { useState, useEffect } from "react";
-import type { SourceDocument, SourceUpdateRequest } from "../../shared/api";
+import { useEffect, useMemo, useState } from "react";
+import type {
+  DocumentPasswordProfile,
+  SourceDocument,
+  SourceUpdateRequest,
+} from "../../shared/api";
+import { suggestPasswordProfiles } from "../../shared/passwordSuggester";
 import type { WorkspaceApi } from "../api";
 
 export interface DocumentInspectorProps {
@@ -9,6 +14,34 @@ export interface DocumentInspectorProps {
   onUpdate: (updated: SourceDocument) => void;
   onOpenFile: (path: string) => void;
   rawUrl: (path: string) => string;
+  onOpenPasswordManager?: () => void;
+  passwordProfilesVersion?: number;
+}
+
+interface ParsedPage {
+  pageNumber: number;
+  content: string;
+}
+
+function parsePagesFromContent(content: string | undefined): ParsedPage[] {
+  if (!content) return [];
+  const matches = Array.from(content.matchAll(/^## Page (\d+)\s*$/gm));
+  if (matches.length === 0) return [];
+  const pages: ParsedPage[] = [];
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i]!;
+    const pageNumber = Number(match[1]);
+    const startIdx = (match.index ?? 0) + match[0].length;
+    const endIdx =
+      i + 1 < matches.length
+        ? (matches[i + 1]?.index ?? content.length)
+        : content.length;
+    pages.push({
+      pageNumber,
+      content: content.slice(startIdx, endIdx).trim(),
+    });
+  }
+  return pages;
 }
 
 export function DocumentInspector({
@@ -18,14 +51,30 @@ export function DocumentInspector({
   onUpdate,
   onOpenFile,
   rawUrl,
+  onOpenPasswordManager,
+  passwordProfilesVersion,
 }: DocumentInspectorProps) {
   const [activeTab, setActiveTab] = useState<
     "content" | "metadata" | "backlinks"
   >("content");
+  const [splitPreview, setSplitPreview] = useState(false);
+  const [selectedPage, setSelectedPage] = useState<number | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCitation, setCopiedCitation] = useState(false);
+  const [copiedPageCitation, setCopiedPageCitation] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Password unlock & retry state
+  const [retryPassword, setRetryPassword] = useState("");
+  const [selectedProfileId, setSelectedProfileId] = useState("");
+  const [saveProfileLabel, setSaveProfileLabel] = useState("");
+  const [passwordProfiles, setPasswordProfiles] = useState<
+    DocumentPasswordProfile[]
+  >([]);
+  const [assignedPasswordProfile, setAssignedPasswordProfile] = useState("");
+  const [retrying, setRetrying] = useState(false);
+  const [retryMessage, setRetryMessage] = useState<string | null>(null);
 
   // Form edit state
   const [title, setTitle] = useState("");
@@ -35,6 +84,11 @@ export function DocumentInspector({
   const [summary, setSummary] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [newTagInput, setNewTagInput] = useState("");
+  const [customFields, setCustomFields] = useState<
+    Array<{ key: string; value: string }>
+  >([]);
+  const [newFieldKey, setNewFieldKey] = useState("");
+  const [newFieldValue, setNewFieldValue] = useState("");
 
   useEffect(() => {
     if (document) {
@@ -44,9 +98,62 @@ export function DocumentInspector({
       setDocumentDate(document.document_date ?? "");
       setSummary(document.summary ?? "");
       setTags(document.tags ?? []);
+      const cf = document.custom_fields ?? {};
+      setCustomFields(
+        Object.entries(cf).map(([key, value]) => ({
+          key,
+          value: value === null || value === undefined ? "" : String(value),
+        })),
+      );
+      setAssignedPasswordProfile(document.password_profile ?? "");
+      setSelectedPage(null);
       setSaveError(null);
+      setRetryMessage(null);
     }
   }, [document]);
+
+  const needsPasswordOrRetry =
+    document !== null &&
+    ["awaiting-unlock", "waiting-for-password", "failed"].includes(
+      document.processing.status,
+    );
+
+  useEffect(() => {
+    void passwordProfilesVersion;
+    if (!document) return;
+    let cancelled = false;
+    api
+      .listDocumentPasswords()
+      .then((res) => {
+        if (!cancelled) setPasswordProfiles(res.profiles ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setPasswordProfiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [document, api, passwordProfilesVersion]);
+
+  // Compute smart password suggestions for this document
+  const suggestions = useMemo(() => {
+    if (!document || passwordProfiles.length === 0) return [];
+    return suggestPasswordProfiles(
+      {
+        filename: document.title,
+        title: document.title,
+        correspondent: document.correspondent ?? undefined,
+      },
+      passwordProfiles,
+    );
+  }, [document, passwordProfiles]);
+
+  const topSuggestion = suggestions.length > 0 ? suggestions[0] : null;
+
+  const pages = useMemo(
+    () => parsePagesFromContent(document?.content ?? undefined),
+    [document?.content],
+  );
 
   if (loading) {
     return (
@@ -110,13 +217,32 @@ export function DocumentInspector({
     setSaving(true);
     setSaveError(null);
     try {
+      const customFieldsPayload: Record<
+        string,
+        string | number | boolean | null
+      > = {};
+      for (const item of customFields) {
+        const cleanKey = item.key.trim();
+        if (!cleanKey) continue;
+        const cleanVal = item.value.trim();
+        if (!cleanVal) {
+          customFieldsPayload[cleanKey] = null;
+        } else if (/^-?\d+(\.\d+)?$/.test(cleanVal)) {
+          customFieldsPayload[cleanKey] = Number(cleanVal);
+        } else {
+          customFieldsPayload[cleanKey] = cleanVal;
+        }
+      }
+
       const updates: SourceUpdateRequest = {
         title: title.trim() || document.title,
         correspondent: correspondent.trim() || null,
         document_type: documentType.trim() || null,
         document_date: documentDate.trim() || null,
         summary: summary.trim() || null,
+        password_profile: assignedPasswordProfile.trim() || null,
         tags: tags,
+        custom_fields: customFieldsPayload,
       };
       const updated = await api.updateSource(document.id, updates);
       onUpdate(updated);
@@ -126,6 +252,42 @@ export function DocumentInspector({
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleRetrySource() {
+    if (!document) return;
+    setRetrying(true);
+    setSaveError(null);
+    setRetryMessage(null);
+    try {
+      const cleanLabel = saveProfileLabel.trim();
+      const derivedProfileId =
+        selectedProfileId ||
+        (cleanLabel
+          ? cleanLabel
+              .toLowerCase()
+              .replace(/[^a-z0-9._-]+/g, "_")
+              .replace(/^_+|_+$/g, "")
+          : retryPassword
+            ? `unlock_${document.id}`
+            : undefined);
+      const res = await api.retrySource(document.id, {
+        password: retryPassword || undefined,
+        profile_id: derivedProfileId || undefined,
+        label: cleanLabel || undefined,
+      });
+      setRetryPassword("");
+      setSaveProfileLabel("");
+      setRetryMessage(`Queued extraction retry (${res.job_id})`);
+      const refreshed = await api.loadSource(document.id);
+      onUpdate(refreshed);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to retry extraction",
+      );
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -139,6 +301,39 @@ export function DocumentInspector({
 
   function handleRemoveTag(tagToRemove: string) {
     setTags(tags.filter((t) => t !== tagToRemove));
+  }
+
+  function handleAddCustomField() {
+    const cleanKey = newFieldKey
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, "_");
+    if (!cleanKey) return;
+    const existingIdx = customFields.findIndex((f) => f.key === cleanKey);
+    if (existingIdx >= 0) {
+      const next = [...customFields];
+      next[existingIdx] = { key: cleanKey, value: newFieldValue };
+      setCustomFields(next);
+    } else {
+      setCustomFields([
+        ...customFields,
+        { key: cleanKey, value: newFieldValue },
+      ]);
+    }
+    setNewFieldKey("");
+    setNewFieldValue("");
+  }
+
+  function handleUpdateCustomField(index: number, value: string) {
+    const next = [...customFields];
+    const current = next[index];
+    if (!current) return;
+    next[index] = { key: current.key, value };
+    setCustomFields(next);
+  }
+
+  function handleRemoveCustomField(keyToRemove: string) {
+    setCustomFields(customFields.filter((f) => f.key !== keyToRemove));
   }
 
   function copyCanonicalUri() {
@@ -158,10 +353,32 @@ export function DocumentInspector({
   const latestVersion =
     document.versions.length > 0
       ? (document.versions[document.versions.length - 1] as {
+          version_id?: string;
           original_ref?: string;
+          mime_type?: string;
         })
       : null;
+  const latestVersionId = latestVersion?.version_id ?? "ver_001";
   const originalRef = latestVersion?.original_ref;
+  const sourceRawHref = api.sourceRawUrl(document.id, latestVersionId);
+  const previewUrl =
+    selectedPage && document.kind === "pdf"
+      ? `${sourceRawHref}#page=${selectedPage}`
+      : sourceRawHref;
+
+  function copyPageCitation(pageNum: number) {
+    if (!document) return;
+    const citation = `[${document.title}, p. ${pageNum}](${document.canonical_uri}#${latestVersionId}/p${pageNum})`;
+    navigator.clipboard.writeText(citation);
+    setCopiedPageCitation(true);
+    setTimeout(() => setCopiedPageCitation(false), 1500);
+  }
+
+  const activePageContent =
+    selectedPage !== null
+      ? (pages.find((p) => p.pageNumber === selectedPage)?.content ??
+        document.content)
+      : document.content;
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-y-auto bg-base-100">
@@ -202,8 +419,22 @@ export function DocumentInspector({
             </div>
           </div>
 
-          {/* Quick Review Action */}
+          {/* Quick Review & Citation Actions */}
           <div className="flex flex-wrap items-center gap-2">
+            {(document.kind === "pdf" ||
+              document.kind === "image" ||
+              Boolean(originalRef)) && (
+              <button
+                type="button"
+                className={`btn btn-sm ${
+                  splitPreview ? "btn-primary" : "btn-outline"
+                }`}
+                onClick={() => setSplitPreview((v) => !v)}
+                title="Toggle side-by-side original document preview"
+              >
+                {splitPreview ? "Hide Preview" : "Split Preview"}
+              </button>
+            )}
             <button
               type="button"
               className={`btn btn-sm ${
@@ -232,6 +463,122 @@ export function DocumentInspector({
             </button>
           </div>
         </div>
+
+        {/* Password Unlock / Retry Banner */}
+        {needsPasswordOrRetry && (
+          <section
+            className="mt-4 rounded-lg border border-warning/40 bg-warning/10 p-3.5 text-xs"
+            aria-label="Document unlock and retry"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="font-semibold text-warning-content">
+                  {document.processing.status === "awaiting-unlock" ||
+                  document.processing.status === "waiting-for-password"
+                    ? "Password Required to Unlock PDF"
+                    : "Extraction Failed or Incomplete"}
+                </p>
+                {document.processing.error_summary && (
+                  <p className="mt-0.5 text-base-content/70">
+                    {document.processing.error_code
+                      ? `${document.processing.error_code}: `
+                      : ""}
+                    {document.processing.error_summary}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Smart unlock suggestion if available */}
+            {topSuggestion &&
+              topSuggestion.score >= 40 &&
+              !selectedProfileId && (
+                <div className="mt-2.5 flex items-center justify-between rounded bg-warning/20 px-2.5 py-1.5 text-[11px]">
+                  <div className="flex items-center gap-1.5 truncate">
+                    <span className="badge badge-info badge-xs">
+                      {topSuggestion.score}% Match
+                    </span>
+                    <span>
+                      Suggested profile:{" "}
+                      <strong>{topSuggestion.profile.label}</strong>
+                    </span>
+                    {topSuggestion.profile.hint && (
+                      <span className="text-base-content/70">
+                        (Hint: {topSuggestion.profile.hint})
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-xs text-primary underline"
+                    onClick={() =>
+                      setSelectedProfileId(topSuggestion.profile.profile_id)
+                    }
+                  >
+                    Select
+                  </button>
+                </div>
+              )}
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <input
+                type="password"
+                className="input input-bordered input-xs w-full"
+                placeholder="Document password (optional)..."
+                value={retryPassword}
+                onChange={(e) => setRetryPassword(e.target.value)}
+              />
+              {passwordProfiles.length > 0 ? (
+                <select
+                  className="select select-bordered select-xs w-full"
+                  value={selectedProfileId}
+                  onChange={(e) => setSelectedProfileId(e.target.value)}
+                >
+                  <option value="">Or choose saved password profile...</option>
+                  {passwordProfiles.map((prof) => (
+                    <option key={prof.profile_id} value={prof.profile_id}>
+                      {prof.label} ({prof.profile_id})
+                      {prof.hint ? ` [Hint: ${prof.hint}]` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  className="input input-bordered input-xs w-full"
+                  placeholder="Save password as profile label (optional)..."
+                  value={saveProfileLabel}
+                  onChange={(e) => setSaveProfileLabel(e.target.value)}
+                />
+              )}
+              <div className="flex items-center gap-2">
+                {passwordProfiles.length > 0 && retryPassword && (
+                  <input
+                    type="text"
+                    className="input input-bordered input-xs flex-1"
+                    placeholder="Save as label..."
+                    value={saveProfileLabel}
+                    onChange={(e) => setSaveProfileLabel(e.target.value)}
+                  />
+                )}
+                <button
+                  type="button"
+                  className="btn btn-warning btn-xs"
+                  onClick={handleRetrySource}
+                  disabled={retrying}
+                >
+                  {retrying ? "Retrying..." : "Unlock & Retry"}
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {retryMessage && (
+          <div className="alert alert-info mt-3 py-2 text-xs">
+            <span>{retryMessage}</span>
+          </div>
+        )}
 
         {/* Tab selection */}
         <div className="tabs tabs-bordered mt-4">
@@ -265,255 +612,468 @@ export function DocumentInspector({
         </div>
       )}
 
-      {/* Tab Panels */}
-      <div className="flex-1 p-5 overflow-y-auto">
-        {/* 1. Content Tab */}
-        {activeTab === "content" && (
-          <div className="space-y-4">
-            {originalRef && (
-              <div className="flex items-center justify-between rounded-lg border border-base-content/10 bg-base-200/50 p-3 text-xs">
-                <div className="flex items-center gap-2 min-w-0">
-                  <svg
-                    className="h-4 w-4 text-primary shrink-0"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <title>Original file</title>
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-                    />
-                  </svg>
-                  <span className="truncate font-mono">{originalRef}</span>
+      {/* Split-Screen Body: Optional Left Preview + Right Inspector Tab Content */}
+      <div
+        className={`flex min-h-0 flex-1 ${
+          splitPreview
+            ? "flex-col lg:flex-row divide-y lg:divide-y-0 lg:divide-x divide-base-content/10"
+            : "flex-col"
+        } overflow-hidden`}
+      >
+        {splitPreview && (
+          <section
+            className="flex min-h-[22rem] flex-1 flex-col bg-base-200/40 p-3"
+            aria-label="Original document preview"
+          >
+            <div className="mb-2 flex items-center justify-between text-xs text-base-content/60">
+              <span className="font-semibold uppercase tracking-wider">
+                Original Preview ({document.kind})
+                {selectedPage ? ` · Page ${selectedPage}` : ""}
+              </span>
+              <a
+                href={sourceRawHref}
+                target="_blank"
+                rel="noreferrer"
+                className="link link-primary text-xs"
+              >
+                Open in New Tab ↗
+              </a>
+            </div>
+            {document.kind === "image" ? (
+              <div className="flex flex-1 items-center justify-center overflow-auto rounded border border-base-content/10 bg-base-100 p-2">
+                <img
+                  src={previewUrl}
+                  alt={document.title}
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
+            ) : (
+              <iframe
+                src={previewUrl}
+                title={`Preview ${document.title}`}
+                className="h-full min-h-[26rem] w-full flex-1 rounded border border-base-content/10 bg-base-100"
+              />
+            )}
+          </section>
+        )}
+
+        {/* Tab Panels */}
+        <div className="flex-1 p-5 overflow-y-auto">
+          {/* 1. Content Tab */}
+          {activeTab === "content" && (
+            <div className="space-y-4">
+              {originalRef && (
+                <div className="flex items-center justify-between rounded-lg border border-base-content/10 bg-base-200/50 p-3 text-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <svg
+                      className="h-4 w-4 text-primary shrink-0"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <title>Original file</title>
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+                      />
+                    </svg>
+                    <span className="truncate font-mono">{originalRef}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <a
+                      href={sourceRawHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn btn-ghost btn-xs"
+                    >
+                      View Original
+                    </a>
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-xs"
+                      onClick={() => setSplitPreview((v) => !v)}
+                    >
+                      {splitPreview ? "Close Split" : "Split View"}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <a
-                    href={rawUrl(originalRef)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn btn-ghost btn-xs"
-                  >
-                    View Original
-                  </a>
+              )}
+
+              {/* Page-level navigation & citation bar */}
+              {pages.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-base-content/10 bg-base-200/30 px-3 py-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="mr-1 font-semibold text-base-content/60">
+                      Pages:
+                    </span>
+                    <button
+                      type="button"
+                      className={`btn btn-xs ${
+                        selectedPage === null ? "btn-primary" : "btn-ghost"
+                      }`}
+                      onClick={() => setSelectedPage(null)}
+                    >
+                      All ({pages.length})
+                    </button>
+                    {pages.map((p) => (
+                      <button
+                        key={p.pageNumber}
+                        type="button"
+                        className={`btn btn-xs font-mono ${
+                          selectedPage === p.pageNumber
+                            ? "btn-primary"
+                            : "btn-ghost"
+                        }`}
+                        onClick={() => setSelectedPage(p.pageNumber)}
+                      >
+                        #p{p.pageNumber}
+                      </button>
+                    ))}
+                  </div>
                   <button
                     type="button"
                     className="btn btn-outline btn-xs"
-                    onClick={() =>
-                      onOpenFile(`sources/records/${document.id}.md`)
-                    }
+                    onClick={() => copyPageCitation(selectedPage ?? 1)}
+                    title="Copy page-anchored markdown citation"
                   >
-                    Open Record
+                    {copiedPageCitation
+                      ? "Copied Page Citation!"
+                      : `Cite #p${selectedPage ?? 1}`}
+                  </button>
+                </div>
+              )}
+
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-2">
+                  Extracted Text & Extractions
+                </h4>
+                {activePageContent ? (
+                  <div className="rounded-lg border border-base-content/10 bg-base-200/30 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap max-h-[600px] overflow-y-auto">
+                    {activePageContent}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-base-content/20 p-8 text-center text-xs text-base-content/50">
+                    No text extractions available yet.
+                    {document.processing.status === "queued" &&
+                      " The document is queued for OCR extraction."}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 2. Metadata Tab */}
+          {activeTab === "metadata" && (
+            <div className="max-w-xl space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-base-content/70">
+                  Title
+                  <input
+                    type="text"
+                    className="input input-bordered input-sm mt-1 w-full font-normal"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-base-content/70">
+                    Correspondent
+                    <input
+                      type="text"
+                      className="input input-bordered input-sm mt-1 w-full font-normal"
+                      placeholder="e.g. ACME Corp, Bank"
+                      value={correspondent}
+                      onChange={(e) => setCorrespondent(e.target.value)}
+                    />
+                  </label>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-base-content/70">
+                    Document Type
+                    <input
+                      type="text"
+                      className="input input-bordered input-sm mt-1 w-full font-normal"
+                      placeholder="e.g. invoice, statement, receipt"
+                      value={documentType}
+                      onChange={(e) => setDocumentType(e.target.value)}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-base-content/70">
+                  Document Date
+                  <input
+                    type="date"
+                    className="input input-bordered input-sm mt-1 w-full font-normal"
+                    value={documentDate}
+                    onChange={(e) => setDocumentDate(e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div>
+                <span className="block text-xs font-semibold text-base-content/70">
+                  Tags
+                </span>
+                <div className="mt-1 flex flex-wrap gap-1.5 mb-2">
+                  {tags.map((t) => (
+                    <span
+                      key={t}
+                      className="badge badge-primary badge-sm gap-1 pl-2 pr-1"
+                    >
+                      #{t}
+                      <button
+                        type="button"
+                        className="cursor-pointer font-bold hover:text-error"
+                        onClick={() => handleRemoveTag(t)}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    className="input input-bordered input-xs flex-1"
+                    placeholder="Add a tag..."
+                    value={newTagInput}
+                    onChange={(e) => setNewTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddTag();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-xs"
+                    onClick={handleAddTag}
+                  >
+                    Add
                   </button>
                 </div>
               </div>
-            )}
 
-            <div>
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-2">
-                Extracted Text & Extractions
-              </h4>
-              {document.content ? (
-                <div className="rounded-lg border border-base-content/10 bg-base-200/30 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap max-h-[600px] overflow-y-auto">
-                  {document.content}
-                </div>
-              ) : (
-                <div className="rounded-lg border border-dashed border-base-content/20 p-8 text-center text-xs text-base-content/50">
-                  No text extractions available yet.
-                  {document.processing.status === "queued" &&
-                    " The document is queued for OCR extraction."}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* 2. Metadata Tab */}
-        {activeTab === "metadata" && (
-          <div className="max-w-xl space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-base-content/70">
-                Title
-                <input
-                  type="text"
-                  className="input input-bordered input-sm mt-1 w-full font-normal"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                />
-              </label>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-base-content/70">
-                  Correspondent
+              {/* Structured Custom Fields (Paperless-style) */}
+              <div className="rounded-lg border border-base-content/10 bg-base-200/20 p-3">
+                <span className="block text-xs font-semibold text-base-content/70">
+                  Custom Fields
+                </span>
+                <p className="text-[11px] text-base-content/50 mb-2">
+                  Structured fields extracted from this document (e.g.
+                  total_amount, currency, due_date, invoice_number).
+                </p>
+                {customFields.length > 0 && (
+                  <div className="space-y-1.5 mb-2">
+                    {customFields.map((field, idx) => (
+                      <div
+                        key={field.key}
+                        className="flex items-center gap-2 text-xs"
+                      >
+                        <span className="w-36 truncate font-mono text-[11px] text-base-content/70">
+                          {field.key}
+                        </span>
+                        <input
+                          type="text"
+                          aria-label={`Custom field ${field.key}`}
+                          className="input input-bordered input-xs flex-1 font-mono"
+                          value={field.value}
+                          onChange={(e) =>
+                            handleUpdateCustomField(idx, e.target.value)
+                          }
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-xs text-error"
+                          onClick={() => handleRemoveCustomField(field.key)}
+                          title={`Remove ${field.key}`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
                   <input
                     type="text"
-                    className="input input-bordered input-sm mt-1 w-full font-normal"
-                    placeholder="e.g. ACME Corp, Bank"
-                    value={correspondent}
-                    onChange={(e) => setCorrespondent(e.target.value)}
+                    className="input input-bordered input-xs w-36 font-mono"
+                    placeholder="field_name"
+                    value={newFieldKey}
+                    onChange={(e) => setNewFieldKey(e.target.value)}
                   />
-                </label>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-base-content/70">
-                  Document Type
                   <input
                     type="text"
-                    className="input input-bordered input-sm mt-1 w-full font-normal"
-                    placeholder="e.g. invoice, statement, receipt"
-                    value={documentType}
-                    onChange={(e) => setDocumentType(e.target.value)}
+                    className="input input-bordered input-xs flex-1 font-mono"
+                    placeholder="Value..."
+                    value={newFieldValue}
+                    onChange={(e) => setNewFieldValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddCustomField();
+                      }
+                    }}
                   />
-                </label>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-base-content/70">
-                Document Date
-                <input
-                  type="date"
-                  className="input input-bordered input-sm mt-1 w-full font-normal"
-                  value={documentDate}
-                  onChange={(e) => setDocumentDate(e.target.value)}
-                />
-              </label>
-            </div>
-
-            <div>
-              <span className="block text-xs font-semibold text-base-content/70">
-                Tags
-              </span>
-              <div className="mt-1 flex flex-wrap gap-1.5 mb-2">
-                {tags.map((t) => (
-                  <span
-                    key={t}
-                    className="badge badge-primary badge-sm gap-1 pl-2 pr-1"
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-xs"
+                    onClick={handleAddCustomField}
                   >
-                    #{t}
+                    Add Field
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-base-content/70">
+                  Summary
+                  <textarea
+                    className="textarea textarea-bordered mt-1 h-24 w-full text-xs font-normal"
+                    placeholder="Brief summary of document facts or contents..."
+                    value={summary}
+                    onChange={(e) => setSummary(e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label
+                    htmlFor="inspector-password-profile"
+                    className="text-xs font-semibold text-base-content/70"
+                  >
+                    Password Profile (for encrypted PDF / Excel)
+                  </label>
+                  {onOpenPasswordManager && (
                     <button
                       type="button"
-                      className="cursor-pointer font-bold hover:text-error"
-                      onClick={() => handleRemoveTag(t)}
+                      className="btn btn-ghost btn-xs text-primary underline"
+                      onClick={onOpenPasswordManager}
                     >
-                      ×
+                      Manage Profiles
                     </button>
-                  </span>
-                ))}
+                  )}
+                </div>
+                <select
+                  id="inspector-password-profile"
+                  className="select select-bordered select-sm w-full font-normal"
+                  value={assignedPasswordProfile}
+                  onChange={(e) => setAssignedPasswordProfile(e.target.value)}
+                >
+                  <option value="">None (Unprotected or Unassigned)</option>
+                  {passwordProfiles.map((prof) => (
+                    <option key={prof.profile_id} value={prof.profile_id}>
+                      {prof.label} ({prof.profile_id})
+                      {prof.hint ? ` — Hint: ${prof.hint}` : ""}
+                    </option>
+                  ))}
+                </select>
+                {assignedPasswordProfile && (
+                  <p className="mt-1 text-[11px] text-base-content/60">
+                    Active Profile:{" "}
+                    <span className="font-mono font-medium text-base-content">
+                      {assignedPasswordProfile}
+                    </span>
+                    {passwordProfiles.find(
+                      (p) => p.profile_id === assignedPasswordProfile,
+                    )?.hint && (
+                      <span className="ml-1.5 text-info">
+                        — Hint:{" "}
+                        {
+                          passwordProfiles.find(
+                            (p) => p.profile_id === assignedPasswordProfile,
+                          )?.hint
+                        }
+                      </span>
+                    )}
+                  </p>
+                )}
               </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  className="input input-bordered input-xs flex-1"
-                  placeholder="Add a tag..."
-                  value={newTagInput}
-                  onChange={(e) => setNewTagInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleAddTag();
-                    }
-                  }}
-                />
+
+              <div className="pt-2">
                 <button
                   type="button"
-                  className="btn btn-outline btn-xs"
-                  onClick={handleAddTag}
+                  className="btn btn-primary btn-sm"
+                  onClick={handleSaveMetadata}
+                  disabled={saving}
                 >
-                  Add
+                  {saving ? "Saving..." : "Save Metadata"}
                 </button>
               </div>
             </div>
+          )}
 
-            <div>
-              <label className="block text-xs font-semibold text-base-content/70">
-                Summary
-                <textarea
-                  className="textarea textarea-bordered mt-1 h-24 w-full text-xs font-normal"
-                  placeholder="Brief summary of document facts or contents..."
-                  value={summary}
-                  onChange={(e) => setSummary(e.target.value)}
-                />
-              </label>
-            </div>
-
-            <div className="pt-2">
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={handleSaveMetadata}
-                disabled={saving}
-              >
-                {saving ? "Saving..." : "Save Metadata"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* 3. Backlinks Tab */}
-        {activeTab === "backlinks" && (
-          <div className="space-y-4">
-            <div>
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-1">
-                Workspace Domain References
-              </h4>
-              <p className="text-xs text-base-content/60 mb-3">
-                Records across the workspace citing this document via{" "}
-                <code className="font-mono text-xs">
-                  {document.canonical_uri}
-                </code>
-              </p>
-            </div>
-
-            {document.backlinks && document.backlinks.length > 0 ? (
-              <div className="divide-y divide-base-content/10 rounded-lg border border-base-content/10">
-                {document.backlinks.map((link) => (
-                  <div
-                    key={`${link.path}-${link.line_number}`}
-                    className="flex items-center justify-between p-3 transition-colors hover:bg-base-200/50"
-                  >
-                    <div className="min-w-0 flex-1 pr-3">
-                      <div className="flex items-center gap-2">
-                        <span className="badge badge-ghost badge-xs uppercase font-bold text-[10px]">
-                          {link.domain}
-                        </span>
-                        <span className="font-medium text-xs truncate">
-                          {link.filename}
-                        </span>
-                      </div>
-                      <p className="mt-0.5 truncate font-mono text-[11px] text-base-content/50">
-                        {link.path}
-                        {link.line_number ? `:${link.line_number}` : ""}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-xs text-primary"
-                      onClick={() => onOpenFile(link.path)}
-                    >
-                      Open File →
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-lg border border-dashed border-base-content/20 p-8 text-center text-xs text-base-content/50">
-                <p>No workspace records currently cite this source.</p>
-                <p className="mt-1 text-[11px] text-base-content/40">
-                  To cite this source in tasks, calendar, or finance records,
-                  copy:
+          {/* 3. Backlinks Tab */}
+          {activeTab === "backlinks" && (
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-1">
+                  Workspace Domain References
+                </h4>
+                <p className="text-xs text-base-content/60 mb-3">
+                  Records across the workspace citing this document via{" "}
+                  <code className="font-mono text-xs">
+                    {document.canonical_uri}
+                  </code>
                 </p>
-                <div className="mt-2 inline-block rounded bg-base-200 px-2 py-1 font-mono text-xs text-base-content/80 select-all">
-                  {document.markdown_citation}
-                </div>
               </div>
-            )}
-          </div>
-        )}
+
+              {document.backlinks && document.backlinks.length > 0 ? (
+                <div className="divide-y divide-base-content/10 rounded-lg border border-base-content/10">
+                  {document.backlinks.map((link) => (
+                    <div
+                      key={`${link.path}-${link.line_number}`}
+                      className="flex items-center justify-between p-3 transition-colors hover:bg-base-200/50"
+                    >
+                      <div className="min-w-0 flex-1 pr-3">
+                        <div className="flex items-center gap-2">
+                          <span className="badge badge-ghost badge-xs uppercase font-bold text-[10px]">
+                            {link.domain}
+                          </span>
+                          <span className="font-medium text-xs truncate">
+                            {link.filename}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 truncate font-mono text-[11px] text-base-content/50">
+                          {link.path}
+                          {link.line_number ? `:${link.line_number}` : ""}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-xs text-primary"
+                        onClick={() => onOpenFile(link.path)}
+                      >
+                        Open File →
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-base-content/20 p-8 text-center text-xs text-base-content/50">
+                  <p>No workspace records currently cite this source.</p>
+                  <p className="mt-1 text-[11px] text-base-content/40">
+                    To cite this source in tasks, calendar, or finance records,
+                    copy:
+                  </p>
+                  <div className="mt-2 inline-block rounded bg-base-200 px-2 py-1 font-mono text-xs text-base-content/80 select-all">
+                    {document.markdown_citation}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

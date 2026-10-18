@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { createHash, randomBytes } from "node:crypto";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -8,9 +9,10 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, extname, join, relative, resolve } from "node:path";
+import { basename, extname, join, relative, resolve, sep } from "node:path";
 import YAML from "yaml";
 import type {
+  DocumentPasswordProfile,
   IngestionArtifact,
   IngestionCallbackStatus,
   IngestionDetailResponse,
@@ -19,17 +21,23 @@ import type {
   IngestionLiveEvent,
   IngestionLiveJob,
   IngestionOverviewResponse,
+  PasswordSuggestion,
   SourceBacklink,
   SourceDocument,
   SourceExtractionItem,
-  SourceSearchFacets,
+  SourceRetryRequest,
+  SourceRetryResponse,
   SourceSearchResponse,
   SourceSearchResultItem,
   SourceUpdateRequest,
   SourceUploadResponse,
 } from "../shared/api";
+import { suggestPasswordProfiles } from "../shared/passwordSuggester";
 
 const safeId = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const profileIdRe = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const forbiddenLabelRe =
+  /(oauth|api[ _-]?key|token|private[ _-]?key|session|cookie|service[ _-]?credential)/i;
 const maxSnapshotBytes = 20 * 1024 * 1024;
 const liveStaleAfterSeconds = 15;
 
@@ -42,6 +50,8 @@ interface IntakeRecord extends Record<string, unknown> {
   operation: string;
   requested_outputs: string[];
   status: string | null;
+  job_id?: string | null;
+  last_error?: string | null;
   callback: Record<string, unknown>;
 }
 
@@ -70,6 +80,7 @@ interface SourceRecord extends Record<string, unknown> {
   lifecycle?: string;
   status?: string | null;
   captured_at?: string | null;
+  password_profile?: string | null;
   origin?: Record<string, unknown>;
   versions?: Array<Record<string, unknown>>;
   custom_fields?: Record<string, unknown>;
@@ -96,32 +107,136 @@ interface LiveState {
 export interface IngestionServiceOptions {
   workspaceRoot: string;
   ingestionRoot?: string;
+  ingestionUrl?: string;
+}
+
+function normalizeBlobRelpath(rel: string): string {
+  const clean = rel.trim().replace(/^\/+/, "");
+  if (clean.startsWith("sources/artifacts/")) {
+    return `blobs/${clean.slice("sources/artifacts/".length)}`;
+  }
+  return clean;
 }
 
 export class IngestionService {
   readonly workspaceRoot: string;
   readonly ingestionRoot: string;
+  readonly ingestionUrl: string | undefined;
   private db: Database | null = null;
+  private migratedLegacy = false;
 
   constructor(options: IngestionServiceOptions) {
     this.workspaceRoot = resolve(options.workspaceRoot);
     this.ingestionRoot = resolve(
-      options.ingestionRoot ?? join(this.workspaceRoot, "..", "ingestion"),
+      options.ingestionRoot ??
+        process.env.OPENLIA_INGESTION_ROOT ??
+        join(this.workspaceRoot, "..", "ingestion"),
     );
+    this.ingestionUrl =
+      (options.ingestionUrl ?? process.env.OPENLIA_INGESTION_URL ?? "")
+        .trim()
+        .replace(/\/+$/, "") || undefined;
+  }
+
+  private resolveDbPath(): string {
+    if (!existsSync(this.ingestionRoot)) {
+      mkdirSync(this.ingestionRoot, { recursive: true });
+    }
+    const legacyPath = join(this.ingestionRoot, "queue.sqlite");
+    const vaultPath = join(this.ingestionRoot, "vault.sqlite");
+    return existsSync(legacyPath) && !existsSync(vaultPath)
+      ? legacyPath
+      : vaultPath;
   }
 
   private getDb(): Database | null {
-    if (this.db) return this.db;
+    if (this.db) {
+      if (!this.migratedLegacy) {
+        this.migratedLegacy = true;
+        this.migrateLegacyWorkspaceRecords(this.db);
+      }
+      return this.db;
+    }
     let db: Database | undefined;
     try {
-      if (!existsSync(this.ingestionRoot)) {
-        mkdirSync(this.ingestionRoot, { recursive: true });
-      }
-      const dbPath = join(this.ingestionRoot, "queue.sqlite");
+      const dbPath = this.resolveDbPath();
       db = new Database(dbPath);
       db.run("PRAGMA busy_timeout = 30000;");
       db.run("PRAGMA journal_mode = WAL;");
       db.run("PRAGMA synchronous = FULL;");
+      db.run(`
+        CREATE TABLE IF NOT EXISTS sources (
+            source_id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            title TEXT NOT NULL,
+            document_type TEXT,
+            correspondent TEXT,
+            document_date TEXT,
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            summary TEXT,
+            custom_fields_json TEXT NOT NULL DEFAULT '{}',
+            processing_status TEXT NOT NULL DEFAULT 'captured',
+            last_job_id TEXT,
+            processing_error_code TEXT,
+            processing_error_summary TEXT,
+            review_status TEXT NOT NULL DEFAULT 'unreviewed',
+            review_reasons_json TEXT NOT NULL DEFAULT '[]',
+            reviewed_at TEXT,
+            lifecycle TEXT NOT NULL DEFAULT 'active',
+            sensitivity TEXT NOT NULL DEFAULT 'personal',
+            origin_json TEXT NOT NULL DEFAULT '{}',
+            password_profile TEXT,
+            record_json TEXT NOT NULL,
+            captured_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+      `);
+      db.run(`
+        CREATE TABLE IF NOT EXISTS source_versions (
+            source_id TEXT NOT NULL,
+            version_id TEXT NOT NULL,
+            original_artifact_id TEXT,
+            filename TEXT,
+            content_sha256 TEXT,
+            media_type TEXT,
+            size_bytes INTEGER,
+            blob_relpath TEXT,
+            received_at TEXT,
+            PRIMARY KEY (source_id, version_id)
+        );
+      `);
+      db.run(`
+        CREATE TABLE IF NOT EXISTS extractions (
+            extraction_id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL,
+            version_id TEXT NOT NULL,
+            artifact_id TEXT,
+            role TEXT NOT NULL,
+            media_type TEXT,
+            blob_relpath TEXT,
+            manifest_relpath TEXT,
+            content_text TEXT,
+            coverage_json TEXT NOT NULL DEFAULT '{}',
+            warnings_json TEXT NOT NULL DEFAULT '[]',
+            complete INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        );
+      `);
+      db.run(`
+        CREATE TABLE IF NOT EXISTS intakes (
+            intake_id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL,
+            version_id TEXT,
+            kind TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            status TEXT NOT NULL,
+            job_id TEXT,
+            last_error TEXT,
+            record_json TEXT NOT NULL,
+            captured_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+      `);
       db.run(`
         CREATE VIRTUAL TABLE IF NOT EXISTS source_fts USING fts5(
             source_id UNINDEXED,
@@ -138,7 +253,6 @@ export class IngestionService {
             tokenize = 'porter unicode61'
         );
       `);
-      // Keep this compatible with IngestionQueue, including UI-first startup.
       db.run(`
         CREATE TABLE IF NOT EXISTS jobs (
             job_id TEXT PRIMARY KEY,
@@ -167,18 +281,313 @@ export class IngestionService {
       const columns = db.query("PRAGMA table_info(jobs)").all() as Array<{
         name: string;
       }>;
-      // Earlier UI builds could create a table without the worker lease fence.
       if (!columns.some((column) => column.name === "lease_generation")) {
         db.run(
           "ALTER TABLE jobs ADD COLUMN lease_generation INTEGER NOT NULL DEFAULT 0",
         );
       }
       this.db = db;
+      if (!this.migratedLegacy) {
+        this.migratedLegacy = true;
+        this.migrateLegacyWorkspaceRecords(db);
+      }
       return db;
     } catch {
       db?.close();
       return null;
     }
+  }
+
+  private migrateLegacyWorkspaceRecords(db: Database): void {
+    const recordsDir = join(this.workspaceRoot, "sources", "records");
+    if (existsSync(recordsDir)) {
+      for (const name of readdirSync(recordsDir)) {
+        if (!name.endsWith(".md") || name.startsWith("source-template"))
+          continue;
+        const doc = this.readFrontmatter(join(recordsDir, name));
+        if (!this.isSource(doc)) continue;
+        const existing = db
+          .query("SELECT 1 FROM sources WHERE source_id = ?")
+          .get(doc.id);
+        if (existing) continue;
+
+        let extractedText = "";
+        for (const ver of doc.versions ?? []) {
+          const verId = stringOrNull(ver.id);
+          if (!verId) continue;
+          const origRef = stringOrNull(ver.original_ref);
+          if (origRef) {
+            const legacyAbs = join(this.workspaceRoot, origRef);
+            const newRel = normalizeBlobRelpath(origRef);
+            if (existsSync(legacyAbs)) {
+              const targetAbs = join(this.ingestionRoot, newRel);
+              mkdirSync(join(targetAbs, ".."), { recursive: true });
+              const data = readFileSync(legacyAbs);
+              writeFileSync(targetAbs, data);
+              ver.size_bytes = data.byteLength;
+              ver.filename = ver.filename ?? basename(legacyAbs);
+            }
+            ver.original_ref = newRel;
+          }
+
+          const legacyExtRoot = join(
+            this.workspaceRoot,
+            "sources",
+            "artifacts",
+            doc.id,
+            verId,
+            "extractions",
+          );
+          if (existsSync(legacyExtRoot)) {
+            for (const extId of orderedExtractionIds(legacyExtRoot, ver)) {
+              const extDir = join(legacyExtRoot, extId);
+              if (!statSync(extDir, { throwIfNoEntry: false })?.isDirectory())
+                continue;
+              const manifest = this.readJson(join(extDir, "manifest.json"));
+              for (const child of readdirSync(extDir)) {
+                const childAbs = join(extDir, child);
+                if (!statSync(childAbs, { throwIfNoEntry: false })?.isFile())
+                  continue;
+                const relTarget = `blobs/${doc.id}/${verId}/extractions/${extId}/${child}`;
+                const targetAbs = join(this.ingestionRoot, relTarget);
+                mkdirSync(join(targetAbs, ".."), { recursive: true });
+                const bytes = readFileSync(childAbs);
+                writeFileSync(targetAbs, bytes);
+                if (child !== "manifest.json") {
+                  const textVal = bytes.toString("utf8");
+                  if (!extractedText) extractedText = textVal;
+                  db.run(
+                    `INSERT OR REPLACE INTO extractions (
+                      extraction_id, source_id, version_id, artifact_id, role,
+                      media_type, blob_relpath, manifest_relpath, content_text,
+                      coverage_json, warnings_json, complete, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                      extId,
+                      doc.id,
+                      verId,
+                      stringOrNull(manifest?.artifact_id) ?? `art_${extId}`,
+                      stringOrNull(manifest?.role) ??
+                        basename(child, extname(child)),
+                      stringOrNull(manifest?.media_type) ?? "text/markdown",
+                      relTarget,
+                      `blobs/${doc.id}/${verId}/extractions/${extId}/manifest.json`,
+                      textVal.slice(0, 100000),
+                      JSON.stringify(manifest?.coverage ?? {}),
+                      JSON.stringify(manifest?.warnings ?? []),
+                      manifest?.complete === false ? 0 : 1,
+                      doc.captured_at ?? new Date().toISOString(),
+                    ],
+                  );
+                }
+              }
+            }
+          }
+        }
+        this.saveSourceToVault(doc, db, extractedText);
+      }
+    }
+
+    const intakesDir = join(this.workspaceRoot, "inbox", "ingestion");
+    if (existsSync(intakesDir)) {
+      for (const name of readdirSync(intakesDir)) {
+        if (!name.startsWith("intake_") || !name.endsWith(".md")) continue;
+        const intake = this.readFrontmatter(join(intakesDir, name));
+        if (!this.isIntake(intake)) continue;
+        const existing = db
+          .query("SELECT 1 FROM intakes WHERE intake_id = ?")
+          .get(intake.intake_id);
+        if (!existing) {
+          this.saveIntakeToVault(intake, db);
+        }
+      }
+    }
+  }
+
+  private saveSourceToVault(
+    source: SourceRecord,
+    db?: Database | null,
+    extractedContent?: string,
+  ): void {
+    const nowIso = new Date().toISOString();
+    const fallbackDir = join(this.ingestionRoot, "sources");
+    mkdirSync(fallbackDir, { recursive: true });
+    writeFileSync(
+      join(fallbackDir, `${source.id}.json`),
+      JSON.stringify(source, null, 2),
+      "utf8",
+    );
+
+    const activeDb = db ?? this.getDb();
+    if (!activeDb) return;
+
+    const processing = source.processing ?? { status: "captured" };
+    const review = source.review ?? { status: "unreviewed", reasons: [] };
+    const capturedAt = source.captured_at ?? nowIso;
+
+    activeDb.run(
+      `INSERT INTO sources (
+        source_id, kind, title, document_type, correspondent, document_date,
+        tags_json, summary, custom_fields_json, processing_status, last_job_id,
+        processing_error_code, processing_error_summary, review_status,
+        review_reasons_json, reviewed_at, lifecycle, sensitivity, origin_json,
+        password_profile, record_json, captured_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source_id) DO UPDATE SET
+        kind=excluded.kind,
+        title=excluded.title,
+        document_type=excluded.document_type,
+        correspondent=excluded.correspondent,
+        document_date=excluded.document_date,
+        tags_json=excluded.tags_json,
+        summary=excluded.summary,
+        custom_fields_json=excluded.custom_fields_json,
+        processing_status=excluded.processing_status,
+        last_job_id=excluded.last_job_id,
+        processing_error_code=excluded.processing_error_code,
+        processing_error_summary=excluded.processing_error_summary,
+        review_status=excluded.review_status,
+        review_reasons_json=excluded.review_reasons_json,
+        reviewed_at=excluded.reviewed_at,
+        lifecycle=excluded.lifecycle,
+        origin_json=excluded.origin_json,
+        password_profile=excluded.password_profile,
+        record_json=excluded.record_json,
+        updated_at=excluded.updated_at`,
+      [
+        source.id,
+        source.kind ?? "file",
+        source.title ?? "Untitled source",
+        source.document_type ?? null,
+        source.correspondent ?? null,
+        source.document_date ?? null,
+        JSON.stringify(source.tags ?? []),
+        source.summary ?? null,
+        JSON.stringify(source.custom_fields ?? {}),
+        processing.status ?? source.status ?? "captured",
+        processing.last_job_id ?? null,
+        processing.error_code ?? null,
+        processing.error_summary ?? processing.error ?? null,
+        review.status ?? "unreviewed",
+        JSON.stringify(review.reasons ?? []),
+        review.reviewed_at ?? null,
+        source.lifecycle ?? "active",
+        "personal",
+        JSON.stringify(source.origin ?? {}),
+        source.password_profile ?? null,
+        JSON.stringify(source),
+        capturedAt,
+        nowIso,
+      ],
+    );
+
+    for (const ver of source.versions ?? []) {
+      const verId = stringOrNull(ver.id);
+      if (!verId) continue;
+      activeDb.run(
+        `INSERT INTO source_versions (
+          source_id, version_id, original_artifact_id, filename,
+          content_sha256, media_type, size_bytes, blob_relpath, received_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source_id, version_id) DO UPDATE SET
+          original_artifact_id=excluded.original_artifact_id,
+          filename=COALESCE(excluded.filename, source_versions.filename),
+          content_sha256=excluded.content_sha256,
+          media_type=excluded.media_type,
+          size_bytes=COALESCE(excluded.size_bytes, source_versions.size_bytes),
+          blob_relpath=excluded.blob_relpath,
+          received_at=excluded.received_at`,
+        [
+          source.id,
+          verId,
+          stringOrNull(ver.original_artifact_id),
+          stringOrNull(ver.filename),
+          stringOrNull(ver.content_sha256),
+          stringOrNull(ver.media_type),
+          numberOrUndefined(ver.size_bytes) ?? null,
+          stringOrNull(ver.original_ref),
+          stringOrNull(ver.received_at) ?? capturedAt,
+        ],
+      );
+    }
+
+    try {
+      const existingFts = activeDb
+        .query("SELECT content FROM source_fts WHERE source_id = ? LIMIT 1")
+        .get(source.id) as { content?: string } | null;
+      let contentToIndex = extractedContent ?? existingFts?.content ?? "";
+      const cfEntries = Object.entries(source.custom_fields ?? {}).filter(
+        ([, v]) => v !== null && v !== undefined && v !== "",
+      );
+      if (cfEntries.length > 0) {
+        const cfText = cfEntries.map(([k, v]) => `${k}: ${v}`).join(" ");
+        if (!contentToIndex.includes(cfText)) {
+          contentToIndex = `${contentToIndex}\n${cfText}`.trim();
+        }
+      }
+      activeDb.run("DELETE FROM source_fts WHERE source_id = ?", [source.id]);
+      activeDb.run(
+        `INSERT INTO source_fts (
+          source_id, title, correspondent, document_type, tags, summary,
+          content, document_date, review_status, processing_status, lifecycle
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          source.id,
+          source.title ?? "",
+          source.correspondent ?? "",
+          source.document_type ?? "",
+          (source.tags ?? []).join(" "),
+          source.summary ?? "",
+          contentToIndex.slice(0, 50000),
+          source.document_date ?? "",
+          review.status ?? "unreviewed",
+          processing.status ?? "complete",
+          source.lifecycle ?? "active",
+        ],
+      );
+    } catch {
+      // Ignore FTS sync failure
+    }
+  }
+
+  private saveIntakeToVault(intake: IntakeRecord, db?: Database | null): void {
+    const nowIso = new Date().toISOString();
+    const fallbackDir = join(this.ingestionRoot, "intakes");
+    mkdirSync(fallbackDir, { recursive: true });
+    writeFileSync(
+      join(fallbackDir, `${intake.intake_id}.json`),
+      JSON.stringify(intake, null, 2),
+      "utf8",
+    );
+
+    const activeDb = db ?? this.getDb();
+    if (!activeDb) return;
+    activeDb.run(
+      `INSERT INTO intakes (
+        intake_id, source_id, version_id, kind, operation,
+        status, job_id, last_error, record_json, captured_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(intake_id) DO UPDATE SET
+        version_id=excluded.version_id,
+        status=excluded.status,
+        job_id=excluded.job_id,
+        last_error=excluded.last_error,
+        record_json=excluded.record_json,
+        updated_at=excluded.updated_at`,
+      [
+        intake.intake_id,
+        intake.source_id,
+        intake.version_id,
+        intake.kind,
+        intake.operation,
+        intake.status ?? "captured",
+        intake.job_id ?? null,
+        intake.last_error ?? null,
+        JSON.stringify(intake),
+        intake.captured_at ?? nowIso,
+        nowIso,
+      ],
+    );
   }
 
   overview(
@@ -271,7 +680,6 @@ export class IngestionService {
 
       const queryText = (options.query ?? "").trim();
       if (queryText) {
-        // Prepare FTS5 search query
         const ftsTokens = queryText
           .replace(/[^\p{L}\p{N}_\s-]/gu, " ")
           .split(/\s+/)
@@ -335,7 +743,6 @@ export class IngestionService {
       const whereClause =
         conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-      // Fetch all matching rows for facets and counts
       const facetSql = `
         SELECT
           source_id,
@@ -405,9 +812,8 @@ export class IngestionService {
         reviewCounts[reviewStatus] = Number(row.count);
       }
 
-      // Fetch paginated results
       const snippetExpr = queryText
-        ? "snippet(source_fts, 6, '<mark>', '</mark>', '...', 25) AS snippet, bm25(source_fts) AS rank"
+        ? "snippet(source_fts, -1, '<mark>', '</mark>', '...', 25) AS snippet, bm25(source_fts) AS rank"
         : "NULL AS snippet, 0.0 AS rank";
       const orderBy = queryText ? "ORDER BY rank ASC" : "ORDER BY rowid DESC";
 
@@ -496,33 +902,7 @@ export class IngestionService {
     offset?: number | undefined;
     limit?: number | undefined;
   }): SourceSearchResponse {
-    const recordsDir = join(this.workspaceRoot, "sources", "records");
-    if (!existsSync(recordsDir)) {
-      return {
-        schema: 1,
-        total: 0,
-        offset: options.offset ?? 0,
-        limit: options.limit ?? 20,
-        matches: [],
-        facets: {
-          tags: {},
-          correspondents: {},
-          document_types: {},
-          review_status: {},
-          processing_status: {},
-        },
-      };
-    }
-
-    const allDocs: SourceRecord[] = [];
-    for (const name of readdirSync(recordsDir)) {
-      if (!name.endsWith(".md") || name.startsWith("source-template")) continue;
-      const doc = this.readFrontmatter(
-        join(recordsDir, name),
-      ) as SourceRecord | null;
-      if (doc && doc.id) allDocs.push(doc);
-    }
-
+    const allDocs = this.listAllSources();
     const q = (options.query ?? "").toLowerCase();
     const matchesFilter = (
       doc: SourceRecord,
@@ -561,6 +941,9 @@ export class IngestionService {
           doc.document_type,
           ...(doc.tags ?? []),
           doc.summary,
+          ...Object.entries(doc.custom_fields ?? {}).map(
+            ([k, v]) => `${k} ${v}`,
+          ),
         ]
           .filter(Boolean)
           .join(" ")
@@ -632,16 +1015,8 @@ export class IngestionService {
 
   getSource(sourceId: string): SourceDocument {
     if (!safeId.test(sourceId)) throw new Error("invalid source id");
-    const filePath = join(
-      this.workspaceRoot,
-      "sources",
-      "records",
-      `${sourceId}.md`,
-    );
-    if (!existsSync(filePath)) throw new Error("source record not found");
-
-    const record = this.readFrontmatter(filePath) as SourceRecord | null;
-    if (!record || !record.id) throw new Error("corrupt source record");
+    const record = this.readSource(sourceId);
+    if (!record || !record.id) throw new Error("source record not found");
 
     let extractedText = "";
     const extractions: SourceExtractionItem[] = [];
@@ -651,23 +1026,27 @@ export class IngestionService {
     const versionId = latestVersion?.id as string | undefined;
 
     if (versionId) {
-      const extRoot = join(
-        this.workspaceRoot,
-        "sources",
-        "artifacts",
-        sourceId,
-        versionId,
-        "extractions",
-      );
-      if (existsSync(extRoot)) {
-        for (const extId of orderedExtractionIds(extRoot, latestVersion)) {
+      for (const baseRoot of [
+        join(this.ingestionRoot, "blobs", sourceId, versionId, "extractions"),
+        join(
+          this.workspaceRoot,
+          "sources",
+          "artifacts",
+          sourceId,
+          versionId,
+          "extractions",
+        ),
+      ]) {
+        if (!existsSync(baseRoot)) continue;
+        for (const extId of orderedExtractionIds(baseRoot, latestVersion)) {
           if (!safeId.test(extId)) continue;
-          const extDir = join(extRoot, extId);
+          if (extractions.some((e) => e.extraction_id === extId)) continue;
+          const extDir = join(baseRoot, extId);
           if (statSync(extDir, { throwIfNoEntry: false })?.isDirectory()) {
             extractions.push({
               extraction_id: extId,
               version_id: versionId,
-              path: `sources/artifacts/${sourceId}/${versionId}/extractions/${extId}`,
+              path: `blobs/${sourceId}/${versionId}/extractions/${extId}`,
             });
             for (const candidate of [
               "text.md",
@@ -702,8 +1081,10 @@ export class IngestionService {
       processing: {
         status: (record.processing?.status as any) ?? "complete",
         last_job_id: record.processing?.last_job_id ?? null,
+        error: record.processing?.error ?? null,
         error_code: record.processing?.error_code ?? null,
-        error_summary: record.processing?.error_summary ?? null,
+        error_summary:
+          record.processing?.error_summary ?? record.processing?.error ?? null,
       },
       review: {
         status: (record.review?.status as any) ?? "unreviewed",
@@ -712,6 +1093,7 @@ export class IngestionService {
       },
       lifecycle: (record.lifecycle as any) ?? "active",
       captured_at: record.captured_at ?? new Date().toISOString(),
+      password_profile: record.password_profile ?? null,
       origin: record.origin ?? {},
       versions: record.versions ?? [],
       custom_fields: record.custom_fields ?? {},
@@ -723,24 +1105,69 @@ export class IngestionService {
     };
   }
 
+  downloadSourceOriginal(
+    sourceId: string,
+    versionId?: string | null,
+  ): {
+    absolute: string;
+    filename: string;
+    size: number;
+    mediaType: string;
+  } {
+    if (!safeId.test(sourceId)) throw new Error("invalid source id");
+    const record = this.readSource(sourceId);
+    if (!record) throw new Error("source record not found");
+    const versions = record.versions ?? [];
+    const selected = versionId
+      ? versions.find((v) => v.id === versionId)
+      : versions[versions.length - 1];
+    if (!selected) throw new Error("source version not found");
+    const origRef = stringOrNull(selected.original_ref);
+    if (!origRef) throw new Error("source original file not found");
+    const abs = this.resolveBlobAbsolutePath(origRef);
+    if (!abs || !existsSync(abs)) {
+      throw new Error("source original file not found");
+    }
+    const stat = statSync(abs);
+    const filename = stringOrNull(selected.filename) ?? basename(abs);
+    const mediaType =
+      stringOrNull(selected.media_type) ||
+      Bun.file(filename).type ||
+      "application/octet-stream";
+    return {
+      absolute: abs,
+      filename,
+      size: stat.size,
+      mediaType,
+    };
+  }
+
+  private resolveBlobAbsolutePath(rel: string): string | null {
+    const normalized = normalizeBlobRelpath(rel);
+    const vaultCandidate = resolve(this.ingestionRoot, normalized);
+    if (
+      vaultCandidate.startsWith(this.ingestionRoot + sep) &&
+      existsSync(vaultCandidate)
+    ) {
+      return vaultCandidate;
+    }
+    const legacyCandidate = resolve(
+      this.workspaceRoot,
+      rel.replace(/^\/+/, ""),
+    );
+    if (
+      legacyCandidate.startsWith(this.workspaceRoot + sep) &&
+      existsSync(legacyCandidate)
+    ) {
+      return legacyCandidate;
+    }
+    return null;
+  }
+
   updateSource(sourceId: string, updates: SourceUpdateRequest): SourceDocument {
     if (!safeId.test(sourceId)) throw new Error("invalid source id");
-    const filePath = join(
-      this.workspaceRoot,
-      "sources",
-      "records",
-      `${sourceId}.md`,
-    );
-    if (!existsSync(filePath)) throw new Error("source record not found");
-
-    const content = readFileSync(filePath, "utf8");
-    const match = content.match(
-      /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/,
-    );
-    if (!match?.[1]) throw new Error("corrupt source record");
-
-    const record = YAML.parse(match[1]) as SourceRecord;
-    const body = match[2] ?? "";
+    const record = this.readSource(sourceId);
+    if (!record || !record.id) throw new Error("source record not found");
 
     if (updates.title !== undefined) record.title = updates.title;
     if (updates.correspondent !== undefined)
@@ -750,6 +1177,11 @@ export class IngestionService {
     if (updates.document_date !== undefined)
       record.document_date = updates.document_date;
     if (updates.summary !== undefined) record.summary = updates.summary;
+    if (updates.password_profile !== undefined) {
+      record.password_profile = updates.password_profile
+        ? updates.password_profile.trim()
+        : null;
+    }
     if (updates.lifecycle !== undefined) record.lifecycle = updates.lifecycle;
     if (updates.tags !== undefined) {
       record.tags = updates.tags
@@ -757,10 +1189,17 @@ export class IngestionService {
         .filter(Boolean);
     }
     if (updates.custom_fields !== undefined) {
-      record.custom_fields = {
+      const merged: Record<string, unknown> = {
         ...(record.custom_fields ?? {}),
-        ...updates.custom_fields,
       };
+      for (const [k, v] of Object.entries(updates.custom_fields)) {
+        if (v === null || v === undefined || v === "") {
+          delete merged[k];
+        } else {
+          merged[k] = v;
+        }
+      }
+      record.custom_fields = merged;
     }
     if (updates.review) {
       record.review = {
@@ -773,49 +1212,18 @@ export class IngestionService {
       };
     }
 
-    const updatedYaml = YAML.stringify(record);
-    const updatedFileContent = `---\n${updatedYaml}---\n${body}`;
-    writeFileSync(filePath, updatedFileContent, "utf8");
-
-    // Upsert into SQLite FTS
-    const db = this.getDb();
-    if (db) {
-      try {
-        const existing = db
-          .query("SELECT content FROM source_fts WHERE source_id = ? LIMIT 1")
-          .get(sourceId) as { content?: string } | null;
-        db.run("DELETE FROM source_fts WHERE source_id = ?", [sourceId]);
-        db.run(
-          `INSERT INTO source_fts (
-            source_id, title, correspondent, document_type, tags, summary,
-            content, document_date, review_status, processing_status, lifecycle
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            sourceId,
-            record.title ?? "",
-            record.correspondent ?? "",
-            record.document_type ?? "",
-            (record.tags ?? []).join(" "),
-            record.summary ?? "",
-            existing?.content ?? "",
-            record.document_date ?? "",
-            record.review?.status ?? "unreviewed",
-            record.processing?.status ?? "complete",
-            record.lifecycle ?? "active",
-          ],
-        );
-      } catch {
-        // Continue if DB sync fails
-      }
-    }
-
+    this.saveSourceToVault(record);
     return this.getSource(sourceId);
   }
 
   upload(
     file: { name: string; data: Uint8Array },
     options?:
-      | { title?: string | undefined; kind?: string | undefined }
+      | {
+          title?: string | undefined;
+          kind?: string | undefined;
+          password_profile?: string | null | undefined;
+        }
       | undefined,
   ): SourceUploadResponse {
     const rawExt = extname(file.name).toLowerCase();
@@ -826,6 +1234,9 @@ export class IngestionService {
     const artifactId = `art_${randomBytes(6).toString("hex")}`;
     const nowIso = new Date().toISOString();
     const nowEpoch = Date.now() / 1000;
+    const passwordProfile = options?.password_profile
+      ? options.password_profile.trim()
+      : null;
 
     let kind = options?.kind;
     if (!kind) {
@@ -852,19 +1263,15 @@ export class IngestionService {
 
     const title = options?.title ?? (basename(file.name, rawExt) || file.name);
 
-    // 1. Write original artifact
+    // 1. Write original blob into the Ingestion Vault (zero writes to workspaceRoot!)
     const extension = /^\.[a-z0-9]{1,12}$/.test(rawExt) ? rawExt : ".bin";
-    const artifactRel = `sources/artifacts/${sourceId}/${versionId}/original${extension}`;
-    const artifactAbs = join(this.workspaceRoot, artifactRel);
-    mkdirSync(
-      join(this.workspaceRoot, "sources", "artifacts", sourceId, versionId),
-      {
-        recursive: true,
-      },
-    );
+    const artifactRel = `blobs/${sourceId}/${versionId}/original${extension}`;
+    const artifactAbs = join(this.ingestionRoot, artifactRel);
+    mkdirSync(join(this.ingestionRoot, "blobs", sourceId, versionId), {
+      recursive: true,
+    });
     writeFileSync(artifactAbs, file.data);
 
-    // 2. Write source record
     const sourceRecord: SourceRecord = {
       $schema: "./source-template.schema.json",
       id: sourceId,
@@ -889,7 +1296,8 @@ export class IngestionService {
       lifecycle: "active",
       captured_at: nowIso,
       sensitivity: "personal",
-      password_profile: null,
+      password_profile: passwordProfile,
+      custom_fields: {},
       authorization: { scope: "ingestion", source: "direct-request" },
       origin: {
         channel: "workspace-ui",
@@ -902,8 +1310,10 @@ export class IngestionService {
         {
           id: versionId,
           original_artifact_id: artifactId,
+          filename: file.name,
           content_sha256: createHash("sha256").update(file.data).digest("hex"),
           media_type: Bun.file(file.name).type || "application/octet-stream",
+          size_bytes: file.data.byteLength,
           original_ref: artifactRel,
           received_at: nowIso,
           retained: true,
@@ -911,17 +1321,6 @@ export class IngestionService {
         },
       ],
     };
-
-    const recordDir = join(this.workspaceRoot, "sources", "records");
-    mkdirSync(recordDir, { recursive: true });
-    const recordFile = join(recordDir, `${sourceId}.md`);
-    const writeSource = () =>
-      writeFileSync(
-        recordFile,
-        `---\n${YAML.stringify(sourceRecord)}---\n\n# Source Record\n`,
-        "utf8",
-      );
-    writeSource();
 
     const continuation = {
       next_action: "triage",
@@ -948,21 +1347,17 @@ export class IngestionService {
       retry_count: 0,
       last_error: null,
       unresolved_questions: [],
-      callback: { event_id: null, delivery_status: "pending" },
+      callback: { event_id: null, delivery_status: "not_required" },
     };
-    const intakeDir = join(this.workspaceRoot, "inbox", "ingestion");
-    mkdirSync(intakeDir, { recursive: true });
-    const intakeFile = join(intakeDir, `${intakeId}.md`);
-    const writeIntake = () =>
-      writeFileSync(
-        intakeFile,
-        `---\n${YAML.stringify(intake)}---\n\n# Ingestion Intake\n`,
-        "utf8",
-      );
-    writeIntake();
 
-    // Publish the intake before making its job visible to the worker. On queue
-    // failure it remains captured so ingestion_recover can resubmit it.
+    const initialContent =
+      kind === "text" || [".txt", ".md", ".json", ".csv"].includes(rawExt)
+        ? new TextDecoder().decode(file.data.slice(0, 50000))
+        : "";
+
+    this.saveSourceToVault(sourceRecord, undefined, initialContent);
+    this.saveIntakeToVault(intake);
+
     const db = this.getDb();
     try {
       if (!db) throw new Error("ingestion queue is unavailable");
@@ -971,8 +1366,8 @@ export class IngestionService {
           `INSERT INTO jobs (
             job_id, idempotency_key, intake_id, source_id, version_id,
             operation, requested_outputs, state, attempts, next_attempt_at,
-            created_at, updated_at, continuation
-          ) VALUES (?, ?, ?, ?, ?, 'extract', '["text"]', 'queued', 0, ?, ?, ?, ?)`,
+            created_at, updated_at, continuation, password_profile
+          ) VALUES (?, ?, ?, ?, ?, 'extract', '["text"]', 'queued', 0, ?, ?, ?, ?, ?)`,
           [
             jobId,
             `upload_${sourceId}_${versionId}`,
@@ -983,6 +1378,7 @@ export class IngestionService {
             nowEpoch,
             nowEpoch,
             JSON.stringify(continuation),
+            passwordProfile,
           ],
         );
         intake.status = "queued";
@@ -993,25 +1389,8 @@ export class IngestionService {
           updated_at: nowIso,
           error: null,
         };
-        writeSource();
-        writeIntake();
-        // Seed the cache before commit so it cannot overwrite/duplicate the
-        // worker's completed index entry. Cache failure does not reject a job.
-        try {
-          const initialContent =
-            kind === "text" || [".txt", ".md", ".json", ".csv"].includes(rawExt)
-              ? new TextDecoder().decode(file.data.slice(0, 50000))
-              : "";
-          db.run(
-            `INSERT INTO source_fts (
-              source_id, title, correspondent, document_type, tags, summary,
-              content, document_date, review_status, processing_status, lifecycle
-            ) VALUES (?, ?, '', '', '', '', ?, '', 'unreviewed', 'queued', 'active')`,
-            [sourceId, title, initialContent],
-          );
-        } catch {
-          // The worker rebuilds the source index after extraction.
-        }
+        this.saveSourceToVault(sourceRecord, db, initialContent);
+        this.saveIntakeToVault(intake, db);
       }).immediate();
     } catch (error) {
       intake.status = "captured";
@@ -1023,10 +1402,10 @@ export class IngestionService {
         updated_at: nowIso,
         error: "queue_submission_failed",
       };
-      writeSource();
-      writeIntake();
+      this.saveSourceToVault(sourceRecord, db, initialContent);
+      this.saveIntakeToVault(intake, db);
       throw new Error(
-        `ingestion queue submission failed; retained source ${sourceId} and intake ${intakeId} for recovery`,
+        `ingestion queue submission failed; retained source ${sourceId} and intake ${intakeId} in vault for recovery`,
         { cause: error },
       );
     }
@@ -1039,6 +1418,319 @@ export class IngestionService {
       job_id: jobId,
       title,
     };
+  }
+
+  retrySource(
+    sourceId: string,
+    request?: SourceRetryRequest,
+  ): SourceRetryResponse {
+    if (!safeId.test(sourceId)) throw new Error("invalid source id");
+    const record = this.readSource(sourceId);
+    if (!record) throw new Error("source record not found");
+
+    const profileId =
+      request?.password_profile?.trim() || request?.profile_id?.trim() || null;
+    if (request?.password && profileId) {
+      this.savePasswordProfile(
+        profileId,
+        request.label?.trim() || `Unlock ${record.title || sourceId}`,
+        request.password,
+      );
+    } else if (profileId) {
+      const profiles = this.listPasswordProfiles();
+      if (!profiles.some((p) => p.profile_id === profileId)) {
+        throw new Error("password profile was not found");
+      }
+    }
+
+    const db = this.getDb();
+    if (!db) throw new Error("ingestion queue is unavailable");
+    const nowEpoch = Date.now() / 1000;
+    const nowIso = new Date().toISOString();
+
+    const existingJob = db
+      .query(
+        "SELECT job_id, intake_id FROM jobs WHERE source_id = ? ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(sourceId) as { job_id: string; intake_id: string } | null;
+
+    let jobId = existingJob?.job_id;
+    const intake = this.listRecords().find((r) => r.source_id === sourceId);
+    const intakeId =
+      existingJob?.intake_id ||
+      intake?.intake_id ||
+      `intake_${randomBytes(6).toString("hex")}`;
+    const versionId =
+      stringOrNull(
+        (record.versions ?? [])[
+          record.versions?.length ? record.versions.length - 1 : 0
+        ]?.id,
+      ) ?? "ver_001";
+
+    if (jobId) {
+      db.run(
+        `UPDATE jobs SET
+          state = 'queued',
+          password_profile = COALESCE(?, password_profile),
+          error_code = NULL,
+          error_summary = NULL,
+          next_attempt_at = ?,
+          updated_at = ?
+         WHERE job_id = ?`,
+        [profileId, nowEpoch, nowEpoch, jobId],
+      );
+    } else {
+      jobId = `job_${randomBytes(6).toString("hex")}`;
+      db.run(
+        `INSERT INTO jobs (
+          job_id, idempotency_key, intake_id, source_id, version_id,
+          operation, requested_outputs, password_profile, state, attempts,
+          next_attempt_at, created_at, updated_at, continuation
+        ) VALUES (?, ?, ?, ?, ?, 'extract', '["text"]', ?, 'queued', 0, ?, ?, ?, '{}')`,
+        [
+          jobId,
+          `retry_${sourceId}_${Date.now()}`,
+          intakeId,
+          sourceId,
+          versionId,
+          profileId,
+          nowEpoch,
+          nowEpoch,
+          nowEpoch,
+        ],
+      );
+    }
+
+    if (profileId) {
+      record.password_profile = profileId;
+    }
+    record.status = "queued";
+    record.processing = {
+      status: "queued",
+      last_job_id: jobId,
+      updated_at: nowIso,
+      error: null,
+      error_code: null,
+      error_summary: null,
+    };
+    this.saveSourceToVault(record, db);
+
+    if (intake) {
+      intake.status = "queued";
+      intake.job_id = jobId;
+      intake.last_error = null;
+      this.saveIntakeToVault(intake, db);
+    }
+
+    return {
+      schema: 1,
+      ok: true,
+      source_id: sourceId,
+      job_id: jobId,
+      state: "queued",
+    };
+  }
+
+  private readPasswordEntries(passwordPath: string): Map<
+    string,
+    {
+      label: string;
+      password?: string;
+      description?: string;
+      hint?: string;
+      patterns?: string[];
+    }
+  > {
+    const entries = new Map<
+      string,
+      {
+        label: string;
+        password?: string;
+        description?: string;
+        hint?: string;
+        patterns?: string[];
+      }
+    >();
+    if (!existsSync(passwordPath)) return entries;
+    try {
+      const content = readFileSync(passwordPath, "utf8");
+      let currentId: string | null = null;
+      let currentData: any = {};
+      const pushEntry = () => {
+        if (currentId && currentData.label) {
+          entries.set(currentId, { ...currentData });
+        }
+      };
+
+      for (const rawLine of content.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        const sectionMatch = line.match(/^\[profiles\.([A-Za-z0-9._-]+)\]$/);
+        if (sectionMatch?.[1]) {
+          pushEntry();
+          currentId = sectionMatch[1];
+          currentData = {};
+          continue;
+        }
+        if (!currentId) continue;
+        const eqIdx = line.indexOf("=");
+        if (eqIdx === -1) continue;
+        const key = line.slice(0, eqIdx).trim();
+        const rawVal = line.slice(eqIdx + 1).trim();
+        let parsedVal: unknown;
+        try {
+          parsedVal = JSON.parse(rawVal);
+        } catch {
+          parsedVal = rawVal.replace(/^["']|["']$/g, "");
+        }
+        if (key === "label" && typeof parsedVal === "string") {
+          currentData.label = parsedVal;
+        } else if (key === "password" && typeof parsedVal === "string") {
+          currentData.password = parsedVal;
+        } else if (key === "description" && typeof parsedVal === "string") {
+          currentData.description = parsedVal;
+        } else if (key === "hint" && typeof parsedVal === "string") {
+          currentData.hint = parsedVal;
+        } else if (key === "patterns" && Array.isArray(parsedVal)) {
+          currentData.patterns = parsedVal.filter((p) => typeof p === "string");
+        }
+      }
+      pushEntry();
+      return entries;
+    } catch {
+      return entries;
+    }
+  }
+
+  private writePasswordEntries(
+    passwordPath: string,
+    entries: Map<
+      string,
+      {
+        label: string;
+        password?: string;
+        description?: string;
+        hint?: string;
+        patterns?: string[];
+      }
+    >,
+  ): void {
+    const lines = ["version = 1", ""];
+    for (const key of [...entries.keys()].sort()) {
+      const entry = entries.get(key)!;
+      lines.push(`[profiles.${key}]`);
+      lines.push(`label = ${JSON.stringify(entry.label)}`);
+      lines.push(`password = ${JSON.stringify(entry.password ?? "")}`);
+      if (entry.description) {
+        lines.push(`description = ${JSON.stringify(entry.description)}`);
+      }
+      if (entry.hint) {
+        lines.push(`hint = ${JSON.stringify(entry.hint)}`);
+      }
+      if (entry.patterns && entry.patterns.length > 0) {
+        lines.push(`patterns = ${JSON.stringify(entry.patterns)}`);
+      }
+      lines.push("");
+    }
+    writeFileSync(passwordPath, lines.join("\n"), { mode: 0o600 });
+    try {
+      chmodSync(passwordPath, 0o600);
+    } catch {
+      // Ignore chmod error on non-POSIX
+    }
+  }
+
+  listPasswordProfiles(): DocumentPasswordProfile[] {
+    const passwordPath = join(this.ingestionRoot, "document-passwords.toml");
+    const entries = this.readPasswordEntries(passwordPath);
+    const profiles: DocumentPasswordProfile[] = [];
+    for (const [profile_id, entry] of entries.entries()) {
+      profiles.push({
+        profile_id,
+        label: entry.label,
+        ...(entry.description ? { description: entry.description } : {}),
+        ...(entry.hint ? { hint: entry.hint } : {}),
+        ...(entry.patterns ? { patterns: entry.patterns } : {}),
+      });
+    }
+    return profiles.sort((a, b) => a.profile_id.localeCompare(b.profile_id));
+  }
+
+  suggestPasswordProfiles(input: {
+    filename?: string | undefined;
+    title?: string | undefined;
+    correspondent?: string | undefined;
+    message?: string | undefined;
+  }): PasswordSuggestion[] {
+    const profiles = this.listPasswordProfiles();
+    return suggestPasswordProfiles(input, profiles);
+  }
+
+  savePasswordProfile(
+    profileId: string,
+    label: string,
+    password?: string | null,
+    description?: string,
+    hint?: string,
+    patterns?: string[],
+  ): DocumentPasswordProfile {
+    if (!profileIdRe.test(profileId)) {
+      throw new Error("profile_id must be a safe identifier");
+    }
+    if (!label.trim() || forbiddenLabelRe.test(label)) {
+      throw new Error("profile label is empty or names a service credential");
+    }
+
+    mkdirSync(this.ingestionRoot, { recursive: true });
+    const passwordPath = join(this.ingestionRoot, "document-passwords.toml");
+    const existingEntries = this.readPasswordEntries(passwordPath);
+
+    const existing = existingEntries.get(profileId);
+    const effectivePassword = password?.trim() || existing?.password;
+    if (!effectivePassword) {
+      throw new Error("document password must not be empty");
+    }
+
+    const cleanPatterns = patterns
+      ?.map((p) => p.trim())
+      .filter((p) => p.length > 0);
+    existingEntries.set(profileId, {
+      label: label.trim(),
+      password: effectivePassword,
+      ...(description?.trim() ? { description: description.trim() } : {}),
+      ...(hint?.trim() ? { hint: hint.trim() } : {}),
+      ...(cleanPatterns && cleanPatterns.length > 0
+        ? { patterns: cleanPatterns }
+        : {}),
+    });
+
+    this.writePasswordEntries(passwordPath, existingEntries);
+
+    return {
+      profile_id: profileId,
+      label: label.trim(),
+      ...(description?.trim() ? { description: description.trim() } : {}),
+      ...(hint?.trim() ? { hint: hint.trim() } : {}),
+      ...(cleanPatterns && cleanPatterns.length > 0
+        ? { patterns: cleanPatterns }
+        : {}),
+    };
+  }
+
+  deletePasswordProfile(profileId: string): boolean {
+    if (!profileIdRe.test(profileId)) {
+      throw new Error("profile_id must be a safe identifier");
+    }
+    const passwordPath = join(this.ingestionRoot, "document-passwords.toml");
+    if (!existsSync(passwordPath)) {
+      return false;
+    }
+    const existingEntries = this.readPasswordEntries(passwordPath);
+    if (!existingEntries.has(profileId)) {
+      return false;
+    }
+    existingEntries.delete(profileId);
+    this.writePasswordEntries(passwordPath, existingEntries);
+    return true;
   }
 
   findBacklinks(sourceId: string): SourceBacklink[] {
@@ -1103,93 +1795,131 @@ export class IngestionService {
   rebuildFts(): { indexed: number } {
     const db = this.getDb();
     if (!db) return { indexed: 0 };
-    const recordsDir = join(this.workspaceRoot, "sources", "records");
-    if (!existsSync(recordsDir)) return { indexed: 0 };
+    const allDocs = this.listAllSources();
 
     db.run("DELETE FROM source_fts;");
     let count = 0;
 
-    for (const name of readdirSync(recordsDir)) {
-      if (!name.endsWith(".md") || name.startsWith("source-template")) continue;
-      const doc = this.readFrontmatter(
-        join(recordsDir, name),
-      ) as SourceRecord | null;
+    for (const doc of allDocs) {
       if (!doc || !doc.id) continue;
-
-      let extractedText = "";
-      const versions = doc.versions ?? [];
-      const latestVersion =
-        versions.length > 0 ? versions[versions.length - 1] : null;
-      const versionId = latestVersion?.id as string | undefined;
-
-      if (versionId) {
-        const extRoot = join(
-          this.workspaceRoot,
-          "sources",
-          "artifacts",
-          doc.id,
-          versionId,
-          "extractions",
-        );
-        if (existsSync(extRoot)) {
-          for (const extId of orderedExtractionIds(extRoot, latestVersion)) {
-            const extDir = join(extRoot, extId);
-            for (const candidate of [
-              "text.md",
-              "transcript.md",
-              "tables.json",
-            ]) {
-              const cp = join(extDir, candidate);
-              if (existsSync(cp) && !extractedText) {
-                try {
-                  extractedText = readFileSync(cp, "utf8");
-                } catch {}
-              }
-            }
-          }
-        }
-      }
-
-      db.run(
-        `INSERT INTO source_fts (
-          source_id, title, correspondent, document_type, tags, summary,
-          content, document_date, review_status, processing_status, lifecycle
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          doc.id,
-          doc.title ?? "",
-          doc.correspondent ?? "",
-          doc.document_type ?? "",
-          (doc.tags ?? []).join(" "),
-          doc.summary ?? "",
-          extractedText.slice(0, 50000),
-          doc.document_date ?? "",
-          doc.review?.status ?? "unreviewed",
-          doc.processing?.status ?? "complete",
-          doc.lifecycle ?? "active",
-        ],
-      );
+      const fullDoc = this.getSource(doc.id);
+      this.saveSourceToVault(doc, db, fullDoc.content ?? "");
       count++;
     }
 
     return { indexed: count };
   }
 
-  private listRecords(): IntakeRecord[] {
-    const directory = join(this.workspaceRoot, "inbox", "ingestion");
-    if (!existsSync(directory)) return [];
-    const records: IntakeRecord[] = [];
-    for (const name of readdirSync(directory)) {
-      if (!name.startsWith("intake_") || !name.endsWith(".md")) continue;
-      const record = this.readFrontmatter(join(directory, name));
-      if (this.isIntake(record)) records.push(record);
+  private listAllSources(): SourceRecord[] {
+    const byId = new Map<string, SourceRecord>();
+    const db = this.getDb();
+    if (db) {
+      try {
+        const rows = db
+          .query("SELECT record_json FROM sources ORDER BY captured_at DESC")
+          .all() as Array<{ record_json: string }>;
+        for (const r of rows) {
+          try {
+            const parsed = JSON.parse(r.record_json);
+            if (this.isSource(parsed)) byId.set(parsed.id, parsed);
+          } catch {}
+        }
+      } catch {}
     }
-    return records.sort((left, right) =>
+
+    const fallbackDir = join(this.ingestionRoot, "sources");
+    if (existsSync(fallbackDir)) {
+      for (const name of readdirSync(fallbackDir)) {
+        if (!name.endsWith(".json")) continue;
+        const parsed = this.readJson(join(fallbackDir, name));
+        if (this.isSource(parsed) && !byId.has(parsed.id)) {
+          byId.set(parsed.id, parsed);
+        }
+      }
+    }
+
+    const legacyDir = join(this.workspaceRoot, "sources", "records");
+    if (existsSync(legacyDir)) {
+      for (const name of readdirSync(legacyDir)) {
+        if (!name.endsWith(".md") || name.startsWith("source-template"))
+          continue;
+        const parsed = this.readFrontmatter(join(legacyDir, name));
+        if (this.isSource(parsed) && !byId.has(parsed.id)) {
+          byId.set(parsed.id, parsed);
+        }
+      }
+    }
+
+    return [...byId.values()];
+  }
+
+  private listRecords(): IntakeRecord[] {
+    const byId = new Map<string, IntakeRecord>();
+    const db = this.getDb();
+    if (db) {
+      try {
+        const rows = db
+          .query("SELECT record_json FROM intakes ORDER BY captured_at DESC")
+          .all() as Array<{ record_json: string }>;
+        for (const r of rows) {
+          try {
+            const parsed = JSON.parse(r.record_json);
+            if (this.isIntake(parsed)) byId.set(parsed.intake_id, parsed);
+          } catch {}
+        }
+      } catch {}
+    }
+
+    const fallbackDir = join(this.ingestionRoot, "intakes");
+    if (existsSync(fallbackDir)) {
+      for (const name of readdirSync(fallbackDir)) {
+        if (!name.endsWith(".json")) continue;
+        const parsed = this.readJson(join(fallbackDir, name));
+        if (this.isIntake(parsed) && !byId.has(parsed.intake_id)) {
+          byId.set(parsed.intake_id, parsed);
+        }
+      }
+    }
+
+    const legacyDir = join(this.workspaceRoot, "inbox", "ingestion");
+    if (existsSync(legacyDir)) {
+      for (const name of readdirSync(legacyDir)) {
+        if (!name.startsWith("intake_") || !name.endsWith(".md")) continue;
+        const record = this.readFrontmatter(join(legacyDir, name));
+        if (this.isIntake(record) && !byId.has(record.intake_id)) {
+          byId.set(record.intake_id, record);
+        }
+      }
+    }
+
+    return [...byId.values()].sort((left, right) =>
       right.captured_at.localeCompare(left.captured_at),
     );
   }
 
   private readIntake(intakeId: string): IntakeRecord | null {
+    if (!safeId.test(intakeId)) return null;
+    const db = this.getDb();
+    if (db) {
+      try {
+        const row = db
+          .query("SELECT record_json FROM intakes WHERE intake_id = ?")
+          .get(intakeId) as { record_json: string } | null;
+        if (row?.record_json) {
+          const parsed = JSON.parse(row.record_json);
+          if (this.isIntake(parsed)) return parsed;
+        }
+      } catch {}
+    }
+    const fallbackPath = join(
+      this.ingestionRoot,
+      "intakes",
+      `${intakeId}.json`,
+    );
+    if (existsSync(fallbackPath)) {
+      const parsed = this.readJson(fallbackPath);
+      if (this.isIntake(parsed)) return parsed;
+    }
     const record = this.readFrontmatter(
       join(this.workspaceRoot, "inbox", "ingestion", `${intakeId}.md`),
     );
@@ -1198,6 +1928,27 @@ export class IngestionService {
 
   private readSource(sourceId: string): SourceRecord | null {
     if (!safeId.test(sourceId)) return null;
+    const db = this.getDb();
+    if (db) {
+      try {
+        const row = db
+          .query("SELECT record_json FROM sources WHERE source_id = ?")
+          .get(sourceId) as { record_json: string } | null;
+        if (row?.record_json) {
+          const parsed = JSON.parse(row.record_json);
+          if (this.isSource(parsed)) return parsed;
+        }
+      } catch {}
+    }
+    const fallbackPath = join(
+      this.ingestionRoot,
+      "sources",
+      `${sourceId}.json`,
+    );
+    if (existsSync(fallbackPath)) {
+      const parsed = this.readJson(fallbackPath);
+      if (this.isSource(parsed)) return parsed;
+    }
     const record = this.readFrontmatter(
       join(this.workspaceRoot, "sources", "records", `${sourceId}.md`),
     );
@@ -1246,8 +1997,8 @@ export class IngestionService {
       source_title: source?.title ?? "Untitled source",
       source_status: source?.status ?? null,
       source_url: stringOrNull(source?.origin?.source_url),
-      source_record_path: `sources/records/${record.source_id}.md`,
-      intake_record_path: `inbox/ingestion/${record.intake_id}.md`,
+      source_record_path: `openlia://source/${record.source_id}`,
+      intake_record_path: `vault://intakes/${record.intake_id}`,
       job,
       event,
       action,
@@ -1269,40 +2020,45 @@ export class IngestionService {
           warnings: [],
         });
       }
-      const extractionRoot = join(
-        this.workspaceRoot,
-        "sources",
-        "artifacts",
-        source.id,
-        versionId,
-        "extractions",
-      );
-      if (!existsSync(extractionRoot)) continue;
-      for (const extractionId of readdirSync(extractionRoot)) {
-        if (!safeId.test(extractionId)) continue;
-        const extractionDirectory = join(extractionRoot, extractionId);
-        if (
-          !statSync(extractionDirectory, {
-            throwIfNoEntry: false,
-          })?.isDirectory()
-        )
-          continue;
-        const manifestPath = join(extractionDirectory, "manifest.json");
-        const manifest = this.readJson(manifestPath);
-        for (const name of readdirSync(extractionDirectory)) {
-          if (name === "manifest.json") continue;
-          const path = `sources/artifacts/${source.id}/${versionId}/extractions/${extractionId}/${name}`;
-          artifacts.push({
-            artifact_id: stringOrUndefined(manifest?.artifact_id),
-            path,
-            role: stringOrNull(manifest?.role) ?? name,
-            manifest_path: existsSync(manifestPath)
-              ? `sources/artifacts/${source.id}/${versionId}/extractions/${extractionId}/manifest.json`
-              : undefined,
-            size_bytes: numberOrUndefined(manifest?.size_bytes),
-            complete: booleanOrUndefined(manifest?.complete),
-            warnings: arrayOfStrings(manifest?.warnings),
-          });
+      for (const extractionRoot of [
+        join(this.ingestionRoot, "blobs", source.id, versionId, "extractions"),
+        join(
+          this.workspaceRoot,
+          "sources",
+          "artifacts",
+          source.id,
+          versionId,
+          "extractions",
+        ),
+      ]) {
+        if (!existsSync(extractionRoot)) continue;
+        for (const extractionId of readdirSync(extractionRoot)) {
+          if (!safeId.test(extractionId)) continue;
+          const extractionDirectory = join(extractionRoot, extractionId);
+          if (
+            !statSync(extractionDirectory, {
+              throwIfNoEntry: false,
+            })?.isDirectory()
+          )
+            continue;
+          const manifestPath = join(extractionDirectory, "manifest.json");
+          const manifest = this.readJson(manifestPath);
+          for (const name of readdirSync(extractionDirectory)) {
+            if (name === "manifest.json") continue;
+            const path = `blobs/${source.id}/${versionId}/extractions/${extractionId}/${name}`;
+            if (artifacts.some((a) => a.path === path)) continue;
+            artifacts.push({
+              artifact_id: stringOrUndefined(manifest?.artifact_id),
+              path,
+              role: stringOrNull(manifest?.role) ?? name,
+              manifest_path: existsSync(manifestPath)
+                ? `blobs/${source.id}/${versionId}/extractions/${extractionId}/manifest.json`
+                : undefined,
+              size_bytes: numberOrUndefined(manifest?.size_bytes),
+              complete: booleanOrUndefined(manifest?.complete),
+              warnings: arrayOfStrings(manifest?.warnings),
+            });
+          }
         }
       }
     }

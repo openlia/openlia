@@ -75,6 +75,11 @@ func isPortableExportExcludedPath(relPath string) bool {
 		strings.HasSuffix(base, ".p12") || strings.HasSuffix(base, ".pfx") {
 		return true
 	}
+	if strings.HasSuffix(base, "-shm") || strings.HasSuffix(base, ".lock") ||
+		strings.HasSuffix(base, ".sock") || strings.HasSuffix(base, ".pid") ||
+		strings.HasSuffix(base, ".tmp") {
+		return true
+	}
 	if lowerPath == ".env" || strings.HasPrefix(lowerPath, ".env.") ||
 		strings.HasSuffix(lowerPath, ".env") {
 		return true
@@ -233,6 +238,12 @@ func WorkspaceExport(config Config, outputFile string) (WorkspaceExportResult, e
 		return WorkspaceExportResult{}, fmt.Errorf("archive memories: %w", err)
 	}
 
+	ingestionDir := filepath.Join(config.DataRoot, "ingestion")
+	ingCount, err := addDirectoryToZip(zipWriter, ingestionDir, "ingestion")
+	if err != nil {
+		return WorkspaceExportResult{}, fmt.Errorf("archive ingestion: %w", err)
+	}
+
 	if err := zipWriter.Close(); err != nil {
 		return WorkspaceExportResult{}, fmt.Errorf("close zip writer: %w", err)
 	}
@@ -245,7 +256,7 @@ func WorkspaceExport(config Config, outputFile string) (WorkspaceExportResult, e
 	return WorkspaceExportResult{
 		OK:         true,
 		OutputFile: outputFile,
-		FilesCount: wsCount + skCount + memoryCount,
+		FilesCount: wsCount + skCount + memoryCount + ingCount,
 		SizeBytes:  info.Size(),
 	}, nil
 }
