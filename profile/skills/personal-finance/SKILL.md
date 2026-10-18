@@ -57,6 +57,12 @@ Use [Document Intelligence](openlia://skills/document-intelligence) when capturi
 To locate unposted or unreviewed receipts, query `ingestion_search(tags=["finance"], review_status="needs-review")` and inspect structured `custom_fields` (`total_amount`, `currency`, `due_date`, `invoice_number`, `account_hint`) via `ingestion_get_document(source_id=...)`.
 Once transactions are posted and validated, mark the source reviewed via `ingestion_update_document(source_id=..., review={"status": "reviewed"})`.
 
+### Amended & Deleted Source Reconciliation
+
+- **Amended / Replaced Statements or Invoices (`new_version_uploaded`)**: When a source document is updated with a new version (`ver_002`) or flagged with `stale_backlinks` in `finance/`, compare the new version's extracted amounts, dates, and line items against existing postings in `finance/journal.hledger` (or yearly includes) citing `; source: openlia://source/{source_id}`. Never silently mutate historical transactions: propose either an explicit adjustment entry or an authorized update of the posting and its version pin (`#ver_002`), then validate with `hledger check` and mark the source `reviewed`.
+- **Deleted Source Evidence (`; source-deleted: src_...`)**: When a Vault source is permanently deleted via `ingestion_delete_document`, any existing journal comments are rewritten to `; source-deleted: {source_id}`. If the source was deleted because the upload was a duplicate or error and the transaction itself should be removed or reversed, confirm with the user under `record_financial_data` authority and run `hledger check` after any journal edit.
+
+
 ## Data Model
 
 Keep the hledger journal and any hledger rules files in the runtime workspace,
