@@ -477,6 +477,10 @@ export function DocumentInspector({
   const currentVersionId =
     currentVersion?.id ?? currentVersion?.version_id ?? "ver_001";
   const originalRef = currentVersion?.original_ref;
+  const canPreview =
+    document.kind === "pdf" ||
+    document.kind === "image" ||
+    Boolean(originalRef);
   const sourceRawHref = api.sourceRawUrl(document.id, currentVersionId);
   const previewUrl =
     selectedPage && document.kind === "pdf"
@@ -502,134 +506,111 @@ export function DocumentInspector({
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-y-auto bg-base-100">
       {/* Inspector Header */}
       <div className="border-b border-base-content/10 p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs text-base-content/50">
-                {document.id}
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs text-base-content/50">
+              {document.id}
+            </span>
+            {document.document_type && (
+              <span className="badge badge-outline badge-xs capitalize">
+                {document.document_type}
               </span>
-              {document.document_type && (
-                <span className="badge badge-outline badge-xs capitalize">
-                  {document.document_type}
-                </span>
-              )}
-              {document.lifecycle === "archived" && (
-                <span className="badge badge-warning badge-xs">Archived</span>
-              )}
-              {document.processing.status !== "complete" && (
-                <span className="badge badge-info badge-xs">
-                  {document.processing.status}
-                </span>
-              )}
-            </div>
-            <h2 className="mt-1 text-xl font-bold break-words">
-              {document.title}
-            </h2>
-            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-base-content/60">
-              {document.correspondent && (
-                <span>
-                  Correspondent: <strong>{document.correspondent}</strong>
-                </span>
-              )}
-              {document.document_date && (
-                <span>Date: {document.document_date}</span>
-              )}
-              <span>
-                Captured: {new Date(document.captured_at).toLocaleDateString()}
-              </span>
-            </div>
-
-            {/* Version Selector */}
-            {versions.length > 1 && (
-              <div className="mt-3 flex items-center gap-2 text-xs">
-                <span className="font-semibold text-base-content/60">
-                  Version:
-                </span>
-                <div className="join">
-                  {versions.map((ver, idx) => {
-                    const vid =
-                      (ver.id as string) ??
-                      (ver.version_id as string) ??
-                      `ver_${String(idx + 1).padStart(3, "0")}`;
-                    const isLatest = idx === versions.length - 1;
-                    const isCurrent = vid === currentVersionId;
-                    return (
-                      <button
-                        key={vid}
-                        type="button"
-                        className={`join-item btn btn-xs ${
-                          isCurrent
-                            ? "btn-active btn-primary"
-                            : "btn-ghost border border-base-content/10"
-                        }`}
-                        onClick={() => setSelectedVersionId(vid)}
-                      >
-                        {vid} {isLatest ? "(latest)" : ""}
-                      </button>
-                    );
-                  })}
-                </div>
-                {selectedVersionLoading && (
-                  <span className="loading loading-spinner loading-xs" />
-                )}
-              </div>
             )}
-
-            {/* Stale Backlinks Warning Banner */}
-            {document.stale_backlinks &&
-              document.stale_backlinks.length > 0 && (
-                <div className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-warning-content flex items-start gap-2">
-                  <svg
-                    className="h-4 w-4 shrink-0 mt-0.5 fill-current"
-                    viewBox="0 0 20 20"
-                  >
-                    <title>Warning: Pinned to older version</title>
-                    <path
-                      fillRule="evenodd"
-                      d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                  <div>
-                    <p className="font-semibold">
-                      {document.stale_backlinks.length} backlink(s) are pinned
-                      to older versions of this document.
-                    </p>
-                    <p className="mt-0.5 text-[11px] opacity-80">
-                      References like{" "}
-                      <code>openlia://source/{document.id}#ver_...</code> in
-                      your workspace cite superseded versions. Check the
-                      Backlinks tab for details.
-                    </p>
-                  </div>
-                </div>
-              )}
+            {document.lifecycle === "archived" && (
+              <span className="badge badge-warning badge-xs">Archived</span>
+            )}
+            {document.processing.status !== "complete" && (
+              <span className="badge badge-info badge-xs">
+                {document.processing.status}
+              </span>
+            )}
+          </div>
+          <h2 className="mt-1 break-words text-xl font-bold">
+            {document.title}
+          </h2>
+          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-base-content/60">
+            {document.correspondent && (
+              <span>
+                Correspondent: <strong>{document.correspondent}</strong>
+              </span>
+            )}
+            {document.document_date && (
+              <span>Date: {document.document_date}</span>
+            )}
+            <span>
+              Captured: {new Date(document.captured_at).toLocaleDateString()}
+            </span>
           </div>
 
-          {/* Quick Review & Citation Actions */}
-          <div className="flex flex-wrap items-center gap-2">
-            {(document.kind === "pdf" ||
-              document.kind === "image" ||
-              Boolean(originalRef)) && (
-              <button
-                type="button"
-                className={`btn btn-sm ${
-                  splitPreview ? "btn-primary" : "btn-outline"
-                }`}
-                onClick={() => setSplitPreview((v) => !v)}
-                title="Toggle side-by-side original document preview"
+          {/* Version Selector */}
+          {versions.length > 1 && (
+            <div className="mt-3 flex items-center gap-2 text-xs">
+              <span className="font-semibold text-base-content/60">
+                Version:
+              </span>
+              <div className="join">
+                {versions.map((ver, idx) => {
+                  const vid =
+                    (ver.id as string) ??
+                    (ver.version_id as string) ??
+                    `ver_${String(idx + 1).padStart(3, "0")}`;
+                  const isLatest = idx === versions.length - 1;
+                  const isCurrent = vid === currentVersionId;
+                  return (
+                    <button
+                      key={vid}
+                      type="button"
+                      className={`join-item btn btn-xs ${
+                        isCurrent
+                          ? "btn-active btn-primary"
+                          : "btn-ghost border border-base-content/10"
+                      }`}
+                      onClick={() => setSelectedVersionId(vid)}
+                    >
+                      {vid} {isLatest ? "(latest)" : ""}
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedVersionLoading && (
+                <span className="loading loading-spinner loading-xs" />
+              )}
+            </div>
+          )}
+
+          {/* Stale Backlinks Warning Banner */}
+          {document.stale_backlinks && document.stale_backlinks.length > 0 && (
+            <div className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-warning-content flex items-start gap-2">
+              <svg
+                className="h-4 w-4 shrink-0 mt-0.5 fill-current"
+                viewBox="0 0 20 20"
               >
-                {splitPreview ? "Hide Preview" : "Split Preview"}
-              </button>
-            )}
-            <button
-              type="button"
-              className="btn btn-outline btn-sm"
-              onClick={() => setIsReplaceModalOpen(true)}
-              title="Upload a new version to replace this source"
-            >
-              Replace / New Version
-            </button>
+                <title>Warning: Pinned to older version</title>
+                <path
+                  fillRule="evenodd"
+                  d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <div>
+                <p className="font-semibold">
+                  {document.stale_backlinks.length} backlink(s) are pinned to
+                  older versions of this document.
+                </p>
+                <p className="mt-0.5 text-[11px] opacity-80">
+                  References like{" "}
+                  <code>openlia://source/{document.id}#ver_...</code> in your
+                  workspace cite superseded versions. Check the Backlinks tab
+                  for details.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Keep frequent actions visible; tuck lifecycle and copy variants away. */}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-base-content/10 pt-3">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               className={`btn btn-sm ${
@@ -642,41 +623,83 @@ export function DocumentInspector({
             </button>
             <button
               type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={toggleArchiveStatus}
-              disabled={saving}
-              title={
-                document.lifecycle === "archived"
-                  ? "Restore document to active library"
-                  : "Archive this document"
-              }
-            >
-              {document.lifecycle === "archived" ? "Restore" : "Archive"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm text-error hover:bg-error/10"
-              onClick={() => setIsDeleteModalOpen(true)}
-              title="Delete source and manage backlinks cascade"
-            >
-              Delete...
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
+              className="btn btn-outline btn-sm"
               onClick={copyMarkdownCitation}
               title="Copy markdown citation link"
             >
               {copiedCitation ? "Copied!" : "Copy Citation"}
             </button>
+          </div>
+
+          <div className="dropdown dropdown-end">
             <button
               type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={copyCanonicalUri}
-              title="Copy canonical URI (openlia://source/...)"
+              className="btn btn-ghost btn-sm gap-1.5"
+              aria-haspopup="menu"
+              aria-label="More document actions"
+              tabIndex={0}
+              title="More document actions"
             >
-              {copiedLink ? "Copied URI!" : "Copy URI"}
+              More
+              <svg
+                aria-hidden="true"
+                className="h-4 w-4"
+                fill="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <circle cx="5" cy="12" r="1.75" />
+                <circle cx="12" cy="12" r="1.75" />
+                <circle cx="19" cy="12" r="1.75" />
+              </svg>
             </button>
+            <ul className="dropdown-content menu z-30 mt-1 w-56 rounded-box border border-base-content/10 bg-base-100 p-1.5 text-xs shadow-lg">
+              <li>
+                <button
+                  type="button"
+                  className="justify-start"
+                  onClick={() => setIsReplaceModalOpen(true)}
+                  title="Upload a new version to replace this source"
+                >
+                  Replace / New Version
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  className="justify-start"
+                  onClick={toggleArchiveStatus}
+                  disabled={saving}
+                  title={
+                    document.lifecycle === "archived"
+                      ? "Restore document to active library"
+                      : "Archive this document"
+                  }
+                >
+                  {document.lifecycle === "archived" ? "Restore" : "Archive"}
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  className="justify-start"
+                  onClick={copyCanonicalUri}
+                  title="Copy canonical URI (openlia://source/...)"
+                >
+                  {copiedLink ? "Copied URI!" : "Copy URI"}
+                </button>
+              </li>
+              <li className="my-1 border-t border-base-content/10" />
+              <li>
+                <button
+                  type="button"
+                  className="justify-start text-error hover:bg-error/10"
+                  onClick={() => setIsDeleteModalOpen(true)}
+                  title="Delete source and manage backlinks cascade"
+                >
+                  Delete...
+                </button>
+              </li>
+            </ul>
           </div>
         </div>
 
@@ -878,7 +901,7 @@ export function DocumentInspector({
           {/* 1. Content Tab */}
           {activeTab === "content" && (
             <div className="space-y-4">
-              {originalRef && (
+              {canPreview && (
                 <div className="flex items-center justify-between rounded-lg border border-base-content/10 bg-base-200/50 p-3 text-xs">
                   <div className="flex items-center gap-2 min-w-0">
                     <svg
@@ -895,7 +918,12 @@ export function DocumentInspector({
                         d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
                       />
                     </svg>
-                    <span className="truncate font-mono">{originalRef}</span>
+                    <span
+                      className="truncate font-mono"
+                      title={originalRef ?? document.title}
+                    >
+                      {originalRef ?? `${document.title} (${document.kind})`}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <a
@@ -908,7 +936,10 @@ export function DocumentInspector({
                     </a>
                     <button
                       type="button"
-                      className="btn btn-outline btn-xs"
+                      className={`btn btn-xs ${
+                        splitPreview ? "btn-primary" : "btn-outline"
+                      }`}
+                      aria-pressed={splitPreview}
                       onClick={() => setSplitPreview((v) => !v)}
                     >
                       {splitPreview ? "Close Split" : "Split View"}

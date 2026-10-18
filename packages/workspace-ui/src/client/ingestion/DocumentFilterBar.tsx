@@ -105,27 +105,61 @@ export function DocumentFilterBar({
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
-          {onOpenPasswordManager && (
-            <button
-              type="button"
-              className="btn btn-outline btn-sm gap-1.5"
-              onClick={onOpenPasswordManager}
-              title="Manage document password profiles"
-            >
-              <span>🔑</span>
-              <span>Passwords</span>
-            </button>
-          )}
-          {onRebuildFts && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-xs text-base-content/60 hover:text-base-content"
-              onClick={onRebuildFts}
-              title="Re-index workspace sources in SQLite full-text search"
-            >
-              Rebuild FTS
-            </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {(onOpenPasswordManager || onRebuildFts) && (
+            <div className="dropdown dropdown-end">
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm gap-1.5"
+                aria-haspopup="menu"
+                aria-label="Ingestion tools"
+                tabIndex={0}
+                title="Ingestion tools"
+              >
+                Tools
+                <svg
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </button>
+              <ul className="dropdown-content menu z-30 mt-1 w-48 rounded-box border border-base-content/10 bg-base-100 p-1.5 text-xs shadow-lg">
+                {onOpenPasswordManager && (
+                  <li>
+                    <button
+                      type="button"
+                      className="justify-start"
+                      onClick={onOpenPasswordManager}
+                      title="Manage document password profiles"
+                    >
+                      <span aria-hidden="true">🔑</span>
+                      Passwords
+                    </button>
+                  </li>
+                )}
+                {onRebuildFts && (
+                  <li>
+                    <button
+                      type="button"
+                      className="justify-start"
+                      onClick={onRebuildFts}
+                      title="Re-index workspace sources in SQLite full-text search"
+                    >
+                      Rebuild FTS
+                    </button>
+                  </li>
+                )}
+              </ul>
+            </div>
           )}
           <button
             type="button"
