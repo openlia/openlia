@@ -290,7 +290,8 @@ export interface SourceProcessingState {
     | "awaiting-unlock"
     | "waiting-for-password"
     | "retryable-failure"
-    | "failed";
+    | "failed"
+    | "cancelled";
   last_job_id?: string | null;
   error?: string | null;
   error_code?: string | null;
@@ -402,6 +403,14 @@ export interface SourceDeleteResponse {
   deleted: boolean;
   backlinks?: SourceBacklink[] | undefined;
   annotated_files?: string[] | undefined;
+}
+
+export interface SourceCancelResponse {
+  schema: 1;
+  ok: boolean;
+  source_id: string;
+  cancelled: boolean;
+  cancelled_jobs?: string[] | undefined;
 }
 
 export interface DocumentPasswordProfile {

@@ -1054,4 +1054,116 @@ describe("ingestion HTTP endpoints", () => {
     );
     expect(missingDelete.status).toBe(404);
   });
+
+  test("supports cancelling queued document processing and resuming extraction", async () => {
+    // 1. Upload a new document (initially queued)
+    const uploadRes = await handler(
+      new Request("http://localhost/api/workspace/ingestion/upload", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          content: "Confidential queued report content",
+          title: "Quarterly Report",
+          kind: "text",
+        }),
+      }),
+    );
+    expect(uploadRes.status).toBe(200);
+    const uploadData = (await uploadRes.json()) as any;
+    expect(uploadData.ok).toBe(true);
+    const sourceId = uploadData.source_id;
+
+    // Verify initial status is queued
+    const initialDocRes = await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${sourceId}`,
+      ),
+    );
+    expect(initialDocRes.status).toBe(200);
+    const initialDoc = (await initialDocRes.json()) as any;
+    expect(initialDoc.processing.status).toBe("queued");
+
+    // 2. Cancel the queued document
+    const cancelRes = await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${sourceId}/cancel`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ reason: "cancelled_by_user" }),
+        },
+      ),
+    );
+    expect(cancelRes.status).toBe(200);
+    const cancelData = (await cancelRes.json()) as any;
+    expect(cancelData.ok).toBe(true);
+    expect(cancelData.cancelled).toBe(true);
+    expect(cancelData.source_id).toBe(sourceId);
+
+    // Verify source status is now cancelled
+    const cancelledDocRes = await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${sourceId}`,
+      ),
+    );
+    expect(cancelledDocRes.status).toBe(200);
+    const cancelledDoc = (await cancelledDocRes.json()) as any;
+    expect(cancelledDoc.processing.status).toBe("cancelled");
+    expect(cancelledDoc.processing.error_code).toBe("cancelled_by_user");
+
+    // Verify raw Vault blob is still preserved (NOT deleted)
+    const blobDir = join(ingestionRoot, "blobs", sourceId);
+    expect(existsSync(blobDir)).toBe(true);
+
+    // 3. Search with comma-separated processing_status filters
+    const searchRes = await handler(
+      new Request(
+        "http://localhost/api/workspace/ingestion/search?processing_status=queued,cancelled",
+      ),
+    );
+    expect(searchRes.status).toBe(200);
+    const searchData = (await searchRes.json()) as any;
+    expect(searchData.matches.some((m: any) => m.source_id === sourceId)).toBe(
+      true,
+    );
+
+    // 4. Resume extraction via retry endpoint
+    const resumeRes = await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${sourceId}/retry`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      ),
+    );
+    expect(resumeRes.status).toBe(200);
+    const resumeData = (await resumeRes.json()) as any;
+    expect(resumeData.ok).toBe(true);
+    expect(resumeData.state).toBe("queued");
+
+    // Verify source is back to queued
+    const resumedDocRes = await handler(
+      new Request(
+        `http://localhost/api/workspace/ingestion/sources/${sourceId}`,
+      ),
+    );
+    expect(resumedDocRes.status).toBe(200);
+    const resumedDoc = (await resumedDocRes.json()) as any;
+    expect(resumedDoc.processing.status).toBe("queued");
+
+    // 5. Non-existent source cancel returns 404
+    const notFoundCancel = await handler(
+      new Request(
+        "http://localhost/api/workspace/ingestion/sources/src_non_existent/cancel",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      ),
+    );
+    expect(notFoundCancel.status).toBe(404);
+  });
 });

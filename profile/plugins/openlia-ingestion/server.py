@@ -313,6 +313,8 @@ class IngestionVaultService:
     def update_failure(self, job: dict, code: str, message: str, status: str = "failed") -> None:
         try:
             current_job = self.queue.get(job["job_id"])
+            if current_job.get("state") == "cancelled":
+                return
             retrying = current_job.get("state") == "retryable-failure"
             intake_status = "processing" if retrying else status
             source_status = "processing" if retrying else status
@@ -926,6 +928,9 @@ class IngestionVaultService:
             indexed += 1
         return {"ok": True, "indexed": indexed}
 
+    def cancel_source(self, source_id: str, reason: str = "cancelled_by_user") -> dict:
+        return self.vault.cancel_processing(source_id, reason=reason)
+
 
 def _parse_multipart(content_type: str, body: bytes) -> dict:
     raw_headers = f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8")
@@ -1291,6 +1296,23 @@ class _SidecarHTTPHandler(BaseHTTPRequestHandler):
                     password_profile=profile_id,
                     wait_seconds=float(req.get("wait_seconds") or 0),
                 )
+                self._send_json(HTTPStatus.OK, res)
+                return
+
+            cancel_match = re.match(r"^/v1/sources/([A-Za-z0-9._-]+)/cancel$", path)
+            if cancel_match:
+                target_id = cancel_match.group(1)
+                req = json.loads(body.decode("utf-8") or "{}") if body else {}
+                reason = str(req.get("reason") or "cancelled_by_user")
+                res = self.service.cancel_source(target_id, reason=reason)
+                self._send_json(HTTPStatus.OK, res)
+                return
+
+            cancel_job_match = re.match(r"^/v1/jobs/([A-Za-z0-9._-]+)/cancel$", path)
+            if cancel_job_match:
+                target_job_id = cancel_job_match.group(1)
+                job = self.service.queue.get(target_job_id)
+                res = self.service.cancel_source(job["source_id"])
                 self._send_json(HTTPStatus.OK, res)
                 return
 

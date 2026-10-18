@@ -622,6 +622,7 @@ class PolicyEnforcer:
             "ingestion_recover",
             "ingestion_update_document",
             "ingestion_tag",
+            "ingestion_cancel_document",
         }:
             action = "capture" if tool_name in {"ingestion_capture", "save_document_password"} else "update_records"
             relative_path = "sources/document-passwords.toml" if tool_name == "save_document_password" else "sources"

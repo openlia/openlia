@@ -90,6 +90,7 @@ export function DocumentInspector({
   >([]);
   const [assignedPasswordProfile, setAssignedPasswordProfile] = useState("");
   const [retrying, setRetrying] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [retryMessage, setRetryMessage] = useState<string | null>(null);
 
   // Form edit state
@@ -130,6 +131,7 @@ export function DocumentInspector({
       setIsReplaceModalOpen(false);
       setSaveError(null);
       setRetryMessage(null);
+      setCancelling(false);
     }
   }, [document]);
 
@@ -138,6 +140,17 @@ export function DocumentInspector({
     ["awaiting-unlock", "waiting-for-password", "failed"].includes(
       document.processing.status,
     );
+
+  const canCancel =
+    document !== null &&
+    [
+      "queued",
+      "processing",
+      "running",
+      "awaiting-unlock",
+      "waiting-for-password",
+      "retryable-failure",
+    ].includes(document.processing.status);
 
   useEffect(() => {
     void passwordProfilesVersion;
@@ -399,6 +412,25 @@ export function DocumentInspector({
     }
   }
 
+  async function handleCancelProcessing() {
+    if (!document) return;
+    setCancelling(true);
+    setSaveError(null);
+    setRetryMessage(null);
+    try {
+      await api.cancelSource(document.id);
+      setRetryMessage("Processing cancelled. Extraction halted.");
+      const refreshed = await api.loadSource(document.id);
+      onUpdate(refreshed);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to cancel processing",
+      );
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   function handleAddTag() {
     const clean = newTagInput.trim().toLowerCase();
     if (clean && !tags.includes(clean)) {
@@ -520,7 +552,17 @@ export function DocumentInspector({
               <span className="badge badge-warning badge-xs">Archived</span>
             )}
             {document.processing.status !== "complete" && (
-              <span className="badge badge-info badge-xs">
+              <span
+                className={`badge badge-xs ${
+                  document.processing.status === "failed" ||
+                  document.processing.status === "awaiting-unlock" ||
+                  document.processing.status === "waiting-for-password"
+                    ? "badge-error"
+                    : document.processing.status === "cancelled"
+                      ? "badge-ghost opacity-80"
+                      : "badge-info"
+                }`}
+              >
                 {document.processing.status}
               </span>
             )}
@@ -688,6 +730,32 @@ export function DocumentInspector({
                   {copiedLink ? "Copied URI!" : "Copy URI"}
                 </button>
               </li>
+              {canCancel && (
+                <li>
+                  <button
+                    type="button"
+                    className="justify-start text-warning hover:bg-warning/10"
+                    onClick={handleCancelProcessing}
+                    disabled={cancelling}
+                    title="Cancel queued or in-flight processing"
+                  >
+                    {cancelling ? "Cancelling..." : "Cancel Processing"}
+                  </button>
+                </li>
+              )}
+              {document.processing.status === "cancelled" && (
+                <li>
+                  <button
+                    type="button"
+                    className="justify-start text-primary hover:bg-primary/10"
+                    onClick={handleRetrySource}
+                    disabled={retrying}
+                    title="Resume extraction using preserved raw Vault blob"
+                  >
+                    {retrying ? "Resuming..." : "Resume Extraction"}
+                  </button>
+                </li>
+              )}
               <li className="my-1 border-t border-base-content/10" />
               <li>
                 <button
@@ -808,7 +876,72 @@ export function DocumentInspector({
                 >
                   {retrying ? "Retrying..." : "Unlock & Retry"}
                 </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs text-base-content/70 hover:text-warning"
+                  onClick={handleCancelProcessing}
+                  disabled={cancelling}
+                  title="Cancel extraction for this document"
+                >
+                  {cancelling ? "Cancelling..." : "Cancel"}
+                </button>
               </div>
+            </div>
+          </section>
+        )}
+
+        {/* Queued Ingestion Banner */}
+        {document.processing.status === "queued" && (
+          <section
+            className="mt-4 rounded-lg border border-info/40 bg-info/10 p-3.5 text-xs"
+            aria-label="Document queued for extraction"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="font-semibold text-info-content">
+                  ⏱ Queued for Extraction
+                </p>
+                <p className="mt-0.5 text-base-content/70">
+                  This document is waiting in the ingestion queue. Extraction
+                  has not started yet.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-outline btn-xs text-warning hover:bg-warning/20"
+                onClick={handleCancelProcessing}
+                disabled={cancelling}
+              >
+                {cancelling ? "Cancelling..." : "Cancel Processing"}
+              </button>
+            </div>
+          </section>
+        )}
+
+        {/* Cancelled Processing Banner */}
+        {document.processing.status === "cancelled" && (
+          <section
+            className="mt-4 rounded-lg border border-base-content/20 bg-base-200/60 p-3.5 text-xs"
+            aria-label="Document processing cancelled"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="font-semibold text-base-content">
+                  ⚪ Extraction Cancelled
+                </p>
+                <p className="mt-0.5 text-base-content/70">
+                  Processing was halted. The raw document remains safely stored
+                  in Vault.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary btn-xs"
+                onClick={handleRetrySource}
+                disabled={retrying}
+              >
+                {retrying ? "Resuming..." : "Resume Extraction"}
+              </button>
             </div>
           </section>
         )}

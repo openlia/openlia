@@ -440,6 +440,29 @@ class IngestionRuntime:
                 },
             },
         )
+        self._register(
+            "ingestion_cancel_document",
+            self.cancel_document,
+            {
+                "name": "ingestion_cancel_document",
+                "description": "Cancel queued or in-progress extraction/processing for an ingested document without deleting its raw file from the Vault. The document can later be resumed with ingestion_retry.",
+                "parameters": {
+                    "type": "object",
+                    "required": ["source_id"],
+                    "properties": {
+                        "source_id": {
+                            "type": "string",
+                            "description": "Source ID (src_...) or canonical openlia://source/... URI",
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "Optional cancellation reason (default 'cancelled_by_user')",
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+            },
+        )
 
     def _register(self, name, handler, schema):
         self.ctx.register_tool(
@@ -608,7 +631,7 @@ class IngestionRuntime:
 
     def _wait_for_job_local(self, job_id: str, wait_seconds: float) -> dict:
         deadline = time.time() + max(0.0, min(float(wait_seconds), 120.0))
-        terminal_states = {"completed", "partial", "awaiting-unlock", "failed"}
+        terminal_states = {"completed", "partial", "awaiting-unlock", "failed", "cancelled"}
         while True:
             job = self.queue.get(job_id)
             if job["state"] in terminal_states:
@@ -1512,6 +1535,36 @@ class IngestionRuntime:
                 {"ok": False, "error_code": "document_not_found", "message": str(exc)}
             )
 
+    def cancel_document(self, args: dict, **kwargs) -> str:
+        try:
+            raw_id = str(args.get("source_id") or "").strip()
+            parsed = parse_source_uri(raw_id)
+            source_id = parsed["source_id"] if parsed else raw_id
+            reason = str(args.get("reason") or "cancelled_by_user")
+
+            if self.remote_url:
+                remote_res = self._http_request(
+                    "POST",
+                    f"/v1/sources/{urllib.parse.quote(source_id)}/cancel",
+                    payload={"reason": reason},
+                )
+                if remote_res is not None:
+                    if not remote_res.get("ok"):
+                        return _json(
+                            {
+                                "ok": False,
+                                "error_code": "cancel_failed",
+                                "message": remote_res.get("message") or "failed to cancel document",
+                            }
+                        )
+                    return _json(remote_res)
+
+            res = self.publisher.cancel_processing(source_id, reason=reason)
+            self._publish_status()
+            return _json(res)
+        except Exception as exc:
+            return _json({"ok": False, "error_code": "cancel_failed", "message": str(exc)})
+
     def _worker_loop(self):
         owner = f"{os.getpid()}-{uuid.uuid4().hex}"
         while not self.stop_event.is_set():
@@ -1559,6 +1612,8 @@ class IngestionRuntime:
             if not self._publication_allowed():
                 return
             current_job = self.queue.get(job["job_id"])
+            if current_job.get("state") == "cancelled":
+                return
             retrying = current_job.get("state") == "retryable-failure"
             intake_status = "processing" if retrying else status
             source_status = "processing" if retrying else status

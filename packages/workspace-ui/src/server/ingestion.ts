@@ -25,6 +25,7 @@ import type {
   IngestionOverviewResponse,
   PasswordSuggestion,
   SourceBacklink,
+  SourceCancelResponse,
   SourceDeleteResponse,
   SourceDocument,
   SourceExtractionItem,
@@ -712,8 +713,19 @@ export class IngestionService {
       }
 
       if (options.processing_status) {
-        conditions.push("processing_status = ?");
-        params.push(options.processing_status.trim());
+        const statuses = options.processing_status
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (statuses.length === 1 && statuses[0]) {
+          conditions.push("processing_status = ?");
+          params.push(statuses[0]);
+        } else if (statuses.length > 1) {
+          conditions.push(
+            `processing_status IN (${statuses.map(() => "?").join(", ")})`,
+          );
+          params.push(...statuses);
+        }
       }
 
       const effectiveLifecycle = (options.lifecycle ?? "active")
@@ -926,11 +938,14 @@ export class IngestionService {
             : reviewStatus === options.review_status;
         if (!matchesReviewScope) return false;
       }
-      if (
-        options.processing_status &&
-        (doc.processing?.status ?? "complete") !== options.processing_status
-      )
-        return false;
+      if (options.processing_status) {
+        const statuses = options.processing_status
+          .split(",")
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean);
+        const docStatus = (doc.processing?.status ?? "complete").toLowerCase();
+        if (statuses.length > 0 && !statuses.includes(docStatus)) return false;
+      }
       const effectiveLifecycle = (options.lifecycle ?? "active")
         .trim()
         .toLowerCase();
@@ -1519,7 +1534,7 @@ export class IngestionService {
             }
           }
           db.run(
-            "DELETE FROM jobs WHERE source_id = ? AND state IN ('queued', 'running', 'retryable-failure', 'awaiting-unlock')",
+            "DELETE FROM jobs WHERE source_id = ? AND state IN ('queued', 'running', 'retryable-failure', 'awaiting-unlock', 'cancelled')",
             [sourceId],
           );
         }
@@ -2033,6 +2048,100 @@ export class IngestionService {
       }
     }
     return modified;
+  }
+
+  cancelSource(
+    sourceId: string,
+    reason = "cancelled_by_user",
+  ): SourceCancelResponse {
+    if (!safeId.test(sourceId)) throw new Error("invalid source id");
+    const record = this.readSource(sourceId);
+    if (!record) throw new Error("source record not found");
+
+    const db = this.getDb();
+    const cancelledJobs: string[] = [];
+    const nowEpoch = Date.now() / 1000;
+    const nowIso = new Date().toISOString();
+
+    if (db) {
+      db.transaction(() => {
+        const activeJobs = db
+          .query(
+            `SELECT job_id FROM jobs
+             WHERE source_id = ?
+               AND state IN ('queued', 'running', 'retryable-failure', 'awaiting-unlock')`,
+          )
+          .all(sourceId) as Array<{ job_id: string }>;
+
+        for (const job of activeJobs) {
+          cancelledJobs.push(job.job_id);
+        }
+
+        db.run(
+          `UPDATE jobs
+           SET state = 'cancelled',
+               error_code = ?,
+               error_summary = 'Processing was cancelled by user',
+               updated_at = ?
+           WHERE source_id = ?
+             AND state IN ('queued', 'running', 'retryable-failure', 'awaiting-unlock')`,
+          [reason, nowEpoch, sourceId],
+        );
+
+        record.status = "cancelled";
+        record.processing = {
+          status: "cancelled",
+          last_job_id: record.processing?.last_job_id ?? null,
+          updated_at: nowIso,
+          error: "Processing was cancelled by user",
+          error_code: reason,
+          error_summary: "Processing was cancelled by user",
+        };
+        this.saveSourceToVault(record, db);
+
+        const intakes = this.listRecords().filter(
+          (r) => r.source_id === sourceId,
+        );
+        for (const intake of intakes) {
+          intake.status = "cancelled";
+          intake.last_error = reason;
+          this.saveIntakeToVault(intake, db);
+        }
+
+        db.run(
+          "UPDATE source_fts SET processing_status = 'cancelled' WHERE source_id = ?",
+          [sourceId],
+        );
+      }).immediate();
+    } else {
+      record.status = "cancelled";
+      record.processing = {
+        status: "cancelled",
+        last_job_id: record.processing?.last_job_id ?? null,
+        updated_at: nowIso,
+        error: "Processing was cancelled by user",
+        error_code: reason,
+        error_summary: "Processing was cancelled by user",
+      };
+      this.saveSourceToVault(record);
+
+      const intakes = this.listRecords().filter(
+        (r) => r.source_id === sourceId,
+      );
+      for (const intake of intakes) {
+        intake.status = "cancelled";
+        intake.last_error = reason;
+        this.saveIntakeToVault(intake);
+      }
+    }
+
+    return {
+      schema: 1,
+      ok: true,
+      source_id: sourceId,
+      cancelled: true,
+      cancelled_jobs: cancelledJobs,
+    };
   }
 
   deleteSource(

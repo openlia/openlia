@@ -919,6 +919,43 @@ export function createWorkspaceHandler(
         }
       }
       if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/workspace/ingestion/sources/") &&
+        url.pathname.endsWith("/cancel")
+      ) {
+        try {
+          const prefix = "/api/workspace/ingestion/sources/";
+          const suffix = "/cancel";
+          const sourceId = decodeURIComponent(
+            url.pathname.slice(
+              prefix.length,
+              url.pathname.length - suffix.length,
+            ),
+          );
+          let reason = "cancelled_by_user";
+          try {
+            const body = (await request.json()) as { reason?: string };
+            if (body?.reason) reason = body.reason;
+          } catch {
+            // Optional JSON body
+          }
+          return json(ingestionService.cancelSource(sourceId, reason));
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("not found")) {
+            return json({ schema: 1, ok: false, error: "not_found" }, 404);
+          }
+          return json(
+            {
+              schema: 1,
+              ok: false,
+              error: "cancel_failed",
+              message: String(error),
+            },
+            400,
+          );
+        }
+      }
+      if (
         request.method === "GET" &&
         url.pathname.startsWith("/api/workspace/ingestion/sources/")
       ) {

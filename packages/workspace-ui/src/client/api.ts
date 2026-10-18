@@ -18,6 +18,7 @@ import type {
   SkillSuccessResponse,
   SkillsListResponse,
   SkillWriteResponse,
+  SourceCancelResponse,
   SourceDeleteResponse,
   SourceDocument,
   SourceRetryRequest,
@@ -145,6 +146,10 @@ export interface WorkspaceApi {
     sourceId: string,
     options?: { annotate_backlinks?: boolean },
   ): Promise<SourceDeleteResponse>;
+  cancelSource(
+    sourceId: string,
+    reason?: string,
+  ): Promise<SourceCancelResponse>;
   uploadDocument(formData: FormData): Promise<SourceUploadResponse>;
   uploadDocumentJson(body: {
     title?: string | undefined;
@@ -460,6 +465,16 @@ function isSourceDeleteResponse(value: unknown): value is SourceDeleteResponse {
     value.ok === true &&
     typeof value.source_id === "string" &&
     typeof value.deleted === "boolean"
+  );
+}
+
+function isSourceCancelResponse(value: unknown): value is SourceCancelResponse {
+  return (
+    isObject(value) &&
+    value.schema === 1 &&
+    value.ok === true &&
+    typeof value.source_id === "string" &&
+    typeof value.cancelled === "boolean"
   );
 }
 
@@ -841,6 +856,15 @@ export const httpWorkspaceApi: WorkspaceApi = {
       },
     );
   },
+  cancelSource: (sourceId, reason) =>
+    requestJson<SourceCancelResponse>(
+      `/api/workspace/ingestion/sources/${encodeURIComponent(sourceId)}/cancel`,
+      isSourceCancelResponse,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: reason || "cancelled_by_user" }),
+      },
+    ),
   uploadDocument: (formData) =>
     requestJson<SourceUploadResponse>(
       "/api/workspace/ingestion/upload",

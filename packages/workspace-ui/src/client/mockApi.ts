@@ -1167,6 +1167,17 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
       };
     },
 
+    async cancelSource(sourceId: string, _reason?: string) {
+      requireAuthentication();
+      return {
+        schema: 1 as const,
+        ok: true as const,
+        source_id: sourceId,
+        cancelled: true,
+        cancelled_jobs: ["job_mock_cancelled"],
+      };
+    },
+
     async retrySource(sourceId: string) {
       requireAuthentication();
       return {
