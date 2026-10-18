@@ -550,6 +550,12 @@ export function IngestionSection({
                 void performSearch();
                 onRefresh();
               }}
+              onDelete={(_deletedId) => {
+                setSelectedSourceId(undefined);
+                setSelectedSource(null);
+                void performSearch();
+                onRefresh();
+              }}
               onOpenFile={onOpenFile}
               rawUrl={rawUrl}
               onOpenPasswordManager={() => setIsPasswordManagerOpen(true)}

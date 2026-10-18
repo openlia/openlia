@@ -22,7 +22,9 @@ export function PasswordManagerModal({
 
   // Mode: "list" | "create" | "edit"
   const [mode, setMode] = useState<"list" | "create" | "edit">("list");
-  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [_editingProfileId, setEditingProfileId] = useState<string | null>(
+    null,
+  );
 
   // Form states
   const [formProfileId, setFormProfileId] = useState("");
@@ -174,9 +176,9 @@ export function PasswordManagerModal({
     return (
       p.label.toLowerCase().includes(q) ||
       p.profile_id.toLowerCase().includes(q) ||
-      (p.hint && p.hint.toLowerCase().includes(q)) ||
-      (p.description && p.description.toLowerCase().includes(q)) ||
-      (p.patterns && p.patterns.some((pat) => pat.toLowerCase().includes(q)))
+      Boolean(p.hint?.toLowerCase().includes(q)) ||
+      Boolean(p.description?.toLowerCase().includes(q)) ||
+      Boolean(p.patterns?.some((pat) => pat.toLowerCase().includes(q)))
     );
   });
 
