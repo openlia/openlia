@@ -51,6 +51,7 @@ function statusClass(status: string): string {
     return "badge-error";
   if (["partial", "retryable-failure"].includes(status)) return "badge-warning";
   if (["processing", "running", "queued"].includes(status)) return "badge-info";
+  if (status === "cancelled") return "badge-ghost opacity-70";
   return "badge-ghost";
 }
 
@@ -269,7 +270,8 @@ export function IngestionSection({
         review_status = reviewFilter === "all" ? undefined : reviewFilter;
         lifecycle = "active";
       } else if (scope === "processing") {
-        processing_status = "processing";
+        processing_status =
+          "queued,processing,awaiting-unlock,waiting-for-password,failed,retryable-failure,cancelled";
       } else if (scope === "archived") {
         lifecycle = "archived";
       }

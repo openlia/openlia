@@ -1704,6 +1704,77 @@ class IngestionTests(unittest.TestCase):
         annotated_journal = journal_file.read_text(encoding="utf-8")
         self.assertIn(f"; source-deleted: {source_id}", annotated_journal)
 
+    def test_queued_document_cancellation_and_resumption(self):
+        ctx = MockHermesContext()
+        runtime = self.runtime_mod.IngestionRuntime(ctx)
+        runtime.register_tools()
+
+        # Ingest a text file
+        doc_path = self.root / "queued_doc.txt"
+        doc_path.write_text("Pending extraction content", encoding="utf-8")
+        captured = self.publisher.capture(
+            {
+                "kind": "text",
+                "file_path": str(doc_path),
+                "title": "Queued Report",
+            }
+        )
+        source_id = captured["source"]["id"]
+        job = self.queue.submit(
+            {
+                "idempotency_key": "job-queued-doc",
+                "intake_id": captured["intake"]["intake_id"],
+                "source_id": source_id,
+                "version_id": captured["version"]["id"],
+                "operation": "extract",
+                "requested_outputs": ["text"],
+            }
+        )
+        job_id = job["job_id"]
+
+        # Verify job is queued
+        job_before = self.queue.get(job_id)
+        self.assertEqual(job_before["state"], "queued")
+
+        # Cancel processing via runtime tool
+        cancel_resp = json.loads(
+            runtime.cancel_document({
+                "source_id": source_id,
+                "reason": "cancelled_by_user",
+            })
+        )
+        self.assertTrue(cancel_resp["ok"])
+        self.assertEqual(cancel_resp["schema"], 1)
+        self.assertEqual(cancel_resp["source_id"], source_id)
+        self.assertTrue(cancel_resp["cancelled"])
+        self.assertEqual(cancel_resp["cancelled_jobs"], [job_id])
+        self.assertEqual(cancel_resp["state"], "cancelled")
+        self.assertEqual(cancel_resp["jobs_cancelled"], 1)
+
+        # Verify job is now cancelled
+        job_after = self.queue.get(job_id)
+        self.assertEqual(job_after["state"], "cancelled")
+        self.assertEqual(job_after["error_code"], "cancelled_by_user")
+
+        # Verify source status in db is cancelled
+        source_rec = self.queue.get_source(source_id)
+        self.assertEqual(source_rec["processing"]["status"], "cancelled")
+        self.assertEqual(source_rec["processing"]["error_code"], "cancelled_by_user")
+
+        # Verify raw Vault blob directory STILL EXISTS (preserved, not deleted)
+        blobs_dir = self.publisher.blobs / source_id
+        self.assertTrue(blobs_dir.exists())
+
+        # Verify comma-separated processing_status search
+        search_res = self.queue.search_sources(processing_status="queued,cancelled")
+        self.assertEqual(search_res["total"], 1)
+        self.assertEqual(search_res["matches"][0]["source_id"], source_id)
+
+        # Resume extraction by requeuing job
+        requeued = self.queue.requeue_job(job_id)
+        self.assertIsNotNone(requeued)
+        self.assertEqual(requeued["state"], "queued")
+
 
 if __name__ == "__main__":
     unittest.main()

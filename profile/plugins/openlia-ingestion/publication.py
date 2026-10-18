@@ -376,6 +376,14 @@ class VaultStore:
                 shutil.rmtree(legacy_art, ignore_errors=True)
         return {"source_id": source_id, **cascade}
 
+    def cancel_processing(self, source_id: str, reason: str = "cancelled_by_user") -> dict:
+        if not isinstance(source_id, str) or not SAFE_ID.fullmatch(source_id):
+            raise PublicationError("invalid source id")
+        try:
+            return self.db.cancel_processing(source_id, reason=reason)
+        except KeyError as exc:
+            raise PublicationError(f"source record not found: {source_id}") from exc
+
     def load_source(self, source_id: str) -> dict:
         if not isinstance(source_id, str) or not SAFE_ID.fullmatch(source_id):
             raise PublicationError("invalid source id")

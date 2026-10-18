@@ -18,3 +18,4 @@ provides_tools:
   - ingestion_update_document
   - ingestion_tag
   - ingestion_delete_document
+  - ingestion_cancel_document

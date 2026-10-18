@@ -730,7 +730,7 @@ class IngestionQueue:
                    next_attempt_at=?,
                    updated_at=?
                    WHERE job_id=?
-                     AND state IN ('failed','partial','awaiting-unlock','waiting-for-password','retryable-failure','completed')""",
+                     AND state IN ('failed','partial','awaiting-unlock','waiting-for-password','retryable-failure','completed','cancelled')""",
                 (password_profile, timestamp, timestamp, job_id),
             )
         return self.get(job_id)
@@ -879,6 +879,105 @@ class IngestionQueue:
             db.execute("COMMIT")
         return res.rowcount
 
+    def cancel_processing(self, source_id: str, reason: str = "cancelled_by_user") -> dict:
+        """Cancel queued or running processing for a source, marking source, intake, and jobs cancelled."""
+        timestamp = now()
+        iso_ts = iso_now()
+        with self._database() as db:
+            db.execute("BEGIN IMMEDIATE")
+            source_row = db.execute(
+                "SELECT record_json, processing_status FROM sources WHERE source_id = ?",
+                (source_id,),
+            ).fetchone()
+            if source_row is None:
+                db.execute("ROLLBACK")
+                raise KeyError(f"source {source_id} not found")
+
+            active_job_rows = db.execute(
+                """SELECT job_id FROM jobs
+                   WHERE source_id = ?
+                     AND state IN ('queued', 'running', 'retryable-failure', 'awaiting-unlock')""",
+                (source_id,),
+            ).fetchall()
+            cancelled_job_ids = [row["job_id"] for row in active_job_rows]
+
+            # Update active jobs to cancelled
+            jobs_res = db.execute(
+                """UPDATE jobs
+                   SET state = 'cancelled',
+                       error_code = ?,
+                       error_summary = 'Processing was cancelled by user',
+                       updated_at = ?
+                   WHERE source_id = ?
+                     AND state IN ('queued', 'running', 'retryable-failure', 'awaiting-unlock')""",
+                (reason, timestamp, source_id),
+            )
+            jobs_cancelled = jobs_res.rowcount
+
+            # Update source record
+            source_rec = json.loads(source_row["record_json"])
+            source_rec.setdefault("processing", {})
+            source_rec["status"] = "cancelled"
+            source_rec["processing"]["status"] = "cancelled"
+            source_rec["processing"]["error_code"] = reason
+            source_rec["processing"]["error_summary"] = "Processing was cancelled by user"
+            source_rec["processing"]["updated_at"] = iso_ts
+            updated_source_json = json.dumps(source_rec)
+
+            db.execute(
+                """UPDATE sources
+                   SET processing_status = 'cancelled',
+                       processing_error_code = ?,
+                       processing_error_summary = 'Processing was cancelled by user',
+                       record_json = ?,
+                       updated_at = ?
+                   WHERE source_id = ?""",
+                (reason, updated_source_json, iso_ts, source_id),
+            )
+
+            # Update intake records
+            intake_rows = db.execute(
+                "SELECT intake_id, record_json FROM intakes WHERE source_id = ?",
+                (source_id,),
+            ).fetchall()
+            for i_row in intake_rows:
+                try:
+                    intake_rec = json.loads(i_row["record_json"])
+                    intake_rec["status"] = "cancelled"
+                    intake_rec["last_error"] = reason
+                    intake_rec["updated_at"] = iso_ts
+                    db.execute(
+                        """UPDATE intakes
+                           SET status = 'cancelled',
+                               last_error = ?,
+                               record_json = ?,
+                               updated_at = ?
+                           WHERE intake_id = ?""",
+                        (reason, json.dumps(intake_rec), iso_ts, i_row["intake_id"]),
+                    )
+                except Exception:
+                    pass
+
+            # Update FTS index
+            db.execute(
+                """UPDATE source_fts
+                   SET processing_status = 'cancelled'
+                   WHERE source_id = ?""",
+                (source_id,),
+            )
+            db.execute("COMMIT")
+
+        return {
+            "schema": 1,
+            "ok": True,
+            "source_id": source_id,
+            "cancelled": True,
+            "cancelled_jobs": cancelled_job_ids,
+            "state": "cancelled",
+            "jobs_cancelled": jobs_cancelled,
+            "previous_status": source_row["processing_status"],
+        }
+
     def get_source_fts_content(self, source_id: str) -> str:
         """Return indexed extracted content so metadata updates can preserve it."""
         with self._database() as db:
@@ -917,8 +1016,14 @@ class IngestionQueue:
             conditions.append("document_type = ?")
             params.append(document_type)
         if processing_status:
-            conditions.append("processing_status = ?")
-            params.append(processing_status)
+            statuses = [s.strip() for s in processing_status.split(",") if s.strip()]
+            if len(statuses) == 1:
+                conditions.append("processing_status = ?")
+                params.append(statuses[0])
+            elif len(statuses) > 1:
+                placeholders = ", ".join("?" for _ in statuses)
+                conditions.append(f"processing_status IN ({placeholders})")
+                params.extend(statuses)
         effective_lifecycle = (lifecycle or "active").strip().lower()
         if effective_lifecycle and effective_lifecycle != "all":
             conditions.append("lifecycle = ?")
