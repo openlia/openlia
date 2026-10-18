@@ -31,12 +31,40 @@ def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
             kind = "pdf"
         elif ext in {".xlsx", ".xls"}:
             kind = "excel"
-        elif ext == ".csv":
+        elif ext in {".csv", ".tsv", ".tab"}:
             kind = "csv"
         elif ext in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}:
             kind = "image"
-        elif ext in {".txt", ".md", ".json", ".log", ".yaml", ".yml", ".py", ".sh"}:
+        elif ext in {
+            ".txt",
+            ".md",
+            ".json",
+            ".log",
+            ".yaml",
+            ".yml",
+            ".py",
+            ".sh",
+            ".vtt",
+            ".srt",
+            ".xml",
+            ".html",
+            ".htm",
+            ".toml",
+            ".ini",
+            ".cfg",
+            ".conf",
+            ".sql",
+            ".js",
+            ".ts",
+        }:
             kind = "text"
+        else:
+            try:
+                data, _ = _original(source, job.get("version_id"), publisher)
+                data.decode("utf-8")
+                kind = "text"
+            except Exception:
+                pass
     if intake:
         intake["status"] = "processing"
         intake["last_error"] = None

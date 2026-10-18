@@ -276,6 +276,8 @@ export interface SourceBacklink {
   domain: string;
   filename: string;
   line_number?: number;
+  pinned_version_id?: string | null;
+  line_excerpt?: string;
 }
 
 export interface SourceProcessingState {
@@ -327,6 +329,7 @@ export interface SourceDocument {
   canonical_uri: string;
   markdown_citation: string;
   backlinks?: SourceBacklink[];
+  stale_backlinks?: SourceBacklink[];
   content?: string | null;
   extractions?: SourceExtractionItem[];
 }
@@ -388,6 +391,17 @@ export interface SourceUploadResponse {
   version_id: string;
   job_id: string;
   title: string;
+  replaced_existing?: boolean | undefined;
+  stale_backlinks?: SourceBacklink[] | undefined;
+}
+
+export interface SourceDeleteResponse {
+  schema: 1;
+  ok: boolean;
+  source_id: string;
+  deleted: boolean;
+  backlinks?: SourceBacklink[] | undefined;
+  annotated_files?: string[] | undefined;
 }
 
 export interface DocumentPasswordProfile {

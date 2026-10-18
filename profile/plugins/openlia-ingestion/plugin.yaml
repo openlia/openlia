@@ -17,3 +17,4 @@ provides_tools:
   - ingestion_get_document
   - ingestion_update_document
   - ingestion_tag
+  - ingestion_delete_document

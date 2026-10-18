@@ -27,7 +27,13 @@ from .adapters import AdapterError, process_job
 from .db import IngestionQueue
 from .passwords import PasswordProfileError, PasswordProfiles
 from .publication import PublicationError, VaultStore
-from .references import build_markdown_citation, build_source_uri, find_backlinks, parse_source_uri
+from .references import (
+    annotate_deleted_backlinks,
+    build_markdown_citation,
+    build_source_uri,
+    find_backlinks,
+    parse_source_uri,
+)
 
 
 LOGGER = logging.getLogger("openlia.ingestion.server")
@@ -568,6 +574,14 @@ class IngestionVaultService:
             "state": job["state"],
             "durably_retained": True,
         }
+        if captured.get("replaced_existing"):
+            response["replaced_existing"] = True
+            response["purged_previous_versions"] = bool(captured.get("purged_previous_versions"))
+            response["stale_backlinks"] = (
+                find_backlinks(self.workspace_root, source["id"])
+                if self.workspace_root and self.workspace_root.exists()
+                else []
+            )
         if auto_selected_profile:
             response["auto_selected_password_profile"] = auto_selected_profile
         if wait_seconds > 0:
@@ -586,6 +600,8 @@ class IngestionVaultService:
             payload = hashlib.sha256(path.read_bytes()).hexdigest()
         material = {
             "kind": request.get("kind"),
+            "source_id": request.get("source_id"),
+            "purge_previous_versions": bool(request.get("purge_previous_versions")),
             "payload": payload,
             "url": request.get("url"),
             "operation": request.get("operation", "extract"),
@@ -642,6 +658,13 @@ class IngestionVaultService:
             if self.workspace_root and self.workspace_root.exists()
             else []
         )
+        versions_list = source.get("versions") or []
+        latest_ver_id = versions_list[-1].get("id") if versions_list else None
+        stale_backlinks = [
+            b
+            for b in backlinks
+            if b.get("pinned_version_id") and b.get("pinned_version_id") != latest_ver_id
+        ]
         canonical_uri = build_source_uri(source_id, resolved_version, resolved_page)
         markdown_citation = build_markdown_citation(
             source, version_id=resolved_version, page=resolved_page
@@ -655,6 +678,7 @@ class IngestionVaultService:
             "canonical_uri": canonical_uri,
             "markdown_citation": markdown_citation,
             "backlinks": backlinks,
+            "stale_backlinks": stale_backlinks,
             "extractions": extractions,
         }
         return {
@@ -668,6 +692,33 @@ class IngestionVaultService:
             "canonical_uri": canonical_uri,
             "markdown_citation": markdown_citation,
             "backlinks": backlinks,
+            "stale_backlinks": stale_backlinks,
+        }
+
+    def delete_document(self, source_id: str, *, annotate_backlinks: bool = True) -> dict:
+        parsed = parse_source_uri(source_id)
+        clean_id = parsed["source_id"] if parsed else source_id.strip()
+        # Verify source exists first
+        self.vault.load_source(clean_id)
+        backlinks = (
+            find_backlinks(self.workspace_root, clean_id)
+            if self.workspace_root and self.workspace_root.exists()
+            else []
+        )
+        annotated_files = (
+            annotate_deleted_backlinks(self.workspace_root, clean_id)
+            if annotate_backlinks and self.workspace_root and self.workspace_root.exists()
+            else []
+        )
+        cascade = self.vault.delete_source(clean_id)
+        self.publish_status()
+        return {
+            "ok": True,
+            "source_id": clean_id,
+            "deleted": True,
+            "backlinks": backlinks,
+            "annotated_files": annotated_files,
+            "cascade": cascade,
         }
 
     def update_document_payload(self, source_id: str, updates: dict) -> dict:
@@ -895,7 +946,11 @@ def _parse_multipart(content_type: str, body: bytes) -> dict:
             result["filename"] = filename or "upload.bin"
             result["media_type"] = part.get_content_type()
         else:
-            result[field_name] = payload.decode("utf-8", errors="replace")
+            text_val = payload.decode("utf-8", errors="replace")
+            if field_name in {"purge_previous_versions", "auto_unlock"}:
+                result[field_name] = text_val.strip().lower() in {"1", "true", "yes"}
+            else:
+                result[field_name] = text_val
     return result
 
 
@@ -1136,22 +1191,46 @@ class _SidecarHTTPHandler(BaseHTTPRequestHandler):
         content_type = self.headers.get("Content-Type") or "application/json"
 
         try:
-            if path == "/v1/sources/upload":
+            version_upload_match = re.match(r"^/v1/sources/([A-Za-z0-9._-]+)/versions$", path)
+            if path == "/v1/sources/upload" or version_upload_match:
                 if "multipart/form-data" in content_type:
                     req = _parse_multipart(content_type, body)
                 else:
                     req = json.loads(body.decode("utf-8") or "{}")
+                if version_upload_match:
+                    req["source_id"] = version_upload_match.group(1)
                 if not req.get("kind"):
                     ext = Path(str(req.get("filename") or "")).suffix.lower()
                     if ext == ".pdf":
                         req["kind"] = "pdf"
                     elif ext in {".xlsx", ".xls"}:
                         req["kind"] = "excel"
-                    elif ext == ".csv":
+                    elif ext in {".csv", ".tsv", ".tab"}:
                         req["kind"] = "csv"
                     elif ext in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}:
                         req["kind"] = "image"
-                    elif req.get("content") is not None or ext in {".txt", ".md", ".json", ".log"}:
+                    elif req.get("content") is not None or ext in {
+                        ".txt",
+                        ".md",
+                        ".json",
+                        ".log",
+                        ".yaml",
+                        ".yml",
+                        ".vtt",
+                        ".srt",
+                        ".xml",
+                        ".html",
+                        ".htm",
+                        ".toml",
+                        ".ini",
+                        ".cfg",
+                        ".conf",
+                        ".sql",
+                        ".sh",
+                        ".py",
+                        ".js",
+                        ".ts",
+                    }:
                         req["kind"] = "text"
                     else:
                         req["kind"] = "file"
@@ -1264,6 +1343,8 @@ class _SidecarHTTPHandler(BaseHTTPRequestHandler):
             return
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
+        query = urllib.parse.parse_qs(parsed.query)
+        body = self._read_body()
         try:
             if path.startswith("/v1/passwords/"):
                 profile_id = urllib.parse.unquote(path.split("/v1/passwords/", 1)[1])
@@ -1279,7 +1360,32 @@ class _SidecarHTTPHandler(BaseHTTPRequestHandler):
                     {"ok": True, "profile_id": profile_id, "deleted": True},
                 )
                 return
+
+            if path.startswith("/v1/sources/"):
+                source_id = urllib.parse.unquote(path.split("/v1/sources/", 1)[1])
+                annotate_param = (query.get("annotate_backlinks") or [None])[0]
+                annotate_backlinks = True
+                if annotate_param is not None:
+                    annotate_backlinks = annotate_param.strip().lower() not in {"0", "false", "no"}
+                elif body:
+                    try:
+                        parsed_body = json.loads(body.decode("utf-8"))
+                        if isinstance(parsed_body, dict) and "annotate_backlinks" in parsed_body:
+                            annotate_backlinks = bool(parsed_body["annotate_backlinks"])
+                    except Exception:
+                        pass
+                res = self.service.delete_document(
+                    source_id, annotate_backlinks=annotate_backlinks
+                )
+                self._send_json(HTTPStatus.OK, res)
+                return
+
             self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
+        except (KeyError, PublicationError) as exc:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"ok": False, "error": "not_found", "error_code": "not_found", "message": str(exc)},
+            )
         except PasswordProfileError as exc:
             self._send_json(
                 HTTPStatus.BAD_REQUEST,

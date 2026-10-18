@@ -811,6 +811,74 @@ class IngestionQueue:
         with self._database() as db:
             db.execute("DELETE FROM source_fts WHERE source_id = ?", (source_id,))
 
+    def delete_source_cascade(self, source_id: str) -> dict:
+        """Atomically delete a source and all its jobs, FTS rows, extractions, versions, and intakes."""
+        with self._database() as db:
+            db.execute("BEGIN IMMEDIATE")
+            existing = db.execute(
+                "SELECT 1 FROM sources WHERE source_id = ?", (source_id,)
+            ).fetchone()
+            # Delete jobs first so any in-flight worker's owns() check fails immediately
+            jobs_res = db.execute("DELETE FROM jobs WHERE source_id = ?", (source_id,))
+            db.execute("DELETE FROM source_fts WHERE source_id = ?", (source_id,))
+            ext_res = db.execute("DELETE FROM extractions WHERE source_id = ?", (source_id,))
+            ver_res = db.execute("DELETE FROM source_versions WHERE source_id = ?", (source_id,))
+            intake_res = db.execute("DELETE FROM intakes WHERE source_id = ?", (source_id,))
+            src_res = db.execute("DELETE FROM sources WHERE source_id = ?", (source_id,))
+            db.execute("COMMIT")
+        return {
+            "deleted": bool(existing or src_res.rowcount > 0),
+            "jobs_removed": jobs_res.rowcount,
+            "extractions_removed": ext_res.rowcount,
+            "versions_removed": ver_res.rowcount,
+            "intakes_removed": intake_res.rowcount,
+        }
+
+    def delete_version_cascade(self, source_id: str, version_id: str) -> dict:
+        """Delete a specific version's jobs, extractions, and source_versions row."""
+        with self._database() as db:
+            db.execute("BEGIN IMMEDIATE")
+            jobs_res = db.execute(
+                "DELETE FROM jobs WHERE source_id = ? AND version_id = ?",
+                (source_id, version_id),
+            )
+            ext_res = db.execute(
+                "DELETE FROM extractions WHERE source_id = ? AND version_id = ?",
+                (source_id, version_id),
+            )
+            ver_res = db.execute(
+                "DELETE FROM source_versions WHERE source_id = ? AND version_id = ?",
+                (source_id, version_id),
+            )
+            db.execute("COMMIT")
+        return {
+            "jobs_removed": jobs_res.rowcount,
+            "extractions_removed": ext_res.rowcount,
+            "versions_removed": ver_res.rowcount,
+        }
+
+    def cancel_source_jobs(self, source_id: str, exclude_version_id: str | None = None) -> int:
+        """Cancel/delete pending or running jobs for superseded versions of a source."""
+        with self._database() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if exclude_version_id:
+                res = db.execute(
+                    """DELETE FROM jobs
+                       WHERE source_id = ?
+                         AND (version_id IS NULL OR version_id != ?)
+                         AND state IN ('queued', 'running', 'retryable-failure', 'awaiting-unlock')""",
+                    (source_id, exclude_version_id),
+                )
+            else:
+                res = db.execute(
+                    """DELETE FROM jobs
+                       WHERE source_id = ?
+                         AND state IN ('queued', 'running', 'retryable-failure', 'awaiting-unlock')""",
+                    (source_id,),
+                )
+            db.execute("COMMIT")
+        return res.rowcount
+
     def get_source_fts_content(self, source_id: str) -> str:
         """Return indexed extracted content so metadata updates can preserve it."""
         with self._database() as db:
@@ -851,9 +919,10 @@ class IngestionQueue:
         if processing_status:
             conditions.append("processing_status = ?")
             params.append(processing_status)
-        if lifecycle:
+        effective_lifecycle = (lifecycle or "active").strip().lower()
+        if effective_lifecycle and effective_lifecycle != "all":
             conditions.append("lifecycle = ?")
-            params.append(lifecycle)
+            params.append(effective_lifecycle)
         if date_from:
             conditions.append("document_date >= ?")
             params.append(date_from)
