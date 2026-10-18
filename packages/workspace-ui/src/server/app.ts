@@ -7,20 +7,21 @@ import type {
   SkillToggleEnableRequest,
   SkillTogglePinRequest,
   SkillWriteRequest,
+  SourceRetryRequest,
+  SourceUpdateRequest,
+  WorkspaceCreateFileRequest,
   WorkspaceDeleteRequest,
   WorkspaceErrorResponse,
   WorkspaceMoveRequest,
   WorkspaceRenameRequest,
   WorkspaceSystemInfo,
   WorkspaceWriteRequest,
-  WorkspaceCreateFileRequest,
-  SourceUpdateRequest,
 } from "../shared/api";
 import { Authenticator } from "./auth";
 import { exportArchive } from "./export";
 import { IngestionService } from "./ingestion";
-import { MigrationService } from "./migration";
 import { MemoryFileService } from "./memory";
+import { MigrationService } from "./migration";
 import { SkillService } from "./skills";
 import { WorkspaceError, WorkspaceService } from "./workspace";
 
@@ -610,6 +611,7 @@ export function createWorkspaceHandler(
         url.pathname === "/api/workspace/export"
       ) {
         const zipBytes = exportArchive({
+          ingestionRoot: ingestionService.ingestionRoot,
           maxDownloadBytes: options.maxDownloadBytes,
           memoriesRoot: options.memoriesRoot,
           skillsRoot,
@@ -690,6 +692,231 @@ export function createWorkspaceHandler(
       }
       if (
         request.method === "GET" &&
+        url.pathname === "/api/workspace/ingestion/passwords"
+      ) {
+        return json({
+          schema: 1,
+          ok: true,
+          profiles: ingestionService.listPasswordProfiles(),
+        });
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname === "/api/workspace/ingestion/passwords/suggest"
+      ) {
+        const filename = url.searchParams.get("filename") ?? undefined;
+        const title = url.searchParams.get("title") ?? undefined;
+        const correspondent =
+          url.searchParams.get("correspondent") ?? undefined;
+        const message = url.searchParams.get("message") ?? undefined;
+        const suggestions = ingestionService.suggestPasswordProfiles({
+          filename,
+          title,
+          correspondent,
+          message,
+        });
+        return json({
+          schema: 1,
+          ok: true,
+          suggestions,
+        });
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/workspace/ingestion/passwords"
+      ) {
+        try {
+          const body = (await request.json()) as Record<string, unknown>;
+          const profileId = String(body.profile_id ?? body.id ?? "").trim();
+          const label = String(body.label ?? profileId).trim();
+          const rawPassword = body.password;
+          const password =
+            typeof rawPassword === "string" && rawPassword.length > 0
+              ? rawPassword
+              : undefined;
+          const description =
+            typeof body.description === "string"
+              ? body.description.trim()
+              : undefined;
+          const hint =
+            typeof body.hint === "string" ? body.hint.trim() : undefined;
+          const patterns = Array.isArray(body.patterns)
+            ? body.patterns
+                .filter((p): p is string => typeof p === "string")
+                .map((p) => p.trim())
+                .filter(Boolean)
+            : undefined;
+          if (!profileId) {
+            return json(
+              {
+                schema: 1,
+                ok: false,
+                error: "invalid_request",
+                message: "profile_id is required",
+              },
+              400,
+            );
+          }
+          const saved = ingestionService.savePasswordProfile(
+            profileId,
+            label || profileId,
+            password,
+            description,
+            hint,
+            patterns,
+          );
+          return json({ schema: 1, ok: true, profile: saved });
+        } catch (error) {
+          return json(
+            {
+              schema: 1,
+              ok: false,
+              error: "password_save_failed",
+              message: String(error),
+            },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "DELETE" &&
+        url.pathname.startsWith("/api/workspace/ingestion/passwords/")
+      ) {
+        try {
+          const profileId = decodeURIComponent(
+            url.pathname.slice("/api/workspace/ingestion/passwords/".length),
+          ).trim();
+          if (!profileId) {
+            return json(
+              {
+                schema: 1,
+                ok: false,
+                error: "invalid_profile_id",
+                message: "profile_id is required",
+              },
+              400,
+            );
+          }
+          const deleted = ingestionService.deletePasswordProfile(profileId);
+          if (!deleted) {
+            return json(
+              {
+                schema: 1,
+                ok: false,
+                error: "not_found",
+                message: "Password profile not found",
+              },
+              404,
+            );
+          }
+          return json({ schema: 1, ok: true, deleted: profileId });
+        } catch (error) {
+          return json(
+            {
+              schema: 1,
+              ok: false,
+              error: "delete_failed",
+              message: String(error),
+            },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname.startsWith("/api/workspace/ingestion/sources/") &&
+        url.pathname.endsWith("/raw")
+      ) {
+        try {
+          const prefix = "/api/workspace/ingestion/sources/";
+          const suffix = "/raw";
+          const sourceId = decodeURIComponent(
+            url.pathname.slice(
+              prefix.length,
+              url.pathname.length - suffix.length,
+            ),
+          );
+          const versionId = url.searchParams.get("version_id") ?? undefined;
+          const file = ingestionService.downloadSourceOriginal(
+            sourceId,
+            versionId,
+          );
+          const disposition = inlineContentTypes.has(file.mediaType)
+            ? "inline"
+            : "attachment";
+          const range = parseByteRange(request.headers.get("range"), file.size);
+          const headers: Record<string, string> = {
+            ...securityHeaders(),
+            "Content-Security-Policy":
+              "default-src 'none'; frame-ancestors 'self'",
+            "Content-Disposition": `${disposition}; filename="${file.filename}"`,
+            "Content-Type": file.mediaType,
+            "Accept-Ranges": "bytes",
+          };
+          if (range) {
+            headers["Content-Length"] = String(range.end - range.start + 1);
+            headers["Content-Range"] =
+              `bytes ${range.start}-${range.end}/${file.size}`;
+            return new Response(
+              Bun.file(file.absolute).slice(range.start, range.end + 1),
+              { headers, status: 206 },
+            );
+          }
+          headers["Content-Length"] = String(file.size);
+          return new Response(Bun.file(file.absolute), { headers });
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("not found")) {
+            return json({ schema: 1, ok: false, error: "not_found" }, 404);
+          }
+          return json(
+            {
+              schema: 1,
+              ok: false,
+              error: "raw_download_failed",
+              message: String(error),
+            },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/workspace/ingestion/sources/") &&
+        url.pathname.endsWith("/retry")
+      ) {
+        try {
+          const prefix = "/api/workspace/ingestion/sources/";
+          const suffix = "/retry";
+          const sourceId = decodeURIComponent(
+            url.pathname.slice(
+              prefix.length,
+              url.pathname.length - suffix.length,
+            ),
+          );
+          let body: SourceRetryRequest = {};
+          try {
+            body = (await request.json()) as SourceRetryRequest;
+          } catch {
+            // Optional JSON body
+          }
+          return json(ingestionService.retrySource(sourceId, body));
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("not found")) {
+            return json({ schema: 1, ok: false, error: "not_found" }, 404);
+          }
+          return json(
+            {
+              schema: 1,
+              ok: false,
+              error: "retry_failed",
+              message: String(error),
+            },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "GET" &&
         url.pathname.startsWith("/api/workspace/ingestion/sources/")
       ) {
         try {
@@ -737,6 +964,47 @@ export function createWorkspaceHandler(
           const contentType = request.headers.get("content-type") ?? "";
           if (contentType.includes("multipart/form-data")) {
             const formData = await request.formData();
+            let passwordProfile =
+              typeof formData.get("password_profile") === "string"
+                ? (formData.get("password_profile") as string).trim() ||
+                  undefined
+                : undefined;
+            const rawPassword =
+              typeof formData.get("password") === "string"
+                ? (formData.get("password") as string).trim() || undefined
+                : undefined;
+            const passwordLabel =
+              typeof formData.get("password_label") === "string"
+                ? (formData.get("password_label") as string).trim() || undefined
+                : undefined;
+            const passwordHint =
+              typeof formData.get("password_hint") === "string"
+                ? (formData.get("password_hint") as string).trim() || undefined
+                : undefined;
+            const passwordDescription =
+              typeof formData.get("password_description") === "string"
+                ? (formData.get("password_description") as string).trim() ||
+                  undefined
+                : undefined;
+
+            if (rawPassword && !passwordProfile) {
+              const derivedId = passwordLabel
+                ? passwordLabel
+                    .toLowerCase()
+                    .replace(/[^a-z0-9._-]+/g, "_")
+                    .replace(/^_+|_+$/g, "")
+                : `cred_${Date.now()}`;
+              const label = passwordLabel || derivedId;
+              const saved = ingestionService.savePasswordProfile(
+                derivedId,
+                label,
+                rawPassword,
+                passwordDescription,
+                passwordHint,
+              );
+              passwordProfile = saved.profile_id;
+            }
+
             const results = [];
             for (const [, value] of formData.entries()) {
               if (
@@ -747,10 +1015,15 @@ export function createWorkspaceHandler(
               ) {
                 const file = value as File;
                 const buffer = new Uint8Array(await file.arrayBuffer());
-                const res = ingestionService.upload({
-                  name: file.name || "upload.bin",
-                  data: buffer,
-                });
+                const res = ingestionService.upload(
+                  {
+                    name: file.name || "upload.bin",
+                    data: buffer,
+                  },
+                  {
+                    password_profile: passwordProfile,
+                  },
+                );
                 results.push(res);
               }
             }
@@ -782,6 +1055,46 @@ export function createWorkspaceHandler(
                 400,
               );
             }
+
+            let passwordProfile =
+              typeof body.password_profile === "string"
+                ? body.password_profile.trim() || undefined
+                : undefined;
+            const rawPassword =
+              typeof body.password === "string"
+                ? body.password.trim() || undefined
+                : undefined;
+            const passwordLabel =
+              typeof body.password_label === "string"
+                ? body.password_label.trim() || undefined
+                : undefined;
+            const passwordHint =
+              typeof body.password_hint === "string"
+                ? body.password_hint.trim() || undefined
+                : undefined;
+            const passwordDescription =
+              typeof body.password_description === "string"
+                ? body.password_description.trim() || undefined
+                : undefined;
+
+            if (rawPassword && !passwordProfile) {
+              const derivedId = passwordLabel
+                ? passwordLabel
+                    .toLowerCase()
+                    .replace(/[^a-z0-9._-]+/g, "_")
+                    .replace(/^_+|_+$/g, "")
+                : `cred_${Date.now()}`;
+              const label = passwordLabel || derivedId;
+              const saved = ingestionService.savePasswordProfile(
+                derivedId,
+                label,
+                rawPassword,
+                passwordDescription,
+                passwordHint,
+              );
+              passwordProfile = saved.profile_id;
+            }
+
             const res = ingestionService.upload(
               {
                 name: filename,
@@ -790,6 +1103,7 @@ export function createWorkspaceHandler(
               {
                 title: typeof body.title === "string" ? body.title : undefined,
                 kind: typeof body.kind === "string" ? body.kind : undefined,
+                password_profile: passwordProfile,
               },
             );
             return json(res);

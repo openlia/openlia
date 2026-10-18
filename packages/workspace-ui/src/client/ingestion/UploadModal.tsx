@@ -1,4 +1,6 @@
-import { useState, useRef, type DragEvent } from "react";
+import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import type { DocumentPasswordProfile } from "../../shared/api";
+import { suggestPasswordProfiles } from "../../shared/passwordSuggester";
 import type { WorkspaceApi } from "../api";
 
 export interface UploadModalProps {
@@ -7,6 +9,7 @@ export interface UploadModalProps {
   onClose: () => void;
   onSuccess: () => void;
   initialFiles?: File[];
+  onOpenPasswordManager?: () => void;
 }
 
 export function UploadModal({
@@ -15,6 +18,7 @@ export function UploadModal({
   onClose,
   onSuccess,
   initialFiles = [],
+  onOpenPasswordManager,
 }: UploadModalProps) {
   const [tab, setTab] = useState<"files" | "text">("files");
   const [files, setFiles] = useState<File[]>(initialFiles);
@@ -27,7 +31,47 @@ export function UploadModal({
   const [textContent, setTextContent] = useState("");
   const [textKind, setTextKind] = useState("text");
 
+  // Password protection state
+  const [passwordProfiles, setPasswordProfiles] = useState<
+    DocumentPasswordProfile[]
+  >([]);
+  const [isPasswordProtected, setIsPasswordProtected] = useState(false);
+  const [selectedProfileId, setSelectedProfileId] = useState("");
+  const [customPassword, setCustomPassword] = useState("");
+  const [saveProfileLabel, setSaveProfileLabel] = useState("");
+  const [saveProfileHint, setSaveProfileHint] = useState("");
+  const [saveProfileDesc, setSaveProfileDesc] = useState("");
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    api
+      .listDocumentPasswords()
+      .then((res) => {
+        if (!cancelled) setPasswordProfiles(res.profiles ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setPasswordProfiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, api]);
+
+  // Compute smart suggestions based on uploaded files or document title
+  const suggestions = useMemo(() => {
+    if (passwordProfiles.length === 0) return [];
+    const queryFilename = files.length > 0 ? files[0]!.name : textTitle;
+    if (!queryFilename) return [];
+    return suggestPasswordProfiles(
+      { filename: queryFilename, title: textTitle },
+      passwordProfiles,
+    );
+  }, [files, textTitle, passwordProfiles]);
+
+  const topSuggestion = suggestions.length > 0 ? suggestions[0] : null;
 
   if (!isOpen) return null;
 
@@ -74,6 +118,22 @@ export function UploadModal({
       for (const file of files) {
         formData.append("files", file);
       }
+      if (isPasswordProtected) {
+        if (selectedProfileId) {
+          formData.append("password_profile", selectedProfileId);
+        } else if (customPassword) {
+          formData.append("password", customPassword);
+          if (saveProfileLabel) {
+            formData.append("password_label", saveProfileLabel);
+          }
+          if (saveProfileHint) {
+            formData.append("password_hint", saveProfileHint);
+          }
+          if (saveProfileDesc) {
+            formData.append("password_description", saveProfileDesc);
+          }
+        }
+      }
       await api.uploadDocument(formData);
       setFiles([]);
       onSuccess();
@@ -98,6 +158,17 @@ export function UploadModal({
         title: textTitle.trim() || undefined,
         content: textContent,
         kind: textKind,
+        password_profile:
+          isPasswordProtected && selectedProfileId
+            ? selectedProfileId
+            : undefined,
+        password:
+          isPasswordProtected && !selectedProfileId && customPassword
+            ? customPassword
+            : undefined,
+        password_label: saveProfileLabel || undefined,
+        password_hint: saveProfileHint || undefined,
+        password_description: saveProfileDesc || undefined,
       });
       setTextTitle("");
       setTextContent("");
@@ -235,6 +306,163 @@ export function UploadModal({
               </div>
             )}
 
+            {/* Smart Password Suggestion Banner */}
+            {topSuggestion && topSuggestion.score >= 40 && (
+              <div className="rounded-lg border border-info/30 bg-info/10 p-3 text-xs flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="badge badge-info badge-xs">
+                      {topSuggestion.score}% Match
+                    </span>
+                    <span className="font-semibold text-info-content">
+                      Suggested: {topSuggestion.profile.label}
+                    </span>
+                  </div>
+                  {topSuggestion.profile.hint && (
+                    <p className="mt-0.5 text-base-content/70">
+                      💡 Hint: {topSuggestion.profile.hint}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-xs btn-outline btn-info shrink-0"
+                  onClick={() => {
+                    setIsPasswordProtected(true);
+                    setSelectedProfileId(topSuggestion.profile.profile_id);
+                  }}
+                >
+                  {selectedProfileId === topSuggestion.profile.profile_id
+                    ? "Selected ✓"
+                    : "Apply Suggestion"}
+                </button>
+              </div>
+            )}
+
+            {/* Password Protection Section */}
+            <div className="rounded-lg border border-base-content/10 bg-base-200/30 p-3 text-xs">
+              <label className="flex cursor-pointer items-center justify-between">
+                <span className="font-semibold flex items-center gap-1.5">
+                  <span>🔒 Document Password Protection</span>
+                  {selectedProfileId && (
+                    <span className="badge badge-primary badge-xs">
+                      Profile assigned
+                    </span>
+                  )}
+                </span>
+                <input
+                  type="checkbox"
+                  className="toggle toggle-primary toggle-xs"
+                  checked={isPasswordProtected}
+                  onChange={(e) => setIsPasswordProtected(e.target.checked)}
+                />
+              </label>
+
+              {isPasswordProtected && (
+                <div className="mt-3 space-y-2.5 pt-2 border-t border-base-content/10">
+                  <div className="flex items-center justify-between mb-1">
+                    <label
+                      htmlFor="upload-file-password-profile"
+                      className="block text-base-content/70 font-medium"
+                    >
+                      {passwordProfiles.length > 0
+                        ? "Select Saved Password Profile"
+                        : "Password Profiles"}
+                    </label>
+                    {onOpenPasswordManager && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-xs text-primary underline"
+                        onClick={onOpenPasswordManager}
+                      >
+                        Manage Profiles
+                      </button>
+                    )}
+                  </div>
+                  {passwordProfiles.length > 0 && (
+                    <div>
+                      <select
+                        id="upload-file-password-profile"
+                        className="select select-bordered select-xs w-full"
+                        value={selectedProfileId}
+                        onChange={(e) => setSelectedProfileId(e.target.value)}
+                      >
+                        <option value="">
+                          -- Choose saved password profile --
+                        </option>
+                        {passwordProfiles.map((p) => (
+                          <option key={p.profile_id} value={p.profile_id}>
+                            {p.label} {p.hint ? `(Hint: ${p.hint})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label
+                      htmlFor="upload-file-custom-password"
+                      className="block text-base-content/70 font-medium mb-1"
+                    >
+                      {passwordProfiles.length > 0
+                        ? "Or Enter New Document Password"
+                        : "Enter Document Password"}
+                    </label>
+                    <input
+                      id="upload-file-custom-password"
+                      type="password"
+                      className="input input-bordered input-xs w-full"
+                      placeholder="Enter document password..."
+                      value={customPassword}
+                      onChange={(e) => {
+                        setCustomPassword(e.target.value);
+                        if (e.target.value && selectedProfileId) {
+                          setSelectedProfileId("");
+                        }
+                      }}
+                    />
+                  </div>
+
+                  {customPassword && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      <div>
+                        <label
+                          htmlFor="upload-file-profile-label"
+                          className="block text-base-content/70 text-[11px] mb-0.5"
+                        >
+                          Save Profile Label (optional)
+                        </label>
+                        <input
+                          id="upload-file-profile-label"
+                          type="text"
+                          className="input input-bordered input-xs w-full"
+                          placeholder="e.g. Chase Bank Checking"
+                          value={saveProfileLabel}
+                          onChange={(e) => setSaveProfileLabel(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="upload-file-profile-hint"
+                          className="block text-base-content/70 text-[11px] mb-0.5"
+                        >
+                          Safe Hint (optional)
+                        </label>
+                        <input
+                          id="upload-file-profile-hint"
+                          type="text"
+                          className="input input-bordered input-xs w-full"
+                          placeholder="e.g. Last 4 digits of SSN"
+                          value={saveProfileHint}
+                          onChange={(e) => setSaveProfileHint(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="modal-action border-t border-base-content/10 pt-4">
               <button
                 type="button"
@@ -296,6 +524,117 @@ export function UploadModal({
                   onChange={(e) => setTextContent(e.target.value)}
                 />
               </label>
+            </div>
+
+            {/* Password Protection Section for Text Tab */}
+            <div className="rounded-lg border border-base-content/10 bg-base-200/30 p-3 text-xs">
+              <label className="flex cursor-pointer items-center justify-between">
+                <span className="font-semibold flex items-center gap-1.5">
+                  <span>🔒 Document Password Protection</span>
+                  {selectedProfileId && (
+                    <span className="badge badge-primary badge-xs">
+                      Profile assigned
+                    </span>
+                  )}
+                </span>
+                <input
+                  type="checkbox"
+                  className="toggle toggle-primary toggle-xs"
+                  checked={isPasswordProtected}
+                  onChange={(e) => setIsPasswordProtected(e.target.checked)}
+                />
+              </label>
+
+              {isPasswordProtected && (
+                <div className="mt-3 space-y-2.5 pt-2 border-t border-base-content/10">
+                  {passwordProfiles.length > 0 && (
+                    <div>
+                      <label
+                        htmlFor="upload-text-password-profile"
+                        className="block text-base-content/70 font-medium mb-1"
+                      >
+                        Select Saved Password Profile
+                      </label>
+                      <select
+                        id="upload-text-password-profile"
+                        className="select select-bordered select-xs w-full"
+                        value={selectedProfileId}
+                        onChange={(e) => setSelectedProfileId(e.target.value)}
+                      >
+                        <option value="">
+                          -- Choose saved password profile --
+                        </option>
+                        {passwordProfiles.map((p) => (
+                          <option key={p.profile_id} value={p.profile_id}>
+                            {p.label} {p.hint ? `(Hint: ${p.hint})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label
+                      htmlFor="upload-text-custom-password"
+                      className="block text-base-content/70 font-medium mb-1"
+                    >
+                      {passwordProfiles.length > 0
+                        ? "Or Enter New Document Password"
+                        : "Enter Document Password"}
+                    </label>
+                    <input
+                      id="upload-text-custom-password"
+                      type="password"
+                      className="input input-bordered input-xs w-full"
+                      placeholder="Enter document password..."
+                      value={customPassword}
+                      onChange={(e) => {
+                        setCustomPassword(e.target.value);
+                        if (e.target.value && selectedProfileId) {
+                          setSelectedProfileId("");
+                        }
+                      }}
+                    />
+                  </div>
+
+                  {customPassword && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      <div>
+                        <label
+                          htmlFor="upload-text-profile-label"
+                          className="block text-base-content/70 text-[11px] mb-0.5"
+                        >
+                          Save Profile Label (optional)
+                        </label>
+                        <input
+                          id="upload-text-profile-label"
+                          type="text"
+                          className="input input-bordered input-xs w-full"
+                          placeholder="e.g. Confidential Note Key"
+                          value={saveProfileLabel}
+                          onChange={(e) => setSaveProfileLabel(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="upload-text-profile-hint"
+                          className="block text-base-content/70 text-[11px] mb-0.5"
+                        >
+                          Safe Hint (optional)
+                        </label>
+                        <input
+                          id="upload-text-profile-hint"
+                          type="text"
+                          className="input input-bordered input-xs w-full"
+                          placeholder="e.g. Team passphrase"
+                          value={saveProfileHint}
+                          onChange={(e) => setSaveProfileHint(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="modal-action border-t border-base-content/10 pt-4">

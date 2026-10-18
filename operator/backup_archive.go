@@ -105,7 +105,11 @@ func durableHermesPath(relative string, entry fs.DirEntry, bundledGroups map[str
 	}
 	parts := strings.Split(relative, "/")
 	if len(parts) > 0 && parts[0] == "ingestion" {
-		return false
+		base := parts[len(parts)-1]
+		if strings.HasSuffix(base, "-shm") || strings.HasSuffix(base, ".lock") || strings.HasSuffix(base, ".sock") || strings.HasSuffix(base, ".pid") || strings.HasSuffix(base, ".tmp") {
+			return false
+		}
+		return true
 	}
 	base := parts[len(parts)-1]
 	for _, part := range parts {

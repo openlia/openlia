@@ -169,22 +169,26 @@ class IngestionTests(unittest.TestCase):
                 )
                 uploaded = json.loads(completed.stdout)
                 queue = self.queue_mod.IngestionQueue(ingestion_dir)
+                publisher = self.publication.VaultStore(ingestion_dir, workspace_root=self.workspace)
                 job = queue.claim("integration-worker")
                 self.assertIsNotNone(job)
                 self.assertEqual(job["job_id"], uploaded["job_id"])
                 self.assertEqual(job["lease_generation"], 1)
-                intake = self.publisher.load_intake(job["intake_id"])
+                intake = publisher.load_intake(job["intake_id"])
                 self.assertEqual(intake["source_id"], uploaded["source_id"])
                 self.assertEqual(intake["status"], "queued")
                 result = self.adapters.process_job(
-                    job, self.publisher, self.passwords, None, db=queue,
+                    job, publisher, self.passwords, None, db=queue,
                 )
                 self.assertEqual(result["status"], "completed")
                 self.assertIsNotNone(queue.finish(job, result))
-                source = self.publisher.load_source(uploaded["source_id"])
+                source = publisher.load_source(uploaded["source_id"])
                 self.assertEqual(source["processing"]["status"], "complete")
                 self.assertTrue(source["versions"][0]["extractions"])
                 self.assertEqual(queue.get(job["job_id"])["state"], "completed")
+                # Zero workspace footprint check
+                self.assertFalse((self.workspace / "sources").exists())
+                self.assertFalse((self.workspace / "inbox" / "ingestion").exists())
 
     @unittest.skipUnless(shutil.which("bun"), "Bun is required for UI/worker integration")
     def test_ui_created_legacy_database_gains_worker_lease_fence(self):
@@ -233,8 +237,9 @@ class IngestionTests(unittest.TestCase):
         second = self.queue.submit(request)
         self.assertEqual(first["job_id"], second["job_id"])
         self.assertTrue(
-            (self.workspace / "sources/artifacts" / captured["source"]["id"] / captured["version"]["id"] / "original.txt").exists()
+            (self.ingestion_dir / "blobs" / captured["source"]["id"] / captured["version"]["id"] / "original.txt").exists()
         )
+        self.assertFalse((self.workspace / "sources").exists())
 
     def test_idempotency_includes_continuation_context(self):
         runtime = self.runtime_mod.IngestionRuntime(MockHermesContext())
@@ -262,13 +267,15 @@ class IngestionTests(unittest.TestCase):
         self.assertTrue(self.queue.heartbeat(claimed["job_id"], "worker-a", claimed["lease_generation"]))
         self.assertFalse(self.queue.heartbeat(claimed["job_id"], "worker-b", claimed["lease_generation"]))
 
-    def test_continuation_action_is_durable_and_idempotent(self):
-        first = self.queue.begin_action("ingestion:evt_1", "evt_1", "intake_1")
-        second = self.queue.begin_action("ingestion:evt_1", "evt_1", "intake_1")
-        self.assertEqual(first["status"], "started")
-        self.assertEqual(second["status"], "started")
-        self.assertTrue(self.queue.complete_action("ingestion:evt_1", ["tasks/task_1.md"]))
-        self.assertFalse(self.queue.complete_action("ingestion:evt_1", ["tasks/task_1.md"]))
+    def test_vault_sqlite_source_and_version_persistence(self):
+        captured = self.publisher.capture(
+            {"kind": "text", "title": "Persistent Vault Doc", "content": "vault content"}
+        )
+        source_id = captured["source"]["id"]
+        loaded = self.publisher.load_source(source_id)
+        self.assertEqual(loaded["title"], "Persistent Vault Doc")
+        self.assertEqual(len(loaded["versions"]), 1)
+        self.assertFalse((self.workspace / "sources").exists())
 
     def test_password_profile_never_returns_value_from_listing(self):
         result = self.passwords.save("bank_a", "Bank A statement", TEST_DOC_KEY)  # ggignore
@@ -277,6 +284,8 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(self.passwords.list(), [{"profile_id": "bank_a", "label": "Bank A statement"}])
         mode = stat.S_IMODE(self.passwords.path.stat().st_mode)
         self.assertEqual(mode, 0o600)
+        self.assertEqual(self.passwords.path.parent, self.ingestion_dir.resolve())
+        self.assertFalse((self.workspace / "sources" / "document-passwords.toml").exists())
         self.assertNotIn(TEST_DOC_KEY, str(self.passwords.list()))
 
     # =========================================================================
@@ -304,8 +313,8 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(result["status"], "completed")
         self.assertGreater(result["summary"]["lines"], 3)
 
-        # Check extracted markdown artifact
-        extraction_file = list(self.workspace.glob(f"sources/artifacts/{captured['source']['id']}/**/text.md"))
+        # Check extracted markdown artifact in Vault blobs
+        extraction_file = list(self.ingestion_dir.glob(f"blobs/{captured['source']['id']}/**/text.md"))
         self.assertTrue(len(extraction_file) == 1)
         self.assertIn("Hermes Agent ingestion runtime", extraction_file[0].read_text(encoding="utf-8"))
 
@@ -315,7 +324,7 @@ class IngestionTests(unittest.TestCase):
         )
         source = captured["source"]
         new_version_id = "ver_new"
-        new_ref = f"sources/artifacts/{source['id']}/{new_version_id}/original.txt"
+        new_ref = f"blobs/{source['id']}/{new_version_id}/original.txt"
         self.publisher.publish_bytes(new_ref, b"new version")
         source["versions"].append(
             {
@@ -337,7 +346,7 @@ class IngestionTests(unittest.TestCase):
             self.publisher,
         )
         self.assertEqual(result["status"], "completed")
-        old_text = list(self.workspace.glob(f"sources/artifacts/{source['id']}/{captured['version']['id']}/extractions/*/text.md"))[0]
+        old_text = list(self.ingestion_dir.glob(f"blobs/{source['id']}/{captured['version']['id']}/extractions/*/text.md"))[0]
         self.assertEqual(old_text.read_text(encoding="utf-8"), "old version")
 
     def test_csv_fixture_extraction(self):
@@ -362,7 +371,7 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(result["summary"]["rows"], 4)  # header + 3 data rows
 
         # Check extracted JSON tables
-        extraction_file = list(self.workspace.glob(f"sources/artifacts/{captured['source']['id']}/**/tables.json"))
+        extraction_file = list(self.ingestion_dir.glob(f"blobs/{captured['source']['id']}/**/tables.json"))
         self.assertTrue(len(extraction_file) == 1)
         table_data = json.loads(extraction_file[0].read_text(encoding="utf-8"))
         self.assertEqual(table_data["delimiter"], ",")
@@ -390,7 +399,7 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(result["summary"]["sheets"], 2)
 
         # Check extracted JSON sheets
-        extraction_file = list(self.workspace.glob(f"sources/artifacts/{captured['source']['id']}/**/tables.json"))
+        extraction_file = list(self.ingestion_dir.glob(f"blobs/{captured['source']['id']}/**/tables.json"))
         self.assertTrue(len(extraction_file) == 1)
         data = json.loads(extraction_file[0].read_text(encoding="utf-8"))
         sheet_names = [s["name"] for s in data["sheets"]]
@@ -421,7 +430,7 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["summary"]["sheets"], 1)
 
-        extraction_file = list(self.workspace.glob(f"sources/artifacts/{captured['source']['id']}/**/tables.json"))
+        extraction_file = list(self.ingestion_dir.glob(f"blobs/{captured['source']['id']}/**/tables.json"))
         self.assertTrue(len(extraction_file) == 1)
         data = json.loads(extraction_file[0].read_text(encoding="utf-8"))
         self.assertEqual(data["sheets"][0]["name"], "Quarterly")
@@ -449,7 +458,7 @@ class IngestionTests(unittest.TestCase):
         result = self.adapters.process_job(job, self.publisher, self.passwords, None)
         self.assertEqual(result["status"], "completed")
 
-        extraction_file = list(self.workspace.glob(f"sources/artifacts/{captured['source']['id']}/**/tables.json"))
+        extraction_file = list(self.ingestion_dir.glob(f"blobs/{captured['source']['id']}/**/tables.json"))
         self.assertTrue(len(extraction_file) == 1)
         data = json.loads(extraction_file[0].read_text(encoding="utf-8"))
         self.assertEqual(data["sheets"][0]["name"], "Confidential")
@@ -517,7 +526,7 @@ class IngestionTests(unittest.TestCase):
         result = self.adapters.process_job(job, self.publisher, self.passwords, None)
         self.assertEqual(result["status"], "completed")
 
-        extraction_file = list(self.workspace.glob(f"sources/artifacts/{captured['source']['id']}/**/text.md"))
+        extraction_file = list(self.ingestion_dir.glob(f"blobs/{captured['source']['id']}/**/text.md"))
         self.assertTrue(len(extraction_file) == 1)
         self.assertIn("Hermes Agent Ingestion Report", extraction_file[0].read_text(encoding="utf-8"))
 
@@ -542,7 +551,7 @@ class IngestionTests(unittest.TestCase):
         result = self.adapters.process_job(job, self.publisher, self.passwords, None)
         self.assertEqual(result["status"], "completed")
 
-        extraction_file = list(self.workspace.glob(f"sources/artifacts/{captured['source']['id']}/**/text.md"))
+        extraction_file = list(self.ingestion_dir.glob(f"blobs/{captured['source']['id']}/**/text.md"))
         self.assertTrue(len(extraction_file) == 1)
         self.assertIn("Hermes Agent Ingestion Report", extraction_file[0].read_text(encoding="utf-8"))
 
@@ -589,7 +598,7 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(mock_llm.calls[0].get("task"), "openlia_ingestion_ocr")
         self.assertEqual(mock_llm.calls[1].get("task"), "openlia_document_tagger")
 
-        extraction_file = list(self.workspace.glob(f"sources/artifacts/{captured['source']['id']}/**/text.md"))
+        extraction_file = list(self.ingestion_dir.glob(f"blobs/{captured['source']['id']}/**/text.md"))
         self.assertTrue(len(extraction_file) == 1)
         self.assertIn("Scanned Invoice Line Items", extraction_file[0].read_text(encoding="utf-8"))
 
@@ -653,8 +662,8 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(len(mock_llm.calls), 1)
         self.assertEqual(len(published), 1)
         published_text = published[0][6].decode("utf-8")
-        self.assertIn("Text page one", published_text)
-        self.assertIn("OCR page two", published_text)
+        self.assertIn("## Page 1\n\nText page one", published_text)
+        self.assertIn("## Page 2\n\nOCR page two", published_text)
 
     def test_image_png_and_jpg_extraction(self):
         mock_llm = MockVisionLLM(text="OpenLia Visual Capture: Total Due $99.95")
@@ -678,7 +687,7 @@ class IngestionTests(unittest.TestCase):
                 result = self.adapters.process_job(job, self.publisher, self.passwords, mock_llm)
                 self.assertEqual(result["status"], "completed")
 
-                extraction_file = list(self.workspace.glob(f"sources/artifacts/{captured['source']['id']}/**/text.md"))
+                extraction_file = list(self.ingestion_dir.glob(f"blobs/{captured['source']['id']}/**/text.md"))
                 self.assertTrue(len(extraction_file) == 1)
                 self.assertIn("Total Due $99.95", extraction_file[0].read_text(encoding="utf-8"))
 
@@ -749,7 +758,7 @@ class IngestionTests(unittest.TestCase):
             result = self.adapters.process_job(job, self.publisher, self.passwords, None)
 
         self.assertEqual(result["status"], "completed")
-        extraction_file = list(self.workspace.glob(f"sources/artifacts/{captured['source']['id']}/**/transcript.md"))
+        extraction_file = list(self.ingestion_dir.glob(f"blobs/{captured['source']['id']}/**/transcript.md"))
         self.assertTrue(len(extraction_file) == 1)
         transcript_content = extraction_file[0].read_text(encoding="utf-8")
         self.assertIn("Welcome to OpenLia", transcript_content)
@@ -811,7 +820,7 @@ class IngestionTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "completed")
         self.assertTrue(result["extraction_refs"])
-        extraction_file = list(self.workspace.glob(f"sources/artifacts/{captured['source']['id']}/**/transcript.md"))
+        extraction_file = list(self.ingestion_dir.glob(f"blobs/{captured['source']['id']}/**/transcript.md"))
         self.assertTrue(len(extraction_file) == 1)
         transcript = extraction_file[0].read_text(encoding="utf-8")
         self.assertIn("elephants", transcript.lower())
@@ -825,6 +834,10 @@ class IngestionTests(unittest.TestCase):
         runtime = self.runtime_mod.IngestionRuntime(ctx)
         runtime.register_tools()
 
+        # Verify Mid-Session Hijacking tools are removed
+        self.assertNotIn("ingestion_acknowledge", ctx.tools)
+        self.assertNotIn("ingestion_complete_action", ctx.tools)
+
         # 1. ingestion_capture
         fixture_path = self._copy_fixture("sample.csv")
         capture_resp = json.loads(
@@ -834,6 +847,7 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(capture_resp["state"], "queued")
         job_id = capture_resp["job_id"]
         intake_id = capture_resp["intake_id"]
+        source_id = capture_resp["source_id"]
 
         # 2. ingestion_status
         status_resp = json.loads(runtime.status({"job_id": job_id}))
@@ -842,27 +856,21 @@ class IngestionTests(unittest.TestCase):
 
         # 3. Simulate worker execution
         job = self.queue.claim("test-tool-worker")
-        result = self.adapters.process_job(job, self.publisher, self.passwords, None)
+        result = self.adapters.process_job(job, self.publisher, self.passwords, None, db=self.queue)
         event_id = self.queue.finish(job, result)
         self.assertIsNotNone(event_id)
 
-        # 4. Status after completion
+        # 4. Status after completion (by intake_id and source_id)
         status_after = json.loads(runtime.status({"intake_id": intake_id}))
         self.assertEqual(status_after["state"], "completed")
+        status_by_source = json.loads(runtime.status({"source_id": source_id}))
+        self.assertEqual(status_by_source["state"], "completed")
 
-        # 5. ingestion_acknowledge
-        ack_resp = json.loads(
-            runtime.acknowledge({"event_id": event_id, "intake_id": intake_id, "action_id": "act_test_1"})
-        )
-        self.assertTrue(ack_resp["ok"])
-        self.assertTrue(ack_resp["acknowledged"])
-
-        # 6. ingestion_complete_action
-        complete_resp = json.loads(
-            runtime.complete_action({"action_id": "act_test_1", "record_refs": ["knowledge/note.md"]})
-        )
-        self.assertTrue(complete_resp["ok"])
-        self.assertTrue(complete_resp["completed"])
+        # 5. Pull-based reference lookup via ingestion_get_document
+        doc_resp = json.loads(runtime.get_document({"source_id": source_id}))
+        self.assertTrue(doc_resp["ok"])
+        self.assertEqual(doc_resp["document"]["id"], source_id)
+        self.assertFalse((self.workspace / "sources").exists())
 
     def test_runtime_publishes_sanitized_live_status_snapshot(self):
         runtime = self.runtime_mod.IngestionRuntime(MockHermesContext())
@@ -954,10 +962,9 @@ class IngestionTests(unittest.TestCase):
         self.assertTrue(retry_resp["ok"])
         self.assertEqual(retry_resp["state"], "queued")
 
-
     def test_search_tagging_and_references(self):
         references_mod = sys.modules[f"{self.package}.references"]
-        
+
         # 1. Capture document
         captured = self.publisher.capture(
             {"kind": "text", "title": "Contract Agreement", "content": "Quarterly Financial Agreement for ACME Corp revenue audit"}
@@ -989,15 +996,18 @@ class IngestionTests(unittest.TestCase):
             "text",
             "text/markdown",
             ".md",
-            b"latest extraction content",
+            b"## Page 1\n\nFirst page content\n\n## Page 2\n\nSecond page content",
             {"complete": True},
         )
-        latest_doc = json.loads(
-            self.runtime_mod.IngestionRuntime(MockHermesContext()).get_document(
-                {"source_id": source_id}
-            )
-        )
-        self.assertEqual(latest_doc["content"], "latest extraction content")
+        runtime_inst = self.runtime_mod.IngestionRuntime(MockHermesContext())
+        latest_doc = json.loads(runtime_inst.get_document({"source_id": source_id}))
+        self.assertIn("First page content", latest_doc["content"])
+
+        # Test page slicing
+        page_2_doc = json.loads(runtime_inst.get_document({"source_id": source_id, "page": 2}))
+        self.assertEqual(page_2_doc["page"], 2)
+        self.assertIn("Second page content", page_2_doc["content"])
+        self.assertNotIn("First page content", page_2_doc["content"])
 
         # 3. Reference builder & parser
         uri = references_mod.build_source_uri(source_id, version_id, page=2)
@@ -1048,18 +1058,20 @@ class IngestionTests(unittest.TestCase):
         self.assertTrue(tool_tag_resp["ok"])
         self.assertIn("audit_2026", tool_tag_resp["tags"])
 
-        # ingestion_update_document tool
+        # ingestion_update_document tool (including custom_fields)
         tool_update_resp = json.loads(runtime.update_document({
             "source_id": source_id,
             "correspondent": "ACME Corp",
             "document_type": "contract",
+            "custom_fields": {"invoice_number": "INV-9001", "total_amount": 1250.50, "currency": "USD"},
             "review": {"status": "reviewed", "reasons": []}
         }))
         self.assertTrue(tool_update_resp["ok"])
         self.assertEqual(tool_update_resp["document"]["correspondent"], "ACME Corp")
         self.assertEqual(tool_update_resp["document"]["document_type"], "contract")
+        self.assertEqual(tool_update_resp["document"]["custom_fields"]["invoice_number"], "INV-9001")
         self.assertEqual(tool_update_resp["document"]["review"]["status"], "reviewed")
-        self.assertEqual(self.queue.search_sources(query="revenue audit")["total"], 1)
+        self.assertEqual(self.queue.search_sources(query="INV-9001")["total"], 1)
 
         # ingestion_get_document tool
         tool_get_resp = json.loads(runtime.get_document({"source_id": source_id}))
@@ -1069,6 +1081,451 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(len(tool_get_resp["document"]["backlinks"]), 1)
         self.assertEqual(tool_get_resp["document"]["backlinks"][0]["path"], "tasks/audit-task.md")
         self.assertTrue(len(tool_get_resp["document"]["extractions"]) >= 1)
+
+    def test_custom_fields_extraction_and_standalone_http_sidecar(self):
+        server_mod = sys.modules[f"{self.package}.server"]
+        sidecar = server_mod.IngestionSidecarServer(
+            self.ingestion_dir,
+            workspace_root=self.workspace,
+            host="127.0.0.1",
+            port=0,
+            start_workers=False,
+        )
+        base_url = sidecar.start()
+        service = sidecar.service
+        try:
+            # 1. Health check
+            with urllib.request.urlopen(f"{base_url}/health", timeout=5) as resp:
+                health = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(health["ok"])
+
+            # 2. Upload invoice text via HTTP sidecar
+            invoice_text = "INVOICE #INV-2026-77\nVendor: CloudHost Inc\nTotal Due: $420.00\nDue Date: 2026-11-15\n"
+            req = urllib.request.Request(
+                f"{base_url}/v1/sources/upload",
+                data=json.dumps({
+                    "filename": "invoice-77.txt",
+                    "title": "CloudHost Invoice",
+                    "content": invoice_text,
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                uploaded = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(uploaded["ok"])
+                source_id = uploaded["source_id"]
+
+            # 3. Process the queued job
+            job = service.queue.claim("sidecar-worker")
+            self.assertIsNotNone(job)
+            result = self.adapters.process_job(job, service.vault, service.passwords, None, db=service.queue)
+            service.queue.finish(job, result)
+
+            # 4. Verify heuristic custom_fields were extracted and indexed
+            with urllib.request.urlopen(f"{base_url}/v1/sources/{source_id}", timeout=5) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+                doc = payload.get("document") or payload
+                self.assertEqual(doc["id"], source_id)
+                self.assertEqual(doc["custom_fields"].get("invoice_number"), "INV-2026-77")
+                self.assertEqual(doc["custom_fields"].get("due_date"), "2026-11-15")
+                self.assertEqual(doc["custom_fields"].get("total_amount"), 420.0)
+
+            # 5. Verify HTTP Range streaming on /v1/sources/{id}/raw
+            range_req = urllib.request.Request(
+                f"{base_url}/v1/sources/{source_id}/raw",
+                headers={"Range": "bytes=0-6"},
+                method="GET",
+            )
+            with urllib.request.urlopen(range_req, timeout=5) as resp:
+                self.assertEqual(resp.status, 206)
+                self.assertEqual(resp.read(), b"INVOICE")
+
+            # 6. Verify remote proxy mode via OPENLIA_INGESTION_URL
+            with patch.dict(os.environ, {"OPENLIA_INGESTION_URL": base_url}):
+                proxy_runtime = self.runtime_mod.IngestionRuntime(MockHermesContext())
+                search_payload = json.loads(proxy_runtime.search({"query": "INV-2026-77"}))
+                self.assertTrue(search_payload["ok"])
+                self.assertEqual(search_payload["total"], 1)
+                self.assertEqual(search_payload["matches"][0]["source_id"], source_id)
+        finally:
+            sidecar.stop()
+
+    def test_legacy_workspace_sources_migration(self):
+        # Create a legacy workspace source record + artifact
+        legacy_records = self.workspace / "sources" / "records"
+        legacy_artifacts = self.workspace / "sources" / "artifacts" / "src_legacy01" / "ver_001"
+        legacy_records.mkdir(parents=True, exist_ok=True)
+        legacy_artifacts.mkdir(parents=True, exist_ok=True)
+        (legacy_artifacts / "original.txt").write_text("Legacy statement body", encoding="utf-8")
+        legacy_doc = {
+            "schema": 1,
+            "id": "src_legacy01",
+            "kind": "text",
+            "title": "Legacy Statement",
+            "status": "extracted",
+            "captured_at": "2026-10-01T00:00:00Z",
+            "versions": [
+                {
+                    "id": "ver_001",
+                    "original_ref": "sources/artifacts/src_legacy01/ver_001/original.txt",
+                    "media_type": "text/plain",
+                    "extractions": [],
+                }
+            ],
+        }
+        (legacy_records / "src_legacy01.md").write_text(
+            f"# Legacy Statement\n\n```json\n{json.dumps(legacy_doc, indent=2)}\n```\n",
+            encoding="utf-8",
+        )
+        migrated_vault_dir = self.root / "migrated-vault"
+        vault = self.publication.VaultStore(migrated_vault_dir, workspace_root=self.workspace)
+        loaded = vault.load_source("src_legacy01")
+        self.assertEqual(loaded["title"], "Legacy Statement")
+        blob_path = vault.resolve_blob_path(loaded["versions"][0]["original_ref"])
+        self.assertTrue(blob_path.exists())
+        self.assertEqual(blob_path.read_text(encoding="utf-8"), "Legacy statement body")
+
+    def test_password_profile_metadata_and_source_fallback(self):
+        # 1. Test saving profile with description, hint, and patterns
+        saved = self.passwords.save(
+            "bank_vault",
+            "Acme Bank Statements",
+            TEST_DOC_KEY,
+            description="Used for monthly Acme Bank checking statements",
+            hint="Last 4 digits of SSN (1234)",
+            patterns=["*protected*", "*acme*"],
+        )
+        self.assertEqual(saved["profile_id"], "bank_vault")
+        self.assertEqual(saved["hint"], "Last 4 digits of SSN (1234)")
+        self.assertEqual(saved["patterns"], ["*protected*", "*acme*"])
+
+        # Verify list() returns metadata without revealing the password
+        profiles = self.passwords.list()
+        target = next((p for p in profiles if p["profile_id"] == "bank_vault"), None)
+        self.assertIsNotNone(target)
+        self.assertEqual(target["label"], "Acme Bank Statements")
+        self.assertEqual(target["hint"], "Last 4 digits of SSN (1234)")
+        self.assertEqual(target["description"], "Used for monthly Acme Bank checking statements")
+        self.assertEqual(target["patterns"], ["*protected*", "*acme*"])
+        self.assertNotIn("password", target)
+
+        # 2. Test fallback: job does NOT have password_profile, but source DOES have password_profile
+        fixture_path = self._copy_fixture("sample_protected.pdf")
+        captured = self.publisher.capture(
+            {"kind": "pdf", "title": "Encrypted PDF", "file_path": str(fixture_path), "password_profile": "bank_vault"}
+        )
+        # Intentionally omit password_profile from job submit
+        self.queue.submit(
+            {
+                "idempotency_key": "job-pdf-source-fallback",
+                "intake_id": captured["intake"]["intake_id"],
+                "source_id": captured["source"]["id"],
+                "version_id": captured["version"]["id"],
+                "operation": "extract",
+                "continuation": {},
+            }
+        )
+        job = self.queue.claim("worker-pdf-fallback")
+        self.assertIsNone(job.get("password_profile"))
+        result = self.adapters.process_job(job, self.publisher, self.passwords, None)
+        self.assertEqual(result["status"], "completed")
+
+        extraction_file = list(self.ingestion_dir.glob(f"blobs/{captured['source']['id']}/**/text.md"))
+        self.assertEqual(len(extraction_file), 1)
+        self.assertIn("Hermes Agent Ingestion Report", extraction_file[0].read_text(encoding="utf-8"))
+
+    def test_password_suggestion_and_metadata_preserving_update(self):
+        self.passwords.save(
+            "vcb_statement",
+            "Vietcombank Statements",
+            TEST_DOC_KEY,
+            description="Monthly Vietcombank credit card and checking PDF statements",
+            hint="6-digit DOB DDMMYY",
+            patterns=["*VCB*.pdf", "*vietcombank*"],
+        )
+        self.passwords.save(
+            "payroll_slip",
+            "Company Payslip",
+            "secret-pay",
+            description="Monthly salary payslip from HR portal",
+            hint="Employee ID + birth year",
+            patterns=["*payslip*.pdf"],
+        )
+
+        # 1. Exact glob match
+        glob_matches = self.passwords.suggest(filename="2026_10_VCB_CreditCard.pdf")
+        self.assertGreaterEqual(len(glob_matches), 1)
+        self.assertEqual(glob_matches[0]["profile_id"], "vcb_statement")
+        self.assertGreaterEqual(glob_matches[0]["score"], 80)
+
+        # 2. Levenshtein fuzzy match on typo in correspondent/title
+        fuzzy_matches = self.passwords.suggest(
+            filename="statement_oct.pdf",
+            correspondent="Vietcombnk",
+            message="Please check my credit card statement",
+        )
+        self.assertGreaterEqual(len(fuzzy_matches), 1)
+        self.assertEqual(fuzzy_matches[0]["profile_id"], "vcb_statement")
+        self.assertGreaterEqual(fuzzy_matches[0]["score"], 40)
+
+        # 3. Keyword overlap on message/description
+        kw_matches = self.passwords.suggest(
+            filename="doc_001.pdf",
+            message="Here is my monthly salary payslip from HR",
+        )
+        self.assertGreaterEqual(len(kw_matches), 1)
+        self.assertEqual(kw_matches[0]["profile_id"], "payroll_slip")
+
+        # 4. Metadata-only update (password=None) preserves secret and existing fields
+        updated = self.passwords.save(
+            "vcb_statement",
+            "VCB Updated Label",
+            None,
+            hint="Updated safe hint",
+        )
+        self.assertEqual(updated["label"], "VCB Updated Label")
+        self.assertEqual(updated["hint"], "Updated safe hint")
+        self.assertEqual(
+            updated["description"],
+            "Monthly Vietcombank credit card and checking PDF statements",
+        )
+        self.assertEqual(updated["patterns"], ["*VCB*.pdf", "*vietcombank*"])
+        self.assertEqual(self.passwords.resolve("vcb_statement"), TEST_DOC_KEY)
+
+        # 5. Delete profile
+        self.assertTrue(self.passwords.delete("payroll_slip"))
+        self.assertFalse(self.passwords.delete("payroll_slip"))
+        remaining_ids = [p["profile_id"] for p in self.passwords.list()]
+        self.assertEqual(remaining_ids, ["vcb_statement"])
+
+    def test_embedded_single_turn_capture_auto_unlock_and_page_outline(self):
+        ctx = MockHermesContext()
+        runtime = self.runtime_mod.IngestionRuntime(ctx)
+        self.passwords.save(
+            "protected_pdf_key",
+            "Protected Report Key",
+            TEST_DOC_KEY,
+            description="Password for sample_protected.pdf reports",
+            hint="Default test key",
+            patterns=["*sample_protected*"],
+        )
+
+        # 1. Capture without auto_unlock and wait_seconds=5 -> awaiting-unlock with password_suggestions
+        fixture_1 = self._copy_fixture("sample_protected.pdf")
+        locked_target = self.root / "sample_protected_locked.pdf"
+        shutil.copy2(fixture_1, locked_target)
+        res_locked = json.loads(
+            runtime.capture(
+                {
+                    "kind": "pdf",
+                    "file_path": str(locked_target),
+                    "title": "Locked PDF Report",
+                    "wait_seconds": 5,
+                    "auto_unlock": False,
+                }
+            )
+        )
+        self.assertTrue(res_locked["ok"])
+        self.assertEqual(res_locked["state"], "awaiting-unlock")
+        self.assertTrue(len(res_locked.get("password_suggestions") or []) >= 1)
+        self.assertEqual(
+            res_locked["password_suggestions"][0]["profile_id"], "protected_pdf_key"
+        )
+
+        # 2. Retry with password profile and wait_seconds=5 -> completed in single turn
+        res_retried = json.loads(
+            runtime.retry_with_password(
+                {
+                    "source_id": res_locked["source_id"],
+                    "profile_id": "protected_pdf_key",
+                    "wait_seconds": 5,
+                }
+            )
+        )
+        self.assertTrue(res_retried["ok"])
+        self.assertEqual(res_retried["state"], "completed")
+        self.assertIn("openlia://source/", res_retried["canonical_uri"])
+
+        # 3. Capture with auto_unlock=True and wait_seconds=5 -> unlocked & completed in single call
+        fixture_2 = self._copy_fixture("sample_protected.pdf")
+        res_auto = json.loads(
+            runtime.capture(
+                {
+                    "kind": "pdf",
+                    "file_path": str(fixture_2),
+                    "title": "Auto Unlocked PDF",
+                    "wait_seconds": 5,
+                    "auto_unlock": True,
+                }
+            )
+        )
+        self.assertTrue(res_auto["ok"])
+        self.assertEqual(res_auto["state"], "completed")
+        self.assertEqual(
+            res_auto.get("auto_selected_password_profile"), "protected_pdf_key"
+        )
+
+        # 4. Multi-page document outline and max_chars slicing
+        multipage_md = (
+            "## Page 1\nFirst page intro and summary details.\n\n"
+            "## Page 2\nSecond page transaction table and balances.\n"
+        )
+        res_multi = json.loads(
+            runtime.capture(
+                {
+                    "kind": "text",
+                    "title": "Multi-page Statement",
+                    "content": multipage_md,
+                    "wait_seconds": 5,
+                }
+            )
+        )
+        self.assertEqual(res_multi["state"], "completed")
+        doc_res = json.loads(
+            runtime.get_document({"source_id": res_multi["source_id"], "page": 2})
+        )
+        self.assertTrue(doc_res["ok"])
+        self.assertEqual(doc_res["page_count"], 2)
+        self.assertEqual(len(doc_res["page_outline"]), 2)
+        self.assertEqual(doc_res["page_outline"][0]["page"], 1)
+        self.assertEqual(doc_res["page_outline"][1]["page"], 2)
+        self.assertIn("Second page transaction table", doc_res["content"])
+        self.assertNotIn("First page intro", doc_res["content"])
+
+    def test_standalone_remote_full_tool_parity_and_bearer_auth(self):
+        server_mod = sys.modules[f"{self.package}.server"]
+        remote_vault_dir = self.root / "remote-standalone-vault"
+        remote_vault_dir.mkdir(parents=True, exist_ok=True)
+        token = "standalone-secret-token-999"
+
+        sidecar = server_mod.IngestionSidecarServer(
+            remote_vault_dir,
+            workspace_root=None,
+            host="127.0.0.1",
+            port=0,
+            start_workers=True,
+            auth_token=token,
+        )
+        base_url = sidecar.start()
+        try:
+            # 1. Health endpoint is public, but /v1/* requires Bearer token
+            with urllib.request.urlopen(f"{base_url}/health", timeout=5) as resp:
+                self.assertEqual(resp.status, 200)
+
+            unauth_req = urllib.request.Request(f"{base_url}/v1/passwords", method="GET")
+            with self.assertRaises(urllib.error.HTTPError) as ctx_err:
+                urllib.request.urlopen(unauth_req, timeout=5)
+            self.assertEqual(ctx_err.exception.code, 401)
+
+            # 2. Initialize Hermes plugin in Remote Proxy Mode
+            with patch.dict(
+                os.environ,
+                {
+                    "OPENLIA_INGESTION_URL": base_url,
+                    "OPENLIA_INGESTION_TOKEN": token,
+                },
+            ):
+                proxy_runtime = self.runtime_mod.IngestionRuntime(MockHermesContext())
+                self.assertEqual(proxy_runtime.threads, [])
+
+                # Save, list, suggest passwords over HTTP
+                save_pw = json.loads(
+                    proxy_runtime.save_password(
+                        {
+                            "profile_id": "remote_bank",
+                            "label": "Remote Bank Key",
+                            "password": TEST_DOC_KEY,
+                            "description": "Remote standalone PDF unlock key",
+                            "hint": "Remote test key",
+                            "patterns": ["*sample_protected*"],
+                        }
+                    )
+                )
+                self.assertTrue(save_pw["ok"])
+
+                list_pw = json.loads(proxy_runtime.list_passwords({}))
+                self.assertTrue(list_pw["ok"])
+                self.assertEqual(len(list_pw["profiles"]), 1)
+
+                suggest_pw = json.loads(
+                    proxy_runtime.suggest_passwords({"filename": "sample_protected.pdf"})
+                )
+                self.assertTrue(suggest_pw["ok"])
+                self.assertEqual(suggest_pw["suggestions"][0]["profile_id"], "remote_bank")
+
+                # Capture local file from Hermes host -> remote standalone server with auto_unlock + wait_seconds
+                fixture_path = self._copy_fixture("sample_protected.pdf")
+                capture_res = json.loads(
+                    proxy_runtime.capture(
+                        {
+                            "kind": "pdf",
+                            "file_path": str(fixture_path),
+                            "title": "Remote Protected PDF",
+                            "wait_seconds": 10,
+                            "auto_unlock": True,
+                        }
+                    )
+                )
+                self.assertTrue(capture_res["ok"])
+                self.assertEqual(capture_res["state"], "completed")
+                source_id = capture_res["source_id"]
+
+                # Create local workspace file citing the remote source_id to verify local backlink merging
+                tasks_dir = self.workspace / "tasks"
+                tasks_dir.mkdir(parents=True, exist_ok=True)
+                (tasks_dir / "verify-remote.md").write_text(
+                    f"# Verify Remote Source\nSee [PDF](openlia://source/{source_id}).\n",
+                    encoding="utf-8",
+                )
+
+                doc_res = json.loads(proxy_runtime.get_document({"source_id": source_id}))
+                self.assertTrue(doc_res["ok"])
+                self.assertIn("Hermes Agent Ingestion Report", doc_res["content"])
+                self.assertEqual(len(doc_res["backlinks"]), 1)
+                self.assertEqual(doc_res["backlinks"][0]["path"], "tasks/verify-remote.md")
+
+                # Tag, update, status, search, delete_password, recover over HTTP
+                tag_res = json.loads(
+                    proxy_runtime.tag_document(
+                        {"source_id": source_id, "add_tags": ["finance", "remote_ok"]}
+                    )
+                )
+                self.assertTrue(tag_res["ok"])
+                self.assertIn("remote_ok", tag_res["tags"])
+
+                upd_res = json.loads(
+                    proxy_runtime.update_document(
+                        {
+                            "source_id": source_id,
+                            "correspondent": "Remote Bank Corp",
+                            "review": {"status": "reviewed", "reasons": []},
+                        }
+                    )
+                )
+                self.assertTrue(upd_res["ok"])
+                self.assertEqual(upd_res["document"]["correspondent"], "Remote Bank Corp")
+
+                status_res = json.loads(proxy_runtime.status({"source_id": source_id}))
+                self.assertTrue(status_res["ok"])
+                self.assertEqual(status_res["state"], "completed")
+
+                search_res = json.loads(
+                    proxy_runtime.search({"query": "Hermes", "tags": ["remote_ok"]})
+                )
+                self.assertTrue(search_res["ok"])
+                self.assertEqual(search_res["total"], 1)
+
+                del_pw = json.loads(
+                    proxy_runtime.delete_password({"profile_id": "remote_bank"})
+                )
+                self.assertTrue(del_pw["ok"])
+                self.assertTrue(del_pw["deleted"])
+
+                rec_res = json.loads(proxy_runtime.recover({}))
+                self.assertTrue(rec_res["ok"])
+        finally:
+            sidecar.stop()
 
 
 if __name__ == "__main__":

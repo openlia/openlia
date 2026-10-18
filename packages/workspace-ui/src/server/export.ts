@@ -1,13 +1,13 @@
-import { crc32, deflateRawSync } from "node:zlib";
 import type { Dirent, Stats } from "node:fs";
 import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
+import { crc32, deflateRawSync } from "node:zlib";
+import { MEMORY_FILENAMES } from "../shared/memory";
 import {
   DEFAULT_MAX_DOWNLOAD_BYTES,
   protectedPath,
   WorkspaceError,
 } from "./workspace";
-import { MEMORY_FILENAMES } from "../shared/memory";
 
 export interface ZipArchiveEntry {
   path: string;
@@ -19,6 +19,7 @@ export interface ExportArchiveOptions {
   workspaceRoot: string;
   skillsRoot: string;
   memoriesRoot?: string | undefined;
+  ingestionRoot?: string | undefined;
   maxDownloadBytes?: number | undefined;
 }
 
@@ -71,6 +72,11 @@ function isPortableExportExcludedPath(path: string): boolean {
     basename === "claude.md" ||
     basename === ".cursorrules" ||
     basename === "auth.json" ||
+    basename.endsWith("-shm") ||
+    basename.endsWith(".lock") ||
+    basename.endsWith(".sock") ||
+    basename.endsWith(".tmp") ||
+    basename.endsWith(".pid") ||
     normalized.includes(".secret") ||
     basename.endsWith(".pem") ||
     basename.endsWith(".key") ||
@@ -343,6 +349,9 @@ export function exportArchive(options: ExportArchiveOptions): Uint8Array {
   collectFiles(workspaceRoot, "workspace");
   collectFiles(skillsRoot, "skills");
   collectMemoryFiles(options.memoriesRoot);
+  if (options.ingestionRoot) {
+    collectFiles(options.ingestionRoot, "ingestion");
+  }
 
   entries.sort((a, b) => a.path.localeCompare(b.path));
   return createZipArchive(entries);

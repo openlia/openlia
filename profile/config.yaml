@@ -53,7 +53,7 @@ plugins:
   hook_callback_timeout: 30
   entries:
     openlia-ingestion:
-      allow_gateway_injection: true
+      allow_gateway_injection: false
       settings:
         max_concurrent_jobs: ${OPENLIA_INGESTION_MAX_CONCURRENT_JOBS}
 

@@ -51,7 +51,7 @@ class PolicyPluginTests(unittest.TestCase):
             )
         )
 
-    def test_patch_update_is_allowed_but_direct_overwrite_is_denied(self):
+    def test_patch_update_is_allowed_but_direct_overwrite_requires_approval(self):
         policy = self.policy
         target = self.workspace / "travel" / "kyoto-trip.md"
         target.write_text("existing\n", encoding="utf-8")
@@ -59,7 +59,7 @@ class PolicyPluginTests(unittest.TestCase):
         overwrite = policy.pre_tool_call(
             "write_file", {"path": "travel/kyoto-trip.md", "content": "replacement"}
         )
-        self.assertEqual(overwrite["action"], "block")
+        self.assertEqual(overwrite["action"], "approve")
         self.assertIn("overwrite_records", overwrite["message"])
 
         patch = policy.pre_tool_call(
@@ -149,3 +149,18 @@ class PolicyPluginTests(unittest.TestCase):
         decision = self.policy.pre_tool_call("skill_manage", {"action": "patch"})
         self.assertEqual(decision["action"], "approve")
         self.assertEqual(decision["rule_key"], "openlia.policy.unknown_mutation")
+
+    def test_ingestion_password_tools_policy_classification(self):
+        self.assertIsNone(
+            self.policy.pre_tool_call("list_document_password_profiles", {})
+        )
+        self.assertIsNone(
+            self.policy.pre_tool_call(
+                "ingestion_suggest_passwords", {"filename": "statement.pdf"}
+            )
+        )
+        del_decision = self.policy.pre_tool_call(
+            "delete_document_password_profile", {"profile_id": "old_profile"}
+        )
+        self.assertEqual(del_decision["action"], "approve")
+        self.assertEqual(del_decision["rule_key"], "openlia.policy.delete_records")

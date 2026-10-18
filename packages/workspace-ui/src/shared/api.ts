@@ -285,8 +285,12 @@ export interface SourceProcessingState {
     | "processing"
     | "complete"
     | "partial"
+    | "awaiting-unlock"
+    | "waiting-for-password"
+    | "retryable-failure"
     | "failed";
   last_job_id?: string | null;
+  error?: string | null;
   error_code?: string | null;
   error_summary?: string | null;
 }
@@ -316,6 +320,7 @@ export interface SourceDocument {
   review: SourceReviewState;
   lifecycle: "active" | "archived";
   captured_at: string;
+  password_profile?: string | null;
   origin?: Record<string, unknown>;
   versions: Array<Record<string, unknown>>;
   custom_fields?: Record<string, unknown>;
@@ -367,6 +372,7 @@ export interface SourceUpdateRequest {
   document_date?: string | null;
   tags?: string[];
   summary?: string | null;
+  password_profile?: string | null;
   review?: {
     status?: "unreviewed" | "needs-review" | "reviewed";
     reasons?: string[];
@@ -382,6 +388,53 @@ export interface SourceUploadResponse {
   version_id: string;
   job_id: string;
   title: string;
+}
+
+export interface DocumentPasswordProfile {
+  profile_id: string;
+  label: string;
+  description?: string | undefined;
+  hint?: string | undefined;
+  patterns?: string[] | undefined;
+}
+
+export interface PasswordSuggestion {
+  profile: DocumentPasswordProfile;
+  score: number;
+  match_reasons: string[];
+}
+
+export interface DocumentPasswordListResponse {
+  schema: 1;
+  ok: boolean;
+  profiles: DocumentPasswordProfile[];
+}
+
+export interface DocumentPasswordSuggestResponse {
+  schema: 1;
+  ok: boolean;
+  suggestions: PasswordSuggestion[];
+}
+
+export interface DocumentPasswordDeleteResponse {
+  schema: 1;
+  ok: boolean;
+  deleted?: string | undefined;
+}
+
+export interface SourceRetryRequest {
+  password_profile?: string | undefined;
+  profile_id?: string | undefined;
+  label?: string | undefined;
+  password?: string | undefined;
+}
+
+export interface SourceRetryResponse {
+  schema: 1;
+  ok: boolean;
+  source_id: string;
+  job_id: string;
+  state: string;
 }
 
 export interface FirebaseClientConfig {

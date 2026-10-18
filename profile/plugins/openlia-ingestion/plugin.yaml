@@ -1,17 +1,17 @@
 name: openlia-ingestion
-version: 1.0.0
-description: Durable OpenLia source capture, extraction, and continuation queue.
+version: 2.0.0
+description: Standalone OpenLia Document Vault, OCR/table extraction queue, and reference service.
 manifest_version: 2
 api_version: 1
 provides_tools:
   - ingestion_capture
   - ingestion_status
   - ingestion_retry
-  - ingestion_acknowledge
-  - ingestion_complete_action
   - ingestion_recover
   - save_document_password
   - list_document_password_profiles
+  - delete_document_password_profile
+  - ingestion_suggest_passwords
   - retry_ingestion_with_password_profile
   - ingestion_search
   - ingestion_get_document

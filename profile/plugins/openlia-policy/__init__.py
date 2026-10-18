@@ -53,6 +53,8 @@ _READ_ONLY_TOOLS = {
     "ingestion_search",
     "ingestion_get_document",
     "ingestion_status",
+    "list_document_password_profiles",
+    "ingestion_suggest_passwords",
 }
 _READ_ONLY_COMMANDS = {
     "basename",
@@ -592,13 +594,21 @@ class PolicyEnforcer:
 
         if tool_name in {"write_file", "patch"}:
             return self._workspace_tool_decision(authority, tool_name, args, scheduled)
+        if tool_name == "delete_document_password_profile":
+            if authority.policy is not None and not _policy_path_allowed(
+                authority, "sources/document-passwords.toml"
+            ):
+                return _block(
+                    "OpenLia policy blocked deletion outside allowed domains: sources/document-passwords.toml."
+                )
+            return self._destructive_action(
+                authority, "delete_records", "sources/document-passwords.toml"
+            )
         if tool_name in {
             "ingestion_capture",
             "save_document_password",
             "ingestion_retry",
             "retry_ingestion_with_password_profile",
-            "ingestion_acknowledge",
-            "ingestion_complete_action",
             "ingestion_recover",
             "ingestion_update_document",
             "ingestion_tag",

@@ -1,7 +1,9 @@
 package operator
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"io"
@@ -281,5 +283,123 @@ func TestBackupScheduleTickCoalescesMissedRuns(t *testing.T) {
 	}
 	if _, ran, err := BackupScheduleTick(context.Background(), config, now); err != nil || ran {
 		t.Fatalf("second BackupScheduleTick() = ran %t, err %v; want coalesced/no duplicate", ran, err)
+	}
+}
+
+func TestDurableBackupIncludesAndRestoresIngestionVault(t *testing.T) {
+	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
+	for _, directory := range []string{config.DataRoot, config.MetaRoot, config.BackupRoot} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ingestionDir := filepath.Join(config.DataRoot, "ingestion")
+	blobDir := filepath.Join(ingestionDir, "blobs", "src_test", "ver_001")
+	if err := os.MkdirAll(blobDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	vaultBytes := []byte("sqlite database content")
+	walBytes := []byte("sqlite wal content")
+	shmBytes := []byte("transient shm content")
+	pdfBytes := []byte("%PDF-1.4 test binary original")
+	passwordsBytes := []byte("[profiles.statement_pin]\nlabel = \"Statement PIN\"\npassword = \"secret\"\n")
+
+	if err := os.WriteFile(filepath.Join(ingestionDir, "vault.sqlite"), vaultBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ingestionDir, "vault.sqlite-wal"), walBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ingestionDir, "vault.sqlite-shm"), shmBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ingestionDir, "ingestion.lock"), []byte("lock"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(blobDir, "original.pdf"), pdfBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ingestionDir, "document-passwords.toml"), passwordsBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	archive, identity := createTestEncryptedBackup(t, &config, "vault-test", time.Now())
+
+	// Inspect decrypted plain tar
+	plainPath := decryptTestBackup(t, config.BackupRoot, archive.Archive, identity)
+	manifest, err := inspectRestoreArchive(plainPath)
+	if err != nil {
+		t.Fatalf("inspectRestoreArchive failed: %v", err)
+	}
+	for _, excl := range manifest.Exclusions {
+		if excl == "ingestion-runtime" {
+			t.Errorf("manifest exclusions still contains ingestion-runtime")
+		}
+	}
+
+	// Verify tar contents
+	members := make(map[string]bool)
+	file, err := os.Open(plainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decompressor, err := gzip.NewReader(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := tar.NewReader(decompressor)
+	for {
+		header, readErr := reader.Next()
+		if readErr != nil {
+			break
+		}
+		members[header.Name] = true
+	}
+	_ = decompressor.Close()
+	_ = file.Close()
+
+	if !members["hermes/ingestion/vault.sqlite"] {
+		t.Errorf("archive missing hermes/ingestion/vault.sqlite")
+	}
+	if !members["hermes/ingestion/vault.sqlite-wal"] {
+		t.Errorf("archive missing hermes/ingestion/vault.sqlite-wal")
+	}
+	if !members["hermes/ingestion/blobs/src_test/ver_001/original.pdf"] {
+		t.Errorf("archive missing hermes/ingestion/blobs/src_test/ver_001/original.pdf")
+	}
+	if !members["hermes/ingestion/document-passwords.toml"] {
+		t.Errorf("archive missing hermes/ingestion/document-passwords.toml")
+	}
+	if members["hermes/ingestion/vault.sqlite-shm"] {
+		t.Errorf("archive should not contain vault.sqlite-shm")
+	}
+	if members["hermes/ingestion/ingestion.lock"] {
+		t.Errorf("archive should not contain ingestion.lock")
+	}
+
+	// Corrupt current ingestion files
+	if err := os.WriteFile(filepath.Join(ingestionDir, "vault.sqlite"), []byte("corrupted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(filepath.Join(blobDir, "original.pdf"))
+	_ = os.Remove(filepath.Join(ingestionDir, "document-passwords.toml"))
+
+	// Restore and assert
+	if _, err := restoreTestEncryptedBackup(t, config, archive.Archive, identity, time.Now()); err != nil {
+		t.Fatalf("restoreTestEncryptedBackup failed: %v", err)
+	}
+
+	restoredVault, err := os.ReadFile(filepath.Join(ingestionDir, "vault.sqlite"))
+	if err != nil || !bytes.Equal(restoredVault, vaultBytes) {
+		t.Fatalf("vault.sqlite mismatch after restore: got %q, want %q", restoredVault, vaultBytes)
+	}
+	restoredPDF, err := os.ReadFile(filepath.Join(blobDir, "original.pdf"))
+	if err != nil || !bytes.Equal(restoredPDF, pdfBytes) {
+		t.Fatalf("original.pdf mismatch after restore: got %q, want %q", restoredPDF, pdfBytes)
+	}
+	restoredPasswords, err := os.ReadFile(filepath.Join(ingestionDir, "document-passwords.toml"))
+	if err != nil || !bytes.Equal(restoredPasswords, passwordsBytes) {
+		t.Fatalf("document-passwords.toml mismatch after restore: got %q, want %q", restoredPasswords, passwordsBytes)
 	}
 }

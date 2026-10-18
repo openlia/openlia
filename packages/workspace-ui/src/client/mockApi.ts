@@ -1,7 +1,14 @@
 import type {
   AuthLoginResponse,
   AuthSessionResponse,
+  DocumentPasswordProfile,
+  DocumentPasswordSuggestResponse,
+  IngestionDetailResponse,
+  IngestionOverviewResponse,
   SkillDetail,
+  SourceDocument,
+  SourceSearchResponse,
+  SourceUploadResponse,
   WorkspaceActivityResponse,
   WorkspaceDeleteResponse,
   WorkspaceDiagnosticsResponse,
@@ -18,18 +25,14 @@ import type {
   WorkspaceTreeEntry,
   WorkspaceTreeResponse,
   WorkspaceWriteResponse,
-  IngestionDetailResponse,
-  IngestionOverviewResponse,
-  SourceDocument,
-  SourceSearchResponse,
-  SourceUploadResponse,
 } from "../shared/api";
-import { ApiError, type WorkspaceApi } from "./api";
 import {
   isMemoryDocument,
   MEMORY_FILENAMES,
   memoryDocumentPath,
 } from "../shared/memory";
+import { suggestPasswordProfiles } from "../shared/passwordSuggester";
+import { ApiError, type WorkspaceApi } from "./api";
 
 export type MockWorkspaceScenario =
   | "default"
@@ -559,6 +562,16 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     "creative/claude-design:SKILL.md": "sha256:mock-claude-md",
     "apple/apple-notes:SKILL.md": "sha256:mock-apple-md",
   };
+
+  const mockPasswordProfiles: DocumentPasswordProfile[] = [
+    {
+      profile_id: "bank_default",
+      label: "Primary Bank PDF",
+      description: "Bank statements from primary financial institution",
+      hint: "Last 4 digits of account number",
+      patterns: ["*bank*", "*statement*"],
+    },
+  ];
 
   function requireAuthentication() {
     if (!authenticated) throw error(401, "authentication_required");
@@ -1126,6 +1139,99 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
       return {
         ...doc,
         ...updates,
+      };
+    },
+
+    sourceRawUrl(sourceId: string, versionId?: string): string {
+      const params = new URLSearchParams();
+      if (versionId) params.set("version_id", versionId);
+      const query = params.toString();
+      return `/api/workspace/ingestion/sources/${encodeURIComponent(sourceId)}/raw${query ? `?${query}` : ""}`;
+    },
+
+    async retrySource(sourceId: string) {
+      requireAuthentication();
+      return {
+        schema: 1 as const,
+        ok: true as const,
+        source_id: sourceId,
+        job_id: "job_retry_mock",
+        state: "queued",
+      };
+    },
+
+    async listDocumentPasswords() {
+      requireAuthentication();
+      return {
+        schema: 1 as const,
+        ok: true as const,
+        profiles: [...mockPasswordProfiles],
+      };
+    },
+
+    async saveDocumentPassword(
+      profileId: string,
+      label: string,
+      _password?: string,
+      description?: string,
+      hint?: string,
+      patterns?: string[],
+    ) {
+      requireAuthentication();
+      const existingIdx = mockPasswordProfiles.findIndex(
+        (p) => p.profile_id === profileId,
+      );
+      const profile: DocumentPasswordProfile = {
+        profile_id: profileId,
+        label: label || profileId,
+        ...(description ? { description } : {}),
+        ...(hint ? { hint } : {}),
+        ...(patterns ? { patterns } : {}),
+      };
+      if (existingIdx >= 0) {
+        mockPasswordProfiles[existingIdx] = profile;
+      } else {
+        mockPasswordProfiles.push(profile);
+      }
+      return {
+        schema: 1 as const,
+        ok: true as const,
+        profile,
+      };
+    },
+
+    async deleteDocumentPassword(profileId: string) {
+      requireAuthentication();
+      const existingIdx = mockPasswordProfiles.findIndex(
+        (p) => p.profile_id === profileId,
+      );
+      if (existingIdx >= 0) {
+        mockPasswordProfiles.splice(existingIdx, 1);
+        return {
+          schema: 1 as const,
+          ok: true as const,
+          deleted: profileId,
+        };
+      }
+      return {
+        schema: 1 as const,
+        ok: false as const,
+      };
+    },
+
+    async suggestDocumentPasswords(params: {
+      filename?: string;
+      title?: string;
+      correspondent?: string;
+      message?: string;
+    }): Promise<DocumentPasswordSuggestResponse> {
+      requireAuthentication();
+      const list = await this.listDocumentPasswords();
+      const suggestions = suggestPasswordProfiles(params, list.profiles);
+      return {
+        schema: 1,
+        ok: true,
+        suggestions,
       };
     },
 

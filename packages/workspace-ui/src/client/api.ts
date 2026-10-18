@@ -1,13 +1,31 @@
-import { isMemoryDocument, memoryFilename } from "../shared/memory";
 import type {
   AuthLoginResponse,
   AuthSessionResponse,
+  DocumentPasswordDeleteResponse,
+  DocumentPasswordListResponse,
+  DocumentPasswordProfile,
+  DocumentPasswordSuggestResponse,
+  IngestionDetailResponse,
+  IngestionOverviewResponse,
+  MigrationActionResponse,
+  MigrationDetailResponse,
+  MigrationFeedbackRequest,
+  MigrationListResponse,
+  MigrationSummary,
+  PasswordSuggestion,
   SkillCreateRequest,
   SkillDetailResponse,
   SkillFileResponse,
-  SkillsListResponse,
   SkillSuccessResponse,
+  SkillsListResponse,
   SkillWriteResponse,
+  SourceBacklink,
+  SourceDocument,
+  SourceRetryRequest,
+  SourceRetryResponse,
+  SourceSearchResponse,
+  SourceUpdateRequest,
+  SourceUploadResponse,
   WorkspaceActivityResponse,
   WorkspaceDeleteResponse,
   WorkspaceDiagnosticsResponse,
@@ -17,18 +35,6 @@ import type {
   WorkspaceFile,
   WorkspaceFileMetadata,
   WorkspaceGitStatus,
-  IngestionDetailResponse,
-  IngestionOverviewResponse,
-  SourceBacklink,
-  SourceDocument,
-  SourceSearchResponse,
-  SourceUpdateRequest,
-  SourceUploadResponse,
-  MigrationActionResponse,
-  MigrationDetailResponse,
-  MigrationFeedbackRequest,
-  MigrationListResponse,
-  MigrationSummary,
   WorkspaceMoveResponse,
   WorkspaceRenameResponse,
   WorkspaceSettings,
@@ -37,6 +43,7 @@ import type {
   WorkspaceTreeResponse,
   WorkspaceWriteResponse,
 } from "../shared/api";
+import { isMemoryDocument, memoryFilename } from "../shared/memory";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -109,6 +116,29 @@ export interface WorkspaceApi {
     sourceId: string,
     updates: SourceUpdateRequest,
   ): Promise<SourceDocument>;
+  sourceRawUrl(sourceId: string, versionId?: string): string;
+  retrySource(
+    sourceId: string,
+    req?: SourceRetryRequest,
+  ): Promise<SourceRetryResponse>;
+  listDocumentPasswords(): Promise<DocumentPasswordListResponse>;
+  saveDocumentPassword(
+    profileId: string,
+    label: string,
+    password?: string | undefined,
+    description?: string | undefined,
+    hint?: string | undefined,
+    patterns?: string[] | undefined,
+  ): Promise<{ schema: 1; ok: true; profile: DocumentPasswordProfile }>;
+  deleteDocumentPassword(
+    profileId: string,
+  ): Promise<DocumentPasswordDeleteResponse>;
+  suggestDocumentPasswords(params: {
+    filename?: string | undefined;
+    title?: string | undefined;
+    correspondent?: string | undefined;
+    message?: string | undefined;
+  }): Promise<DocumentPasswordSuggestResponse>;
   uploadDocument(formData: FormData): Promise<SourceUploadResponse>;
   uploadDocumentJson(body: {
     title?: string | undefined;
@@ -116,6 +146,11 @@ export interface WorkspaceApi {
     base64?: string | undefined;
     filename?: string | undefined;
     kind?: string | undefined;
+    password_profile?: string | undefined;
+    password?: string | undefined;
+    password_label?: string | undefined;
+    password_hint?: string | undefined;
+    password_description?: string | undefined;
   }): Promise<SourceUploadResponse>;
   loadMigrations(): Promise<MigrationSummary[]>;
   loadMigrationDetail(id: string): Promise<MigrationDetailResponse>;
@@ -699,6 +734,77 @@ export const httpWorkspaceApi: WorkspaceApi = {
         body: JSON.stringify(updates),
       },
     ),
+  sourceRawUrl: (sourceId, versionId) => {
+    const params = new URLSearchParams();
+    if (versionId) params.set("version_id", versionId);
+    const query = params.toString();
+    return `/api/workspace/ingestion/sources/${encodeURIComponent(sourceId)}/raw${query ? `?${query}` : ""}`;
+  },
+  retrySource: (sourceId, req) =>
+    requestJson<SourceRetryResponse>(
+      `/api/workspace/ingestion/sources/${encodeURIComponent(sourceId)}/retry`,
+      (val): val is SourceRetryResponse =>
+        isObject(val) && val.ok === true && typeof val.job_id === "string",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(req ?? {}),
+      },
+    ),
+  listDocumentPasswords: () =>
+    requestJson<DocumentPasswordListResponse>(
+      "/api/workspace/ingestion/passwords",
+      (val): val is DocumentPasswordListResponse =>
+        isObject(val) && Array.isArray((val as any).profiles),
+    ),
+  saveDocumentPassword: (
+    profileId,
+    label,
+    password,
+    description,
+    hint,
+    patterns,
+  ) =>
+    requestJson<{ schema: 1; ok: true; profile: DocumentPasswordProfile }>(
+      "/api/workspace/ingestion/passwords",
+      (val): val is { schema: 1; ok: true; profile: DocumentPasswordProfile } =>
+        isObject(val) && val.ok === true && isObject((val as any).profile),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          profile_id: profileId,
+          label,
+          password,
+          description,
+          hint,
+          patterns,
+        }),
+      },
+    ),
+  deleteDocumentPassword: (profileId: string) =>
+    requestJson<DocumentPasswordDeleteResponse>(
+      `/api/workspace/ingestion/passwords/${encodeURIComponent(profileId)}`,
+      (val): val is DocumentPasswordDeleteResponse =>
+        isObject(val) && val.ok === true,
+      {
+        method: "DELETE",
+      },
+    ),
+  suggestDocumentPasswords: (params) => {
+    const q = new URLSearchParams();
+    if (params.filename) q.set("filename", params.filename);
+    if (params.title) q.set("title", params.title);
+    if (params.correspondent) q.set("correspondent", params.correspondent);
+    if (params.message) q.set("message", params.message);
+    return requestJson<DocumentPasswordSuggestResponse>(
+      `/api/workspace/ingestion/passwords/suggest?${q.toString()}`,
+      (val): val is DocumentPasswordSuggestResponse =>
+        isObject(val) &&
+        val.ok === true &&
+        Array.isArray((val as any).suggestions),
+    );
+  },
   uploadDocument: (formData) =>
     requestJson<SourceUploadResponse>(
       "/api/workspace/ingestion/upload",

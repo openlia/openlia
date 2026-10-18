@@ -149,3 +149,78 @@ func TestWorkspaceExport(t *testing.T) {
 		t.Error("zip contains private memory file, which should be omitted")
 	}
 }
+
+func TestWorkspaceExportIncludesIngestion(t *testing.T) {
+	tempDir := t.TempDir()
+	dataRoot := filepath.Join(tempDir, "hermes")
+	ingestionDir := filepath.Join(dataRoot, "ingestion")
+	blobDir := filepath.Join(ingestionDir, "blobs", "src_001", "ver_001")
+	if err := os.MkdirAll(blobDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(ingestionDir, "vault.sqlite"), []byte("vault db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ingestionDir, "vault.sqlite-shm"), []byte("shm"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ingestionDir, "ingestion.lock"), []byte("lock"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(blobDir, "original.pdf"), []byte("pdf content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ingestionDir, "document-passwords.toml"), []byte("[profiles.pin]\npassword = \"secret\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	exportFile := filepath.Join(tempDir, "export-ingestion.zip")
+	config := Config{
+		DataRoot: dataRoot,
+	}
+
+	result, err := WorkspaceExport(config, exportFile)
+	if err != nil {
+		t.Fatalf("WorkspaceExport failed: %v", err)
+	}
+	if !result.OK {
+		t.Fatal("result.OK = false")
+	}
+
+	r, err := zip.OpenReader(exportFile)
+	if err != nil {
+		t.Fatalf("zip.OpenReader failed: %v", err)
+	}
+	defer r.Close()
+
+	found := make(map[string]string)
+	for _, f := range r.File {
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		found[f.Name] = string(data)
+	}
+
+	if found["ingestion/vault.sqlite"] != "vault db" {
+		t.Errorf("vault.sqlite missing or content mismatch: %q", found["ingestion/vault.sqlite"])
+	}
+	if found["ingestion/blobs/src_001/ver_001/original.pdf"] != "pdf content" {
+		t.Errorf("blobs/original.pdf missing or content mismatch: %q", found["ingestion/blobs/src_001/ver_001/original.pdf"])
+	}
+	if found["ingestion/document-passwords.toml"] != "[profiles.pin]\npassword = \"secret\"\n" {
+		t.Errorf("document-passwords.toml missing or content mismatch: %q", found["ingestion/document-passwords.toml"])
+	}
+	if _, hasShm := found["ingestion/vault.sqlite-shm"]; hasShm {
+		t.Errorf("zip contains vault.sqlite-shm which should be omitted")
+	}
+	if _, hasLock := found["ingestion/ingestion.lock"]; hasLock {
+		t.Errorf("zip contains ingestion.lock which should be omitted")
+	}
+}

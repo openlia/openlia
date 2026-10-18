@@ -44,7 +44,7 @@ registered finance paths and their templates rather than inventing a destination
   intake record or output. Never silently broaden the authorized batch.
 
 Retained statements, payslips, receipts, screenshots, and exports captured by
-durable ingestion live permanently under `sources/` as verifiable evidence.
+durable ingestion live permanently in the Ingestion Vault (`openlia://source/...`) as verifiable evidence outside `/opt/data/workspace`.
 Credentials, account numbers, private keys, and tokens remain prohibited.
 When posting journal entries, cite the canonical source URI using an hledger comment tag:
 ```hledger
@@ -53,7 +53,8 @@ When posting journal entries, cite the canonical source URI using an hledger com
     assets:checking
 ```
 Finance intake records and reviews in `finance/intake/` cite evidence using `[Document Title](openlia://source/{source_id}#{version_id}/p{page})`.
-To locate unposted or unreviewed receipts, query `ingestion_search(tags=["finance"], review_status="needs-review")`.
+Use [Document Intelligence](openlia://skills/document-intelligence) when capturing new statements, payslips, or password-protected PDFs (`ingestion_capture(..., wait_seconds=15, auto_unlock=True)`) and when inspecting multi-page statements via `page_outline`.
+To locate unposted or unreviewed receipts, query `ingestion_search(tags=["finance"], review_status="needs-review")` and inspect structured `custom_fields` (`total_amount`, `currency`, `due_date`, `invoice_number`, `account_hint`) via `ingestion_get_document(source_id=...)`.
 Once transactions are posted and validated, mark the source reviewed via `ingestion_update_document(source_id=..., review={"status": "reviewed"})`.
 
 ## Data Model

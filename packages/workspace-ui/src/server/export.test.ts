@@ -219,4 +219,42 @@ describe("export archive", () => {
     expect(listResult.status).toBe(0);
     expect(listResult.stdout).toContain("workspace/note.md");
   });
+
+  test("exportArchive includes Ingestion Vault data and excludes transient shm/locks", () => {
+    const ingestionRoot = join(tempDir, "ingestion");
+    mkdirSync(join(ingestionRoot, "blobs", "src_001", "ver_001"), {
+      recursive: true,
+    });
+    writeFileSync(join(ingestionRoot, "vault.sqlite"), "vault db content");
+    writeFileSync(join(ingestionRoot, "vault.sqlite-shm"), "transient shm");
+    writeFileSync(join(ingestionRoot, "ingestion.lock"), "lock file");
+    writeFileSync(
+      join(ingestionRoot, "blobs", "src_001", "ver_001", "original.pdf"),
+      "%PDF-1.4 sample",
+    );
+    writeFileSync(
+      join(ingestionRoot, "document-passwords.toml"),
+      '[profiles.pin]\npassword = "secret"\n',
+    );
+
+    const zipBytes = exportArchive({
+      ingestionRoot,
+      skillsRoot,
+      workspaceRoot,
+    });
+    const testZipPath = join(tempDir, "export-ingestion.zip");
+    writeFileSync(testZipPath, zipBytes);
+
+    const listResult = spawnSync("unzip", ["-l", testZipPath], {
+      encoding: "utf8",
+    });
+    expect(listResult.status).toBe(0);
+    expect(listResult.stdout).toContain("ingestion/vault.sqlite");
+    expect(listResult.stdout).toContain(
+      "ingestion/blobs/src_001/ver_001/original.pdf",
+    );
+    expect(listResult.stdout).toContain("ingestion/document-passwords.toml");
+    expect(listResult.stdout).not.toContain("vault.sqlite-shm");
+    expect(listResult.stdout).not.toContain("ingestion.lock");
+  });
 });
