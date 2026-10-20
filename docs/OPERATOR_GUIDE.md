@@ -228,7 +228,107 @@ has not already staged migration context, it can be prepared manually with
 
 ---
 
-## 6. Backups and Disaster Recovery
+## 6. Workspace Folder Migration (Beta)
+
+Workspace migration imports a local folder into an isolated proposal workspace.
+The recommended folder form is a schema-v2 workflow: the source archive is
+uploaded to the deployment, source files are recorded in a durable SQLite
+ledger, and eligible files are processed sequentially by Hermes against a
+proposal Git repository. The live workspace is not changed until an operator
+applies a reviewed revision.
+
+### Submit and monitor an import
+
+Run the folder form from the operator machine:
+
+```bash
+# Package, upload, initialize, start processing, and monitor
+openlia workspace migrate ./export
+
+# Inspect or reconnect to an existing migration
+openlia workspace migrate list
+openlia workspace migrate status mig-...
+openlia workspace migrate monitor mig-...
+```
+
+The command returns a migration ID and the deployment processes one eligible
+source job at a time. `Ctrl+C` detaches the terminal monitor; it is not a
+replacement for `stop`. Use an explicit stop or the Workspace UI control when
+processing must be halted, and use `resume` to continue a stopped migration:
+
+```bash
+openlia workspace migrate stop mig-...
+openlia workspace migrate resume mig-...
+openlia workspace migrate discard mig-...
+```
+
+`status` reports source/job progress, revisions, and the durable migration
+state. A migration is ready for review only after its proposal revision has
+been published. The legacy `upload`/`merge` flow remains available for older
+migrations; use the folder form for new schema-v2 imports.
+
+### Review and apply
+
+Open the existing Workspace UI and select **Migration**. The migration page
+provides:
+
+- Overview and progress, including eligible, skipped, blocked, and failed
+  sources.
+- Source metadata such as relative path, hash, encoding, detected type, and
+  include dependencies.
+- The proposal Git diff, including added and modified files, revision
+  summaries, and validation findings.
+- Persistent discussion comments and **Reject with Comment**, which requests
+  another proposal revision in the beta workflow.
+- Worker wake, stop/resume, discard, and **Approve & Apply** controls.
+
+The CLI can inspect the proposal and apply a specific revision:
+
+```bash
+openlia workspace migrate diff mig-... --to-revision 1
+openlia workspace migrate diff mig-... --from-revision 1 --to-revision 2
+openlia workspace migrate approve mig-... --revision rev-1-mig-...
+```
+
+Approval is bound to the selected revision and its patch hash. Before writing,
+the operator checks affected live-file hashes and expected absence of new
+files. A stale proposal is rejected rather than overwriting a live change.
+Application uses a durable journal and rollback material; inspect and resolve
+`recovery_required` before allowing another conflicting workspace mutation.
+
+### Intake and safety rules
+
+The intake manifest preserves source-relative paths, byte hashes, sizes,
+encoding, detected type, eligibility, skip/block reasons, and discovered
+dependencies. UTF-8 and UTF-8 BOM plus UTF-16 BOM text are supported. Common
+Markdown, plain text, JSON, YAML, TOML, XML, CSV/TSV, hledger, and Remind files
+are recognized. Credentials and detected secret content are blocked; generated
+directories, VCS metadata, and unsupported binary files are skipped or marked
+unsupported. Archive extraction validates paths against traversal.
+
+Source content is data, not workspace policy. Hermes reads the captured
+proposal workspace and its active instructions, but an imported `AGENTS.md` or
+other instruction-looking file must not replace the active deployment policy.
+Financial and calendar imports must still be reviewed for duplicate
+transactions, transfers, journal includes, calendar includes, and validation
+findings. A balanced ledger or syntactically valid calendar does not by itself
+mean that an import is reconciled or correct.
+
+Migration artifacts are retained under the deployment's
+`.openlia/workspace-migrations/<migration-id>/` directory, including the
+source snapshot, `migration.sqlite`, baseline manifest, proposal repository,
+request/runtime records, revisions, and apply journal. Treat this directory as
+workspace data and protect its permissions; it can contain imported personal
+information even when secrets were blocked.
+
+This feature is beta. The legacy terminal chunk flow, the schema-v2 durable
+workflow, and the Workspace UI are distinct compatibility paths. Do not assume
+that a saved comment has produced a new proposal until a new revision and diff
+are visible, and do not treat a completed processing status as approval.
+
+---
+
+## 7. Backups and Disaster Recovery
 
 OpenLia features an end-to-end encrypted backup system using [Age](https://age-encryption.org/) cryptography.
 
@@ -348,7 +448,7 @@ openlia backup restore --file /path/to/backup-2026-10-09.tar.gz.age
 
 ---
 
-## 7. Accessing Web Interfaces Remotely
+## 8. Accessing Web Interfaces Remotely
 
 If OpenLia is running on a remote VPS with `host = "127.0.0.1"`, access the Web UIs securely through an SSH tunnel:
 
