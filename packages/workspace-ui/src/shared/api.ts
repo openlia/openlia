@@ -21,6 +21,7 @@ export interface WorkspaceTreeResponse {
 export interface WorkspaceFileValidation {
   valid: boolean;
   schema_path?: string;
+  template_path?: string;
   errors: string[];
 }
 
@@ -129,6 +130,7 @@ export interface WorkspaceRenameRequest {
 export interface WorkspaceDiagnosticIssue {
   path: string;
   schema_path?: string | undefined;
+  template_path?: string | undefined;
   errors: string[];
 }
 
@@ -705,4 +707,15 @@ export interface WorkspaceDomainsResponse {
 export interface WorkspaceCreateFileRequest {
   domain: string;
   name: string;
+}
+
+export interface WorkspaceFixTemplateRequest {
+  path: string;
+  content?: string | undefined;
+}
+
+export interface WorkspaceFixTemplateResponse {
+  schema: 1;
+  ok: true;
+  migration_id: string;
 }

@@ -333,6 +333,8 @@ export function DocumentPane({
   onLoadCalendarFile,
   onSaveCalendarFile,
   onLoadInclude,
+  onFixTemplate,
+  fixingTemplate,
 }: {
   conflict: string;
   detailsOpen?: boolean;
@@ -380,6 +382,8 @@ export function DocumentPane({
   onLoadInclude?:
     | ((resolvedPath: string) => Promise<string | null>)
     | undefined;
+  onFixTemplate?: (() => void) | undefined;
+  fixingTemplate?: boolean | undefined;
 }) {
   const dirty = file !== null && file.content !== draft;
   const canEdit = Boolean(file?.editable);
@@ -725,14 +729,33 @@ export function DocumentPane({
                 />
               </svg>
               <div className="min-w-0 flex-1">
-                <p className="font-semibold">
-                  Template & Schema Warning
-                  {file.validation.schema_path && (
-                    <span className="font-normal font-mono opacity-80 ml-1">
-                      ({file.validation.schema_path})
-                    </span>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-semibold">
+                    Template & Schema Warning
+                    {file.validation.template_path && (
+                      <span className="font-normal font-mono opacity-80 ml-1">
+                        [template: {file.validation.template_path}]
+                      </span>
+                    )}
+                    {file.validation.schema_path && (
+                      <span className="font-normal font-mono opacity-80 ml-1">
+                        [schema: {file.validation.schema_path}]
+                      </span>
+                    )}
+                  </p>
+                  {onFixTemplate && (
+                    <button
+                      className="btn btn-warning btn-xs shrink-0"
+                      disabled={fixingTemplate}
+                      onClick={onFixTemplate}
+                      type="button"
+                    >
+                      {fixingTemplate
+                        ? "Creating Migration..."
+                        : "Fix in Migrations"}
+                    </button>
                   )}
-                </p>
+                </div>
                 <ul className="list-disc list-inside mt-1 space-y-0.5 opacity-90">
                   {file.validation.errors.map((err: string) => (
                     <li key={err}>{err}</li>

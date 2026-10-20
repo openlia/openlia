@@ -1582,4 +1582,54 @@ messages:
       await screen.findByRole("button", { name: "refactor-auth.md" }),
     ).toBeInTheDocument();
   });
+
+  test("shows Template & Schema Warning with Fix in Migrations button and navigates to migration on click", async () => {
+    window.history.replaceState(null, "", "/");
+    const mockApi = createMockWorkspaceApi();
+    mockApi.loadFile = async () => ({
+      content: "---\nstatus: invalid\n---\n# Bad Record\n\n## Conteext\n",
+      editable: true,
+      modified_at: "2026-10-20T00:00:00Z",
+      path: "tasks/sample.md",
+      revision: "rev-1",
+      schema: 1,
+      size: 100,
+      validation: {
+        errors: [
+          "heading: missing section '## Context' (found misspelled '## Conteext')",
+          "frontmatter: status must be one of allowed values",
+        ],
+        schema_path: "tasks/task-template.schema.json",
+        template_path: "tasks/task-template.md",
+        valid: false,
+      },
+    });
+
+    render(<App api={mockApi} />);
+
+    // Open file
+    const fileBtn = await screen.findByRole("button", {
+      name: "notes.md",
+    });
+    fireEvent.click(fileBtn);
+
+    // Warning is visible
+    expect(
+      await screen.findByText(/Template & Schema Warning/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/missing section '## Context'/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/\[template: tasks\/task-template.md\]/),
+    ).toBeInTheDocument();
+
+    // Click "Fix in Migrations"
+    const fixBtn = screen.getByRole("button", { name: "Fix in Migrations" });
+    fireEvent.click(fixBtn);
+
+    // Navigates to migration view
+    expect(await screen.findByText("Revision Summary")).toBeInTheDocument();
+    expect(window.location.pathname).toMatch(/^\/migration\/mig-/);
+  });
 });

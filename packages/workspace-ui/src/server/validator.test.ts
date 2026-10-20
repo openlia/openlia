@@ -2,7 +2,11 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateRecordContent } from "./validator";
+import {
+  extractHeadings,
+  isSimilarHeading,
+  validateRecordContent,
+} from "./validator";
 
 let root = "";
 
@@ -18,7 +22,7 @@ function writeDomain(directory: string, status: string) {
   mkdirSync(join(root, directory), { recursive: true });
   writeFileSync(
     join(root, directory, "record-template.md"),
-    "---\n$schema: ./record-template.schema.json\nstatus: posted\n---\n",
+    "---\n$schema: ./record-template.schema.json\nstatus: posted\n---\n# <Template Title>\n\n## Context\nSome context\n",
   );
   writeFileSync(
     join(root, directory, "record-template.schema.json"),
@@ -32,7 +36,8 @@ function writeDomain(directory: string, status: string) {
   );
 }
 
-const content = "---\nstatus: posted\n---\n# Record\n";
+const content =
+  "---\nstatus: posted\n---\n# Record\n\n## Context\nContext here\n";
 
 test("reuses a schema for repeated reads and multiple records", () => {
   writeDomain("finance/intake", "posted");
@@ -42,6 +47,7 @@ test("reuses a schema for repeated reads and multiple records", () => {
     ).toEqual({
       errors: [],
       schema_path: "finance/intake/record-template.schema.json",
+      template_path: "finance/intake/record-template.md",
       valid: true,
     });
   }
@@ -80,4 +86,55 @@ test("isolates schemas with the same ID at different paths", () => {
   expect(validateRecordContent(root, "finance/record.md", content).valid).toBe(
     true,
   );
+});
+
+test("detects misspelled template section headings in records", () => {
+  writeDomain("tasks", "posted");
+  const typoContent =
+    "---\nstatus: posted\n---\n# My Task\n\n## Conteext\nSome notes\n";
+  const result = validateRecordContent(root, "tasks/task-1.md", typoContent);
+  expect(result.valid).toBe(false);
+  expect(result.template_path).toBe("tasks/record-template.md");
+  expect(result.errors).toContain(
+    "heading: missing section '## Context' (found misspelled '## Conteext')",
+  );
+});
+
+test("detects completely missing template sections in records", () => {
+  writeDomain("tasks", "posted");
+  const missingContent =
+    "---\nstatus: posted\n---\n# My Task\n\nNo sections here\n";
+  const result = validateRecordContent(root, "tasks/task-1.md", missingContent);
+  expect(result.valid).toBe(false);
+  expect(result.errors).toContain(
+    "heading: missing required section '## Context'",
+  );
+});
+
+test("requires level-one title in records and templates", () => {
+  writeDomain("tasks", "posted");
+  const noTitleContent = "---\nstatus: posted\n---\n## Context\nSome notes\n";
+  const result = validateRecordContent(root, "tasks/task-1.md", noTitleContent);
+  expect(result.valid).toBe(false);
+  expect(result.errors).toContain(
+    "file must contain a level-one title ('# ...')",
+  );
+});
+
+test("extracts headings ignoring fenced code blocks", () => {
+  const md =
+    "# Title\n\n```markdown\n# Not a title\n## Not a section\n```\n\n## Real Section\n";
+  const headings = extractHeadings(md);
+  expect(headings).toEqual([
+    { level: 1, text: "Title" },
+    { level: 2, text: "Real Section" },
+  ]);
+});
+
+test("isSimilarHeading identifies close typos", () => {
+  expect(isSimilarHeading("Context", "Conteext")).toBe(true);
+  expect(isSimilarHeading("Definition of Done", "Definition of Dne")).toBe(
+    true,
+  );
+  expect(isSimilarHeading("Context", "Milestones")).toBe(false);
 });

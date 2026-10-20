@@ -541,6 +541,7 @@ export function App({
   } | null>(null);
   const [creatingFile, setCreatingFile] = useState(false);
   const [createFileError, setCreateFileError] = useState("");
+  const [fixingTemplate, setFixingTemplate] = useState(false);
   const [creatableDomains, setCreatableDomains] = useState<
     WorkspaceDomainInfo[]
   >([]);
@@ -2049,6 +2050,23 @@ export function App({
     }
   }
 
+  async function handleFixTemplateIssues(): Promise<void> {
+    if (!file || fixingTemplate) return;
+    setFixingTemplate(true);
+    try {
+      const resp = await api.fixTemplateIssues(file.path, draft);
+      if (resp?.ok && resp.migration_id) {
+        requestMigration(resp.migration_id);
+      }
+    } catch (err) {
+      setDocumentError(
+        err instanceof Error ? err.message : "Failed to propose template fix",
+      );
+    } finally {
+      setFixingTemplate(false);
+    }
+  }
+
   async function handleRename(newName: string): Promise<void> {
     if (!pendingRename || renaming) return;
     setRenaming(true);
@@ -2646,6 +2664,8 @@ export function App({
             onOpenFile={requestOpenFile}
             onOpenGitActivity={() => requestTabChange("git-activity")}
             onRename={() => requestRename()}
+            onFixTemplate={handleFixTemplateIssues}
+            fixingTemplate={fixingTemplate}
             onRefreshActivity={() => {
               setActivityLoading(true);
               setDiagnosticsLoading(true);

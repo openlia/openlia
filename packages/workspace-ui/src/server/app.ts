@@ -12,6 +12,7 @@ import type {
   WorkspaceCreateFileRequest,
   WorkspaceDeleteRequest,
   WorkspaceErrorResponse,
+  WorkspaceFixTemplateRequest,
   WorkspaceMoveRequest,
   WorkspaceRenameRequest,
   WorkspaceSystemInfo,
@@ -1695,6 +1696,53 @@ export function createWorkspaceHandler(
           createRequest.name,
         );
         return json(file, 201);
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/workspace/fix-template-issues"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(
+          request,
+          (options.maxEditableBytes ?? 2 * 1024 * 1024) + 4096,
+        );
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        const body: unknown = bodyResult.value;
+        if (!isObject(body))
+          return json(
+            { schema: 1, ok: false, error: "request_body_must_be_json" },
+            400,
+          );
+        const fixRequest = body as Partial<WorkspaceFixTemplateRequest>;
+        try {
+          const result = migrationService.createTemplateFixMigration(
+            fixRequest.path,
+            fixRequest.content,
+          );
+          return json({
+            schema: 1,
+            ok: true,
+            migration_id: result.migration_id,
+          });
+        } catch (error) {
+          return json(
+            {
+              schema: 1,
+              ok: false,
+              error:
+                error instanceof Error ? error.message : "fix_template_error",
+            },
+            400,
+          );
+        }
       }
       if (request.method === "GET" && url.pathname === "/api/skills/list") {
         return json(skillService.list());

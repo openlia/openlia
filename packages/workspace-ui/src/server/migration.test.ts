@@ -280,4 +280,75 @@ describe("MigrationService & endpoints", () => {
     const detail = service.detail("mig-20261011-001");
     expect(detail.migration.state).toBe("revising");
   });
+
+  test("createTemplateFixMigration creates a fast-track migration in ready_for_review state with proposal diff", async () => {
+    // 1. Create a tasks domain with a template and schema
+    const tasksDir = join(workspaceDir, "tasks");
+    mkdirSync(tasksDir, { recursive: true });
+    writeFileSync(
+      join(tasksDir, "record-template.md"),
+      "---\n$schema: ./record-template.schema.json\nstatus: null\npriority: null\n---\n# <Task Title>\n\n## Context\nContext notes\n\n## Definition of Done\n- Criteria\n",
+    );
+    writeFileSync(
+      join(tasksDir, "record-template.schema.json"),
+      JSON.stringify({
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        type: "object",
+        required: ["status", "priority"],
+        properties: {
+          status: { type: ["string", "null"] },
+          priority: { type: ["string", "null"] },
+        },
+      }),
+    );
+
+    // 2. Create a live task file with a typo in heading and missing 'priority'
+    writeFileSync(
+      join(tasksDir, "task-1.md"),
+      "---\nstatus: in_progress\n---\n# Implement Auth\n\n## Conteext\nAuthentication notes\n",
+    );
+
+    const service = new MigrationService({
+      workspaceRoot: workspaceDir,
+      migrationsRoot: migrationsDir,
+    });
+
+    const result = service.createTemplateFixMigration("tasks/task-1.md");
+    expect(result.migration_id).toMatch(/^mig-/);
+
+    // 3. Verify migration detail
+    const detail = service.detail(result.migration_id);
+    expect(detail.migration.state).toBe("ready_for_review");
+    expect(detail.revisions.length).toBe(1);
+    expect(detail.revisions[0]!.summary).toContain(
+      "Fix template headings and schema conformance for tasks/task-1.md",
+    );
+    expect(detail.active_diff).toBeDefined();
+    expect(detail.active_diff!).toContain("-## Conteext");
+    expect(detail.active_diff!).toContain("+## Context");
+    expect(detail.active_diff!).toContain("+priority: null");
+    expect(detail.active_diff!).toContain("+## Definition of Done");
+
+    // 4. Test via HTTP handler
+    const handler = createWorkspaceHandler({
+      workspaceRoot: workspaceDir,
+      migrationsRoot: migrationsDir,
+      authRequired: false,
+    });
+
+    const httpRes = await handler(
+      new Request("http://localhost/api/workspace/fix-template-issues", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: "tasks/task-1.md" }),
+      }),
+    );
+    expect(httpRes.status).toBe(200);
+    const httpJson = (await httpRes.json()) as {
+      ok: boolean;
+      migration_id: string;
+    };
+    expect(httpJson.ok).toBe(true);
+    expect(httpJson.migration_id).toMatch(/^mig-/);
+  });
 });

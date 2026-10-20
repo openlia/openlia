@@ -1,6 +1,21 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { Database } from "bun:sqlite";
+import YAML from "yaml";
+import {
+  extractHeadings,
+  findDomainTemplate,
+  isSimilarHeading,
+  parseRecordFrontmatter,
+} from "./validator";
 import type {
   MigrationActionResponse,
   MigrationDetailResponse,
@@ -657,5 +672,325 @@ export class MigrationService {
       throw new Error(err);
     }
     return { migration_id: migrationId, ok: true, state: "discarded" };
+  }
+
+  createTemplateFixMigration(
+    relativePathValue: unknown,
+    currentContentValue?: unknown,
+  ): { migration_id: string } {
+    if (typeof relativePathValue !== "string" || !relativePathValue.trim()) {
+      throw new Error("path must be a non-empty string");
+    }
+    const relPath = relativePathValue.replaceAll("\\", "/").replace(/^\/+/, "");
+    const liveFileAbsolute = resolve(this.workspaceRoot, relPath);
+
+    let contentToFix = "";
+    if (typeof currentContentValue === "string") {
+      contentToFix = currentContentValue;
+    } else if (existsSync(liveFileAbsolute)) {
+      contentToFix = readFileSync(liveFileAbsolute, "utf-8");
+    } else {
+      throw new Error(`file ${relPath} does not exist`);
+    }
+
+    const domain = findDomainTemplate(this.workspaceRoot, relPath);
+    if (!domain) {
+      throw new Error(`no domain template found for ${relPath}`);
+    }
+
+    const templateAbsolute = resolve(
+      this.workspaceRoot,
+      domain.templateRelativePath,
+    );
+    if (!existsSync(templateAbsolute)) {
+      throw new Error(
+        `template file not found: ${domain.templateRelativePath}`,
+      );
+    }
+
+    const templateContent = readFileSync(templateAbsolute, "utf-8");
+    const templateParsed = parseRecordFrontmatter(templateContent);
+    const fileParsed = parseRecordFrontmatter(contentToFix);
+
+    // 1. Reconcile frontmatter
+    let fixedMetadata: Record<string, unknown> = {};
+    if (fileParsed.metadata) {
+      fixedMetadata = { ...fileParsed.metadata };
+    }
+
+    // Merge required schema fields or template defaults
+    if (existsSync(domain.schemaAbsolutePath)) {
+      try {
+        const schema = JSON.parse(
+          readFileSync(domain.schemaAbsolutePath, "utf-8"),
+        );
+        const properties = schema?.properties || {};
+        const required = Array.isArray(schema?.required) ? schema.required : [];
+
+        for (const reqKey of required) {
+          if (reqKey === "$schema") continue;
+          if (!(reqKey in fixedMetadata)) {
+            if (templateParsed.metadata && reqKey in templateParsed.metadata) {
+              fixedMetadata[reqKey] = templateParsed.metadata[reqKey];
+            } else if (properties[reqKey]?.default !== undefined) {
+              fixedMetadata[reqKey] = properties[reqKey].default;
+            } else {
+              fixedMetadata[reqKey] = null;
+            }
+          }
+        }
+      } catch {}
+    }
+
+    // Ensure $schema is included if template includes it
+    if (templateParsed.metadata?.$schema && !fixedMetadata.$schema) {
+      fixedMetadata.$schema = templateParsed.metadata.$schema;
+    }
+
+    // 2. Reconcile markdown headings
+    const templateHeadings = extractHeadings(templateContent);
+    const expectedSections = templateHeadings
+      .filter((h) => h.level === 2)
+      .map((h) => h.text.trim())
+      .filter(Boolean);
+
+    let body = fileParsed.body;
+    const bodyLines = body.split(/\r?\n/);
+
+    // Ensure level-1 title exists
+    const fileHeadings = extractHeadings(body);
+    const fileL1 = fileHeadings.filter((h) => h.level === 1);
+    if (fileL1.length === 0) {
+      const titleName = basename(relPath, ".md")
+        .replace(/[-_]/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+      bodyLines.unshift(`# ${titleName}`, "");
+    }
+
+    // Fix misspelled headings in lines
+    for (const expected of expectedSections) {
+      const exactMatch = fileHeadings.some(
+        (h) =>
+          h.level === 2 &&
+          h.text.trim().toLowerCase() === expected.toLowerCase(),
+      );
+      if (!exactMatch) {
+        const typo = fileHeadings.find(
+          (h) => h.level === 2 && isSimilarHeading(expected, h.text.trim()),
+        );
+        if (typo) {
+          for (let i = 0; i < bodyLines.length; i++) {
+            const line = bodyLines[i]!;
+            const m = line.match(/^[ \t]{0,3}##[ \t]+(.+?)[ \t]*#*[ \t]*$/);
+            if (m && m[1]?.trim() === typo.text.trim()) {
+              bodyLines[i] = `## ${expected}`;
+              break;
+            }
+          }
+        } else {
+          bodyLines.push("", `## ${expected}`, "");
+        }
+      }
+    }
+
+    const fixedBody = bodyLines
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    const yamlStr = YAML.stringify(fixedMetadata).trim();
+    const fixedContent = `---\n${yamlStr}\n---\n\n${fixedBody}\n`;
+
+    // 3. Create Migration
+    const now = new Date().toISOString();
+    const dateTag =
+      now.slice(0, 10).replace(/-/g, "") +
+      "-" +
+      now.slice(11, 19).replace(/:/g, "");
+    const randomSuffix = Math.random().toString(36).slice(2, 6);
+    const migrationId = `mig-${dateTag}-${randomSuffix}`;
+
+    const migDir = join(this.migrationsRoot, migrationId);
+    mkdirSync(migDir, { recursive: true });
+    const propRepoDir = join(migDir, "proposal-repo");
+    mkdirSync(propRepoDir, { recursive: true });
+
+    // Initialize Git proposal repo
+    const runGit = (args: string[]) => {
+      const proc = Bun.spawnSync(["git", "-c", "safe.directory=*", ...args], {
+        cwd: propRepoDir,
+      });
+      if (proc.exitCode !== 0) {
+        throw new Error(
+          `git ${args[0]} failed: ${proc.stderr.toString() || proc.stdout.toString()}`,
+        );
+      }
+      return proc.stdout.toString().trim();
+    };
+
+    runGit(["init"]);
+    runGit(["config", "user.name", "OpenLia Migration"]);
+    runGit(["config", "user.email", "migration@openlia.local"]);
+
+    // Write baseline
+    const repoFilePath = join(propRepoDir, relPath);
+    mkdirSync(dirname(repoFilePath), { recursive: true });
+
+    let baselineContent = "";
+    if (existsSync(liveFileAbsolute)) {
+      baselineContent = readFileSync(liveFileAbsolute, "utf-8");
+    } else {
+      baselineContent = contentToFix;
+    }
+
+    writeFileSync(repoFilePath, baselineContent, "utf-8");
+    runGit(["add", "-A"]);
+    runGit([
+      "commit",
+      "--allow-empty",
+      "-m",
+      "baseline: initial snapshot from live workspace",
+    ]);
+    const baselineHash = runGit(["rev-parse", "HEAD"]);
+
+    // Write proposal commit: fixed content
+    writeFileSync(repoFilePath, fixedContent, "utf-8");
+    runGit(["add", "-A"]);
+    runGit([
+      "commit",
+      "-m",
+      `fix(template): conform ${relPath} to ${domain.templateRelativePath}`,
+    ]);
+    const commitHash = runGit(["rev-parse", "HEAD"]);
+    const treeHash = runGit(["rev-parse", `${commitHash}^{tree}`]);
+    const diff = runGit(["diff", baselineHash, commitHash]);
+
+    const patchHash = createHash("sha256").update(diff).digest("hex");
+    const oldHash = createHash("sha256").update(baselineContent).digest("hex");
+    const newHash = createHash("sha256").update(fixedContent).digest("hex");
+
+    const changedFiles = [
+      {
+        old_hash: oldHash,
+        new_hash: newHash,
+        path: relPath,
+        status: "modified",
+      },
+    ];
+
+    // Initialize SQLite database
+    const sqlitePath = join(migDir, "migration.sqlite");
+    const db = new Database(sqlitePath);
+    try {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS migrations (
+          id TEXT PRIMARY KEY,
+          schema INTEGER NOT NULL,
+          state TEXT NOT NULL,
+          saved_phase TEXT,
+          stop_intent INTEGER NOT NULL DEFAULT 0,
+          baseline_manifest TEXT,
+          active_revision_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT,
+          error_message TEXT
+        );
+        CREATE TABLE IF NOT EXISTS sources (
+          id TEXT PRIMARY KEY,
+          migration_id TEXT NOT NULL,
+          relative_path TEXT NOT NULL,
+          byte_hash TEXT NOT NULL,
+          byte_size INTEGER NOT NULL,
+          encoding TEXT NOT NULL,
+          detected_type TEXT NOT NULL,
+          eligibility TEXT NOT NULL,
+          reason TEXT,
+          dependencies TEXT,
+          order_index INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS jobs (
+          id TEXT PRIMARY KEY,
+          migration_id TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          state TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          max_attempts INTEGER NOT NULL DEFAULT 3,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS revisions (
+          id TEXT PRIMARY KEY,
+          migration_id TEXT NOT NULL,
+          revision_num INTEGER NOT NULL,
+          baseline_hash TEXT NOT NULL,
+          commit_hash TEXT NOT NULL,
+          tree_hash TEXT NOT NULL,
+          patch_hash TEXT NOT NULL,
+          parent_rev_id TEXT,
+          summary TEXT,
+          changed_files TEXT,
+          findings TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS feedback (
+          id TEXT PRIMARY KEY,
+          migration_id TEXT NOT NULL,
+          revision_id TEXT NOT NULL,
+          target_path TEXT,
+          source_id TEXT,
+          line_number INTEGER,
+          comment TEXT NOT NULL,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS apply_journal (
+          id TEXT PRIMARY KEY,
+          migration_id TEXT NOT NULL,
+          revision_id TEXT NOT NULL,
+          patch_hash TEXT NOT NULL,
+          status TEXT NOT NULL,
+          operations TEXT NOT NULL,
+          error_message TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+
+      const revisionId = `rev-1-${migrationId}`;
+      db.query(`
+        INSERT INTO migrations (id, schema, state, baseline_manifest, active_revision_id, created_at, updated_at)
+        VALUES (?, 2, 'ready_for_review', ?, ?, ?, ?)
+      `).run(migrationId, baselineHash, revisionId, now, now);
+
+      db.query(`
+        INSERT INTO sources (id, migration_id, relative_path, byte_hash, byte_size, encoding, detected_type, eligibility, order_index)
+        VALUES ('src-1', ?, ?, ?, ?, 'utf-8', 'markdown', 'eligible', 0)
+      `).run(
+        migrationId,
+        relPath,
+        oldHash,
+        Buffer.byteLength(baselineContent, "utf-8"),
+      );
+
+      db.query(`
+        INSERT INTO revisions (id, migration_id, revision_num, baseline_hash, commit_hash, tree_hash, patch_hash, summary, changed_files, created_at)
+        VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        revisionId,
+        migrationId,
+        baselineHash,
+        commitHash,
+        treeHash,
+        patchHash,
+        `Fix template headings and schema conformance for ${relPath}`,
+        JSON.stringify(changedFiles),
+        now,
+      );
+    } finally {
+      db.close();
+    }
+
+    return { migration_id: migrationId };
   }
 }
