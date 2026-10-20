@@ -143,6 +143,12 @@ class StandaloneLLMClient:
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = json.loads(resp.read().decode("utf-8"))
+        try:
+            from openlia_usage import record_response
+            record_response(types.SimpleNamespace(model=body.get("model") or target_model,
+                usage=body.get("usage")), provider="custom", reference=getattr(self,"_usage_reference", ""))
+        except ImportError:
+            pass
         raw_content = (
             body.get("choices", [{}])[0].get("message", {}).get("content") or "{}"
         ).strip()

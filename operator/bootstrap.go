@@ -72,6 +72,14 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 		return BootstrapResult{}, err
 	}
 	isFirebase := config.WorkspaceUIFirebaseProjectID != ""
+	for _, path := range []string{filepath.Join(config.DataRoot, "usage"), filepath.Join(config.DataRoot, "usage", "reports")} {
+		if err := EnsureDir(path, 0o700); err != nil {
+			return BootstrapResult{}, err
+		}
+		if err := ensureRuntimeOwner(path, config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
+			return BootstrapResult{}, err
+		}
+	}
 	if isFirebase || config.WorkspaceUIAuthRequired {
 		sessionDir := filepath.Join(config.RuntimeRoot, "workspace-ui")
 		if err := EnsureDir(sessionDir, 0o700); err != nil {

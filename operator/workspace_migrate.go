@@ -504,9 +504,10 @@ func BuildMigrationPlan(migrationID string, sourceDir string, workspaceRoot stri
 	if useLLM {
 		compose := NewCompose(config, nil)
 		planner = &ComposeLLMPlanner{
-			Compose: compose,
-			Config:  config,
-			Profile: profile,
+			MigrationID: migrationID,
+			Compose:     compose,
+			Config:      config,
+			Profile:     profile,
 		}
 	} else {
 		planner = &FallbackDeterministicPlanner{

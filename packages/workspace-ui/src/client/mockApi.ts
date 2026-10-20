@@ -34,6 +34,7 @@ import {
 } from "../shared/memory";
 import { suggestPasswordProfiles } from "../shared/passwordSuggester";
 import { ApiError, type WorkspaceApi } from "./api";
+import { mockUsage } from "./usageMock";
 
 export type MockWorkspaceScenario =
   | "default"
@@ -157,6 +158,8 @@ function metadata(path: string, content: string): WorkspaceFileMetadata {
 export function createMockWorkspaceApi({
   scenario = "default",
 }: MockWorkspaceOptions = {}): WorkspaceApi {
+  const usageData = mockUsage();
+  if (scenario === "empty") usageData.rows = [];
   const path = "notes.md";
   let content = "Hello";
   let revision = "sha256:mock-before";
@@ -866,6 +869,52 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         schema: 1,
         valid: true,
       };
+    },
+    async loadUsage(reference) {
+      return structuredClone({
+        ...usageData,
+        rows: reference ? [] : usageData.rows,
+      });
+    },
+    async saveUsageOverride(provider, model, rates) {
+      let price = usageData.prices.find(
+        (p) => p.provider === provider && p.model === model,
+      );
+      if (!price) {
+        price = {
+          provider,
+          model,
+          rates: null,
+          automatic_rates: null,
+          source: "unavailable",
+          checked_at: null,
+          stale: false,
+          overridden: false,
+        };
+        usageData.prices.push(price);
+      }
+      price.rates = rates ?? price.automatic_rates;
+      price.overridden = rates !== null;
+      price.source = rates ? "custom_override" : "official_docs_snapshot";
+      for (const row of usageData.rows.filter(
+        (r) => r.provider === provider && r.model === model,
+      )) {
+        let cost = 0;
+        let known = true;
+        for (const key of [
+          "input_tokens",
+          "output_tokens",
+          "cache_read_tokens",
+          "cache_write_tokens",
+        ] as const) {
+          const rate = price.rates?.[key];
+          if (row[key] && rate == null) known = false;
+          else cost += (row[key] * Number(rate ?? 0)) / 1e6;
+        }
+        row.cost = known ? cost : null;
+        row.partial_cost = !known;
+      }
+      return { schema: 1, ok: true };
     },
     async loadSettings(): Promise<WorkspaceSettings> {
       requireAuthentication();

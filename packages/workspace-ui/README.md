@@ -9,6 +9,18 @@ TanStack Start owns the SSR request, typed route tree, and server-function
 transport. The existing REST endpoints remain available for compatibility and
 for browser-native binary uploads and downloads.
 
+## LLM usage monitoring
+
+The **Usage** page combines Hermes, ingestion, and migration estimates. Automatic
+pricing comes from Hermes; custom prices are optional under **Configuration →
+Advanced · Pricing overrides**. The mock includes sample usage and stateful pricing
+overrides. For a real backend, set `OPENLIA_USAGE_ROOT` to the runtime's `usage`
+directory. See [usage monitoring](../../docs/USAGE_MONITORING.md) for collection,
+estimate limitations, and upgrade instructions.
+Overrides are provider/model-wide, not endpoint-specific. Missing token reports
+are displayed as Unknown; provider-reported costs and Hermes estimates remain
+separate from recalculated estimates in model details.
+
 ## Requirements
 
 - Bun `1.2.22` or newer

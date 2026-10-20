@@ -40,6 +40,8 @@ import {
 import { isJournalPath, isMarkdownPath, isRemindPath } from "./CodeEditor";
 import { CreateSkillModal } from "./CreateSkillModal";
 import { ConfigurationPage } from "./ConfigurationPage";
+import { UsagePage, UsagePricingOverrides } from "./UsagePage";
+import { UsageSummary } from "./UsageSummary";
 import { isMemoryDocument } from "../shared/memory";
 import {
   CreateFileDialog,
@@ -861,6 +863,8 @@ export function App({
             if (route.skill) {
               void appStateRef.current.openSkill(route.skill, route.skillFile);
             }
+          } else if (route.tab === "usage") {
+            setActiveTab("usage");
           } else if (route.tab === "configuration") {
             setActiveTab("configuration");
           } else if (route.tab === "migration" || route.migrationId) {
@@ -1174,6 +1178,8 @@ export function App({
             migrationId: route.migrationId,
             tab: "migration",
           });
+        } else if (route.tab === "usage") {
+          setPendingAction({ kind: "switchTab", tab: "usage" });
         } else if (route.tab === "configuration") {
           setPendingAction({ kind: "switchTab", tab: "configuration" });
         } else {
@@ -1230,6 +1236,8 @@ export function App({
         } else {
           void refreshMigrations();
         }
+      } else if (route.tab === "usage") {
+        setActiveTab("usage");
       } else if (route.tab === "configuration") {
         setActiveTab("configuration");
       } else if (route.path) {
@@ -1263,6 +1271,8 @@ export function App({
       document.title = "Git Activity - OpenLia Workspace";
     } else if (activeTab === "ingestion") {
       document.title = "Ingestion - OpenLia Workspace";
+    } else if (activeTab === "usage") {
+      document.title = "Usage - OpenLia Workspace";
     } else if (activeTab === "configuration") {
       document.title = "Configuration - OpenLia Workspace";
     } else {
@@ -1340,6 +1350,8 @@ export function App({
           if (route.skill) {
             void appStateRef.current.openSkill(route.skill, route.skillFile);
           }
+        } else if (route.tab === "usage") {
+          setActiveTab("usage");
         } else if (route.tab === "configuration") {
           setActiveTab("configuration");
         } else if (route.tab === "ingestion" || route.ingestionId) {
@@ -1427,6 +1439,8 @@ export function App({
           if (route.skill) {
             void appStateRef.current.openSkill(route.skill, route.skillFile);
           }
+        } else if (route.tab === "usage") {
+          setActiveTab("usage");
         } else if (route.tab === "configuration") {
           setActiveTab("configuration");
         } else if (route.tab === "ingestion" || route.ingestionId) {
@@ -2587,8 +2601,11 @@ export function App({
         />
       )}
 
-      {activeTab === "configuration" ? (
+      {activeTab === "usage" ? (
+        <UsagePage api={api} />
+      ) : activeTab === "configuration" ? (
         <ConfigurationPage
+          usagePricing={<UsagePricingOverrides api={api} />}
           error={configurationError}
           exporting={exporting}
           onExport={() => void handleExport()}
@@ -2830,6 +2847,11 @@ export function App({
       ) : activeTab === "migration" ? (
         <div className="workspace-layout xl:grid-cols-1">
           <MigrationSection
+            usageSummary={
+              selectedMigrationId ? (
+                <UsageSummary api={api} reference={selectedMigrationId} />
+              ) : null
+            }
             migrationDetail={migrationDetail}
             migrationsList={migrationsList}
             loading={migrationLoading}

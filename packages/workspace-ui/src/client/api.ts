@@ -45,6 +45,7 @@ import type {
   WorkspaceWriteResponse,
 } from "../shared/api";
 import { isMemoryDocument, memoryFilename } from "../shared/memory";
+import type { UsageRates, UsageResponse } from "../shared/usage";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -59,6 +60,12 @@ export class ApiError extends Error {
 }
 
 export interface WorkspaceApi {
+  loadUsage(reference?: string): Promise<UsageResponse>;
+  saveUsageOverride(
+    provider: string,
+    model: string,
+    rates: UsageRates | null,
+  ): Promise<{ schema: 1; ok: true }>;
   loadTree(): Promise<WorkspaceTreeResponse>;
   loadSession(): Promise<AuthSessionResponse>;
   login(password: string): Promise<AuthLoginResponse>;
@@ -583,6 +590,26 @@ function isSkillSuccessResponse(value: unknown): value is SkillSuccessResponse {
 }
 
 export const httpWorkspaceApi: WorkspaceApi = {
+  loadUsage: (reference) =>
+    requestJson<UsageResponse>(
+      `/api/workspace/usage${reference ? `?reference=${encodeURIComponent(reference)}` : ""}`,
+      (value): value is UsageResponse =>
+        isObject(value) &&
+        value.schema === 1 &&
+        Array.isArray(value.rows) &&
+        Array.isArray(value.prices),
+    ),
+  saveUsageOverride: (provider, model, rates) =>
+    requestJson<{ schema: 1; ok: true }>(
+      "/api/workspace/usage/override",
+      (value): value is { schema: 1; ok: true } =>
+        isObject(value) && value.ok === true,
+      {
+        method: rates === null ? "DELETE" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, model, rates }),
+      },
+    ),
   loadTree: () =>
     requestJson<WorkspaceTreeResponse>(
       "/api/workspace/tree",

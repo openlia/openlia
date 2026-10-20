@@ -1206,6 +1206,7 @@ messages:
       "Ingestion",
       "Skills",
       "MigrationsBeta",
+      "Usage",
       "Git",
     ]);
 

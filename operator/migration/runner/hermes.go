@@ -100,7 +100,7 @@ func (h *HermesRunner) RunJob(ctx context.Context, job migration.Job, source mig
 	if h.cfg.DockerImage != "" {
 		return h.runDocker(ctx, job, prompt, proposalWorkspaceDir)
 	}
-	return h.runHost(ctx, prompt, proposalWorkspaceDir)
+	return h.runHost(ctx, prompt, proposalWorkspaceDir, job.MigrationID)
 }
 
 func (h *HermesRunner) runDocker(ctx context.Context, job migration.Job, prompt string, proposalWorkspaceDir string) (*RequestResult, error) {
@@ -126,6 +126,7 @@ func (h *HermesRunner) runDocker(ctx context.Context, job migration.Job, prompt 
 	}
 
 	containerName := fmt.Sprintf("openlia-mig-runner-%s", job.MigrationID)
+	defer RecordRuntimeUsage(runtimeDir, h.cfg.DataRoot, filepath.Base(filepath.Dir(runtimeDir)), h.cfg.UID, h.cfg.GID)
 	// Remove any stale container with same name before starting
 	_ = exec.Command("docker", "rm", "-f", containerName).Run()
 
@@ -166,6 +167,7 @@ func (h *HermesRunner) runDocker(ctx context.Context, job migration.Job, prompt 
 		"-e", "OPENLIA_WORKSPACE_ROOT=/opt/data/workspace",
 		"-e", "HERMES_CONTAINER=1",
 		"-e", "HERMES_DISABLE_LAZY_INSTALLS=1",
+		"-e", "OPENLIA_USAGE_DISABLE_COLLECTOR=1",
 		"-e", "GIT_TERMINAL_PROMPT=0",
 		h.cfg.DockerImage,
 		"chat", "--oneshot", "--query-file", "/opt/data/prompt.txt", "-Q",
@@ -182,8 +184,23 @@ func (h *HermesRunner) runDocker(ctx context.Context, job migration.Job, prompt 
 	return ParseResponse(string(out))
 }
 
-func (h *HermesRunner) runHost(ctx context.Context, prompt string, proposalWorkspaceDir string) (*RequestResult, error) {
+func (h *HermesRunner) runHost(ctx context.Context, prompt string, proposalWorkspaceDir, reference string) (*RequestResult, error) {
+	if reference == "" {
+		reference = filepath.Base(filepath.Dir(h.cfg.RuntimeDir))
+	}
+	home := os.Getenv("HERMES_HOME")
+	if home == "" {
+		if userHome, err := os.UserHomeDir(); err == nil {
+			home = filepath.Join(userHome, ".hermes")
+		}
+	}
+	if home != "" {
+		defer RecordSharedRuntimeUsage(home, h.cfg.DataRoot, reference, h.cfg.UID, h.cfg.GID)
+	}
 	cmd := exec.CommandContext(ctx, h.cfg.HermesPath, "chat", "--oneshot", "-q", prompt)
+	// Preserve the host's existing Hermes home, provider settings and credentials.
+	// Its normal collector owns usage; isolated Docker runs export reports instead.
+	cmd.Env = append(os.Environ(), "OPENLIA_USAGE_DISABLE_COLLECTOR=1", "HERMES_SESSION_SOURCE=openlia-migration:"+reference)
 	cmd.Dir = proposalWorkspaceDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -238,7 +255,7 @@ func (h *HermesRunner) RunRevision(ctx context.Context, revisionNum int, feedbac
 	if h.cfg.DockerImage != "" {
 		return h.runDocker(ctx, dummyJob, prompt, proposalWorkspaceDir)
 	}
-	return h.runHost(ctx, prompt, proposalWorkspaceDir)
+	return h.runHost(ctx, prompt, proposalWorkspaceDir, filepath.Base(filepath.Dir(h.cfg.RuntimeDir)))
 }
 
 // ParseResponse extracts the structured JSON block from model output.

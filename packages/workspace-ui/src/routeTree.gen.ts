@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SplatRouteImport } from './routes/$'
 import { Route as ConfigurationRouteImport } from './routes/configuration'
 import { Route as GitActivityRouteImport } from './routes/git-activity'
+import { Route as UsageRouteImport } from './routes/usage'
 import { Route as FilesIndexRouteImport } from './routes/files/index'
 import { Route as FilesSplatRouteImport } from './routes/files/$'
 import { Route as IngestionIndexRouteImport } from './routes/ingestion/index'
@@ -42,6 +43,11 @@ const ConfigurationRoute = ConfigurationRouteImport.update({
 const GitActivityRoute = GitActivityRouteImport.update({
   id: '/git-activity',
   path: '/git-activity',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const UsageRoute = UsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FilesIndexRoute = FilesIndexRouteImport.update({
@@ -100,6 +106,7 @@ export interface FileRoutesByFullPath {
   '/$': typeof SplatRoute
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
+  '/usage': typeof UsageRoute
   '/files/$': typeof FilesSplatRoute
   '/ingestion/$': typeof IngestionSplatRoute
   '/memory/$': typeof MemorySplatRoute
@@ -116,6 +123,7 @@ export interface FileRoutesByTo {
   '/$': typeof SplatRoute
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
+  '/usage': typeof UsageRoute
   '/files/$': typeof FilesSplatRoute
   '/ingestion/$': typeof IngestionSplatRoute
   '/memory/$': typeof MemorySplatRoute
@@ -133,6 +141,7 @@ export interface FileRoutesById {
   '/$': typeof SplatRoute
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
+  '/usage': typeof UsageRoute
   '/files/$': typeof FilesSplatRoute
   '/ingestion/$': typeof IngestionSplatRoute
   '/memory/$': typeof MemorySplatRoute
@@ -151,6 +160,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/configuration'
     | '/git-activity'
+    | '/usage'
     | '/files/$'
     | '/ingestion/$'
     | '/memory/$'
@@ -167,6 +177,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/configuration'
     | '/git-activity'
+    | '/usage'
     | '/files/$'
     | '/ingestion/$'
     | '/memory/$'
@@ -183,6 +194,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/configuration'
     | '/git-activity'
+    | '/usage'
     | '/files/$'
     | '/ingestion/$'
     | '/memory/$'
@@ -200,6 +212,7 @@ export interface RootRouteChildren {
   SplatRoute: typeof SplatRoute
   ConfigurationRoute: typeof ConfigurationRoute
   GitActivityRoute: typeof GitActivityRoute
+  UsageRoute: typeof UsageRoute
   FilesSplatRoute: typeof FilesSplatRoute
   IngestionSplatRoute: typeof IngestionSplatRoute
   MemorySplatRoute: typeof MemorySplatRoute
@@ -240,6 +253,13 @@ declare module '@tanstack/react-router' {
       path: '/git-activity'
       fullPath: '/git-activity'
       preLoaderRoute: typeof GitActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/usage': {
+      id: '/usage'
+      path: '/usage'
+      fullPath: '/usage'
+      preLoaderRoute: typeof UsageRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/files/': {
@@ -320,6 +340,7 @@ const rootRouteChildren: RootRouteChildren = {
   SplatRoute: SplatRoute,
   ConfigurationRoute: ConfigurationRoute,
   GitActivityRoute: GitActivityRoute,
+  UsageRoute: UsageRoute,
   FilesSplatRoute: FilesSplatRoute,
   IngestionSplatRoute: IngestionSplatRoute,
   MemorySplatRoute: MemorySplatRoute,

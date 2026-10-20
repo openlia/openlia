@@ -149,3 +149,32 @@ func TestFallbackDeterministicPlanner(t *testing.T) {
 		t.Errorf("expected content preserved, got %q", resp.ProposedContent)
 	}
 }
+
+type migrationUsageRunner struct{ calls []string }
+
+func (r *migrationUsageRunner) Run(_ context.Context, _ string, args ...string) (CommandResult, error) {
+	call := strings.Join(args, " ")
+	r.calls = append(r.calls, call)
+	if strings.Contains(call, " exec ") {
+		return CommandResult{Stdout: []byte(`{"domain":"inbox","target_path":"inbox/test.md","proposed_content":"test"}`)}, nil
+	}
+	return CommandResult{Stdout: []byte("hermes\n")}, nil
+}
+
+func TestMigrationClassifierTagsItsMigrationID(t *testing.T) {
+	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
+	runner := &migrationUsageRunner{}
+	planner := ComposeLLMPlanner{Compose: NewCompose(config, runner), Config: config, MigrationID: "migration-classifier"}
+	if _, err := planner.ClassifyAndAdapt(context.Background(), LLMClassificationRequest{RelativePath: "test.md", Content: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, call := range runner.calls {
+		if strings.Contains(call, "HERMES_SESSION_SOURCE=openlia-migration:migration-classifier") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("migration source attribution missing: %v", runner.calls)
+	}
+}

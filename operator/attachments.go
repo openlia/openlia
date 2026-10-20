@@ -128,6 +128,14 @@ func GenerateAttachmentsContext(ctx context.Context, config Config, composers ..
 		}
 	}
 	ingestionDir := filepath.Join(config.DataRoot, "ingestion")
+	for _, path := range []string{filepath.Join(config.DataRoot, "usage"), filepath.Join(config.DataRoot, "usage", "reports")} {
+		if err := EnsureDir(path, 0o700); err != nil {
+			return err
+		}
+		if err := ensureRuntimeOwner(path, config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
+			return err
+		}
+	}
 	if err := EnsureDir(ingestionDir, 0o700); err != nil {
 		return err
 	}
@@ -334,6 +342,7 @@ func generateAttachmentsFile(config Config) error {
 		workspace, _ := json.Marshal(filepath.Join(config.DataRoot, "workspace"))
 		skills, _ := json.Marshal(filepath.Join(config.DataRoot, "skills"))
 		memories, _ := json.Marshal(filepath.Join(config.DataRoot, "memories"))
+		usage, _ := json.Marshal(filepath.Join(config.DataRoot, "usage"))
 		ingestion, _ := json.Marshal(filepath.Join(config.DataRoot, "ingestion"))
 		migrations, _ := json.Marshal(filepath.Join(config.DataRoot, ".openlia", "workspace-migrations"))
 		sessionDir, _ := json.Marshal(filepath.Join(config.RuntimeRoot, "workspace-ui"))
@@ -348,6 +357,7 @@ func generateAttachmentsFile(config Config) error {
 			builder.WriteString(fmt.Sprintf("      OPENLIA_RELEASE_SHA256: %q\n", config.OpenLiaReleaseSHA256))
 		}
 		builder.WriteString("      OPENLIA_INGESTION_ROOT: /ingestion\n")
+		builder.WriteString("      OPENLIA_USAGE_ROOT: /usage\n")
 		if ingestionURL != "" {
 			fmt.Fprintf(&builder, "      OPENLIA_INGESTION_URL: %q\n", ingestionURL)
 		}
@@ -383,6 +393,9 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("\n        target: /ingestion\n      - type: bind\n        source: ")
 		builder.Write(migrations)
 		builder.WriteString("\n        target: /migrations")
+		builder.WriteString("\n      - type: bind\n        source: ")
+		builder.Write(usage)
+		builder.WriteString("\n        target: /usage")
 		if !isFirebase && config.WorkspaceUIAuthRequired {
 			builder.WriteString("\n      - type: bind\n        source: ")
 			builder.Write(passwordHashFile)

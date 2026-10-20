@@ -88,5 +88,8 @@ export function createConfiguredWorkspaceHandler() {
       openlia_version: process.env.OPENLIA_VERSION,
     },
     workspaceRoot,
+    ...(process.env.OPENLIA_USAGE_ROOT
+      ? { usageRoot: resolve(process.env.OPENLIA_USAGE_ROOT) }
+      : {}),
   });
 }
