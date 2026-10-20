@@ -34,6 +34,7 @@ import type {
   WorkspaceErrorResponse,
   WorkspaceFile,
   WorkspaceFileMetadata,
+  WorkspaceFixTemplateResponse,
   WorkspaceGitStatus,
   WorkspaceMoveResponse,
   WorkspaceRenameResponse,
@@ -86,6 +87,10 @@ export interface WorkspaceApi {
   ): Promise<WorkspaceMoveResponse>;
   loadCreatableDomains(): Promise<WorkspaceDomainsResponse>;
   createFile(domain: string, name: string): Promise<WorkspaceFile>;
+  fixTemplateIssues(
+    path: string,
+    content?: string,
+  ): Promise<WorkspaceFixTemplateResponse>;
   loadDiagnostics(): Promise<WorkspaceDiagnosticsResponse>;
   loadSettings(): Promise<WorkspaceSettings>;
   updateSettings(settings: WorkspaceSettings): Promise<WorkspaceSettings>;
@@ -368,6 +373,17 @@ function isWorkspaceDiagnosticsResponse(
     value.schema === 1 &&
     typeof value.valid === "boolean" &&
     Array.isArray(value.issues)
+  );
+}
+
+function isWorkspaceFixTemplateResponse(
+  value: unknown,
+): value is WorkspaceFixTemplateResponse {
+  return (
+    isObject(value) &&
+    value.schema === 1 &&
+    value.ok === true &&
+    typeof value.migration_id === "string"
   );
 }
 
@@ -680,6 +696,16 @@ export const httpWorkspaceApi: WorkspaceApi = {
       headers: { "Content-Type": "application/json" },
       method: "POST",
     }),
+  fixTemplateIssues: (path, content) =>
+    requestJson<WorkspaceFixTemplateResponse>(
+      "/api/workspace/fix-template-issues",
+      isWorkspaceFixTemplateResponse,
+      {
+        body: JSON.stringify({ path, content }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
   loadDiagnostics: () =>
     requestJson<WorkspaceDiagnosticsResponse>(
       "/api/workspace/diagnostics",

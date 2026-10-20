@@ -17,6 +17,7 @@ import type {
   WorkspaceErrorResponse,
   WorkspaceFile,
   WorkspaceFileMetadata,
+  WorkspaceFixTemplateResponse,
   WorkspaceGitStatus,
   WorkspaceMoveResponse,
   WorkspaceRenameResponse,
@@ -845,6 +846,17 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         revision: nextRev,
         schema: 1,
         validation: { errors: [], valid: true },
+      };
+    },
+    async fixTemplateIssues(
+      path: string,
+      content?: string,
+    ): Promise<WorkspaceFixTemplateResponse> {
+      requireAuthentication();
+      return {
+        schema: 1,
+        ok: true,
+        migration_id: `mig-mock-${Date.now()}`,
       };
     },
     async loadDiagnostics(): Promise<WorkspaceDiagnosticsResponse> {

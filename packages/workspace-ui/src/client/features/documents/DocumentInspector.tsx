@@ -114,6 +114,11 @@ export function DocumentInspector({
                   {file.validation.valid ? "Conforming" : "Issues Found"}
                 </span>
               </div>
+              {file.validation.template_path && (
+                <p className="text-[11px] font-mono text-base-content/60 truncate">
+                  Template: {file.validation.template_path}
+                </p>
+              )}
               {file.validation.schema_path && (
                 <p className="text-[11px] font-mono text-base-content/60 truncate">
                   Schema: {file.validation.schema_path}

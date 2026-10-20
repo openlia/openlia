@@ -176,6 +176,32 @@ def validate_template_structure(body: str) -> list[str]:
     return []
 
 
+def levenshtein_distance(s1: str, s2: str) -> int:
+    a, b = s1.lower(), s2.lower()
+    m, n = len(a), len(b)
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    for i in range(m + 1):
+        dp[i][0] = i
+    for j in range(n + 1):
+        dp[0][j] = j
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            dp[i][j] = min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost)
+    return dp[m][n]
+
+
+def is_similar_heading(expected: str, actual: str) -> bool:
+    e, a = expected.lower().strip(), actual.lower().strip()
+    if e == a:
+        return True
+    dist = levenshtein_distance(e, a)
+    max_len = max(len(e), len(a))
+    if max_len == 0:
+        return True
+    return dist <= 2 or (1.0 - dist / max_len) >= 0.75
+
+
 def _schema_refs_are_local(value: Any) -> bool:
     if isinstance(value, dict):
         for key, item in value.items():
@@ -292,18 +318,52 @@ def _validate_template(
     return errors, schema, schema_path
 
 
-def _validate_document(path: Path, schema: dict[str, Any], root: Path) -> list[str]:
+def _validate_document(
+    path: Path,
+    schema: dict[str, Any],
+    root: Path,
+    template_path: Path | None = None,
+) -> list[str]:
     relative = _relative(path, root)
     if path.is_symlink():
         return [f"{relative}: symbolic links are not validated"]
     try:
-        metadata, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+        metadata, body = parse_frontmatter(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, ValueError) as exc:
         return [f"{relative}: {exc}"]
-    return [
+    errors = [
         f"{relative}: {error}"
         for error in validate_frontmatter(_without_schema_directive(metadata), schema)
     ]
+    if template_path is not None and template_path.is_file():
+        try:
+            template_headings = extract_headings(template_path.read_text(encoding="utf-8"))
+            expected_sections = [
+                h.strip() for l, h in template_headings if l == 2 and h.strip()
+            ]
+            record_headings = extract_headings(body)
+            titles = [h for l, h in record_headings if l == 1 and h.strip()]
+            if not titles:
+                errors.append(f"{relative}: file must contain a level-one title ('# ...')")
+            file_sections = [h.strip() for l, h in record_headings if l == 2]
+            for expected in expected_sections:
+                if not any(expected.lower() == s.lower() for s in file_sections):
+                    typo = next(
+                        (s for s in file_sections if is_similar_heading(expected, s)),
+                        None,
+                    )
+                    if typo:
+                        errors.append(
+                            f"{relative}: heading: missing section '## {expected}' "
+                            f"(found misspelled '## {typo}')"
+                        )
+                    else:
+                        errors.append(
+                            f"{relative}: heading: missing required section '## {expected}'"
+                        )
+        except Exception:
+            pass
+    return errors
 
 
 def _validate_unreferenced_schemas(
@@ -426,7 +486,7 @@ def validate_workspace(workspace_root: Path) -> list[str]:
             if record.is_symlink():
                 errors.append(f"{_relative(record, root)}: symbolic links are not validated")
                 continue
-            errors.extend(_validate_document(record, schema, root))
+            errors.extend(_validate_document(record, schema, root, template_path=template))
 
     schema_paths = sorted(root.rglob("*.schema.json"))
     errors.extend(_validate_unreferenced_schemas(schema_paths, referenced_schemas, root))
@@ -509,13 +569,13 @@ def self_test() -> None:
         )
         record = domain / "career.md"
         record.write_text(
-            "---\n$schema: ../schemas/goal.json\nstatus: active\n---\n# Career\n",
+            "---\n$schema: ../schemas/goal.json\nstatus: active\n---\n# Career\n\n## Outcome\n",
             encoding="utf-8",
         )
         nested_record = domain / "active" / "quarterly.md"
         nested_record.parent.mkdir()
         nested_record.write_text(
-            "---\nstatus: active\n---\n# Quarterly goal\n", encoding="utf-8"
+            "---\nstatus: active\n---\n# Quarterly goal\n\n## Outcome\n", encoding="utf-8"
         )
 
         claims_domain = root / "knowledge" / "claims"
@@ -536,7 +596,7 @@ def self_test() -> None:
             encoding="utf-8",
         )
         claim = claims_domain / "example.md"
-        claim.write_text("---\nstatus: active\n---\n## Claim\nA claim.\n", encoding="utf-8")
+        claim.write_text("---\nstatus: active\n---\n# Claim Record\n\n## Claim\nA claim.\n", encoding="utf-8")
         unrelated_knowledge = root / "knowledge" / "reference.md"
         unrelated_knowledge.write_text("# A knowledge reference without frontmatter\n", encoding="utf-8")
         (root / "workspace.schema.json").write_text(
@@ -588,14 +648,20 @@ def self_test() -> None:
         assert load_registry(root) is not None
         assert validate_workspace(root) == []
 
-        record.write_text("---\nstatus: unknown\nextra: true\n---\n# Career\n", encoding="utf-8")
+        record.write_text("---\nstatus: unknown\nextra: true\n---\n# Career\n\n## Outcome\n", encoding="utf-8")
         errors = validate_workspace(root)
         assert any("career.md" in error and "status" in error for error in errors)
         assert any("career.md" in error and "extra" in error for error in errors)
         assert any("knowledge/claims/example.md" in error for error in errors) is False
         assert record.read_text(encoding="utf-8").startswith("---\nstatus: unknown")
 
-        claim.write_text("---\nstatus: unknown\n---\n## Claim\nA claim.\n", encoding="utf-8")
+        record.write_text("---\nstatus: active\n---\n# Career\n\n## Outcoome\n", encoding="utf-8")
+        errors = validate_workspace(root)
+        assert any("career.md" in error and "misspelled '## Outcoome'" in error for error in errors)
+
+        record.write_text("---\nstatus: active\n---\n# Career\n\n## Outcome\n", encoding="utf-8")
+
+        claim.write_text("---\nstatus: unknown\n---\n# Claim Record\n\n## Claim\nA claim.\n", encoding="utf-8")
         errors = validate_workspace(root)
         assert any("knowledge/claims/example.md" in error and "status" in error for error in errors)
         assert not any("knowledge/reference.md" in error for error in errors)
