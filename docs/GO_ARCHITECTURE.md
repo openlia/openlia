@@ -63,6 +63,53 @@ When a user runs `openlia <command> [subcommand]`:
    * `cli/commands.go`: `commandInit`, `commandHealth`, `commandLifecycle`, etc.
 4. If targeting a remote deployment, `deployment.operation(ctx, ...)` executes `openlia-operator` over SSH using JSON-RPC-like envelope parsing. If targeting a local deployment, `operator.RunContext` is called directly.
 
+### Workspace-folder migration data flow
+
+The workspace-folder migration path is separate from bundled-skill migration:
+
+```text
+openlia workspace migrate <folder>
+        |
+        | archive/upload and migration ID
+        v
+openlia-operator
+        |
+        +-- source manifest and eligibility scan
+        +-- migration.sqlite (sources, jobs, revisions, feedback, apply journal)
+        +-- proposal-repo (baseline and per-job Git checkpoints)
+        +-- Hermes request runner (one source job at a time)
+        |
+        v
+Workspace UI -> Migration
+        |
+        +-- inspect sources, progress, findings, and Git diffs
+        +-- submit feedback, stop/resume, discard
+        +-- approve an exact revision
+        v
+operator apply -> live workspace
+```
+
+Schema-v2 migration state is persisted under the deployment's
+`.openlia/workspace-migrations/<migration-id>/` directory. The proposal
+repository is not the live workspace repository: it captures a baseline,
+records cumulative Hermes changes as checkpoints, and supplies immutable
+revision diffs. Applying a revision requires its revision/patch identity and
+checks the live hashes of affected paths before writing.
+
+The intake layer records relative paths, hashes, encoding, detected type,
+eligibility, reasons, and hledger/Remind include dependencies. It blocks
+detected credentials and excludes generated/VCS material and unsupported
+binary inputs. Hermes receives source content as data and may update multiple
+proposal files, but imported instruction-looking files do not replace the
+active workspace policy. The UI reads the same persisted records and proposal
+Git history; it is not a second worker-owned review store.
+
+There are two compatibility paths in the current code. The folder entrypoint
+initializes and starts schema-v2 processing. The older `upload`/`merge`
+commands use the legacy status/plan/chunk flow and should not be described as
+equivalent to exact-revision schema-v2 review. Keep migration documentation
+explicit about which path a command uses.
+
 ---
 
 ## Guide: How to Add a New CLI Command

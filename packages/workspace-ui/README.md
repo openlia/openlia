@@ -175,3 +175,31 @@ The launcher serves browser assets, Start routes, `/health`, and the compatible
 The OpenLia root scripts remain available for full-repository checks and
 release packaging. They delegate Workspace UI build, typecheck, and test
 commands to this package.
+
+## Workspace Migration (Beta)
+
+The Workspace UI includes a **Migration** section for reviewing folder imports
+created by `openlia workspace migrate <folder>`. It reads migration state and
+artifacts from the deployment's migration storage; it does not create a second
+review database.
+
+The migration list and detail views expose source eligibility and progress,
+published revisions, proposal Git diffs, validation findings, feedback, and
+worker status. A detail page has **Overview**, **Changes**, **Sources**, and
+**Discussion** tabs. Review actions include:
+
+- Wake the worker when it is sleeping.
+- Stop or resume processing, or discard a migration.
+- Submit an overall or path-scoped comment with **Reject with Comment** to
+  request changes.
+- Approve and apply a selected revision.
+
+The browser uses the existing Workspace UI authentication and origin boundary.
+The CLI does not launch a separate migration server, open a browser, print a
+temporary migration URL, or require the terminal to remain attached while a
+migration is being reviewed. The UI is beta: after requesting changes, verify
+that a new revision and diff have been published before approving it.
+
+For remote deployments, access the existing Workspace UI through the normal
+deployment access method (for example, the SSH tunnel described in the
+operator guide), then navigate to `/migration`.
