@@ -37,6 +37,18 @@ type StoredApplyJournal struct {
 	UpdatedAt   time.Time        `json:"updated_at"`
 }
 
+// isProtectedWorkspacePath returns true for system paths that must never be altered by migrations.
+func isProtectedWorkspacePath(relPath string) bool {
+	clean := filepath.ToSlash(filepath.Clean(relPath))
+	if clean == ".git" || strings.HasPrefix(clean, ".git/") {
+		return true
+	}
+	if clean == "sources/document-passwords.toml" {
+		return true
+	}
+	return false
+}
+
 // ApplyRevision applies an approved review revision to the live workspace atomically.
 // It enforces:
 // 1. Shared OS flock on workspace mutation boundary.
@@ -75,6 +87,10 @@ func ApplyRevision(config Config, migrationID string, revisionID string, expecte
 		return fmt.Errorf("migration %s is in state '%s', not '%s'", migrationID, mig.State, migration.StateReadyForReview)
 	}
 
+	if revisionID == "" {
+		revisionID = mig.ActiveRevisionID
+	}
+
 	rev, err := db.GetRevision(revisionID)
 	if err != nil || rev == nil {
 		return fmt.Errorf("revision %s not found: %w", revisionID, err)
@@ -108,8 +124,12 @@ func ApplyRevision(config Config, migrationID string, revisionID string, expecte
 		return fmt.Errorf("tree hash mismatch: expected %s, got %s", rev.TreeHash, actualTree)
 	}
 
-	// 3. Stale live files check
+	// 3. Stale live files check & security boundary verification
 	for _, f := range rev.ChangedFiles {
+		if isProtectedWorkspacePath(f.Path) {
+			_ = db.UpdateMigrationState(migrationID, migration.StateFailed, "")
+			return fmt.Errorf("security violation: cannot apply changes to protected workspace path: %s", f.Path)
+		}
 		livePath := filepath.Join(cleanLive, f.Path)
 		if f.Status == "added" {
 			if _, err := os.Stat(livePath); err == nil {
@@ -211,6 +231,10 @@ func ApplyRevision(config Config, migrationID string, revisionID string, expecte
 	var applyErr error
 
 	for _, op := range operations {
+		if isProtectedWorkspacePath(op.Path) {
+			applyErr = fmt.Errorf("security violation: cannot write to protected workspace path: %s", op.Path)
+			break
+		}
 		livePath := filepath.Join(cleanLive, op.Path)
 		if !strings.HasPrefix(filepath.Clean(livePath), cleanLive+string(filepath.Separator)) {
 			applyErr = fmt.Errorf("illegal path outside live workspace: %s", op.Path)
@@ -236,6 +260,9 @@ func ApplyRevision(config Config, migrationID string, revisionID string, expecte
 			if err := AtomicWriteFile(livePath, propData, 0o600); err != nil {
 				applyErr = fmt.Errorf("write %s: %w", livePath, err)
 				break
+			}
+			if config.RuntimeUID > 0 && config.RuntimeGID > 0 && os.Geteuid() == 0 {
+				_ = os.Chown(livePath, config.RuntimeUID, config.RuntimeGID)
 			}
 		}
 		appliedOps = append(appliedOps, op)

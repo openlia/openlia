@@ -573,8 +573,9 @@ func (d *DB) CreateRevision(rev ReviewRevision) error {
 func (d *DB) GetRevision(revID string) (*ReviewRevision, error) {
 	row := d.db.QueryRow(`
 		SELECT id, migration_id, revision_num, baseline_hash, commit_hash, tree_hash, patch_hash, parent_rev_id, summary, changed_files, findings, created_at
-		FROM revisions WHERE id = ?
-	`, revID)
+		FROM revisions WHERE id = ? OR CAST(revision_num AS TEXT) = ?
+		ORDER BY revision_num DESC LIMIT 1
+	`, revID, revID)
 
 	var rev ReviewRevision
 	var parent, summary, filesJSON, findingsJSON, created string
@@ -679,5 +680,11 @@ func (d *DB) ListFeedback(migrationID string, revisionID string) ([]FeedbackItem
 func (d *DB) ResetFailedJobs(migrationID string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := d.db.Exec(`UPDATE jobs SET state = ?, attempts = 0, error_code = '', error_message = '', updated_at = ? WHERE migration_id = ? AND state = ?`, JobPending, now, migrationID, JobFailed)
+	return err
+}
+
+// MarkFeedbackAddressed updates all submitted feedback for a migration to addressed.
+func (d *DB) MarkFeedbackAddressed(migrationID string) error {
+	_, err := d.db.Exec(`UPDATE feedback SET status = 'addressed' WHERE migration_id = ? AND status = 'submitted'`, migrationID)
 	return err
 }

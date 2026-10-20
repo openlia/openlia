@@ -49,6 +49,27 @@ func (s *Supervisor) ResetWorkingTree(targetCommit string) {
 // RunUntilIdle processes queued jobs until none remain or stop intent is flagged.
 // It runs background lease heartbeats and generation-fenced job completions.
 func (s *Supervisor) RunUntilIdle(ctx context.Context) error {
+	// Check if migration is in revising state
+	mig, err := s.DB.GetMigration(s.MigrationID)
+	if err != nil {
+		return err
+	}
+	if mig != nil {
+		if mig.StopIntent || mig.State == migration.StateStopping || mig.State == migration.StateStopped {
+			_ = s.DB.UpdateMigrationState(s.MigrationID, migration.StateStopped, mig.State)
+			return nil
+		}
+		if mig.State == migration.StateRevising {
+			return s.ProcessRevision(ctx)
+		}
+		feedback, _ := s.DB.ListFeedback(s.MigrationID, "")
+		for _, f := range feedback {
+			if f.Status == "submitted" {
+				return s.ProcessRevision(ctx)
+			}
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -158,6 +179,88 @@ func (s *Supervisor) RunUntilIdle(ctx context.Context) error {
 	return s.PublishRevisionIfDone()
 }
 
+// ProcessRevision executes a Hermes revision request addressing submitted feedback comments.
+func (s *Supervisor) ProcessRevision(ctx context.Context) error {
+	revs, err := s.DB.ListRevisions(s.MigrationID)
+	if err != nil {
+		return err
+	}
+	if len(revs) == 0 {
+		return fmt.Errorf("cannot revise: no prior revisions found")
+	}
+	latestRev := revs[len(revs)-1]
+
+	feedback, err := s.DB.ListFeedback(s.MigrationID, "")
+	if err != nil {
+		return fmt.Errorf("list feedback: %w", err)
+	}
+	var submitted []migration.FeedbackItem
+	for _, f := range feedback {
+		if f.Status == "submitted" {
+			submitted = append(submitted, f)
+		}
+	}
+
+	headBefore, _ := s.Repo.GetHeadCommit()
+
+	// Compute previous diff for context
+	priorDiff, _ := s.Repo.Diff(s.BaselineHash, latestRev.CommitHash)
+
+	// Execute revision request
+	res, runErr := s.Runner.RunRevision(ctx, latestRev.RevisionNum, submitted, priorDiff, s.Repo.RepoDir)
+	if runErr != nil {
+		s.ResetWorkingTree(headBefore)
+		return fmt.Errorf("runner error on revision: %w", runErr)
+	}
+
+	nextRevNum := len(revs) + 1
+	headAfter, cpErr := s.Repo.CheckpointJob(fmt.Sprintf("revision-%d", nextRevNum), "addressed operator feedback")
+	if cpErr != nil {
+		s.ResetWorkingTree(headBefore)
+		return fmt.Errorf("checkpoint revision %d: %w", nextRevNum, cpErr)
+	}
+
+	treeHash, err := s.Repo.GetTreeHash(headAfter)
+	if err != nil {
+		return err
+	}
+	diff, err := s.Repo.Diff(s.BaselineHash, headAfter)
+	if err != nil {
+		return err
+	}
+	patchHash := propgit.ComputePatchHash(diff)
+	changedFiles, err := s.Repo.GetChangedFiles(s.BaselineHash, headAfter)
+	if err != nil {
+		return err
+	}
+
+	summary := res.Rationale
+	if summary == "" {
+		summary = fmt.Sprintf("Revision %d: updated based on operator feedback", nextRevNum)
+	}
+
+	nextRev := migration.ReviewRevision{
+		ID:           fmt.Sprintf("rev-%d-%s", nextRevNum, s.MigrationID),
+		MigrationID:  s.MigrationID,
+		RevisionNum:  nextRevNum,
+		BaselineHash: s.BaselineHash,
+		CommitHash:   headAfter,
+		TreeHash:     treeHash,
+		PatchHash:    patchHash,
+		ParentRevID:  latestRev.ID,
+		Summary:      summary,
+		ChangedFiles: changedFiles,
+		CreatedAt:    time.Now().UTC(),
+	}
+
+	if err := s.DB.CreateRevision(nextRev); err != nil {
+		return fmt.Errorf("create revision %d: %w", nextRevNum, err)
+	}
+
+	_ = s.DB.MarkFeedbackAddressed(s.MigrationID)
+	return s.DB.UpdateMigrationState(s.MigrationID, migration.StateReadyForReview, "")
+}
+
 // PublishRevisionIfDone creates Revision 1 when all jobs are complete.
 func (s *Supervisor) PublishRevisionIfDone() error {
 	summary, err := s.DB.GetJobSummary(s.MigrationID)
@@ -174,12 +277,12 @@ func (s *Supervisor) PublishRevisionIfDone() error {
 	if err != nil {
 		return err
 	}
-	// If revisions exist, only publish next revision if state is 'revising'
 	if len(revs) > 0 {
 		mig, _ := s.DB.GetMigration(s.MigrationID)
-		if mig == nil || mig.State != migration.StateRevising {
-			return nil
+		if mig != nil && mig.State == migration.StateProcessing {
+			_ = s.DB.UpdateMigrationState(s.MigrationID, migration.StateReadyForReview, "")
 		}
+		return nil
 	}
 
 	headCommit, err := s.Repo.GetHeadCommit()

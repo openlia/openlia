@@ -218,6 +218,14 @@ func CreateCleanTarball(sourceDir string, outWriter io.Writer) (int, int, error)
 	packagedCount := 0
 	blockedCount := 0
 
+	type QuarantinedFileInfo struct {
+		Path   string `json:"path"`
+		Size   int64  `json:"size"`
+		Hash   string `json:"hash"`
+		Reason string `json:"reason"`
+	}
+	var quarantined []QuarantinedFileInfo
+
 	err = filepath.Walk(absSource, func(path string, f os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -242,7 +250,14 @@ func CreateCleanTarball(sourceDir string, outWriter io.Writer) (int, int, error)
 		}
 		if DetectSecretContent(rel, data) {
 			blockedCount++
-			return nil // strictly exclude secret file
+			h := sha256.Sum256(data)
+			quarantined = append(quarantined, QuarantinedFileInfo{
+				Path:   filepath.ToSlash(rel),
+				Size:   int64(len(data)),
+				Hash:   hex.EncodeToString(h[:]),
+				Reason: "credentials or secret patterns detected",
+			})
+			return nil // strictly exclude secret file bytes
 		}
 		if IsEmptyStub(data) {
 			return nil
@@ -269,6 +284,23 @@ func CreateCleanTarball(sourceDir string, outWriter io.Writer) (int, int, error)
 	if err != nil {
 		return packagedCount, blockedCount, err
 	}
+
+	// If any files were quarantined, write metadata manifest into tarball
+	if len(quarantined) > 0 {
+		qData, err := json.Marshal(quarantined)
+		if err == nil {
+			header := &tar.Header{
+				Name:    ".openlia-intake-quarantine.json",
+				Mode:    0o600,
+				Size:    int64(len(qData)),
+				ModTime: time.Now(),
+			}
+			if err := tarWriter.WriteHeader(header); err == nil {
+				_, _ = tarWriter.Write(qData)
+			}
+		}
+	}
+
 	return packagedCount, blockedCount, nil
 }
 

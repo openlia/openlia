@@ -96,10 +96,17 @@ func commandWorkspaceMigrateUpload(options Options, args []string) int {
 		return fail(options, ExitFailure, "upload migration archive: "+err.Error(), nil)
 	}
 
-	raw, err := deployment.operation(ctx, "workspace-migrate", nil, "worker", "--migration-id", migrationID, "--json")
-	if err != nil {
-		return fail(options, ExitFailure, "start migration worker: "+err.Error(), nil)
+	// Initialize V2 migration on deployment
+	if _, err := deployment.operation(ctx, "workspace-migrate", nil, "init", "--migration-id", migrationID, "--json"); err != nil {
+		return fail(options, ExitFailure, "init migration on deployment: "+err.Error(), nil)
 	}
+
+	// Trigger worker execution in background
+	go func() {
+		wCtx, wCancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer wCancel()
+		_, _ = deployment.operation(wCtx, "workspace-migrate", nil, "worker", "--migration-id", migrationID, "--json")
+	}()
 
 	blockedNotice := ""
 	if blocked > 0 {
@@ -112,7 +119,7 @@ func commandWorkspaceMigrateUpload(options Options, args []string) int {
 		"migration_id": migrationID,
 		"packaged":     packaged,
 		"blocked":      blocked,
-		"worker":       string(raw),
+		"worker":       "started",
 	}, msg)
 }
 
