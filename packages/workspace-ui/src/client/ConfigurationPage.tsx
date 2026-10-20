@@ -1,6 +1,7 @@
 import type { WorkspaceSettings, WorkspaceSystemInfo } from "../shared/api";
 
 export interface ConfigurationPageProps {
+  usagePricing?: import("react").ReactNode;
   exporting: boolean;
   onExport: () => void;
   onSettingsChange: (
@@ -55,6 +56,7 @@ function VisibilitySetting({
 }
 
 export function ConfigurationPage({
+  usagePricing,
   error,
   exporting,
   onExport,
@@ -193,6 +195,7 @@ export function ConfigurationPage({
           </div>
         </section>
 
+        {usagePricing}
         <section
           aria-labelledby="system-information-heading"
           className="grid gap-4"

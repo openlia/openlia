@@ -50,6 +50,7 @@ plugins:
   enabled:
     - openlia-policy
     - openlia-ingestion
+    - openlia-usage
   hook_callback_timeout: 30
   entries:
     openlia-ingestion:

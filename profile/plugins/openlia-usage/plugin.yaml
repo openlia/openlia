@@ -1,0 +1,5 @@
+name: openlia-usage
+version: "1.0.0"
+description: "Private estimated LLM usage monitoring"
+manifest_version: 2
+api_version: 1

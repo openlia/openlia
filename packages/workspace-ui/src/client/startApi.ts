@@ -67,6 +67,16 @@ async function request<T>(input: WorkspaceServerRequest): Promise<T> {
 
 export const startWorkspaceApi: WorkspaceApi = {
   ...httpWorkspaceApi,
+  loadUsage: (reference) =>
+    request<import("../shared/usage").UsageResponse>({
+      path: `/api/workspace/usage${reference ? `?reference=${encodeURIComponent(reference)}` : ""}`,
+    }),
+  saveUsageOverride: (provider, model, rates) =>
+    request<{ schema: 1; ok: true }>({
+      path: "/api/workspace/usage/override",
+      method: rates === null ? "DELETE" : "PUT",
+      body: { provider, model, rates },
+    }),
   loadSession: () =>
     request<AuthSessionResponse>({ path: "/api/auth/session" }),
   login: (password) =>

@@ -25,12 +25,14 @@ import { MemoryFileService } from "./memory";
 import { MigrationService } from "./migration";
 import { SkillService } from "./skills";
 import { WorkspaceError, WorkspaceService } from "./workspace";
+import { UsageService } from "./usage";
 
 export interface WorkspaceHandlerOptions {
   workspaceRoot: string;
   memoriesRoot?: string;
   ingestionRoot?: string;
   migrationsRoot?: string;
+  usageRoot?: string;
   skillsRoot?: string;
   staticRoot?: string;
   maxEditableBytes?: number;
@@ -268,6 +270,7 @@ export function createWorkspaceHandler(
   const service = new WorkspaceService(options);
   const memoryService = new MemoryFileService(service, options.memoriesRoot);
   const ingestionService = new IngestionService(options);
+  const usageService = new UsageService(options.usageRoot);
   const migrationService = new MigrationService(options);
   const systemInfo: WorkspaceSystemInfo = {
     hermes_version: options.systemInfo?.hermes_version ?? "Unavailable",
@@ -345,7 +348,8 @@ export function createWorkspaceHandler(
           url.pathname === "/migration" ||
           url.pathname.startsWith("/git-activity/") ||
           url.pathname === "/git-activity" ||
-          url.pathname === "/configuration")
+          url.pathname === "/configuration" ||
+          url.pathname === "/usage")
       ) {
         return (
           (await staticFile(staticRoot, "/", isFirebase)) ??
@@ -496,6 +500,32 @@ export function createWorkspaceHandler(
           );
         }
         return json(service.updateSettings(body.value));
+      }
+      if (request.method === "GET" && url.pathname === "/api/workspace/usage") {
+        return json(
+          usageService.snapshot(
+            url.searchParams.get("reference")?.slice(0, 512),
+          ),
+        );
+      }
+      if (
+        ["PUT", "DELETE"].includes(request.method) &&
+        url.pathname === "/api/workspace/usage/override"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin)) {
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        }
+        const body = await readJson(request, maxDeleteRequestBytes);
+        if (body.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        usageService.override(body.value, request.method === "DELETE");
+        return json({ schema: 1, ok: true });
       }
       if (request.method === "GET" && url.pathname === "/api/system/info") {
         return json(systemInfo);

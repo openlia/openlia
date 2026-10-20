@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 import os
 import re
 import subprocess
@@ -21,6 +22,13 @@ class AdapterError(RuntimeError):
 
 
 def process_job(job: dict, publisher, password_store, llm, db=None) -> dict:
+    try:
+        from openlia_usage import monitored_llm
+        llm = monitored_llm(llm, job.get("intake_id") or job.get("job_id", ""))
+    except ImportError:
+        pass
+    except Exception:
+        logging.getLogger("openlia.usage").warning("Usage observer unavailable; ingestion continues")
     source = publisher.load_source(job["source_id"])
     intake = publisher.load_intake(job["intake_id"]) if job.get("intake_id") else None
     kind = source.get("kind")

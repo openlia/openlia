@@ -130,9 +130,10 @@ func (f *FallbackDeterministicPlanner) ClassifyAndAdapt(ctx context.Context, req
 
 // ComposeLLMPlanner calls Hermes agent or provider endpoint when available.
 type ComposeLLMPlanner struct {
-	Compose Compose
-	Config  Config
-	Profile TargetWorkspaceProfile
+	MigrationID string
+	Compose     Compose
+	Config      Config
+	Profile     TargetWorkspaceProfile
 }
 
 func (c *ComposeLLMPlanner) ClassifyAndAdapt(ctx context.Context, req LLMClassificationRequest) (LLMClassificationResponse, error) {
@@ -150,7 +151,8 @@ func (c *ComposeLLMPlanner) ClassifyAndAdapt(ctx context.Context, req LLMClassif
 	invokeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	res, err := c.Compose.Run(invokeCtx, "exec", "-T", "hermes", "hermes", "-z", prompt)
+	// This path shares the main Hermes DB. Tag it rather than importing a second report.
+	res, err := c.Compose.Run(invokeCtx, "exec", "-T", "-e", "HERMES_SESSION_SOURCE=openlia-migration:"+c.MigrationID, "-e", "OPENLIA_USAGE_DISABLE_COLLECTOR=1", "hermes", "hermes", "-z", prompt)
 	if err != nil {
 		return fallback.ClassifyAndAdapt(ctx, req)
 	}

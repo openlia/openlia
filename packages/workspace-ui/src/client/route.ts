@@ -12,6 +12,7 @@ export type MainTab =
   | "ingestion"
   | "git-activity"
   | "configuration"
+  | "usage"
   | "migration";
 
 export interface WorkspaceRoute {
@@ -89,6 +90,8 @@ export function parseRoute(
     } else if (host === "migration") {
       if (raw) migrationId = safeDecodeURIComponent(raw);
       tab = "migration";
+    } else if (host === "usage") {
+      tab = "usage";
     } else if (host === "configuration") {
       tab = "configuration";
     }
@@ -135,6 +138,8 @@ export function parseRoute(
     pathname.startsWith("/git-activity/")
   ) {
     tab = "git-activity";
+  } else if (pathname === "/usage") {
+    tab = "usage";
   } else if (pathname === "/configuration") {
     tab = "configuration";
   }
@@ -146,6 +151,7 @@ export function parseRoute(
     tabParam === "ingestion" ||
     tabParam === "git-activity" ||
     tabParam === "configuration" ||
+    tabParam === "usage" ||
     tabParam === "migration"
   ) {
     tab = tabParam;
@@ -203,7 +209,9 @@ export function parseRoute(
 
 export function buildRouteUrl(route: WorkspaceRoute): string {
   let pathname = "/";
-  if (route.tab === "git-activity") {
+  if (route.tab === "usage") {
+    pathname = "/usage";
+  } else if (route.tab === "git-activity") {
     pathname = "/git-activity";
   } else if (route.tab === "configuration") {
     pathname = "/configuration";

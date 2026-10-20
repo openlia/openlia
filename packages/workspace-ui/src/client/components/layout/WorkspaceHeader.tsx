@@ -27,6 +27,7 @@ export function WorkspaceHeader({
     | "ingestion"
     | "git-activity"
     | "configuration"
+    | "usage"
     | "migration"
     | undefined;
   authRequired: boolean;
@@ -47,6 +48,7 @@ export function WorkspaceHeader({
           | "ingestion"
           | "git-activity"
           | "configuration"
+          | "usage"
           | "migration",
       ) => void)
     | undefined;
@@ -60,7 +62,7 @@ export function WorkspaceHeader({
 
   return (
     <header className="workspace-header">
-      {activeTab !== "configuration" && (
+      {activeTab !== "configuration" && activeTab !== "usage" && (
         <button
           aria-label={
             activeTab === "skills" ? "Open skills drawer" : "Open files drawer"
@@ -77,7 +79,7 @@ export function WorkspaceHeader({
       {(onTabChange || onOpenDocuments) && (
         <nav
           aria-label="Workspace navigation"
-          className="join shrink-0 border border-base-content/15 rounded-lg bg-base-200/60 p-0.5 mr-2"
+          className="join flex max-w-full shrink-0 flex-wrap border border-base-content/15 rounded-lg bg-base-200/60 p-0.5 mr-2"
         >
           {(onOpenDocuments || onTabChange) && (
             <button
@@ -164,6 +166,16 @@ export function WorkspaceHeader({
           )}
           {onTabChange && (
             <button
+              type="button"
+              aria-current={activeTab === "usage" ? "page" : undefined}
+              className={`btn btn-xs join-item ${activeTab === "usage" ? "btn-primary shadow-xs" : "btn-ghost text-base-content/70"}`}
+              onClick={() => onTabChange("usage")}
+            >
+              Usage
+            </button>
+          )}
+          {onTabChange && (
+            <button
               aria-current={activeTab === "git-activity" ? "page" : undefined}
               className={`btn btn-xs join-item ${
                 activeTab === "git-activity"
@@ -182,34 +194,38 @@ export function WorkspaceHeader({
       <div className="min-w-0 flex-1">
         <p className="workspace-eyebrow">
           OPENLIA /{" "}
-          {activeTab === "skills"
-            ? "SKILLS"
-            : activeTab === "git-activity"
-              ? "GIT ACTIVITY"
-              : activeTab === "ingestion"
-                ? "INGESTION RUNTIME"
-                : activeTab === "migration"
-                  ? "MIGRATION"
-                  : activeTab === "configuration"
-                    ? "CONFIGURATION"
-                    : file
-                      ? file.source === "memory"
-                        ? "ASSISTANT MEMORY"
-                        : "WORKSPACE"
-                      : "ACTIVITY"}
+          {activeTab === "usage"
+            ? "USAGE"
+            : activeTab === "skills"
+              ? "SKILLS"
+              : activeTab === "git-activity"
+                ? "GIT ACTIVITY"
+                : activeTab === "ingestion"
+                  ? "INGESTION RUNTIME"
+                  : activeTab === "migration"
+                    ? "MIGRATION"
+                    : activeTab === "configuration"
+                      ? "CONFIGURATION"
+                      : file
+                        ? file.source === "memory"
+                          ? "ASSISTANT MEMORY"
+                          : "WORKSPACE"
+                        : "ACTIVITY"}
         </p>
         <div className="flex items-center gap-1.5">
           <h1 className="workspace-title" title={file?.path}>
             {file?.path.split("/").at(-1) ??
-              (activeTab === "skills"
-                ? "Skills"
-                : activeTab === "git-activity"
-                  ? "Git Activity"
-                  : activeTab === "ingestion"
-                    ? "Ingestion"
-                    : activeTab === "configuration"
-                      ? "Configuration"
-                      : "Activity")}
+              (activeTab === "usage"
+                ? "Usage"
+                : activeTab === "skills"
+                  ? "Skills"
+                  : activeTab === "git-activity"
+                    ? "Git Activity"
+                    : activeTab === "ingestion"
+                      ? "Ingestion"
+                      : activeTab === "configuration"
+                        ? "Configuration"
+                        : "Activity")}
           </h1>
           {currentLink && (
             <CopyLinkButton

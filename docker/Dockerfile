@@ -71,6 +71,8 @@ RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache \
 
 COPY --chmod=0755 docker/secret-source.sh /usr/local/bin/openlia-secret-source
 COPY docker/openlia_link_rewriter.py /opt/hermes/.venv/lib/python3.13/site-packages/openlia_link_rewriter.py
+COPY docker/openlia_usage.py /opt/hermes/.venv/lib/python3.13/site-packages/openlia_usage.py
+COPY profile/plugins/openlia-usage /opt/hermes/plugins/openlia-usage
 COPY docker/openlia_link_rewriter.pth /opt/hermes/.venv/lib/python3.13/site-packages/openlia_link_rewriter.pth
 # OpenLia's policy plugin is bundled with the image and enabled by profile/config.yaml.
 COPY profile/plugins/openlia-policy /opt/hermes/plugins/openlia-policy
@@ -86,7 +88,8 @@ RUN /usr/local/bin/openlia-install-tools \
 COPY profile/plugins/openlia-ingestion /opt/hermes/plugins/openlia-ingestion
 # Release archives protect source files with mode 0600; supervised Hermes runs
 # as an unprivileged user and must be able to read the bundled plugins.
-RUN chmod -R a+rX /opt/hermes/plugins/openlia-policy /opt/hermes/plugins/openlia-ingestion
+RUN chmod -R a+rX /opt/hermes/plugins/openlia-policy /opt/hermes/plugins/openlia-ingestion /opt/hermes/plugins/openlia-usage \
+    && chmod a+r /opt/hermes/.venv/lib/python3.13/site-packages/openlia_usage.py
 LABEL org.openlia.project="${OPENLIA_PROJECT_NAME}" org.openlia.ingestion="required" org.openlia.debian-snapshot="${DEBIAN_SNAPSHOT}"
 
 # Keep the upstream default USER and ENTRYPOINT unchanged. s6 must start as

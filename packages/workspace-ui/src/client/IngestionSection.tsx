@@ -16,6 +16,7 @@ import {
 import { DocumentInspector } from "./ingestion/DocumentInspector";
 import { PasswordManagerModal } from "./ingestion/PasswordManagerModal";
 import { UploadModal } from "./ingestion/UploadModal";
+import { UsageSummary } from "./UsageSummary";
 
 export interface IngestionSectionProps {
   api: WorkspaceApi;
@@ -441,6 +442,7 @@ export function IngestionSection({
         onRebuildFts={handleRebuildFts}
       />
 
+      {detail && <UsageSummary api={api} reference={detail.intake.intake_id} />}
       {/* Main content body */}
       {scope === "workers" ? (
         /* Legacy Queue & Worker Leases View */

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"os"
@@ -401,5 +402,97 @@ func TestDurableBackupIncludesAndRestoresIngestionVault(t *testing.T) {
 	restoredPasswords, err := os.ReadFile(filepath.Join(ingestionDir, "document-passwords.toml"))
 	if err != nil || !bytes.Equal(restoredPasswords, passwordsBytes) {
 		t.Fatalf("document-passwords.toml mismatch after restore: got %q, want %q", restoredPasswords, passwordsBytes)
+	}
+}
+
+func TestDurableBackupRestoresUsageStateAndPendingReports(t *testing.T) {
+	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
+	for _, dir := range []string{config.DataRoot, config.MetaRoot, config.BackupRoot, filepath.Join(config.DataRoot, "usage", "reports")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	usageRoot := filepath.Join(config.DataRoot, "usage")
+	path := filepath.Join(usageRoot, "usage.sqlite")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE usage_events(id TEXT,tokens TEXT); INSERT INTO usage_events VALUES ('one','{"input_tokens":123}');CREATE TABLE usage_checkpoints(id TEXT,counters TEXT);INSERT INTO usage_checkpoints VALUES ('source','{"input_tokens":123}');CREATE TABLE usage_overrides(provider TEXT,model TEXT,rates TEXT);INSERT INTO usage_overrides VALUES ('p','m','{"input_tokens":"3"}');`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	pending := filepath.Join(usageRoot, "reports", "pending.json")
+	report := []byte(`{"id":"pending","activity":"migration","tokens":{"input_tokens":50}}`)
+	if err = os.WriteFile(pending, report, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"usage.sqlite-shm", "collector.lock"} {
+		if err = os.WriteFile(filepath.Join(usageRoot, name), []byte("transient"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	backup, identity := createTestEncryptedBackup(t, &config, "usage-test", time.Now())
+	db, err = sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec("DELETE FROM usage_events;DELETE FROM usage_checkpoints;DELETE FROM usage_overrides")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if err = os.Remove(pending); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = restoreTestEncryptedBackup(t, config, backup.Archive, identity, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	db, err = sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, table := range []string{"usage_events", "usage_checkpoints", "usage_overrides"} {
+		var count int
+		if err = db.QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("%s count %d: %v", table, count, err)
+		}
+	}
+	for query, want := range map[string]string{"SELECT tokens FROM usage_events": `{"input_tokens":123}`, "SELECT counters FROM usage_checkpoints": `{"input_tokens":123}`, "SELECT rates FROM usage_overrides": `{"input_tokens":"3"}`} {
+		var got string
+		if err = db.QueryRow(query).Scan(&got); err != nil || got != want {
+			t.Fatalf("restored usage value %s: %q, %v", query, got, err)
+		}
+	}
+	restored, err := os.ReadFile(pending)
+	if err != nil || !bytes.Equal(restored, report) {
+		t.Fatalf("pending report mismatch: %s, %v", restored, err)
+	}
+	// Inspect the archive rather than the live restored DB, which may recreate SHM.
+	plain := decryptTestBackup(t, config.BackupRoot, backup.Archive, identity)
+	file, err := os.Open(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gzipReader.Close()
+	reader := tar.NewReader(gzipReader)
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if header.Name == "hermes/usage/usage.sqlite-shm" || header.Name == "hermes/usage/collector.lock" {
+			t.Fatalf("transient file archived: %s", header.Name)
+		}
 	}
 }

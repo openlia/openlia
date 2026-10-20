@@ -1118,6 +1118,20 @@ func TestGeneratedAttachmentsContainWorkspaceUIWhenEnabled(t *testing.T) {
 				t.Fatal(err)
 			}
 			text := string(data)
+			for _, expected := range []string{"OPENLIA_USAGE_ROOT: /usage", "target: /usage", filepath.Join(config.DataRoot, "usage")} {
+				if !strings.Contains(text, expected) {
+					t.Fatalf("generated Compose missing usage wiring %q", expected)
+				}
+			}
+			for _, path := range []string{filepath.Join(config.DataRoot, "usage"), filepath.Join(config.DataRoot, "usage", "reports")} {
+				info, err := os.Stat(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if info.Mode().Perm() != 0o700 {
+					t.Fatalf("usage directory permissions %s", info.Mode())
+				}
+			}
 			for _, expected := range []string{"OPENLIA_MEMORIES_ROOT: /memories", "target: /memories", filepath.Join(config.DataRoot, "memories")} {
 				if !strings.Contains(text, expected) {
 					t.Fatalf("generated Compose missing memory mount %q:\n%s", expected, text)

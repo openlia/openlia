@@ -6,6 +6,7 @@ import type {
 } from "../../shared/api";
 
 export interface MigrationSectionProps {
+  usageSummary?: import("react").ReactNode;
   migrationDetail: MigrationDetailResponse | null;
   migrationsList: MigrationSummary[];
   loading: boolean;
@@ -122,6 +123,7 @@ function parseGitDiff(diffText: string): DiffFile[] {
 }
 
 export function MigrationSection({
+  usageSummary,
   migrationDetail,
   migrationsList,
   loading,
@@ -345,6 +347,7 @@ export function MigrationSection({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {usageSummary}
       {/* Top Header Bar */}
       <div className="flex flex-wrap items-center justify-between p-4 border-b border-base-content/10 bg-base-100 gap-2">
         <div className="flex items-center space-x-3">
