@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -149,6 +150,9 @@ func ScanSourceFolder(migrationID string, folderPath string) ([]migration.Source
 			return nil
 		}
 		slashRel := filepath.ToSlash(rel)
+		if slashRel == ".openlia-intake-quarantine.json" {
+			return nil
+		}
 
 		// Check if directory is ignored
 		if info.IsDir() {
@@ -225,6 +229,35 @@ func ScanSourceFolder(migrationID string, folderPath string) ([]migration.Source
 
 	if err != nil {
 		return nil, err
+	}
+
+	// Ingest any quarantined secret entries recorded by client packager
+	quarantineFile := filepath.Join(absPath, ".openlia-intake-quarantine.json")
+	if qData, err := os.ReadFile(quarantineFile); err == nil {
+		type QuarantinedFileInfo struct {
+			Path   string `json:"path"`
+			Size   int64  `json:"size"`
+			Hash   string `json:"hash"`
+			Reason string `json:"reason"`
+		}
+		var quarantined []QuarantinedFileInfo
+		if json.Unmarshal(qData, &quarantined) == nil {
+			for _, q := range quarantined {
+				entries = append(entries, migration.SourceEntry{
+					ID:           fmt.Sprintf("src-%04d", orderIndex),
+					MigrationID:  migrationID,
+					RelativePath: q.Path,
+					ByteHash:     q.Hash,
+					ByteSize:     q.Size,
+					Encoding:     "other",
+					DetectedType: DetectTypeByExtension(q.Path),
+					Eligibility:  migration.EligibilityBlocked,
+					Reason:       q.Reason,
+					OrderIndex:   orderIndex,
+				})
+				orderIndex++
+			}
+		}
 	}
 
 	// Sort entries deterministically: eligible dependencies first, then relative path

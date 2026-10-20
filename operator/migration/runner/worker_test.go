@@ -138,3 +138,145 @@ func TestParseResponse_ValidationFindings(t *testing.T) {
 		t.Errorf("unexpected finding 0: %+v", res2.Findings[0])
 	}
 }
+
+func TestParseResponse_ResilientScanner(t *testing.T) {
+	noisyResponse := `<thinking>
+I should parse the user notes and place them in the calendar.
+JSON structure needed:
+</thinking>
+Here is my plan:
+` + "```json" + `
+{
+  "changed_paths": ["calendar/meeting.md"],
+  "rationale": "Scheduled roadmap meeting",
+  "unresolved_questions": [],
+  "validation_findings": []
+}
+` + "```" + `
+Hope this helps! Let me know if you need changes.`
+
+	res, err := ParseResponse(noisyResponse)
+	if err != nil {
+		t.Fatalf("ParseResponse failed on noisy response: %v", err)
+	}
+	if len(res.ChangedPaths) != 1 || res.ChangedPaths[0] != "calendar/meeting.md" {
+		t.Errorf("unexpected changed paths: %+v", res.ChangedPaths)
+	}
+}
+
+func TestSupervisor_RevisionLoop(t *testing.T) {
+	tempDir := t.TempDir()
+	migDir := filepath.Join(tempDir, "migration")
+	_ = os.MkdirAll(migDir, 0o700)
+
+	db, err := migration.OpenDB(migDir)
+	if err != nil {
+		t.Fatalf("OpenDB failed: %v", err)
+	}
+	defer db.Close()
+
+	migID := "mig-revision-test"
+	_ = db.CreateMigration(migration.Migration{
+		ID:     migID,
+		Schema: 2,
+		State:  migration.StateProcessing,
+	})
+
+	repoDir := filepath.Join(migDir, "proposal-repo")
+	repo, err := propgit.OpenOrCreateRepo(repoDir)
+	if err != nil {
+		t.Fatalf("OpenOrCreateRepo failed: %v", err)
+	}
+
+	liveDir := filepath.Join(tempDir, "live")
+	_ = os.MkdirAll(liveDir, 0o700)
+	baseCommit, err := repo.CaptureBaseline(liveDir)
+	if err != nil {
+		t.Fatalf("CaptureBaseline failed: %v", err)
+	}
+
+	src := migration.SourceEntry{
+		ID:           "src-01",
+		MigrationID:  migID,
+		RelativePath: "travel/plan.md",
+		ByteHash:     "hash1",
+		Eligibility:  migration.EligibilityEligible,
+	}
+	_ = db.InsertSources([]migration.SourceEntry{src})
+
+	job := migration.Job{
+		ID:             "job-01",
+		MigrationID:    migID,
+		SourceID:       "src-01",
+		IdempotencyKey: "mig-rev:src-01",
+		MaxAttempts:    3,
+	}
+	_ = db.EnqueueJobs([]migration.Job{job})
+
+	mockRunner := &MockRunner{
+		Handler: func(job migration.Job, source migration.SourceEntry, workspaceDir string) (*RequestResult, error) {
+			dest := filepath.Join(workspaceDir, "travel", "plan.md")
+			_ = os.MkdirAll(filepath.Dir(dest), 0o700)
+			_ = os.WriteFile(dest, []byte("# Japan Trip\nDay 1: Tokyo\n"), 0o600)
+			return &RequestResult{
+				ChangedPaths: []string{"travel/plan.md"},
+				Rationale:    "Initial draft",
+			}, nil
+		},
+		RevisionHandler: func(revisionNum int, feedback []migration.FeedbackItem, priorDiff string, workspaceDir string) (*RequestResult, error) {
+			dest := filepath.Join(workspaceDir, "travel", "plan.md")
+			_ = os.WriteFile(dest, []byte("# Japan Trip\nDay 1: Tokyo\n- Packing: walking shoes\n"), 0o600)
+			return &RequestResult{
+				ChangedPaths: []string{"travel/plan.md"},
+				Rationale:    "Added walking shoes per feedback",
+			}, nil
+		},
+	}
+
+	supervisor := NewSupervisor(db, repo, mockRunner, migID, "worker-1", baseCommit)
+	ctx := context.Background()
+
+	// Initial run -> produces Revision 1
+	if err := supervisor.RunUntilIdle(ctx); err != nil {
+		t.Fatalf("RunUntilIdle failed: %v", err)
+	}
+	revs, _ := db.ListRevisions(migID)
+	if len(revs) != 1 {
+		t.Fatalf("expected 1 revision, got %d", len(revs))
+	}
+
+	// Add feedback comment and transition to revising state
+	_ = db.AddFeedback(migration.FeedbackItem{
+		ID:          "fb-01",
+		MigrationID: migID,
+		RevisionID:  revs[0].ID,
+		TargetPath:  "travel/plan.md",
+		Comment:     "Please add walking shoes to packing list",
+		Status:      "submitted",
+	})
+	_ = db.UpdateMigrationState(migID, migration.StateRevising, "")
+
+	// Run supervisor again -> processes revision -> produces Revision 2
+	if err := supervisor.RunUntilIdle(ctx); err != nil {
+		t.Fatalf("RunUntilIdle for revision failed: %v", err)
+	}
+
+	revsAfter, _ := db.ListRevisions(migID)
+	if len(revsAfter) != 2 {
+		t.Fatalf("expected 2 revisions after feedback, got %d", len(revsAfter))
+	}
+	rev2 := revsAfter[1]
+	if rev2.RevisionNum != 2 || rev2.ParentRevID != revs[0].ID {
+		t.Errorf("unexpected revision 2 metadata: %+v", rev2)
+	}
+
+	mig, _ := db.GetMigration(migID)
+	if mig.State != migration.StateReadyForReview {
+		t.Errorf("expected state ready_for_review, got %s", mig.State)
+	}
+
+	feedbackList, _ := db.ListFeedback(migID, "")
+	if len(feedbackList) != 1 || feedbackList[0].Status != "addressed" {
+		t.Errorf("expected feedback to be addressed, got: %+v", feedbackList)
+	}
+}

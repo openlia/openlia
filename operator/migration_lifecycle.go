@@ -156,7 +156,9 @@ func ResumeMigration(ctx context.Context, config Config, migrationID string) err
 	}
 
 	targetState := migration.StateProcessing
-	if mig.SavedPhase != "" {
+	if mig.State == migration.StateRevising || mig.SavedPhase == migration.StateRevising {
+		targetState = migration.StateRevising
+	} else if mig.SavedPhase != "" {
 		targetState = mig.SavedPhase
 	}
 	_ = db.ResetFailedJobs(migrationID)

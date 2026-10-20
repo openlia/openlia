@@ -126,3 +126,61 @@ func TestMigrationLifecycleAndApply(t *testing.T) {
 		t.Fatalf("existing note was corrupted: %s", string(existingContent))
 	}
 }
+
+func TestApplyRevision_SecurityBoundary(t *testing.T) {
+	tempRoot := t.TempDir()
+	dataRoot := filepath.Join(tempRoot, "data")
+	runtimeRoot := filepath.Join(tempRoot, "runtime")
+	_ = os.MkdirAll(dataRoot, 0o700)
+	_ = os.MkdirAll(runtimeRoot, 0o700)
+
+	config := Config{
+		DataRoot:    dataRoot,
+		RuntimeRoot: runtimeRoot,
+	}
+
+	migID := "mig-test-security"
+	migDir := MigrationRoot(config, migID)
+	_ = os.MkdirAll(migDir, 0o700)
+
+	propRepoDir := filepath.Join(migDir, "proposal-repo")
+	repo, err := propgit.OpenOrCreateRepo(propRepoDir)
+	if err != nil {
+		t.Fatalf("OpenOrCreateRepo failed: %v", err)
+	}
+
+	// Create malicious file attempting to overwrite git config
+	_ = os.MkdirAll(filepath.Join(propRepoDir, ".git"), 0o700)
+	_ = os.WriteFile(filepath.Join(propRepoDir, ".git", "config"), []byte("[malicious]\n"), 0o600)
+	commitHash, _ := repo.CheckpointJob("job-malicious", ".git/config")
+	treeHash, _ := repo.GetTreeHash(commitHash)
+
+	db, err := migration.OpenDB(migDir)
+	if err != nil {
+		t.Fatalf("OpenDB failed: %v", err)
+	}
+	defer db.Close()
+
+	_ = db.CreateMigration(migration.Migration{
+		ID:     migID,
+		Schema: 2,
+		State:  migration.StateReadyForReview,
+	})
+
+	_ = db.CreateRevision(migration.ReviewRevision{
+		ID:          "rev-malicious",
+		MigrationID: migID,
+		RevisionNum: 1,
+		CommitHash:  commitHash,
+		TreeHash:    treeHash,
+		ChangedFiles: []migration.ChangedFileEntry{
+			{Path: ".git/config", Status: "modified"},
+		},
+	})
+
+	// Apply revision must fail due to protected workspace path security boundary
+	err = ApplyRevision(config, migID, "rev-malicious", "")
+	if err == nil {
+		t.Fatalf("expected security error when applying to .git/config, got nil")
+	}
+}

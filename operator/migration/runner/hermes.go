@@ -24,6 +24,7 @@ type RequestResult struct {
 // RequestRunner executes a migration request against a proposal workspace.
 type RequestRunner interface {
 	RunJob(ctx context.Context, job migration.Job, source migration.SourceEntry, proposalWorkspaceDir string) (*RequestResult, error)
+	RunRevision(ctx context.Context, revisionNum int, feedback []migration.FeedbackItem, priorDiff string, proposalWorkspaceDir string) (*RequestResult, error)
 }
 
 // HermesRunnerConfig configures the Hermes execution environment.
@@ -192,30 +193,59 @@ func (h *HermesRunner) runHost(ctx context.Context, prompt string, proposalWorks
 	return ParseResponse(string(out))
 }
 
+// BuildRevisionPrompt constructs the prompt for addressing operator review comments.
+func BuildRevisionPrompt(revisionNum int, feedback []migration.FeedbackItem, priorDiff string) string {
+	var builder strings.Builder
+	builder.WriteString("You are OpenLia's Personal OS Migration Assistant.\n")
+	builder.WriteString(fmt.Sprintf("The operator has reviewed proposal Revision %d and requested changes.\n\n", revisionNum))
+	builder.WriteString("OPERATOR FEEDBACK COMMENTS:\n")
+	for i, f := range feedback {
+		loc := f.TargetPath
+		if f.LineNumber > 0 {
+			loc = fmt.Sprintf("%s:%d", loc, f.LineNumber)
+		}
+		if loc == "" {
+			loc = "General"
+		}
+		builder.WriteString(fmt.Sprintf("%d. [%s]: %s\n", i+1, loc, f.Comment))
+	}
+	if priorDiff != "" {
+		builder.WriteString("\n--- PREVIOUS REVISION DIFF (REFERENCE) ---\n")
+		if len(priorDiff) > 16384 {
+			builder.WriteString(priorDiff[:16384])
+			builder.WriteString("\n... (diff truncated for brevity)\n")
+		} else {
+			builder.WriteString(priorDiff)
+		}
+		builder.WriteString("\n--- END PREVIOUS DIFF ---\n\n")
+	}
+	builder.WriteString("CORE RULES:\n")
+	builder.WriteString("1. READ FIRST: Inspect existing instructions, policies, and files in the proposal workspace before editing.\n")
+	builder.WriteString("2. ADDRESS FEEDBACK: Make the precise modifications, additions, or relocations requested by the operator.\n")
+	builder.WriteString("3. NATIVE FILE TOOLS ONLY: Read and write files directly using read_file, search_files, write_file, or patch_file.\n")
+	builder.WriteString("4. RETURN STRICT JSON: End your response with a JSON code block in the following format:\n")
+	builder.WriteString("```json\n{\n  \"changed_paths\": [\"path/to/updated_file.md\"],\n  \"rationale\": \"Summary of changes made for feedback\",\n  \"unresolved_questions\": [],\n  \"validation_findings\": []\n}\n```\n")
+	return builder.String()
+}
+
+// RunRevision executes a revision request addressing feedback comments.
+func (h *HermesRunner) RunRevision(ctx context.Context, revisionNum int, feedback []migration.FeedbackItem, priorDiff string, proposalWorkspaceDir string) (*RequestResult, error) {
+	prompt := BuildRevisionPrompt(revisionNum, feedback, priorDiff)
+	dummyJob := migration.Job{
+		ID:          fmt.Sprintf("rev-%d", revisionNum),
+		MigrationID: fmt.Sprintf("revision-%d", revisionNum),
+	}
+	if h.cfg.DockerImage != "" {
+		return h.runDocker(ctx, dummyJob, prompt, proposalWorkspaceDir)
+	}
+	return h.runHost(ctx, prompt, proposalWorkspaceDir)
+}
+
 // ParseResponse extracts the structured JSON block from model output.
+// It iterates from the last JSON block backwards to resist embedded JSON snippets in user data.
 func ParseResponse(output string) (*RequestResult, error) {
 	result := &RequestResult{
 		Rationale: "Imported via Hermes migration assistant",
-	}
-
-	start := strings.Index(output, "```json")
-	var jsonStr string
-	if start != -1 {
-		end := strings.Index(output[start+7:], "```")
-		if end != -1 {
-			jsonStr = strings.TrimSpace(output[start+7 : start+7+end])
-		}
-	} else {
-		// Look for first { to last }
-		first := strings.Index(output, "{")
-		last := strings.LastIndex(output, "}")
-		if first != -1 && last != -1 && last > first {
-			jsonStr = output[first : last+1]
-		}
-	}
-
-	if jsonStr == "" {
-		return nil, fmt.Errorf("model response did not contain a json block")
 	}
 
 	type rawResult struct {
@@ -225,9 +255,54 @@ func ParseResponse(output string) (*RequestResult, error) {
 		Findings     []json.RawMessage `json:"validation_findings"`
 	}
 
+	// 1. Collect all fenced ```json ... ``` blocks
+	var jsonCandidates []string
+	curr := output
+	for {
+		start := strings.Index(curr, "```json")
+		if start == -1 {
+			break
+		}
+		after := curr[start+7:]
+		end := strings.Index(after, "```")
+		if end == -1 {
+			break
+		}
+		block := strings.TrimSpace(after[:end])
+		if block != "" {
+			jsonCandidates = append(jsonCandidates, block)
+		}
+		curr = after[end+3:]
+	}
+
 	var raw rawResult
-	if err := json.Unmarshal([]byte(jsonStr), &raw); err != nil {
-		return nil, fmt.Errorf("unmarshal model json response: %w", err)
+	parsed := false
+
+	// Try from the LAST candidate block backwards (Hermes trailing output)
+	for i := len(jsonCandidates) - 1; i >= 0; i-- {
+		candidate := jsonCandidates[i]
+		if err := json.Unmarshal([]byte(candidate), &raw); err == nil {
+			if len(raw.ChangedPaths) > 0 || raw.Rationale != "" || len(raw.Questions) > 0 {
+				parsed = true
+				break
+			}
+		}
+	}
+
+	// 2. Fallback to scanning for outermost balanced { ... }
+	if !parsed {
+		first := strings.Index(output, "{")
+		last := strings.LastIndex(output, "}")
+		if first != -1 && last != -1 && last > first {
+			candidate := output[first : last+1]
+			if err := json.Unmarshal([]byte(candidate), &raw); err == nil {
+				parsed = true
+			}
+		}
+	}
+
+	if !parsed {
+		return nil, fmt.Errorf("model response did not contain a valid migration result json block")
 	}
 
 	result.ChangedPaths = raw.ChangedPaths
@@ -260,7 +335,8 @@ func ParseResponse(output string) (*RequestResult, error) {
 
 // MockRunner is a deterministic runner used for automated tests and CI.
 type MockRunner struct {
-	Handler func(job migration.Job, source migration.SourceEntry, workspaceDir string) (*RequestResult, error)
+	Handler         func(job migration.Job, source migration.SourceEntry, workspaceDir string) (*RequestResult, error)
+	RevisionHandler func(revisionNum int, feedback []migration.FeedbackItem, priorDiff string, workspaceDir string) (*RequestResult, error)
 }
 
 func (m *MockRunner) RunJob(ctx context.Context, job migration.Job, source migration.SourceEntry, proposalWorkspaceDir string) (*RequestResult, error) {
@@ -276,5 +352,18 @@ func (m *MockRunner) RunJob(ctx context.Context, job migration.Job, source migra
 	return &RequestResult{
 		ChangedPaths: []string{filepath.ToSlash(rel)},
 		Rationale:    "Mock import to inbox",
+	}, nil
+}
+
+func (m *MockRunner) RunRevision(ctx context.Context, revisionNum int, feedback []migration.FeedbackItem, priorDiff string, proposalWorkspaceDir string) (*RequestResult, error) {
+	if m.RevisionHandler != nil {
+		return m.RevisionHandler(revisionNum, feedback, priorDiff, proposalWorkspaceDir)
+	}
+	// Default: update feedback_resolution.md
+	dest := filepath.Join(proposalWorkspaceDir, "feedback_resolution.md")
+	_ = os.WriteFile(dest, []byte("# Feedback Resolution\nAddressed operator feedback.\n"), 0o600)
+	return &RequestResult{
+		ChangedPaths: []string{"feedback_resolution.md"},
+		Rationale:    "Applied operator feedback in mock runner",
 	}, nil
 }
