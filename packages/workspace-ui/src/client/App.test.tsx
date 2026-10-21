@@ -1207,6 +1207,7 @@ messages:
       "Skills",
       "MigrationsBeta",
       "Usage",
+      "Schedule",
       "Git",
     ]);
 

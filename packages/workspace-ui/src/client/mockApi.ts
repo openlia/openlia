@@ -32,6 +32,12 @@ import {
   MEMORY_FILENAMES,
   memoryDocumentPath,
 } from "../shared/memory";
+import type {
+  CreateCronJobInput,
+  CronOverviewResponse,
+  HermesCronJob,
+  UpdateCronJobInput,
+} from "../shared/cron";
 import { suggestPasswordProfiles } from "../shared/passwordSuggester";
 import { ApiError, type WorkspaceApi } from "./api";
 import { mockUsage } from "./usageMock";
@@ -1540,6 +1546,105 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     },
     async wakeMigration(id: string) {
       return { ok: true, migration_id: id };
+    },
+    async loadCronJobs(): Promise<CronOverviewResponse> {
+      return {
+        schema: 1,
+        jobs: [
+          {
+            id: "openlia-workspace-git",
+            name: "openlia-workspace-git",
+            prompt:
+              "Run the workspace-git skill to review workspace changes and create appropriate structured Git commits for each changed area. If there are no changes, make no commit.",
+            schedule: {
+              kind: "cron",
+              expr: "0 4 * * *",
+              display: "0 4 * * *",
+            },
+            skills: ["workspace-git"],
+            state: "scheduled",
+            created_at: "2026-10-01T04:00:00Z",
+            updated_at: "2026-10-01T04:00:00Z",
+          },
+          {
+            id: "daily-briefing-sample",
+            name: "Morning Briefing",
+            prompt: "Run /daily-briefing within assistant-policy.yaml",
+            schedule: {
+              kind: "cron",
+              expr: "0 9 * * *",
+              display: "0 9 * * *",
+            },
+            skills: ["daily-briefing"],
+            state: "paused",
+            created_at: "2026-10-10T09:00:00Z",
+            updated_at: "2026-10-10T09:00:00Z",
+          },
+        ],
+        system: {
+          backup: {
+            schedule: "20 4 * * *",
+            enabled: true,
+            timezone: "Asia/Ho_Chi_Minh",
+          },
+          workspace_git: {
+            schedule: "0 4 * * *",
+            job_found: true,
+          },
+        },
+        policy: {
+          enabled: true,
+          allowed_actions: ["generate_reports"],
+          report_destination: "inbox/daily-briefing",
+        },
+      };
+    },
+    async createCronJob(input: CreateCronJobInput) {
+      const newJob: HermesCronJob = {
+        id: `mock-${Date.now()}`,
+        name: input.name,
+        prompt: input.prompt,
+        schedule: {
+          kind: "cron",
+          expr: input.schedule,
+          display: input.schedule,
+        },
+        skills: input.skills ?? [],
+        state: input.paused ? "paused" : "scheduled",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      return { schema: 1, ok: true as const, job: newJob };
+    },
+    async updateCronJob(id: string, input: UpdateCronJobInput) {
+      const job: HermesCronJob = {
+        id,
+        name: input.name ?? "Updated Job",
+        prompt: input.prompt ?? "Updated Prompt",
+        schedule: {
+          kind: "cron",
+          expr: input.schedule ?? "0 0 * * *",
+          display: input.schedule ?? "0 0 * * *",
+        },
+        skills: input.skills ?? [],
+        state: input.state ?? "scheduled",
+        updated_at: new Date().toISOString(),
+      };
+      return { schema: 1, ok: true as const, job };
+    },
+    async toggleCronJob(id: string, paused?: boolean) {
+      const job: HermesCronJob = {
+        id,
+        name: "Toggled Job",
+        prompt: "Prompt",
+        schedule: "0 4 * * *",
+        state: paused ? "paused" : "scheduled",
+        updated_at: new Date().toISOString(),
+      };
+      return { schema: 1, ok: true as const, job };
+    },
+    async deleteCronJob(id: string) {
+      return { schema: 1, ok: true as const, id };
     },
   };
 }

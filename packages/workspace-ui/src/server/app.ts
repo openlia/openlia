@@ -26,6 +26,7 @@ import { MigrationService } from "./migration";
 import { SkillService } from "./skills";
 import { WorkspaceError, WorkspaceService } from "./workspace";
 import { UsageService } from "./usage";
+import { CronService, CronError } from "./cron";
 
 export interface WorkspaceHandlerOptions {
   workspaceRoot: string;
@@ -34,6 +35,11 @@ export interface WorkspaceHandlerOptions {
   migrationsRoot?: string;
   usageRoot?: string;
   skillsRoot?: string;
+  cronRoot?: string;
+  backupSchedule?: string;
+  backupScheduleEnabled?: boolean;
+  workspaceGitSchedule?: string;
+  timezone?: string;
   staticRoot?: string;
   maxEditableBytes?: number;
   maxDownloadBytes?: number;
@@ -165,6 +171,12 @@ function json(
 }
 
 function errorResponse(error: unknown): Response {
+  if (error instanceof CronError) {
+    return json(
+      { schema: 1, ok: false, error: error.code, message: error.message },
+      error.statusCode,
+    );
+  }
   if (error instanceof WorkspaceError) {
     const payload: WorkspaceErrorResponse = {
       schema: 1,
@@ -287,6 +299,24 @@ export function createWorkspaceHandler(
     maxEditableBytes: options.maxEditableBytes,
     skillsRoot,
   });
+  const cronRoot =
+    options.cronRoot ??
+    process.env.OPENLIA_CRON_ROOT ??
+    join(options.workspaceRoot, "..", "cron");
+  const cronService = new CronService({
+    cronRoot,
+    workspaceRoot: options.workspaceRoot,
+    backupSchedule:
+      options.backupSchedule ?? process.env.OPENLIA_BACKUP_SCHEDULE,
+    backupScheduleEnabled:
+      options.backupScheduleEnabled ??
+      (process.env.OPENLIA_BACKUP_SCHEDULE_ENABLED === "true" ||
+        process.env.OPENLIA_BACKUP_SCHEDULE_ENABLED === undefined),
+    workspaceGitSchedule:
+      options.workspaceGitSchedule ??
+      process.env.OPENLIA_WORKSPACE_GIT_SCHEDULE,
+    timezone: options.timezone ?? process.env.OPENLIA_TIMEZONE,
+  });
   const staticRoot =
     options.staticRoot ??
     (typeof import.meta.dir === "string"
@@ -349,6 +379,8 @@ export function createWorkspaceHandler(
           url.pathname.startsWith("/git-activity/") ||
           url.pathname === "/git-activity" ||
           url.pathname === "/configuration" ||
+          url.pathname.startsWith("/schedule/") ||
+          url.pathname === "/schedule" ||
           url.pathname === "/usage")
       ) {
         return (
@@ -463,6 +495,7 @@ export function createWorkspaceHandler(
         (url.pathname.startsWith("/api/workspace/") ||
           url.pathname.startsWith("/api/memory/") ||
           url.pathname.startsWith("/api/skills/") ||
+          url.pathname.startsWith("/api/cron/") ||
           url.pathname.startsWith("/api/system/")) &&
         !authenticator.isAuthenticated(request)
       ) {
@@ -1870,6 +1903,77 @@ export function createWorkspaceHandler(
           req.description,
         );
         return json({ id: createdId, ok: true, schema: 1 }, 201);
+      }
+      if (request.method === "GET" && url.pathname === "/api/cron/jobs") {
+        return json(cronService.getOverview());
+      }
+      if (request.method === "POST" && url.pathname === "/api/cron/jobs") {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 16384);
+        const body: unknown = bodyResult.value;
+        if (!isObject(body))
+          return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
+        const job = cronService.createJob(body as any);
+        return json({ schema: 1, ok: true, job }, 201);
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/cron/jobs/") &&
+        url.pathname.endsWith("/toggle")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/cron/jobs/";
+        const suffix = "/toggle";
+        const id = url.pathname.slice(
+          prefix.length,
+          url.pathname.length - suffix.length,
+        );
+        const bodyResult = await readJson(request, 4096);
+        const body: unknown = bodyResult.value;
+        const paused =
+          isObject(body) && typeof body.paused === "boolean"
+            ? body.paused
+            : undefined;
+        const job = cronService.toggleJob(id, paused);
+        return json({ schema: 1, ok: true, job });
+      }
+      if (
+        request.method === "PUT" &&
+        url.pathname.startsWith("/api/cron/jobs/")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const id = url.pathname.slice("/api/cron/jobs/".length);
+        const bodyResult = await readJson(request, 16384);
+        const body: unknown = bodyResult.value;
+        if (!isObject(body))
+          return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
+        const job = cronService.updateJob(id, body as any);
+        return json({ schema: 1, ok: true, job });
+      }
+      if (
+        request.method === "DELETE" &&
+        url.pathname.startsWith("/api/cron/jobs/")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const id = url.pathname.slice("/api/cron/jobs/".length);
+        cronService.deleteJob(id);
+        return json({ schema: 1, ok: true, id });
       }
       return json({ schema: 1, ok: false, error: "not_found" }, 404);
     } catch (error) {

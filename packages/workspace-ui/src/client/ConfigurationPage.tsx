@@ -4,6 +4,7 @@ export interface ConfigurationPageProps {
   usagePricing?: import("react").ReactNode;
   exporting: boolean;
   onExport: () => void;
+  onOpenSchedule?: () => void;
   onSettingsChange: (
     key: Exclude<keyof WorkspaceSettings, "schema">,
     value: boolean,
@@ -60,6 +61,7 @@ export function ConfigurationPage({
   error,
   exporting,
   onExport,
+  onOpenSchedule,
   onSettingsChange,
   savingSettings,
   settings,
@@ -196,6 +198,40 @@ export function ConfigurationPage({
         </section>
 
         {usagePricing}
+
+        {onOpenSchedule && (
+          <section
+            aria-labelledby="automation-schedules-heading"
+            className="grid gap-4"
+          >
+            <div>
+              <p className="workspace-eyebrow">AUTOMATION</p>
+              <h3
+                className="mt-1 text-xl font-bold"
+                id="automation-schedules-heading"
+              >
+                Scheduled tasks & cron jobs
+              </h3>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-base-content/10 bg-base-200/40 p-4">
+              <div>
+                <p className="font-semibold">Manage Schedules & Jobs</p>
+                <p className="mt-1 text-sm text-base-content/60">
+                  View and edit Hermes recurring tasks, inspect backup
+                  schedules, and check policy enforcement.
+                </p>
+              </div>
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={onOpenSchedule}
+                type="button"
+              >
+                View Schedules
+              </button>
+            </div>
+          </section>
+        )}
+
         <section
           aria-labelledby="system-information-heading"
           className="grid gap-4"

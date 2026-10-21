@@ -91,5 +91,20 @@ export function createConfiguredWorkspaceHandler() {
     ...(process.env.OPENLIA_USAGE_ROOT
       ? { usageRoot: resolve(process.env.OPENLIA_USAGE_ROOT) }
       : {}),
+    cronRoot: process.env.OPENLIA_CRON_ROOT
+      ? resolve(process.env.OPENLIA_CRON_ROOT)
+      : resolve(workspaceRoot, "..", "cron"),
+    ...(process.env.OPENLIA_BACKUP_SCHEDULE
+      ? { backupSchedule: process.env.OPENLIA_BACKUP_SCHEDULE }
+      : {}),
+    backupScheduleEnabled:
+      process.env.OPENLIA_BACKUP_SCHEDULE_ENABLED === "true" ||
+      process.env.OPENLIA_BACKUP_SCHEDULE_ENABLED === undefined,
+    ...(process.env.OPENLIA_WORKSPACE_GIT_SCHEDULE
+      ? { workspaceGitSchedule: process.env.OPENLIA_WORKSPACE_GIT_SCHEDULE }
+      : {}),
+    ...(process.env.OPENLIA_TIMEZONE
+      ? { timezone: process.env.OPENLIA_TIMEZONE }
+      : {}),
   });
 }

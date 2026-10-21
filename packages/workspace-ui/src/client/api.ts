@@ -44,6 +44,12 @@ import type {
   WorkspaceTreeResponse,
   WorkspaceWriteResponse,
 } from "../shared/api";
+import type {
+  CreateCronJobInput,
+  CronOverviewResponse,
+  HermesCronJob,
+  UpdateCronJobInput,
+} from "../shared/cron";
 import { isMemoryDocument, memoryFilename } from "../shared/memory";
 import type { UsageRates, UsageResponse } from "../shared/usage";
 
@@ -211,6 +217,19 @@ export interface WorkspaceApi {
   ): Promise<SkillSuccessResponse>;
   toggleSkillPin(id: string, pinned: boolean): Promise<SkillSuccessResponse>;
   createSkill(request: SkillCreateRequest): Promise<SkillSuccessResponse>;
+  loadCronJobs(): Promise<CronOverviewResponse>;
+  createCronJob(
+    input: CreateCronJobInput,
+  ): Promise<{ schema: 1; ok: true; job: HermesCronJob }>;
+  updateCronJob(
+    id: string,
+    input: UpdateCronJobInput,
+  ): Promise<{ schema: 1; ok: true; job: HermesCronJob }>;
+  toggleCronJob(
+    id: string,
+    paused?: boolean,
+  ): Promise<{ schema: 1; ok: true; job: HermesCronJob }>;
+  deleteCronJob(id: string): Promise<{ schema: 1; ok: true; id: string }>;
 }
 
 type ResponseValidator<T> = (value: unknown) => value is T;
@@ -1104,6 +1123,54 @@ export const httpWorkspaceApi: WorkspaceApi = {
         body: JSON.stringify(request),
         headers: { "Content-Type": "application/json" },
         method: "POST",
+      },
+    ),
+  loadCronJobs: () =>
+    requestJson<CronOverviewResponse>(
+      "/api/cron/jobs",
+      (v): v is CronOverviewResponse =>
+        isObject(v) && Array.isArray((v as any).jobs),
+    ),
+  createCronJob: (input) =>
+    requestJson<{ schema: 1; ok: true; job: HermesCronJob }>(
+      "/api/cron/jobs",
+      (v): v is { schema: 1; ok: true; job: HermesCronJob } =>
+        isObject(v) && (v as any).ok === true,
+      {
+        body: JSON.stringify(input),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  updateCronJob: (id, input) =>
+    requestJson<{ schema: 1; ok: true; job: HermesCronJob }>(
+      `/api/cron/jobs/${encodeURIComponent(id)}`,
+      (v): v is { schema: 1; ok: true; job: HermesCronJob } =>
+        isObject(v) && (v as any).ok === true,
+      {
+        body: JSON.stringify(input),
+        headers: { "Content-Type": "application/json" },
+        method: "PUT",
+      },
+    ),
+  toggleCronJob: (id, paused) =>
+    requestJson<{ schema: 1; ok: true; job: HermesCronJob }>(
+      `/api/cron/jobs/${encodeURIComponent(id)}/toggle`,
+      (v): v is { schema: 1; ok: true; job: HermesCronJob } =>
+        isObject(v) && (v as any).ok === true,
+      {
+        body: JSON.stringify(paused !== undefined ? { paused } : {}),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  deleteCronJob: (id) =>
+    requestJson<{ schema: 1; ok: true; id: string }>(
+      `/api/cron/jobs/${encodeURIComponent(id)}`,
+      (v): v is { schema: 1; ok: true; id: string } =>
+        isObject(v) && (v as any).ok === true,
+      {
+        method: "DELETE",
       },
     ),
 };

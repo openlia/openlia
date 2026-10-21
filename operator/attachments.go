@@ -128,7 +128,7 @@ func GenerateAttachmentsContext(ctx context.Context, config Config, composers ..
 		}
 	}
 	ingestionDir := filepath.Join(config.DataRoot, "ingestion")
-	for _, path := range []string{filepath.Join(config.DataRoot, "usage"), filepath.Join(config.DataRoot, "usage", "reports")} {
+	for _, path := range []string{filepath.Join(config.DataRoot, "usage"), filepath.Join(config.DataRoot, "usage", "reports"), filepath.Join(config.DataRoot, "cron")} {
 		if err := EnsureDir(path, 0o700); err != nil {
 			return err
 		}
@@ -345,6 +345,7 @@ func generateAttachmentsFile(config Config) error {
 		usage, _ := json.Marshal(filepath.Join(config.DataRoot, "usage"))
 		ingestion, _ := json.Marshal(filepath.Join(config.DataRoot, "ingestion"))
 		migrations, _ := json.Marshal(filepath.Join(config.DataRoot, ".openlia", "workspace-migrations"))
+		cronDir, _ := json.Marshal(filepath.Join(config.DataRoot, "cron"))
 		sessionDir, _ := json.Marshal(filepath.Join(config.RuntimeRoot, "workspace-ui"))
 		passwordHashFile, _ := json.Marshal(config.WorkspaceUIPasswordHashFile)
 		builder.WriteString("  workspace-ui:\n    image: \"${OPENLIA_WORKSPACE_UI_IMAGE:-openlia-workspace-ui:v0.1.0}\"\n")
@@ -358,6 +359,17 @@ func generateAttachmentsFile(config Config) error {
 		}
 		builder.WriteString("      OPENLIA_INGESTION_ROOT: /ingestion\n")
 		builder.WriteString("      OPENLIA_USAGE_ROOT: /usage\n")
+		builder.WriteString("      OPENLIA_CRON_ROOT: /cron\n")
+		if config.BackupSchedule != "" {
+			builder.WriteString(fmt.Sprintf("      OPENLIA_BACKUP_SCHEDULE: %q\n", config.BackupSchedule))
+			builder.WriteString(fmt.Sprintf("      OPENLIA_BACKUP_SCHEDULE_ENABLED: %q\n", fmt.Sprintf("%t", config.BackupScheduleEnabled)))
+		}
+		if config.WorkspaceGitSchedule != "" {
+			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_GIT_SCHEDULE: %q\n", config.WorkspaceGitSchedule))
+		}
+		if config.Timezone != "" {
+			builder.WriteString(fmt.Sprintf("      OPENLIA_TIMEZONE: %q\n", config.Timezone))
+		}
 		if ingestionURL != "" {
 			fmt.Fprintf(&builder, "      OPENLIA_INGESTION_URL: %q\n", ingestionURL)
 		}
@@ -396,6 +408,9 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("\n      - type: bind\n        source: ")
 		builder.Write(usage)
 		builder.WriteString("\n        target: /usage")
+		builder.WriteString("\n      - type: bind\n        source: ")
+		builder.Write(cronDir)
+		builder.WriteString("\n        target: /cron")
 		if !isFirebase && config.WorkspaceUIAuthRequired {
 			builder.WriteString("\n      - type: bind\n        source: ")
 			builder.Write(passwordHashFile)

@@ -40,6 +40,7 @@ import {
 import { isJournalPath, isMarkdownPath, isRemindPath } from "./CodeEditor";
 import { CreateSkillModal } from "./CreateSkillModal";
 import { ConfigurationPage } from "./ConfigurationPage";
+import { SchedulePage } from "./SchedulePage";
 import { UsagePage, UsagePricingOverrides } from "./UsagePage";
 import { UsageSummary } from "./UsageSummary";
 import { isMemoryDocument } from "../shared/memory";
@@ -865,6 +866,8 @@ export function App({
             }
           } else if (route.tab === "usage") {
             setActiveTab("usage");
+          } else if (route.tab === "schedule") {
+            setActiveTab("schedule");
           } else if (route.tab === "configuration") {
             setActiveTab("configuration");
           } else if (route.tab === "migration" || route.migrationId) {
@@ -1180,6 +1183,8 @@ export function App({
           });
         } else if (route.tab === "usage") {
           setPendingAction({ kind: "switchTab", tab: "usage" });
+        } else if (route.tab === "schedule") {
+          setPendingAction({ kind: "switchTab", tab: "schedule" });
         } else if (route.tab === "configuration") {
           setPendingAction({ kind: "switchTab", tab: "configuration" });
         } else {
@@ -1238,6 +1243,8 @@ export function App({
         }
       } else if (route.tab === "usage") {
         setActiveTab("usage");
+      } else if (route.tab === "schedule") {
+        setActiveTab("schedule");
       } else if (route.tab === "configuration") {
         setActiveTab("configuration");
       } else if (route.path) {
@@ -1352,6 +1359,8 @@ export function App({
           }
         } else if (route.tab === "usage") {
           setActiveTab("usage");
+        } else if (route.tab === "schedule") {
+          setActiveTab("schedule");
         } else if (route.tab === "configuration") {
           setActiveTab("configuration");
         } else if (route.tab === "ingestion" || route.ingestionId) {
@@ -1441,6 +1450,8 @@ export function App({
           }
         } else if (route.tab === "usage") {
           setActiveTab("usage");
+        } else if (route.tab === "schedule") {
+          setActiveTab("schedule");
         } else if (route.tab === "configuration") {
           setActiveTab("configuration");
         } else if (route.tab === "ingestion" || route.ingestionId) {
@@ -2603,12 +2614,24 @@ export function App({
 
       {activeTab === "usage" ? (
         <UsagePage api={api} />
+      ) : activeTab === "schedule" ? (
+        <SchedulePage
+          api={api}
+          onOpenDocument={(docPath) => {
+            setActiveTab("documents");
+            void openFile(docPath);
+          }}
+        />
       ) : activeTab === "configuration" ? (
         <ConfigurationPage
           usagePricing={<UsagePricingOverrides api={api} />}
           error={configurationError}
           exporting={exporting}
           onExport={() => void handleExport()}
+          onOpenSchedule={() => {
+            setActiveTab("schedule");
+            navigateRoute({ tab: "schedule" });
+          }}
           onSettingsChange={(key, value) =>
             void handleSettingsChange(key, value)
           }
