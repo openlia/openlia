@@ -22,6 +22,11 @@ const ingestionRoot =
   (process.env.HERMES_HOME
     ? join(process.env.HERMES_HOME, "ingestion")
     : undefined);
+const cronRoot =
+  process.env.OPENLIA_CRON_ROOT ??
+  (process.env.HERMES_HOME
+    ? join(process.env.HERMES_HOME, "cron")
+    : join(packageRoot, ".dev-cron"));
 const e2eFixture = process.env.WORKSPACE_UI_E2E_FIXTURE === "true";
 
 mkdirSync(workspaceRoot, { recursive: true });
@@ -79,6 +84,7 @@ const environment = {
   ...process.env,
   OPENLIA_SKILLS_ROOT: skillsRoot,
   OPENLIA_MEMORIES_ROOT: memoriesRoot,
+  OPENLIA_CRON_ROOT: cronRoot,
   ...(ingestionRoot ? { OPENLIA_INGESTION_ROOT: ingestionRoot } : {}),
   OPENLIA_WORKSPACE_ROOT: workspaceRoot,
   OPENLIA_WORKSPACE_UI_AUTH_REQUIRED: "false",

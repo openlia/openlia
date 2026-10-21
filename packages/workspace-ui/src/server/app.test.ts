@@ -955,6 +955,7 @@ describe("workspace HTTP handler", () => {
         "/git-activity",
         "/migration",
         "/migration/mig-20261011-075346",
+        "/schedule",
       ]) {
         const response = await spaHandler(
           new Request(`http://localhost${spaPath}`),
@@ -1318,5 +1319,70 @@ describe("workspace HTTP handler", () => {
       ok: false,
       error: "invalid_filename",
     });
+  });
+
+  test("manages cron jobs through API endpoints", async () => {
+    // Initial overview
+    const getRes = await request("/api/cron/jobs");
+    expect(getRes.status).toBe(200);
+    const overview = (await getRes.json()) as any;
+    expect(overview.schema).toBe(1);
+    expect(overview.jobs).toEqual([]);
+    expect(overview.system.backup.schedule).toBe("20 4 * * *");
+
+    // Create a new cron job
+    const createRes = await request("/api/cron/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Morning briefing",
+        prompt: "Run daily briefing",
+        schedule: "0 9 * * *",
+        skills: ["daily-briefing"],
+        paused: true,
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()) as any;
+    expect(created.ok).toBe(true);
+    expect(created.job.name).toBe("Morning briefing");
+    expect(created.job.state).toBe("paused");
+    const jobId = created.job.id;
+
+    // Toggle pause/resume
+    const toggleRes = await request(`/api/cron/jobs/${jobId}/toggle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paused: false }),
+    });
+    expect(toggleRes.status).toBe(200);
+    const toggled = (await toggleRes.json()) as any;
+    expect(toggled.job.state).toBe("scheduled");
+
+    // Update job
+    const updateRes = await request(`/api/cron/jobs/${jobId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: "Run updated daily briefing",
+        schedule: "30 9 * * *",
+      }),
+    });
+    expect(updateRes.status).toBe(200);
+    const updated = (await updateRes.json()) as any;
+    expect(updated.job.prompt).toBe("Run updated daily briefing");
+
+    // Delete job
+    const deleteRes = await request(`/api/cron/jobs/${jobId}`, {
+      method: "DELETE",
+    });
+    expect(deleteRes.status).toBe(200);
+    const deleted = (await deleteRes.json()) as any;
+    expect(deleted.ok).toBe(true);
+
+    // Verify empty list again
+    const finalRes = await request("/api/cron/jobs");
+    const finalOverview = (await finalRes.json()) as any;
+    expect(finalOverview.jobs.length).toBe(0);
   });
 });

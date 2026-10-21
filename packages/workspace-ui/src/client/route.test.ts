@@ -363,4 +363,20 @@ describe("route helpers", () => {
       }),
     ).toBe("/migration/mig-20261011-075346");
   });
+
+  test("parses and builds schedule routes", () => {
+    expect(parseRoute("/schedule")).toMatchObject({
+      tab: "schedule",
+    });
+    expect(parseRoute("openlia://schedule")).toMatchObject({
+      tab: "schedule",
+    });
+    expect(parseRoute("openlia://cron")).toMatchObject({
+      tab: "schedule",
+    });
+    expect(parseRoute("/?tab=schedule")).toMatchObject({
+      tab: "schedule",
+    });
+    expect(buildRouteUrl({ tab: "schedule" })).toBe("/schedule");
+  });
 });

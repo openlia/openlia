@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SplatRouteImport } from './routes/$'
 import { Route as ConfigurationRouteImport } from './routes/configuration'
 import { Route as GitActivityRouteImport } from './routes/git-activity'
+import { Route as ScheduleRouteImport } from './routes/schedule'
 import { Route as UsageRouteImport } from './routes/usage'
 import { Route as FilesIndexRouteImport } from './routes/files/index'
 import { Route as FilesSplatRouteImport } from './routes/files/$'
@@ -43,6 +44,11 @@ const ConfigurationRoute = ConfigurationRouteImport.update({
 const GitActivityRoute = GitActivityRouteImport.update({
   id: '/git-activity',
   path: '/git-activity',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScheduleRoute = ScheduleRouteImport.update({
+  id: '/schedule',
+  path: '/schedule',
   getParentRoute: () => rootRouteImport,
 } as any)
 const UsageRoute = UsageRouteImport.update({
@@ -106,6 +112,7 @@ export interface FileRoutesByFullPath {
   '/$': typeof SplatRoute
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
+  '/schedule': typeof ScheduleRoute
   '/usage': typeof UsageRoute
   '/files/$': typeof FilesSplatRoute
   '/ingestion/$': typeof IngestionSplatRoute
@@ -123,6 +130,7 @@ export interface FileRoutesByTo {
   '/$': typeof SplatRoute
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
+  '/schedule': typeof ScheduleRoute
   '/usage': typeof UsageRoute
   '/files/$': typeof FilesSplatRoute
   '/ingestion/$': typeof IngestionSplatRoute
@@ -141,6 +149,7 @@ export interface FileRoutesById {
   '/$': typeof SplatRoute
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
+  '/schedule': typeof ScheduleRoute
   '/usage': typeof UsageRoute
   '/files/$': typeof FilesSplatRoute
   '/ingestion/$': typeof IngestionSplatRoute
@@ -160,6 +169,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/configuration'
     | '/git-activity'
+    | '/schedule'
     | '/usage'
     | '/files/$'
     | '/ingestion/$'
@@ -177,6 +187,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/configuration'
     | '/git-activity'
+    | '/schedule'
     | '/usage'
     | '/files/$'
     | '/ingestion/$'
@@ -194,6 +205,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/configuration'
     | '/git-activity'
+    | '/schedule'
     | '/usage'
     | '/files/$'
     | '/ingestion/$'
@@ -212,6 +224,7 @@ export interface RootRouteChildren {
   SplatRoute: typeof SplatRoute
   ConfigurationRoute: typeof ConfigurationRoute
   GitActivityRoute: typeof GitActivityRoute
+  ScheduleRoute: typeof ScheduleRoute
   UsageRoute: typeof UsageRoute
   FilesSplatRoute: typeof FilesSplatRoute
   IngestionSplatRoute: typeof IngestionSplatRoute
@@ -253,6 +266,13 @@ declare module '@tanstack/react-router' {
       path: '/git-activity'
       fullPath: '/git-activity'
       preLoaderRoute: typeof GitActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/schedule': {
+      id: '/schedule'
+      path: '/schedule'
+      fullPath: '/schedule'
+      preLoaderRoute: typeof ScheduleRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/usage': {
@@ -340,6 +360,7 @@ const rootRouteChildren: RootRouteChildren = {
   SplatRoute: SplatRoute,
   ConfigurationRoute: ConfigurationRoute,
   GitActivityRoute: GitActivityRoute,
+  ScheduleRoute: ScheduleRoute,
   UsageRoute: UsageRoute,
   FilesSplatRoute: FilesSplatRoute,
   IngestionSplatRoute: IngestionSplatRoute,
