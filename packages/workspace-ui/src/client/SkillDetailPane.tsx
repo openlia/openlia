@@ -60,29 +60,29 @@ export function SkillDetailPane({
   return (
     <div className="workspace-document">
       {/* Skill Header */}
-      <div className="shrink-0 border-b border-base-content/10 bg-base-200/50 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="shrink-0 border-b border-base-content/10 bg-base-200/50 p-3 sm:p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2 sm:gap-3">
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="badge badge-neutral text-xs font-semibold uppercase tracking-wider">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <span className="badge badge-neutral badge-xs sm:badge-sm text-xs font-semibold uppercase tracking-wider">
                 {skill.category}
               </span>
               {skill.version && (
-                <span className="badge badge-outline text-xs">
+                <span className="badge badge-outline badge-xs sm:badge-sm text-xs">
                   v{skill.version}
                 </span>
               )}
               {skill.bundled ? (
-                <span className="badge badge-info badge-outline text-xs">
+                <span className="badge badge-info badge-outline badge-xs sm:badge-sm text-xs">
                   Bundled
                 </span>
               ) : (
-                <span className="badge badge-secondary badge-outline text-xs">
+                <span className="badge badge-secondary badge-outline badge-xs sm:badge-sm text-xs">
                   Custom
                 </span>
               )}
               <span
-                className={`badge text-xs font-medium ${
+                className={`badge badge-xs sm:badge-sm text-xs font-medium ${
                   skill.enabled ? "badge-success" : "badge-ghost opacity-60"
                 }`}
               >
@@ -90,22 +90,22 @@ export function SkillDetailPane({
               </span>
             </div>
 
-            <h1 className="mt-1.5 truncate text-2xl font-bold tracking-tight">
+            <h1 className="mt-1 truncate text-lg sm:text-2xl font-bold tracking-tight">
               {skill.name}
             </h1>
 
             {skill.description && (
-              <p className="mt-1 text-sm text-base-content/70">
+              <p className="mt-0.5 line-clamp-2 sm:line-clamp-none text-xs sm:text-sm text-base-content/70">
                 {skill.description}
               </p>
             )}
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex flex-wrap shrink-0 items-center gap-1.5 sm:gap-2">
             {onShare && (
               <button
                 aria-label="Share skill"
-                className="btn btn-outline btn-sm gap-1.5"
+                className="btn btn-outline btn-xs sm:btn-sm gap-1.5"
                 onClick={onShare}
                 type="button"
               >
@@ -127,12 +127,12 @@ export function SkillDetailPane({
               </button>
             )}
             <CopyLinkButton
-              className="btn btn-outline btn-sm gap-1.5"
+              className="btn btn-outline btn-xs sm:btn-sm gap-1.5"
               link={buildSkillLink(skill.id)}
               title={`Copy link (${buildSkillLink(skill.id)})`}
             />
             <CopyLinkButton
-              className="btn btn-outline btn-sm gap-1.5"
+              className="btn btn-outline btn-xs sm:btn-sm gap-1.5"
               label="Copy URI"
               link={buildCanonicalSkillUri(skill.id)}
               title={`Copy URI (${buildCanonicalSkillUri(skill.id)})`}
@@ -140,21 +140,24 @@ export function SkillDetailPane({
 
             <button
               aria-label={skill.pinned ? "Unpin skill" : "Pin skill"}
-              className={`btn btn-circle btn-sm ${
+              className={`btn btn-circle btn-xs sm:btn-sm ${
                 skill.pinned ? "btn-warning" : "btn-ghost"
               }`}
               onClick={() => onTogglePin(!skill.pinned)}
               title={skill.pinned ? "Pinned" : "Pin to top"}
               type="button"
             >
-              <svg className="h-4 w-4 fill-current" viewBox="0 0 24 24">
+              <svg
+                className="h-3.5 w-3.5 sm:h-4 sm:w-4 fill-current"
+                viewBox="0 0 24 24"
+              >
                 <title>{skill.pinned ? "Pinned" : "Pin"}</title>
                 <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
               </svg>
             </button>
 
             <button
-              className={`btn btn-sm ${
+              className={`btn btn-xs sm:btn-sm ${
                 skill.enabled ? "btn-outline btn-warning" : "btn-success"
               }`}
               onClick={() => onToggleEnable(!skill.enabled)}
@@ -166,9 +169,9 @@ export function SkillDetailPane({
         </div>
 
         {/* Sub-tabs */}
-        <div className="mt-4 flex border-b border-base-content/10">
+        <div className="mt-2.5 sm:mt-4 flex overflow-x-auto border-b border-base-content/10">
           <button
-            className={`cursor-pointer px-4 py-2 text-sm font-medium transition-colors ${
+            className={`cursor-pointer whitespace-nowrap px-2.5 py-1.5 text-xs sm:px-4 sm:py-2 sm:text-sm font-medium transition-colors ${
               activeSubTab === "instructions"
                 ? "border-b-2 border-primary text-primary"
                 : "text-base-content/60 hover:text-base-content"
@@ -179,7 +182,7 @@ export function SkillDetailPane({
             Instructions (SKILL.md)
           </button>
           <button
-            className={`cursor-pointer px-4 py-2 text-sm font-medium transition-colors ${
+            className={`cursor-pointer whitespace-nowrap px-2.5 py-1.5 text-xs sm:px-4 sm:py-2 sm:text-sm font-medium transition-colors ${
               activeSubTab === "files"
                 ? "border-b-2 border-primary text-primary"
                 : "text-base-content/60 hover:text-base-content"
@@ -190,7 +193,7 @@ export function SkillDetailPane({
             Files ({skill.files.length})
           </button>
           <button
-            className={`cursor-pointer px-4 py-2 text-sm font-medium transition-colors ${
+            className={`cursor-pointer whitespace-nowrap px-2.5 py-1.5 text-xs sm:px-4 sm:py-2 sm:text-sm font-medium transition-colors ${
               activeSubTab === "overview"
                 ? "border-b-2 border-primary text-primary"
                 : "text-base-content/60 hover:text-base-content"
@@ -293,7 +296,7 @@ export function SkillDetailPane({
                   />
                 </div>
               ) : (
-                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6">
+                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-6">
                   <MarkdownPreview
                     content={draftContent}
                     onNavigateLink={onNavigateLink}
@@ -305,9 +308,9 @@ export function SkillDetailPane({
         )}
 
         {activeSubTab === "files" && (
-          <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-            {/* File list on left */}
-            <div className="min-h-0 w-64 shrink-0 border-r border-base-content/10 overflow-y-auto p-2 bg-base-200/30">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row overflow-hidden">
+            {/* File list on left (top on mobile) */}
+            <div className="min-h-0 max-h-20 w-full md:max-h-none md:w-64 shrink-0 border-b md:border-b-0 md:border-r border-base-content/10 overflow-y-auto p-2 bg-base-200/30">
               <p className="px-2 py-1 text-xs font-semibold uppercase text-base-content/50">
                 Skill Files
               </p>

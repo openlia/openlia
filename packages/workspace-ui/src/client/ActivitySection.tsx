@@ -214,7 +214,7 @@ export function ActivitySection({
                           Schema: {issue.schema_path}
                         </span>
                       )}
-                      <ul className="mt-1.5 list-disc list-inside text-xs text-warning space-y-0.5">
+                      <ul className="mt-1.5 max-h-28 overflow-y-auto list-disc list-inside text-xs text-warning space-y-0.5">
                         {issue.errors.map((err) => (
                           <li className="break-words" key={err}>
                             {err}

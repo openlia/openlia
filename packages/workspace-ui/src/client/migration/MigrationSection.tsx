@@ -193,8 +193,8 @@ export function MigrationSection({
 
   if (!migrationDetail) {
     return (
-      <div className="flex flex-col h-full p-6 space-y-4">
-        <div className="flex items-center justify-between pb-4 border-b border-base-content/10">
+      <div className="flex flex-col h-full overflow-y-auto p-4 sm:p-6 space-y-4">
+        <div className="flex items-center justify-between gap-2 pb-4 border-b border-base-content/10">
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold">Workspace Migrations</h2>
@@ -349,13 +349,13 @@ export function MigrationSection({
     <div className="flex flex-col h-full overflow-hidden">
       {usageSummary}
       {/* Top Header Bar */}
-      <div className="flex flex-wrap items-center justify-between p-4 border-b border-base-content/10 bg-base-100 gap-2">
-        <div className="flex items-center space-x-3">
+      <div className="flex flex-wrap items-center justify-between p-3 sm:p-4 border-b border-base-content/10 bg-base-100 gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2.5 min-w-0">
           {onBack && (
             <button
               type="button"
               aria-label="Back to migrations list"
-              className="btn btn-sm btn-ghost gap-1 px-2 text-base-content/70 hover:text-base-content"
+              className="btn btn-xs sm:btn-sm btn-ghost gap-1 px-2 text-base-content/70 hover:text-base-content"
               onClick={onBack}
               title="Back to migrations list"
             >
@@ -379,12 +379,14 @@ export function MigrationSection({
           {onBack && (
             <span className="text-base-content/30 font-semibold">/</span>
           )}
-          <span className="font-mono text-lg font-bold">{migration.id}</span>
+          <span className="font-mono text-sm sm:text-lg font-bold whitespace-nowrap truncate">
+            {migration.id}
+          </span>
           <span className="badge badge-xs badge-warning/90 font-mono text-[9px] uppercase font-bold">
             Beta
           </span>
           <span
-            className={`badge font-semibold ${
+            className={`badge badge-sm font-semibold ${
               migration.state === "ready_for_review"
                 ? "badge-success"
                 : migration.state === "applied"
@@ -409,11 +411,11 @@ export function MigrationSection({
           </span>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           {worker_status === "sleeping" && (
             <button
               type="button"
-              className="btn btn-sm btn-accent"
+              className="btn btn-xs sm:btn-sm btn-accent"
               onClick={onWakeWorker}
             >
               Wake Worker
@@ -423,7 +425,7 @@ export function MigrationSection({
           {migration.state === "stopped" ? (
             <button
               type="button"
-              className="btn btn-sm btn-info"
+              className="btn btn-xs sm:btn-sm btn-info"
               onClick={onResume}
             >
               Resume
@@ -431,7 +433,7 @@ export function MigrationSection({
           ) : migration.state === "processing" ? (
             <button
               type="button"
-              className="btn btn-sm btn-warning"
+              className="btn btn-xs sm:btn-sm btn-warning"
               onClick={onStop}
             >
               Stop
@@ -442,14 +444,14 @@ export function MigrationSection({
             <>
               <button
                 type="button"
-                className="btn btn-sm btn-success text-white"
+                className="btn btn-xs sm:btn-sm btn-success text-white"
                 onClick={() => setIsApproveModalOpen(true)}
               >
                 Approve & Apply
               </button>
               <button
                 type="button"
-                className="btn btn-sm btn-warning btn-outline"
+                className="btn btn-xs sm:btn-sm btn-warning btn-outline"
                 onClick={() => setIsRejectModalOpen(true)}
               >
                 Reject with Comment
@@ -460,7 +462,7 @@ export function MigrationSection({
           {migration.state !== "applied" && (
             <button
               type="button"
-              className="btn btn-sm btn-error btn-outline"
+              className="btn btn-xs sm:btn-sm btn-error btn-outline"
               onClick={onDiscard}
             >
               Discard
@@ -469,7 +471,7 @@ export function MigrationSection({
 
           <button
             type="button"
-            className="btn btn-sm btn-ghost"
+            className="btn btn-xs sm:btn-sm btn-ghost"
             onClick={onRefresh}
             disabled={loading}
           >

@@ -66,29 +66,38 @@ export function WorkspaceHeader({
 
   return (
     <header className="workspace-header">
-      {activeTab !== "configuration" &&
-        activeTab !== "usage" &&
-        activeTab !== "schedule" &&
-        activeTab !== "shares" && (
-          <button
-            aria-label={
-              activeTab === "skills"
-                ? "Open skills drawer"
-                : "Open files drawer"
-            }
-            className="btn btn-ghost btn-sm xl:hidden"
-            ref={filesButtonRef}
-            onClick={onOpenFiles}
-            type="button"
+      {(activeTab === "documents" || activeTab === "skills") && (
+        <button
+          aria-label={
+            activeTab === "skills" ? "Open skills drawer" : "Open files drawer"
+          }
+          className="btn btn-ghost btn-xs sm:btn-sm shrink-0 px-2 xl:hidden"
+          ref={filesButtonRef}
+          onClick={onOpenFiles}
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            className="h-4 w-4 opacity-75"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            viewBox="0 0 24 24"
           >
-            {activeTab === "skills" ? "Skills" : "Files"}
-          </button>
-        )}
+            <path
+              d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span>{activeTab === "skills" ? "Skills" : "Files"}</span>
+        </button>
+      )}
 
       {(onTabChange || onOpenDocuments) && (
         <nav
           aria-label="Workspace navigation"
-          className="join flex max-w-full shrink-0 flex-wrap border border-base-content/15 rounded-lg bg-base-200/60 p-0.5 mr-2"
+          className="workspace-nav join order-3 flex w-full max-w-full shrink-0 flex-nowrap overflow-x-auto border border-base-content/15 rounded-lg bg-base-200/60 p-0.5 xl:order-none xl:w-auto xl:mr-2"
         >
           {(onOpenDocuments || onTabChange) && (
             <button
@@ -97,7 +106,7 @@ export function WorkspaceHeader({
                   ? "page"
                   : undefined
               }
-              className={`btn btn-xs join-item ${
+              className={`btn btn-xs join-item shrink-0 ${
                 activeTab === "documents" && !isCalendarActive
                   ? "btn-primary shadow-xs"
                   : "btn-ghost text-base-content/70"
@@ -115,7 +124,7 @@ export function WorkspaceHeader({
           {onOpenCalendar && (
             <button
               aria-current={isCalendarActive ? "page" : undefined}
-              className={`btn btn-xs join-item ${
+              className={`btn btn-xs join-item shrink-0 ${
                 isCalendarActive
                   ? "btn-primary shadow-xs"
                   : "btn-ghost text-base-content/70"
@@ -130,7 +139,7 @@ export function WorkspaceHeader({
           {onTabChange && (
             <button
               aria-current={activeTab === "ingestion" ? "page" : undefined}
-              className={`btn btn-xs join-item ${
+              className={`btn btn-xs join-item shrink-0 ${
                 activeTab === "ingestion"
                   ? "btn-primary shadow-xs"
                   : "btn-ghost text-base-content/70"
@@ -144,7 +153,7 @@ export function WorkspaceHeader({
           {onTabChange && (
             <button
               aria-current={activeTab === "skills" ? "page" : undefined}
-              className={`btn btn-xs join-item ${
+              className={`btn btn-xs join-item shrink-0 ${
                 activeTab === "skills"
                   ? "btn-primary shadow-xs"
                   : "btn-ghost text-base-content/70"
@@ -158,7 +167,7 @@ export function WorkspaceHeader({
           {onTabChange && (
             <button
               aria-current={activeTab === "shares" ? "page" : undefined}
-              className={`btn btn-xs join-item ${
+              className={`btn btn-xs join-item shrink-0 ${
                 activeTab === "shares"
                   ? "btn-primary shadow-xs"
                   : "btn-ghost text-base-content/70"
@@ -173,7 +182,7 @@ export function WorkspaceHeader({
             <button
               aria-current={activeTab === "migration" ? "page" : undefined}
               aria-label="Migrations"
-              className={`btn btn-xs join-item ${
+              className={`btn btn-xs join-item shrink-0 ${
                 activeTab === "migration"
                   ? "btn-primary shadow-xs"
                   : "btn-ghost text-base-content/70"
@@ -191,7 +200,7 @@ export function WorkspaceHeader({
             <button
               type="button"
               aria-current={activeTab === "usage" ? "page" : undefined}
-              className={`btn btn-xs join-item ${activeTab === "usage" ? "btn-primary shadow-xs" : "btn-ghost text-base-content/70"}`}
+              className={`btn btn-xs join-item shrink-0 ${activeTab === "usage" ? "btn-primary shadow-xs" : "btn-ghost text-base-content/70"}`}
               onClick={() => onTabChange("usage")}
             >
               Usage
@@ -201,7 +210,7 @@ export function WorkspaceHeader({
             <button
               type="button"
               aria-current={activeTab === "schedule" ? "page" : undefined}
-              className={`btn btn-xs join-item ${activeTab === "schedule" ? "btn-primary shadow-xs" : "btn-ghost text-base-content/70"}`}
+              className={`btn btn-xs join-item shrink-0 ${activeTab === "schedule" ? "btn-primary shadow-xs" : "btn-ghost text-base-content/70"}`}
               onClick={() => onTabChange("schedule")}
             >
               Schedule
@@ -210,7 +219,7 @@ export function WorkspaceHeader({
           {onTabChange && (
             <button
               aria-current={activeTab === "git-activity" ? "page" : undefined}
-              className={`btn btn-xs join-item ${
+              className={`btn btn-xs join-item shrink-0 ${
                 activeTab === "git-activity"
                   ? "btn-primary shadow-xs"
                   : "btn-ghost text-base-content/70"
@@ -249,7 +258,7 @@ export function WorkspaceHeader({
                               : "WORKSPACE"
                             : "ACTIVITY"}
         </p>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 min-w-0">
           <h1 className="workspace-title" title={file?.path}>
             {file?.path.split("/").at(-1) ??
               (activeTab === "usage"
@@ -264,13 +273,15 @@ export function WorkspaceHeader({
                         ? "Git Activity"
                         : activeTab === "ingestion"
                           ? "Ingestion"
-                          : activeTab === "configuration"
-                            ? "Configuration"
-                            : "Activity")}
+                          : activeTab === "migration"
+                            ? "Migrations"
+                            : activeTab === "configuration"
+                              ? "Configuration"
+                              : "Activity")}
           </h1>
           {currentLink && (
             <CopyLinkButton
-              className="btn btn-ghost btn-xs btn-square text-base-content/60 hover:text-base-content"
+              className="btn btn-ghost btn-xs btn-square shrink-0 text-base-content/60 hover:text-base-content"
               iconOnly
               link={currentLink}
               size="xs"
@@ -279,18 +290,18 @@ export function WorkspaceHeader({
           )}
         </div>
         {file?.path?.includes("/") && (
-          <p className="workspace-path" title={file.path}>
+          <p className="workspace-path hidden md:block" title={file.path}>
             {file.source === "memory"
               ? `Assistant memory / ${file.path.split("/").at(-1)}`
               : file.path}
           </p>
         )}
       </div>
-      <div className="workspace-header-actions flex shrink-0 flex-wrap items-center justify-end gap-2">
+      <div className="workspace-header-actions flex shrink-0 items-center justify-end gap-1 sm:gap-2">
         {onOpenGoTo && (
           <button
             aria-label="Go to document or skill (Cmd+P or Ctrl+P)"
-            className="btn btn-ghost btn-sm gap-1.5 text-base-content/80 hover:text-base-content"
+            className="btn btn-ghost btn-xs sm:btn-sm gap-1.5 px-2 text-base-content/80 hover:text-base-content"
             onClick={onOpenGoTo}
             title="Go To (Cmd+P or Ctrl+P)"
             type="button"
@@ -318,7 +329,7 @@ export function WorkspaceHeader({
         {onTabChange && (
           <button
             aria-current={activeTab === "configuration" ? "page" : undefined}
-            className={`btn btn-sm ${activeTab === "configuration" ? "btn-primary" : "btn-ghost"}`}
+            className={`btn btn-xs sm:btn-sm px-2 sm:px-3 ${activeTab === "configuration" ? "btn-primary" : "btn-ghost"}`}
             onClick={() => onTabChange("configuration")}
             type="button"
           >
@@ -327,7 +338,7 @@ export function WorkspaceHeader({
         )}
         {authRequired && (
           <button
-            className="btn btn-ghost btn-sm text-primary"
+            className="btn btn-ghost btn-xs sm:btn-sm px-2 text-primary"
             onClick={onSignOut}
             type="button"
           >

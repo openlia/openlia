@@ -33,23 +33,26 @@ textarea {
   display: flex;
   flex-shrink: 0;
   flex-wrap: wrap;
-  min-height: 4.5rem;
+  min-height: 3.25rem;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
   border-bottom: 1px solid
     color-mix(in oklab, var(--color-base-content) 10%, transparent);
-  padding: 0.75rem 1rem;
+  padding: 0.45rem 0.75rem;
 }
 
-@media (max-width: 1023px) {
-  .workspace-header-actions {
-    flex-basis: 100%;
-  }
+.workspace-nav {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.workspace-nav::-webkit-scrollbar {
+  display: none;
 }
 
 @media (min-width: 640px) {
   .workspace-header {
-    padding-inline: 1.75rem;
+    padding-inline: 1.25rem;
   }
 }
 
@@ -131,13 +134,14 @@ textarea {
   z-index: 10;
   display: flex;
   min-width: 0;
+  flex-shrink: 0;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   border-bottom: 1px solid
     color-mix(in oklab, var(--color-base-content) 10%, transparent);
   background: color-mix(in oklab, var(--color-base-100) 94%, transparent);
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 1rem;
   backdrop-filter: blur(12px);
 }
 
@@ -331,7 +335,8 @@ textarea {
 
 .workspace-markdown {
   min-width: 0;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: visible;
   padding: 1.25rem clamp(1rem, 3vw, 2rem);
   color: color-mix(in oklab, var(--color-base-content) 90%, transparent);
   font-size: 0.95rem;
@@ -496,8 +501,8 @@ textarea {
 
 @media (max-width: 767px) {
   .workspace-header {
-    min-height: 4rem;
-    padding: 0.65rem 0.75rem;
+    min-height: 3rem;
+    padding: 0.4rem 0.65rem;
   }
 
   .workspace-header .workspace-eyebrow,
@@ -507,7 +512,7 @@ textarea {
   }
 
   .workspace-header .workspace-title {
-    font-size: 1.1rem;
+    font-size: 1rem;
   }
 
   .workspace-layout {
@@ -515,16 +520,7 @@ textarea {
   }
 
   .workspace-document-toolbar {
-    padding: 0.65rem 0.75rem;
-  }
-
-  .workspace-document-toolbar .join {
-    order: 3;
-    width: 100%;
-  }
-
-  .workspace-document-toolbar .join .btn {
-    flex: 1;
+    padding: 0.4rem 0.65rem;
   }
 
   .workspace-split-pane {
@@ -533,10 +529,6 @@ textarea {
 
   .workspace-editor-pane {
     border-right: 0;
-  }
-
-  .workspace-preview-pane {
-    min-height: 55dvh;
   }
 
   .workspace-empty-document {

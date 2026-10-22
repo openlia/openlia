@@ -41,7 +41,7 @@ function ModeButton({
   return (
     <button
       aria-pressed={active}
-      className={`btn btn-sm join-item ${active ? "btn-primary" : "btn-ghost"} ${className}`}
+      className={`btn btn-xs sm:btn-sm join-item ${active ? "btn-primary" : "btn-ghost"} ${className}`}
       onClick={onClick}
       type="button"
       value={value}
@@ -64,7 +64,7 @@ function EditorPane({
 }) {
   return (
     <section aria-label="Editor" className="workspace-editor-pane">
-      <div className="workspace-pane-label">Editor</div>
+      <div className="workspace-pane-label sr-only">Editor</div>
       <CodeEditor
         className="min-h-0 flex-1"
         filePath={file.path}
@@ -142,14 +142,17 @@ function ArtifactPane({
     >
       <div className="workspace-document-toolbar">
         <div className="min-w-0 flex-1">
-          <p className="workspace-document-name" title={artifact.path}>
+          <p
+            className="workspace-document-name hidden sm:block"
+            title={artifact.path}
+          >
             {artifact.path}
           </p>
           <p className="text-xs text-base-content/60">View only artifact</p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <a
-            className="btn btn-sm btn-primary"
+            className="btn btn-xs sm:btn-sm btn-primary"
             href={previewUrl}
             rel="noreferrer"
             target="_blank"
@@ -159,7 +162,7 @@ function ArtifactPane({
           {onShare && (
             <button
               aria-label="Share document"
-              className="btn btn-sm btn-outline gap-1.5"
+              className="btn btn-xs sm:btn-sm btn-outline gap-1.5"
               onClick={onShare}
               type="button"
             >
@@ -167,13 +170,13 @@ function ArtifactPane({
             </button>
           )}
           <CopyLinkButton
-            className="btn btn-sm btn-ghost"
+            className="btn btn-xs sm:btn-sm btn-ghost"
             label="Copy Link"
             link={buildWorkspaceLink(artifact.path)}
             title="Copy link"
           />
           <button
-            className="btn btn-sm btn-ghost"
+            className="btn btn-xs sm:btn-sm btn-ghost"
             onClick={onDownload}
             type="button"
           >
@@ -182,7 +185,7 @@ function ArtifactPane({
           {onDelete && (
             <button
               aria-label="Delete file"
-              className="btn btn-sm btn-ghost text-error hover:bg-error/10 hover:text-error gap-1.5"
+              className="btn btn-xs sm:btn-sm btn-ghost text-error hover:bg-error/10 hover:text-error gap-1.5"
               disabled={deleting}
               onClick={onDelete}
               type="button"
@@ -206,8 +209,8 @@ function ArtifactPane({
           )}
         </div>
       </div>
-      <div className="grid gap-4 border-b border-base-content/10 bg-base-200/30 px-5 py-4 sm:grid-cols-3">
-        <div>
+      <div className="grid grid-cols-2 gap-3 border-b border-base-content/10 bg-base-200/30 px-3 py-2.5 sm:grid-cols-3 sm:gap-4 sm:px-5 sm:py-4">
+        <div className="col-span-2 sm:col-span-1">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
             Name
           </p>
@@ -231,7 +234,7 @@ function ArtifactPane({
             {new Date(artifact.modified_at).toLocaleString()}
           </p>
         </div>
-        <div className="sm:col-span-3">
+        <div className="col-span-2 sm:col-span-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
             Link
           </p>
@@ -421,7 +424,7 @@ export function DocumentPane({
       ) : file ? (
         <>
           <div className="workspace-document-toolbar">
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 hidden sm:block">
               <div className="flex items-center gap-1.5">
                 <p className="workspace-document-name" title={file.path}>
                   {isMemory
@@ -431,7 +434,16 @@ export function DocumentPane({
               </div>
               {!canEdit && <p className="text-xs text-warning">Read only</p>}
             </div>
-            <div aria-label="Document view" className="join" role="toolbar">
+            {!canEdit && (
+              <span className="badge badge-warning badge-xs sm:hidden shrink-0">
+                Read only
+              </span>
+            )}
+            <div
+              aria-label="Document view"
+              className="join shrink-0"
+              role="toolbar"
+            >
               {isMarkdown ? (
                 <>
                   <ModeButton
@@ -484,52 +496,79 @@ export function DocumentPane({
                   </ModeButton>
                 </>
               ) : (
-                <span className="btn btn-sm btn-primary pointer-events-none">
+                <span className="btn btn-xs sm:btn-sm btn-primary pointer-events-none">
                   Code
                 </span>
               )}
             </div>
-            <button
-              className={`btn btn-sm shrink-0 ${dirty ? "btn-primary" : "btn-ghost text-base-content/60"}`}
-              disabled={!canEdit || (!dirty && !file.missing) || saving}
-              onClick={onSave}
-              type="button"
-            >
-              {saving ? (
-                <>
-                  <span
-                    aria-hidden="true"
-                    className="loading loading-spinner loading-xs"
-                  />
-                  <span>Saving...</span>
-                </>
-              ) : dirty || file.missing ? (
-                "Save"
-              ) : (
-                <>
+            <div className="ml-auto sm:ml-0 flex items-center gap-1.5 shrink-0">
+              <button
+                className={`btn btn-xs sm:btn-sm shrink-0 ${dirty ? "btn-primary" : "btn-ghost text-base-content/60"}`}
+                disabled={!canEdit || (!dirty && !file.missing) || saving}
+                onClick={onSave}
+                type="button"
+              >
+                {saving ? (
+                  <>
+                    <span
+                      aria-hidden="true"
+                      className="loading loading-spinner loading-xs"
+                    />
+                    <span>Saving...</span>
+                  </>
+                ) : dirty || file.missing ? (
+                  "Save"
+                ) : (
+                  <>
+                    <svg
+                      aria-hidden="true"
+                      className="h-3.5 w-3.5 text-success opacity-80"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M5 13l4 4L19 7"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    <span>Saved</span>
+                  </>
+                )}
+              </button>
+              {!isMemory && !file.missing && onShare && (
+                <button
+                  aria-label="Share document"
+                  className="btn btn-xs sm:btn-sm btn-outline gap-1.5"
+                  onClick={onShare}
+                  title="Share document"
+                  type="button"
+                >
                   <svg
                     aria-hidden="true"
-                    className="h-3.5 w-3.5 text-success opacity-80"
+                    className="h-3.5 w-3.5 opacity-70"
                     fill="none"
                     stroke="currentColor"
                     strokeWidth={2}
                     viewBox="0 0 24 24"
                   >
                     <path
-                      d="M5 13l4 4L19 7"
+                      d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />
                   </svg>
-                  <span>Saved</span>
-                </>
+                  <span className="hidden sm:inline">Share</span>
+                </button>
               )}
-            </button>
-            {!isMemory && !file.missing && onShare && (
               <button
-                aria-label="Share document"
-                className="btn btn-sm btn-outline gap-1.5"
-                onClick={onShare}
+                aria-label="Details"
+                aria-pressed={detailsOpen}
+                className={`btn btn-xs sm:btn-sm gap-1.5 ${detailsOpen ? "btn-secondary" : "btn-outline"}`}
+                onClick={onOpenDetails}
+                title="Details"
                 type="button"
               >
                 <svg
@@ -541,120 +580,117 @@ export function DocumentPane({
                   viewBox="0 0 24 24"
                 >
                   <path
-                    d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
                 </svg>
-                <span>Share</span>
+                <span className="hidden sm:inline">Details</span>
               </button>
-            )}
-            <button
-              aria-pressed={detailsOpen}
-              className={`btn btn-sm gap-1.5 ${detailsOpen ? "btn-secondary" : "btn-outline"}`}
-              onClick={onOpenDetails}
-              type="button"
-            >
-              <svg
-                aria-hidden="true"
-                className="h-3.5 w-3.5 opacity-70"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                viewBox="0 0 24 24"
-              >
-                <path
-                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span>Details</span>
-            </button>
-            <div className="dropdown dropdown-end shrink-0">
-              <button
-                aria-label="Document actions"
-                className="btn btn-ghost btn-sm btn-square"
-                tabIndex={0}
-                title="Document actions"
-                type="button"
-              >
-                <svg
-                  className="h-4 w-4"
-                  fill="currentColor"
-                  viewBox="0 0 24 24"
+              <div className="dropdown dropdown-end shrink-0">
+                <button
+                  aria-label="Document actions"
+                  className="btn btn-ghost btn-xs sm:btn-sm btn-square"
+                  tabIndex={0}
+                  title="Document actions"
+                  type="button"
                 >
-                  <title>Document actions</title>
-                  <circle cx="12" cy="5" r="2" />
-                  <circle cx="12" cy="12" r="2" />
-                  <circle cx="12" cy="19" r="2" />
-                </svg>
-              </button>
-              <ul className="dropdown-content menu z-30 rounded-box border border-base-content/10 bg-base-100 p-1.5 shadow-lg text-xs w-48">
-                {onRevealInTree && (
+                  <svg
+                    className="h-4 w-4"
+                    fill="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <title>Document actions</title>
+                    <circle cx="12" cy="5" r="2" />
+                    <circle cx="12" cy="12" r="2" />
+                    <circle cx="12" cy="19" r="2" />
+                  </svg>
+                </button>
+                <ul className="dropdown-content menu z-30 rounded-box border border-base-content/10 bg-base-100 p-1.5 shadow-lg text-xs w-48">
+                  {onRevealInTree && (
+                    <li>
+                      <button
+                        aria-label="Reveal in tree"
+                        onClick={onRevealInTree}
+                        type="button"
+                      >
+                        <svg
+                          aria-hidden="true"
+                          className="h-3.5 w-3.5 opacity-70"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        <span>Reveal in Tree</span>
+                      </button>
+                    </li>
+                  )}
                   <li>
-                    <button
-                      aria-label="Reveal in tree"
-                      onClick={onRevealInTree}
-                      type="button"
-                    >
-                      <svg
-                        aria-hidden="true"
-                        className="h-3.5 w-3.5 opacity-70"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                      <span>Reveal in Tree</span>
-                    </button>
+                    <CopyLinkButton
+                      className="flex w-full items-center gap-2 text-left font-normal"
+                      link={buildWorkspaceLink(file.path)}
+                      title={`Copy link (${buildWorkspaceLink(file.path)})`}
+                    />
                   </li>
-                )}
-                <li>
-                  <CopyLinkButton
-                    className="flex w-full items-center gap-2 text-left font-normal"
-                    link={buildWorkspaceLink(file.path)}
-                    title={`Copy link (${buildWorkspaceLink(file.path)})`}
-                  />
-                </li>
-                <li>
-                  <CopyLinkButton
-                    className="flex w-full items-center gap-2 text-left font-normal"
-                    label="Copy URI"
-                    link={buildCanonicalWorkspaceUri(file.path)}
-                    title={`Copy URI (${buildCanonicalWorkspaceUri(file.path)})`}
-                  />
-                </li>
-                {onRename && file.editable && !isMemory && (
                   <li>
-                    <button onClick={onRename} type="button">
-                      <svg
-                        aria-hidden="true"
-                        className="h-3.5 w-3.5 opacity-70"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                      <span>Rename...</span>
-                    </button>
+                    <CopyLinkButton
+                      className="flex w-full items-center gap-2 text-left font-normal"
+                      label="Copy URI"
+                      link={buildCanonicalWorkspaceUri(file.path)}
+                      title={`Copy URI (${buildCanonicalWorkspaceUri(file.path)})`}
+                    />
                   </li>
-                )}
-                {onMove && file.editable && !isMemory && (
+                  {onRename && file.editable && !isMemory && (
+                    <li>
+                      <button onClick={onRename} type="button">
+                        <svg
+                          aria-hidden="true"
+                          className="h-3.5 w-3.5 opacity-70"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        <span>Rename...</span>
+                      </button>
+                    </li>
+                  )}
+                  {onMove && file.editable && !isMemory && (
+                    <li>
+                      <button onClick={onMove} type="button">
+                        <svg
+                          aria-hidden="true"
+                          className="h-3.5 w-3.5 opacity-70"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        <span>Move...</span>
+                      </button>
+                    </li>
+                  )}
                   <li>
-                    <button onClick={onMove} type="button">
+                    <button onClick={onDownload} type="button">
                       <svg
                         aria-hidden="true"
                         className="h-3.5 w-3.5 opacity-70"
@@ -664,62 +700,43 @@ export function DocumentPane({
                         viewBox="0 0 24 24"
                       >
                         <path
-                          d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                           strokeLinecap="round"
                           strokeLinejoin="round"
                         />
                       </svg>
-                      <span>Move...</span>
+                      <span>Download</span>
                     </button>
                   </li>
-                )}
-                <li>
-                  <button onClick={onDownload} type="button">
-                    <svg
-                      aria-hidden="true"
-                      className="h-3.5 w-3.5 opacity-70"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    <span>Download</span>
-                  </button>
-                </li>
-                {!isMemory && (
-                  <li className="border-t border-base-content/10 pt-1 mt-1">
-                    <button
-                      aria-label="Delete file"
-                      className="text-error hover:bg-error/10 hover:text-error"
-                      disabled={deleting}
-                      onClick={onDelete}
-                      type="button"
-                    >
-                      <svg
-                        aria-hidden="true"
-                        className="h-3.5 w-3.5 opacity-70"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                        viewBox="0 0 24 24"
+                  {!isMemory && (
+                    <li className="border-t border-base-content/10 pt-1 mt-1">
+                      <button
+                        aria-label="Delete file"
+                        className="text-error hover:bg-error/10 hover:text-error"
+                        disabled={deleting}
+                        onClick={onDelete}
+                        type="button"
                       >
-                        <path
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                      <span>Delete</span>
-                    </button>
-                  </li>
-                )}
-              </ul>
+                        <svg
+                          aria-hidden="true"
+                          className="h-3.5 w-3.5 opacity-70"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        <span>Delete</span>
+                      </button>
+                    </li>
+                  )}
+                </ul>
+              </div>
             </div>
           </div>
           {isMemory && (
@@ -750,7 +767,7 @@ export function DocumentPane({
           )}
           {file.validation && !file.validation.valid && (
             <div
-              className="alert alert-warning rounded-none py-2 px-4 text-xs flex items-start gap-2"
+              className="alert alert-warning rounded-none py-1.5 px-3 text-xs flex items-start gap-2 shrink-0"
               role="status"
             >
               <svg
@@ -768,7 +785,7 @@ export function DocumentPane({
                 />
               </svg>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="font-semibold">
                     Template & Schema Warning
                     {file.validation.template_path && (
@@ -795,7 +812,7 @@ export function DocumentPane({
                     </button>
                   )}
                 </div>
-                <ul className="list-disc list-inside mt-1 space-y-0.5 opacity-90">
+                <ul className="list-disc list-inside mt-1 max-h-16 sm:max-h-24 overflow-y-auto space-y-0.5 opacity-90">
                   {file.validation.errors.map((err: string) => (
                     <li key={err}>{err}</li>
                   ))}
@@ -879,7 +896,7 @@ export function DocumentPane({
             />
           ) : (
             <section aria-label="Preview" className="workspace-preview-pane">
-              <div className="workspace-pane-label">Preview</div>
+              <div className="workspace-pane-label sr-only">Preview</div>
               <MarkdownPreview
                 content={draft}
                 currentFilePath={file.path}
