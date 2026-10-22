@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { daysBetween } from "./eventInterpretation";
 import type { CalendarSource, LogicalEvent } from "./types";
 
@@ -12,13 +12,18 @@ export interface GanttViewProps {
 
 type GanttRange = 7 | 14 | 30 | 60 | 90;
 
-const RANGE_CONFIG: Record<GanttRange, { label: string; dayWidth: number }> = {
-  7: { label: "7 Days", dayWidth: 140 },
-  14: { label: "14 Days", dayWidth: 110 },
-  30: { label: "1 Month", dayWidth: 70 },
-  60: { label: "2 Months", dayWidth: 48 },
-  90: { label: "Quarter", dayWidth: 38 },
+const RANGE_CONFIG: Record<
+  GanttRange,
+  { label: string; dayWidth: number; mobileDayWidth: number }
+> = {
+  7: { label: "7 Days", dayWidth: 140, mobileDayWidth: 72 },
+  14: { label: "14 Days", dayWidth: 110, mobileDayWidth: 56 },
+  30: { label: "1 Month", dayWidth: 70, mobileDayWidth: 44 },
+  60: { label: "2 Months", dayWidth: 48, mobileDayWidth: 36 },
+  90: { label: "Quarter", dayWidth: 38, mobileDayWidth: 30 },
 };
+
+const MOBILE_MEDIA_QUERY = "(max-width: 639px)";
 
 export function GanttView({
   currentDate,
@@ -28,9 +33,39 @@ export function GanttView({
   onNewEventOnDate: _onNewEventOnDate,
 }: GanttViewProps) {
   const [rangeDays, setRangeDays] = useState<GanttRange>(14);
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function"
+    ) {
+      return window.matchMedia(MOBILE_MEDIA_QUERY).matches;
+    }
+    return false;
+  });
+
+  const leftPanelRef = useRef<HTMLDivElement>(null);
+  const rightPanelRef = useRef<HTMLDivElement>(null);
+  const syncingScrollRef = useRef<"left" | "right" | null>(null);
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      return;
+    }
+    const mql = window.matchMedia(MOBILE_MEDIA_QUERY);
+    const handleChange = (e: MediaQueryListEvent) => {
+      setIsMobile(e.matches);
+    };
+    setIsMobile(mql.matches);
+    mql.addEventListener("change", handleChange);
+    return () => mql.removeEventListener("change", handleChange);
+  }, []);
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const dayWidth = RANGE_CONFIG[rangeDays].dayWidth;
+  const rangeConfig = RANGE_CONFIG[rangeDays];
+  const dayWidth = isMobile ? rangeConfig.mobileDayWidth : rangeConfig.dayWidth;
 
   // Compute start date of Gantt timeline: Monday of current week
   const curr = new Date(
@@ -82,20 +117,59 @@ export function GanttView({
   }
 
   const totalWidth = rangeDays * dayWidth;
+  const firstEventStartIso = visibleEvents[0]?.startDate ?? "";
+
+  // Auto-scroll timeline horizontally so the first visible event (or today) is in view
+  useEffect(() => {
+    const rightEl = rightPanelRef.current;
+    if (!rightEl || !startIso) return;
+
+    let targetIso = "";
+    if (firstEventStartIso) {
+      targetIso = firstEventStartIso < startIso ? startIso : firstEventStartIso;
+    } else if (todayIso >= startIso && todayIso <= endIso) {
+      targetIso = todayIso;
+    }
+
+    if (!targetIso) {
+      rightEl.scrollLeft = 0;
+      return;
+    }
+
+    const offsetDays = Math.max(0, daysBetween(startIso, targetIso));
+    const scrollDays = Math.max(0, offsetDays - 1);
+    rightEl.scrollLeft = scrollDays * dayWidth;
+  }, [startIso, endIso, todayIso, firstEventStartIso, dayWidth]);
+
+  const handleLeftScroll = () => {
+    if (syncingScrollRef.current === "right") return;
+    if (!leftPanelRef.current || !rightPanelRef.current) return;
+    syncingScrollRef.current = "left";
+    rightPanelRef.current.scrollTop = leftPanelRef.current.scrollTop;
+    syncingScrollRef.current = null;
+  };
+
+  const handleRightScroll = () => {
+    if (syncingScrollRef.current === "left") return;
+    if (!leftPanelRef.current || !rightPanelRef.current) return;
+    syncingScrollRef.current = "right";
+    leftPanelRef.current.scrollTop = rightPanelRef.current.scrollTop;
+    syncingScrollRef.current = null;
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-base-100">
       {/* Gantt Control Sub-toolbar */}
-      <div className="flex items-center justify-between border-b border-base-content/10 bg-base-200/30 px-4 py-1.5 text-xs">
-        <span className="font-semibold text-base-content/70">
+      <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-base-content/10 bg-base-200/30 px-2.5 py-1.5 sm:px-4 text-xs">
+        <span className="font-semibold text-base-content/70 whitespace-nowrap">
           Gantt Schedule ({visibleEvents.length} events)
         </span>
-        <div className="join border border-base-content/15 rounded-md bg-base-100 p-0.5">
+        <div className="join max-w-full overflow-x-auto border border-base-content/15 rounded-md bg-base-100 p-0.5">
           {([7, 14, 30, 60, 90] as GanttRange[]).map((r) => (
             <button
               key={r}
               type="button"
-              className={`btn btn-xs join-item ${
+              className={`btn btn-xs join-item shrink-0 px-2 sm:px-2.5 ${
                 rangeDays === r ? "btn-primary" : "btn-ghost"
               }`}
               onClick={() => setRangeDays(r)}
@@ -109,18 +183,23 @@ export function GanttView({
       {/* Main Gantt Body */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Panel: Event Title, Dates & Tags */}
-        <div className="w-80 shrink-0 border-r border-base-content/10 flex flex-col bg-base-100 overflow-y-auto">
+        <div
+          ref={leftPanelRef}
+          onScroll={handleLeftScroll}
+          data-testid="gantt-left-panel"
+          className="w-36 sm:w-56 md:w-72 lg:w-80 shrink-0 border-r border-base-content/10 flex flex-col bg-base-100 overflow-y-auto"
+        >
           {/* Header */}
-          <div className="h-12 border-b border-base-content/10 bg-base-200/50 px-3 flex items-center justify-between font-semibold text-xs text-base-content/70">
-            <span>Event / Task</span>
-            <span className="text-[11px] font-normal text-base-content/50">
+          <div className="h-12 shrink-0 sticky top-0 z-20 border-b border-base-content/10 bg-base-200/80 backdrop-blur-xs px-2 sm:px-3 flex items-center justify-between font-semibold text-xs text-base-content/70">
+            <span className="truncate">Event / Task</span>
+            <span className="hidden sm:inline text-[11px] font-normal text-base-content/50">
               Duration
             </span>
           </div>
 
           {/* Event Rows */}
           {visibleEvents.length === 0 ? (
-            <div className="p-4 text-center text-xs text-base-content/50 italic">
+            <div className="p-3 sm:p-4 text-center text-xs text-base-content/50 italic">
               No events scheduled in this period.
             </div>
           ) : (
@@ -132,7 +211,7 @@ export function GanttView({
                 <button
                   type="button"
                   key={ev.id}
-                  className="h-11 border-b border-base-content/5 px-3 flex items-center justify-between gap-2 hover:bg-base-200/50 cursor-pointer transition-colors w-full text-left"
+                  className="h-11 shrink-0 border-b border-base-content/5 px-2 sm:px-3 flex items-center justify-between gap-1.5 sm:gap-2 hover:bg-base-200/50 cursor-pointer transition-colors w-full text-left"
                   onClick={() => onSelectEvent(ev)}
                 >
                   <div className="truncate flex flex-col min-w-0">
@@ -165,7 +244,7 @@ export function GanttView({
                     )}
                   </div>
 
-                  <div className="shrink-0 text-right font-mono text-[10px] text-base-content/60">
+                  <div className="hidden sm:block shrink-0 text-right font-mono text-[10px] text-base-content/60">
                     {isMultiDay ? (
                       <span className="badge badge-xs badge-ghost font-mono">
                         {ev.durationDays}d
@@ -183,7 +262,12 @@ export function GanttView({
         </div>
 
         {/* Right Panel: Timeline Header & Horizontal Bars */}
-        <div className="flex-1 overflow-x-auto overflow-y-auto relative">
+        <div
+          ref={rightPanelRef}
+          onScroll={handleRightScroll}
+          data-testid="gantt-timeline-panel"
+          className="flex-1 min-w-0 overflow-x-auto overflow-y-auto relative"
+        >
           <div
             style={{ width: `${totalWidth}px` }}
             className="min-h-full flex flex-col"
