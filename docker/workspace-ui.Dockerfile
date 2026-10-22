@@ -6,14 +6,13 @@ ARG WORKSPACE_UI_BASE_DIGEST=sha256:109e2c65005bf160609e4ba6acf7783752f8502ad218
 FROM ${WORKSPACE_UI_BASE_IMAGE}:${WORKSPACE_UI_BASE_TAG}@${WORKSPACE_UI_BASE_DIGEST}
 
 ARG TARGETARCH
-ARG OPENLIA_RELEASE_SHA256
 ARG BUN_VERSION=1.2.22
 ARG BUN_X86_64_SHA256=4c446af1a01d7b40e1e11baebc352f9b2bfd12887e51b97dd3b59879cee2743a
 ARG BUN_AARCH64_SHA256=a97c687fb5e54de4e2fb0869a7ac9a2d9c3af75ac182e2b68138c1dd8f98131b
 
 USER root
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git unzip \
+RUN apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 update \
+    && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates curl git unzip \
     && rm -rf /var/lib/apt/lists/* \
     && set -eu; \
     case "${TARGETARCH:-amd64}" in \
@@ -31,6 +30,7 @@ RUN apt-get update \
     && useradd --system --uid 10000 --gid 10000 --home-dir /nonexistent --shell /usr/sbin/nologin openlia
 
 COPY packages/workspace-ui/dist/ /opt/openlia/workspace-ui/
+ARG OPENLIA_RELEASE_SHA256
 RUN if [ -n "${OPENLIA_RELEASE_SHA256:-}" ]; then printf '%s\n' "${OPENLIA_RELEASE_SHA256}" > /opt/openlia/release.sha256; fi \
     && find /opt/openlia/workspace-ui -type d -exec chmod 0755 {} + \
     && find /opt/openlia -type f -exec chmod 0644 {} + \
