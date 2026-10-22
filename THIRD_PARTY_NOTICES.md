@@ -44,7 +44,7 @@ The Dockerfiles install distribution packages including `ca-certificates`,
 libraries. These packages and
 their transitive dependencies have package-specific licenses and copyright
 notices. The image build resolves Debian packages from the dated
-`20260505T000000Z` snapshot configured in `docker/compose.yaml`, making package
+`20260801T000000Z` snapshot configured in `docker/compose.yaml`, making package
 resolution reproducible for that snapshot. For a built image, inspect the
 package metadata and files under
 `/usr/share/doc/*/copyright` and consult the distribution's license
