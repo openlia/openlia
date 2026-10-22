@@ -60,29 +60,29 @@ export function SkillDetailPane({
   return (
     <div className="workspace-document">
       {/* Skill Header */}
-      <div className="shrink-0 border-b border-base-content/10 bg-base-200/50 p-3 sm:p-4">
-        <div className="flex flex-wrap items-start justify-between gap-2 sm:gap-3">
+      <div className="shrink-0 border-b border-base-content/10 bg-base-200/50 p-2.5 sm:p-4">
+        <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-3">
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-              <span className="badge badge-neutral badge-xs sm:badge-sm text-xs font-semibold uppercase tracking-wider">
+            <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+              <span className="badge badge-neutral badge-xs sm:badge-sm text-[10px] sm:text-xs font-semibold uppercase tracking-wider">
                 {skill.category}
               </span>
               {skill.version && (
-                <span className="badge badge-outline badge-xs sm:badge-sm text-xs">
+                <span className="badge badge-outline badge-xs sm:badge-sm text-[10px] sm:text-xs">
                   v{skill.version}
                 </span>
               )}
               {skill.bundled ? (
-                <span className="badge badge-info badge-outline badge-xs sm:badge-sm text-xs">
+                <span className="badge badge-info badge-outline badge-xs sm:badge-sm text-[10px] sm:text-xs">
                   Bundled
                 </span>
               ) : (
-                <span className="badge badge-secondary badge-outline badge-xs sm:badge-sm text-xs">
+                <span className="badge badge-secondary badge-outline badge-xs sm:badge-sm text-[10px] sm:text-xs">
                   Custom
                 </span>
               )}
               <span
-                className={`badge badge-xs sm:badge-sm text-xs font-medium ${
+                className={`badge badge-xs sm:badge-sm text-[10px] sm:text-xs font-medium ${
                   skill.enabled ? "badge-success" : "badge-ghost opacity-60"
                 }`}
               >
@@ -90,28 +90,28 @@ export function SkillDetailPane({
               </span>
             </div>
 
-            <h1 className="mt-1 truncate text-lg sm:text-2xl font-bold tracking-tight">
+            <h1 className="mt-0.5 truncate text-base sm:text-2xl font-bold tracking-tight">
               {skill.name}
             </h1>
 
             {skill.description && (
-              <p className="mt-0.5 line-clamp-2 sm:line-clamp-none text-xs sm:text-sm text-base-content/70">
+              <p className="mt-0.5 hidden sm:block text-xs sm:text-sm text-base-content/70">
                 {skill.description}
               </p>
             )}
           </div>
 
-          <div className="flex flex-wrap shrink-0 items-center gap-1.5 sm:gap-2">
+          <div className="flex flex-wrap shrink-0 items-center gap-1 sm:gap-2">
             {onShare && (
               <button
                 aria-label="Share skill"
-                className="btn btn-outline btn-xs sm:btn-sm gap-1.5"
+                className="btn btn-outline btn-xs sm:btn-sm gap-1"
                 onClick={onShare}
                 type="button"
               >
                 <svg
                   aria-hidden="true"
-                  className="h-3.5 w-3.5 opacity-70"
+                  className="h-3 w-3 sm:h-3.5 sm:w-3.5 opacity-70"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth={2}
@@ -127,12 +127,12 @@ export function SkillDetailPane({
               </button>
             )}
             <CopyLinkButton
-              className="btn btn-outline btn-xs sm:btn-sm gap-1.5"
+              className="btn btn-outline btn-xs sm:btn-sm gap-1"
               link={buildSkillLink(skill.id)}
               title={`Copy link (${buildSkillLink(skill.id)})`}
             />
             <CopyLinkButton
-              className="btn btn-outline btn-xs sm:btn-sm gap-1.5"
+              className="btn btn-outline btn-xs sm:btn-sm gap-1"
               label="Copy URI"
               link={buildCanonicalSkillUri(skill.id)}
               title={`Copy URI (${buildCanonicalSkillUri(skill.id)})`}
@@ -168,46 +168,95 @@ export function SkillDetailPane({
           </div>
         </div>
 
-        {/* Sub-tabs */}
-        <div className="mt-2.5 sm:mt-4 flex overflow-x-auto border-b border-base-content/10">
-          <button
-            className={`cursor-pointer whitespace-nowrap px-2.5 py-1.5 text-xs sm:px-4 sm:py-2 sm:text-sm font-medium transition-colors ${
-              activeSubTab === "instructions"
-                ? "border-b-2 border-primary text-primary"
-                : "text-base-content/60 hover:text-base-content"
-            }`}
-            onClick={() => onSubTabChange("instructions")}
-            type="button"
-          >
-            Instructions (SKILL.md)
-          </button>
-          <button
-            className={`cursor-pointer whitespace-nowrap px-2.5 py-1.5 text-xs sm:px-4 sm:py-2 sm:text-sm font-medium transition-colors ${
-              activeSubTab === "files"
-                ? "border-b-2 border-primary text-primary"
-                : "text-base-content/60 hover:text-base-content"
-            }`}
-            onClick={() => onSubTabChange("files")}
-            type="button"
-          >
-            Files ({skill.files.length})
-          </button>
-          <button
-            className={`cursor-pointer whitespace-nowrap px-2.5 py-1.5 text-xs sm:px-4 sm:py-2 sm:text-sm font-medium transition-colors ${
-              activeSubTab === "overview"
-                ? "border-b-2 border-primary text-primary"
-                : "text-base-content/60 hover:text-base-content"
-            }`}
-            onClick={() => onSubTabChange("overview")}
-            type="button"
-          >
-            Overview & Details
-          </button>
+        {/* Sub-tabs & Combined Actions Toolbar on Row 2 */}
+        <div className="mt-2 flex items-center justify-between gap-2 border-b border-base-content/10">
+          <div className="flex overflow-x-auto no-scrollbar">
+            <button
+              className={`cursor-pointer whitespace-nowrap px-2.5 py-1 text-xs sm:px-4 sm:py-1.5 sm:text-sm font-medium transition-colors ${
+                activeSubTab === "instructions"
+                  ? "border-b-2 border-primary text-primary"
+                  : "text-base-content/60 hover:text-base-content"
+              }`}
+              onClick={() => onSubTabChange("instructions")}
+              type="button"
+            >
+              Instructions (SKILL.md)
+            </button>
+            <button
+              className={`cursor-pointer whitespace-nowrap px-2.5 py-1 text-xs sm:px-4 sm:py-1.5 sm:text-sm font-medium transition-colors ${
+                activeSubTab === "files"
+                  ? "border-b-2 border-primary text-primary"
+                  : "text-base-content/60 hover:text-base-content"
+              }`}
+              onClick={() => onSubTabChange("files")}
+              type="button"
+            >
+              Files ({skill.files.length})
+            </button>
+            <button
+              className={`cursor-pointer whitespace-nowrap px-2.5 py-1 text-xs sm:px-4 sm:py-1.5 sm:text-sm font-medium transition-colors ${
+                activeSubTab === "overview"
+                  ? "border-b-2 border-primary text-primary"
+                  : "text-base-content/60 hover:text-base-content"
+              }`}
+              onClick={() => onSubTabChange("overview")}
+              type="button"
+            >
+              Overview & Details
+            </button>
+          </div>
+
+          {activeSubTab === "instructions" && (
+            <div className="flex shrink-0 items-center gap-1.5 pb-1">
+              <div className="join">
+                <button
+                  className={`btn join-item btn-xs ${
+                    view === "preview" ? "btn-neutral" : "btn-ghost"
+                  }`}
+                  onClick={() => onViewChange("preview")}
+                  type="button"
+                >
+                  Preview
+                </button>
+                <button
+                  className={`btn join-item btn-xs ${
+                    view === "edit" ? "btn-neutral" : "btn-ghost"
+                  }`}
+                  onClick={() => onViewChange("edit")}
+                  type="button"
+                >
+                  Edit
+                </button>
+              </div>
+
+              {isDirty && (
+                <button
+                  className="btn btn-ghost btn-xs"
+                  onClick={onResetFile}
+                  type="button"
+                >
+                  Revert
+                </button>
+              )}
+
+              <button
+                className="btn btn-primary btn-xs gap-1"
+                disabled={!isDirty || isSaving}
+                onClick={onSaveFile}
+                type="button"
+              >
+                {isSaving ? "Saving..." : "Save"}
+                <kbd className="kbd kbd-xs bg-base-100/20 text-[10px] hidden sm:inline-block">
+                  ⌘S
+                </kbd>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {error && (
-        <div className="m-4 flex shrink-0 items-center justify-between rounded-lg bg-error p-3 text-sm text-error-content">
+        <div className="m-3 flex shrink-0 items-center justify-between rounded-lg bg-error p-3 text-sm text-error-content sm:m-4">
           <span>{error}</span>
           {onDismissError && (
             <button
@@ -224,65 +273,7 @@ export function SkillDetailPane({
       {/* Tab Content */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {activeSubTab === "instructions" && (
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {/* Editor toolbar */}
-            <div className="flex shrink-0 items-center justify-between border-b border-base-content/10 px-4 py-2 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-base-content/60">
-                  {selectedFile?.path ?? "SKILL.md"}
-                </span>
-                {isDirty && (
-                  <span className="badge badge-warning badge-xs">Unsaved</span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                {/* View switcher */}
-                <div className="join">
-                  <button
-                    className={`btn join-item btn-xs ${
-                      view === "preview" ? "btn-neutral" : "btn-ghost"
-                    }`}
-                    onClick={() => onViewChange("preview")}
-                    type="button"
-                  >
-                    Preview
-                  </button>
-                  <button
-                    className={`btn join-item btn-xs ${
-                      view === "edit" ? "btn-neutral" : "btn-ghost"
-                    }`}
-                    onClick={() => onViewChange("edit")}
-                    type="button"
-                  >
-                    Edit
-                  </button>
-                </div>
-
-                {isDirty && (
-                  <button
-                    className="btn btn-ghost btn-xs"
-                    onClick={onResetFile}
-                    type="button"
-                  >
-                    Revert
-                  </button>
-                )}
-
-                <button
-                  className="btn btn-primary btn-xs gap-1"
-                  disabled={!isDirty || isSaving}
-                  onClick={onSaveFile}
-                  type="button"
-                >
-                  {isSaving ? "Saving..." : "Save"}
-                  <kbd className="kbd kbd-xs bg-base-100/20 text-[10px]">
-                    ⌘S
-                  </kbd>
-                </button>
-              </div>
-            </div>
-
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {/* Edit / Preview pane */}
             <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
               {view === "edit" ? (
@@ -296,7 +287,12 @@ export function SkillDetailPane({
                   />
                 </div>
               ) : (
-                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-6">
+                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+                  {skill.description && (
+                    <p className="mx-4 mt-3 block rounded-lg bg-base-200/60 p-2.5 text-xs text-base-content/80 sm:hidden">
+                      {skill.description}
+                    </p>
+                  )}
                   <MarkdownPreview
                     content={draftContent}
                     onNavigateLink={onNavigateLink}
@@ -415,7 +411,7 @@ export function SkillDetailPane({
         )}
 
         {activeSubTab === "overview" && (
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6 max-w-4xl space-y-6">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3.5 sm:p-6 max-w-4xl space-y-4 sm:space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Telemetry & Usage Card */}
               <div className="card border border-base-content/10 bg-base-100 p-4 shadow-sm">

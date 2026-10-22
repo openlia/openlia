@@ -481,31 +481,31 @@ export function MigrationSection({
       </div>
 
       {/* Tabs */}
-      <div className="tabs tabs-bordered px-4 bg-base-100">
+      <div className="tabs tabs-bordered px-2 sm:px-4 bg-base-100 flex-nowrap overflow-x-auto no-scrollbar">
         <button
           type="button"
-          className={`tab ${activeSubTab === "overview" ? "tab-active" : ""}`}
+          className={`tab whitespace-nowrap text-xs sm:text-sm ${activeSubTab === "overview" ? "tab-active" : ""}`}
           onClick={() => setActiveSubTab("overview")}
         >
           Overview
         </button>
         <button
           type="button"
-          className={`tab ${activeSubTab === "changes" ? "tab-active" : ""}`}
+          className={`tab whitespace-nowrap text-xs sm:text-sm ${activeSubTab === "changes" ? "tab-active" : ""}`}
           onClick={() => setActiveSubTab("changes")}
         >
           Changes ({latestRev ? latestRev.changed_files.length : 0})
         </button>
         <button
           type="button"
-          className={`tab ${activeSubTab === "sources" ? "tab-active" : ""}`}
+          className={`tab whitespace-nowrap text-xs sm:text-sm ${activeSubTab === "sources" ? "tab-active" : ""}`}
           onClick={() => setActiveSubTab("sources")}
         >
           Sources ({sources.length})
         </button>
         <button
           type="button"
-          className={`tab ${activeSubTab === "discussion" ? "tab-active" : ""}`}
+          className={`tab whitespace-nowrap text-xs sm:text-sm ${activeSubTab === "discussion" ? "tab-active" : ""}`}
           onClick={() => setActiveSubTab("discussion")}
         >
           Discussion ({feedback.length})
@@ -513,7 +513,7 @@ export function MigrationSection({
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-y-auto p-6 bg-base-200/30">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-6 bg-base-200/30">
         {activeSubTab === "overview" && (
           <div className="space-y-6 max-w-4xl">
             {/* Live Progress & ETA Banner (when processing or stopped or progress exists) */}
