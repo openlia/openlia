@@ -251,6 +251,9 @@ func excludedBackupPath(path string) bool {
 		}
 	}
 	base := filepath.Base(path)
+	if base == "shares.sqlite" || base == "shares.sqlite-wal" || base == "shares.sqlite-shm" {
+		return true
+	}
 	return strings.HasSuffix(base, ".env") || strings.HasSuffix(base, ".sock") || strings.HasSuffix(base, ".secret") || strings.Contains(base, ".secret") || base == "auth.json"
 }
 

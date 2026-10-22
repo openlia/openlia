@@ -9,6 +9,7 @@ import {
 export type MainTab =
   | "documents"
   | "skills"
+  | "shares"
   | "ingestion"
   | "git-activity"
   | "configuration"
@@ -24,6 +25,7 @@ export interface WorkspaceRoute {
   scenario?: string | undefined;
   skill?: string | undefined;
   skillFile?: string | undefined;
+  shareId?: string | undefined;
   ingestionId?: string | undefined;
   migrationId?: string | undefined;
 }
@@ -57,6 +59,7 @@ export function parseRoute(
   const pathname = url.pathname;
   let path: string | undefined;
   let skill: string | undefined;
+  let shareId: string | undefined;
   let tab: MainTab | undefined;
   let parsedSkillFile: string | undefined;
   let ingestionId: string | undefined;
@@ -79,6 +82,8 @@ export function parseRoute(
         parsedSkillFile = parsed.skillFile;
       }
       tab = "skills";
+    } else if (host === "shares") {
+      tab = "shares";
     } else if (host === "git-activity") {
       tab = "git-activity";
     } else if (
@@ -98,6 +103,11 @@ export function parseRoute(
     } else if (host === "configuration") {
       tab = "configuration";
     }
+  } else if (pathname.startsWith("/share/")) {
+    const raw = pathname.slice("/share/".length).replace(/\/+$/, "");
+    if (raw) shareId = safeDecodeURIComponent(raw);
+  } else if (pathname === "/shares" || pathname.startsWith("/shares/")) {
+    tab = "shares";
   } else if (pathname.startsWith("/memory/")) {
     path = memoryDocumentPath(
       safeDecodeURIComponent(pathname.slice("/memory/".length)),
@@ -152,6 +162,7 @@ export function parseRoute(
   const tabParam = url.searchParams.get("tab");
   if (
     tabParam === "skills" ||
+    tabParam === "shares" ||
     tabParam === "documents" ||
     tabParam === "ingestion" ||
     tabParam === "git-activity" ||
@@ -206,6 +217,7 @@ export function parseRoute(
     migrationId: migrationId || undefined,
     path: path || undefined,
     scenario,
+    shareId: shareId || undefined,
     skill: skill || undefined,
     skillFile,
     tab,
@@ -215,7 +227,11 @@ export function parseRoute(
 
 export function buildRouteUrl(route: WorkspaceRoute): string {
   let pathname = "/";
-  if (route.tab === "usage") {
+  if (route.shareId) {
+    pathname = `/share/${encodeURIComponent(route.shareId)}`;
+  } else if (route.tab === "shares") {
+    pathname = "/shares";
+  } else if (route.tab === "usage") {
     pathname = "/usage";
   } else if (route.tab === "schedule") {
     pathname = "/schedule";

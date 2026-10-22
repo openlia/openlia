@@ -3,6 +3,9 @@ import { existsSync, lstatSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import type {
   AuthLoginResponse,
+  ShareCreateRequest,
+  ShareExpirationPreset,
+  ShareUpdateRequest,
   SkillCreateRequest,
   SkillToggleEnableRequest,
   SkillTogglePinRequest,
@@ -23,6 +26,7 @@ import { exportArchive } from "./export";
 import { IngestionService } from "./ingestion";
 import { MemoryFileService } from "./memory";
 import { MigrationService } from "./migration";
+import { ShareService } from "./shares";
 import { SkillService } from "./skills";
 import { WorkspaceError, WorkspaceService } from "./workspace";
 import { UsageService } from "./usage";
@@ -60,6 +64,9 @@ export interface WorkspaceHandlerOptions {
   passwordHash?: string | undefined;
   passwordHashFile?: string | undefined;
   sessionDatabasePath?: string | undefined;
+  sharesDatabasePath?: string | undefined;
+  maxFailedShareLookups?: number | undefined;
+  failedShareLookupWindowMs?: number | undefined;
   publicOrigin?: string | undefined;
   secureCookies?: boolean | undefined;
   systemInfo?:
@@ -170,11 +177,15 @@ function json(
   });
 }
 
-function errorResponse(error: unknown): Response {
+function errorResponse(
+  error: unknown,
+  extraHeaders: Record<string, string> = {},
+): Response {
   if (error instanceof CronError) {
     return json(
       { schema: 1, ok: false, error: error.code, message: error.message },
       error.statusCode,
+      extraHeaders,
     );
   }
   if (error instanceof WorkspaceError) {
@@ -185,15 +196,20 @@ function errorResponse(error: unknown): Response {
     };
     if (error.currentRevision !== undefined)
       payload.current_revision = error.currentRevision;
-    return json(payload, error.status);
+    return json(payload, error.status, extraHeaders);
   }
-  return json({ schema: 1, ok: false, error: "request_failed" }, 500);
+  return json(
+    { schema: 1, ok: false, error: "request_failed" },
+    500,
+    extraHeaders,
+  );
 }
 
 async function staticFile(
   staticRoot: string,
   pathname: string,
   isFirebase = false,
+  extraHeaders: Record<string, string> = {},
 ): Promise<Response | undefined> {
   const relativePath = pathname === "/" ? "index.html" : pathname.slice(1);
   if (relativePath !== "index.html" && !relativePath.startsWith("assets/"))
@@ -218,6 +234,7 @@ async function staticFile(
         ? "no-store"
         : "public, max-age=31536000, immutable",
     "Content-Type": contentTypes[extension] ?? "application/octet-stream",
+    ...extraHeaders,
   };
   if (!isIndex) return new Response(Bun.file(absolute), { headers });
 
@@ -299,6 +316,15 @@ export function createWorkspaceHandler(
     maxEditableBytes: options.maxEditableBytes,
     skillsRoot,
   });
+  const shareService = new ShareService({
+    databasePath: options.sharesDatabasePath,
+    failedLookupWindowMs: options.failedShareLookupWindowMs,
+    maxDownloadBytes: options.maxDownloadBytes,
+    maxEditableBytes: options.maxEditableBytes,
+    maxFailedLookups: options.maxFailedShareLookups,
+    skillService,
+    workspaceService: service,
+  });
   const cronRoot =
     options.cronRoot ??
     process.env.OPENLIA_CRON_ROOT ??
@@ -372,6 +398,10 @@ export function createWorkspaceHandler(
           url.pathname === "/file" ||
           url.pathname.startsWith("/skills/") ||
           url.pathname === "/skills" ||
+          url.pathname.startsWith("/shares/") ||
+          url.pathname === "/shares" ||
+          url.pathname.startsWith("/share/") ||
+          url.pathname === "/share" ||
           url.pathname.startsWith("/ingestion/") ||
           url.pathname === "/ingestion" ||
           url.pathname.startsWith("/migration/") ||
@@ -383,9 +413,17 @@ export function createWorkspaceHandler(
           url.pathname === "/schedule" ||
           url.pathname === "/usage")
       ) {
+        const isPublicShareHtml =
+          url.pathname === "/share" || url.pathname.startsWith("/share/");
+        const extraHeaders = isPublicShareHtml
+          ? ({ "X-Robots-Tag": "noindex, nofollow, noarchive" } as Record<
+              string,
+              string
+            >)
+          : {};
         return (
-          (await staticFile(staticRoot, "/", isFirebase)) ??
-          json({ schema: 1, ok: false, error: "not_found" }, 404)
+          (await staticFile(staticRoot, "/", isFirebase, extraHeaders)) ??
+          json({ schema: 1, ok: false, error: "not_found" }, 404, extraHeaders)
         );
       }
       if (request.method === "GET" && url.pathname === "/api/auth/session") {
@@ -495,6 +533,8 @@ export function createWorkspaceHandler(
         (url.pathname.startsWith("/api/workspace/") ||
           url.pathname.startsWith("/api/memory/") ||
           url.pathname.startsWith("/api/skills/") ||
+          url.pathname === "/api/shares" ||
+          url.pathname.startsWith("/api/shares/") ||
           url.pathname.startsWith("/api/cron/") ||
           url.pathname.startsWith("/api/system/")) &&
         !authenticator.isAuthenticated(request)
@@ -1974,6 +2014,213 @@ export function createWorkspaceHandler(
         const id = url.pathname.slice("/api/cron/jobs/".length);
         cronService.deleteJob(id);
         return json({ schema: 1, ok: true, id });
+      }
+      if (request.method === "GET" && url.pathname === "/api/shares") {
+        return json(
+          shareService.listShares({
+            kind: url.searchParams.get("kind"),
+            targetPath: url.searchParams.get("target_path"),
+          }),
+        );
+      }
+      if (request.method === "POST" && url.pathname === "/api/shares") {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 16384);
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        if (!isObject(bodyResult.value))
+          return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
+        return json(
+          shareService.createShare(
+            bodyResult.value as Partial<ShareCreateRequest>,
+          ),
+          201,
+        );
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/shares/") &&
+        url.pathname.endsWith("/sync")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/shares/";
+        const suffix = "/sync";
+        const shareId = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        const bodyResult = await readJson(request, 4096);
+        const expiresIn =
+          isObject(bodyResult.value) &&
+          typeof bodyResult.value.expires_in === "string"
+            ? (bodyResult.value.expires_in as ShareExpirationPreset)
+            : undefined;
+        return json(shareService.syncShare(shareId, expiresIn));
+      }
+      if (
+        request.method === "PATCH" &&
+        url.pathname.startsWith("/api/shares/")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const shareId = decodeURIComponent(
+          url.pathname.slice("/api/shares/".length),
+        );
+        const bodyResult = await readJson(request, 8192);
+        if (bodyResult.tooLarge || !isObject(bodyResult.value))
+          return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
+        return json(
+          shareService.updateShare(
+            shareId,
+            bodyResult.value as Partial<ShareUpdateRequest>,
+          ),
+        );
+      }
+      if (
+        request.method === "DELETE" &&
+        url.pathname.startsWith("/api/shares/")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const shareId = decodeURIComponent(
+          url.pathname.slice("/api/shares/".length),
+        );
+        return json(shareService.deleteShare(shareId));
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname.startsWith("/api/public/share/")
+      ) {
+        const publicShareHeaders: Record<string, string> = {
+          "X-Robots-Tag": "noindex, nofollow, noarchive",
+        };
+        try {
+          if (
+            url.pathname.startsWith("/api/public/share/skill/") &&
+            url.pathname.endsWith("/download")
+          ) {
+            const prefix = "/api/public/share/skill/";
+            const suffix = "/download";
+            const shareId = decodeURIComponent(
+              url.pathname.slice(
+                prefix.length,
+                url.pathname.length - suffix.length,
+              ),
+            );
+            const { filename, zipBytes } = shareService.downloadPublicSkillZip(
+              shareId,
+              clientKey,
+            );
+            return new Response(new Uint8Array(zipBytes), {
+              headers: {
+                ...securityHeaders(),
+                ...publicShareHeaders,
+                "Content-Disposition": `attachment; filename="${filename}"`,
+                "Content-Length": String(zipBytes.byteLength),
+                "Content-Type": "application/zip",
+              },
+            });
+          }
+
+          if (url.pathname.endsWith("/raw")) {
+            const prefix = "/api/public/share/";
+            const suffix = "/raw";
+            const shareId = decodeURIComponent(
+              url.pathname.slice(
+                prefix.length,
+                url.pathname.length - suffix.length,
+              ),
+            );
+            const file = shareService.getPublicShareBinaryFile(
+              shareId,
+              url.searchParams.get("path"),
+              clientKey,
+            );
+            const disposition = inlineContentTypes.has(file.mediaType)
+              ? "inline"
+              : "attachment";
+            const range = parseByteRange(
+              request.headers.get("range"),
+              file.bytes.byteLength,
+            );
+            const headers: Record<string, string> = {
+              ...securityHeaders(),
+              ...publicShareHeaders,
+              "Accept-Ranges": "bytes",
+              "Content-Disposition": `${disposition}; filename="${file.filename}"`,
+              "Content-Security-Policy":
+                "default-src 'none'; frame-ancestors 'self'",
+              "Content-Type": file.mediaType,
+            };
+            if (range) {
+              const slice = file.bytes.subarray(range.start, range.end + 1);
+              headers["Content-Length"] = String(slice.byteLength);
+              headers["Content-Range"] =
+                `bytes ${range.start}-${range.end}/${file.bytes.byteLength}`;
+              return new Response(new Uint8Array(slice), {
+                headers,
+                status: 206,
+              });
+            }
+            headers["Content-Length"] = String(file.bytes.byteLength);
+            return new Response(new Uint8Array(file.bytes), { headers });
+          }
+
+          if (url.pathname.endsWith("/download")) {
+            const prefix = "/api/public/share/";
+            const suffix = "/download";
+            const shareId = decodeURIComponent(
+              url.pathname.slice(
+                prefix.length,
+                url.pathname.length - suffix.length,
+              ),
+            );
+            const file = shareService.getPublicShareBinaryFile(
+              shareId,
+              url.searchParams.get("path"),
+              clientKey,
+            );
+            return new Response(new Uint8Array(file.bytes), {
+              headers: {
+                ...securityHeaders(),
+                ...publicShareHeaders,
+                "Content-Disposition": `attachment; filename="${file.filename}"`,
+                "Content-Length": String(file.bytes.byteLength),
+                "Content-Type": "application/octet-stream",
+              },
+            });
+          }
+
+          const shareId = decodeURIComponent(
+            url.pathname.slice("/api/public/share/".length),
+          );
+          return json(
+            shareService.getPublicShare(shareId, clientKey),
+            200,
+            publicShareHeaders,
+          );
+        } catch (error) {
+          return errorResponse(error, publicShareHeaders);
+        }
       }
       return json({ schema: 1, ok: false, error: "not_found" }, 404);
     } catch (error) {

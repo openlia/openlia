@@ -5,6 +5,18 @@ import type {
   DocumentPasswordSuggestResponse,
   IngestionDetailResponse,
   IngestionOverviewResponse,
+  PublicShareFileEntry,
+  PublicShareResponse,
+  ShareCreateRequest,
+  ShareDeleteResponse,
+  ShareExpirationPreset,
+  ShareKind,
+  ShareListResponse,
+  ShareMutationResponse,
+  ShareSkillMetadata,
+  ShareSummary,
+  ShareSyncStatus,
+  ShareUpdateRequest,
   SkillDetail,
   SourceDocument,
   SourceSearchResponse,
@@ -582,6 +594,162 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
       patterns: ["*bank*", "*statement*"],
     },
   ];
+
+  interface MockStoredShare {
+    id: string;
+    kind: ShareKind;
+    target_path: string;
+    title: string;
+    created_at: string;
+    updated_at: string;
+    expires_at: string | null;
+    expiration_preset: ShareExpirationPreset;
+    snapshot_revision: string;
+    media_type: string;
+    skill_metadata?: ShareSkillMetadata | undefined;
+    files: PublicShareFileEntry[];
+  }
+
+  const mockShares: MockStoredShare[] = [];
+  let mockShareSeq = 0;
+
+  function computeMockSkillRevision(skillId: string): string | null {
+    const skill = mockSkills.find((s) => s.id === skillId);
+    if (!skill) return null;
+    return skill.files
+      .map(
+        (f) =>
+          `${f.path}:${mockSkillRevisions[`${skillId}:${f.path}`] ?? "rev"}`,
+      )
+      .join("|");
+  }
+
+  function toMockShareSummary(item: MockStoredShare): ShareSummary {
+    const currentRevision =
+      item.kind === "workspace"
+        ? fileContents[item.target_path] !== undefined
+          ? (fileRevisions[item.target_path] ?? revision)
+          : null
+        : computeMockSkillRevision(item.target_path);
+    const status: ShareSyncStatus =
+      currentRevision === null
+        ? "source_missing"
+        : currentRevision === item.snapshot_revision
+          ? "up_to_date"
+          : "stale";
+    const totalBytes = item.files.reduce((acc, f) => acc + f.size, 0);
+    return {
+      id: item.id,
+      kind: item.kind,
+      target_path: item.target_path,
+      title: item.title,
+      created_at: item.created_at,
+      updated_at: item.updated_at,
+      expires_at: item.expires_at,
+      expiration_preset: item.expiration_preset,
+      snapshot_revision: item.snapshot_revision,
+      current_revision: currentRevision,
+      status,
+      file_count: item.files.length,
+      total_bytes: totalBytes,
+      media_type: item.media_type,
+      ...(item.skill_metadata ? { skill_metadata: item.skill_metadata } : {}),
+    };
+  }
+
+  function captureMockShareData(
+    kind: ShareKind,
+    targetPath: string,
+  ): {
+    title: string;
+    snapshot_revision: string;
+    media_type: string;
+    skill_metadata?: ShareSkillMetadata | undefined;
+    files: PublicShareFileEntry[];
+  } {
+    const cleanTarget = targetPath.replace(/^\/+/, "");
+    if (kind === "workspace") {
+      if (isMemoryDocument(cleanTarget)) throw error(403, "protected_path");
+      const text = fileContents[cleanTarget];
+      if (text === undefined) throw error(404, "not_found");
+      const rev = fileRevisions[cleanTarget] ?? revision;
+      const heading = text.match(/^#\s+(.+)$/m)?.[1]?.trim();
+      const title = heading || (cleanTarget.split("/").at(-1) ?? cleanTarget);
+      const files: PublicShareFileEntry[] = [
+        {
+          path: cleanTarget,
+          size: new TextEncoder().encode(text).byteLength,
+          modified_at: modifiedAt,
+          media_type: cleanTarget.endsWith(".md")
+            ? "text/markdown; charset=utf-8"
+            : "text/plain; charset=utf-8",
+          editable: true,
+          content: text,
+        },
+      ];
+      if (
+        cleanTarget === "calendar/reminders.rem" &&
+        fileContents["calendar/holidays.rem"]
+      ) {
+        const incText = fileContents["calendar/holidays.rem"];
+        files.push({
+          path: "calendar/holidays.rem",
+          size: new TextEncoder().encode(incText).byteLength,
+          modified_at: modifiedAt,
+          media_type: "text/plain; charset=utf-8",
+          editable: true,
+          content: incText,
+        });
+      }
+      return {
+        title,
+        snapshot_revision: rev,
+        media_type: files[0]?.media_type ?? "text/plain; charset=utf-8",
+        files,
+      };
+    }
+
+    const skill = mockSkills.find((s) => s.id === cleanTarget);
+    if (!skill) throw error(404, "skill_not_found");
+    const files: PublicShareFileEntry[] = skill.files.map((f) => {
+      const fContent = mockSkillFiles[`${skill.id}:${f.path}`] ?? "";
+      return {
+        path: f.path,
+        size: new TextEncoder().encode(fContent).byteLength,
+        modified_at: f.modified_at,
+        media_type: f.path.endsWith(".md")
+          ? "text/markdown; charset=utf-8"
+          : "text/plain; charset=utf-8",
+        editable: true,
+        content: fContent,
+      };
+    });
+    return {
+      title: skill.name,
+      snapshot_revision:
+        computeMockSkillRevision(skill.id) ?? "sha256:mock-skill",
+      media_type: "application/x-openlia-skill",
+      skill_metadata: {
+        name: skill.name,
+        category: skill.category,
+        description: skill.description,
+        version: skill.version,
+        author: skill.author,
+        license: skill.license,
+        tags: skill.tags ?? [],
+        platforms: skill.platforms ?? [],
+        prerequisites: skill.prerequisites,
+      },
+      files,
+    };
+  }
+
+  function computeMockExpiresAt(preset: ShareExpirationPreset): string | null {
+    if (preset === "never") return null;
+    const days =
+      preset === "1d" ? 1 : preset === "7d" ? 7 : preset === "30d" ? 30 : 90;
+    return new Date(Date.now() + days * 86400 * 1000).toISOString();
+  }
 
   function requireAuthentication() {
     if (!authenticated) throw error(401, "authentication_required");
@@ -1646,5 +1814,153 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     async deleteCronJob(id: string) {
       return { schema: 1, ok: true as const, id };
     },
+    async listShares(filter): Promise<ShareListResponse> {
+      requireAuthentication();
+      const targetFilter = filter?.targetPath?.replace(/^\/+/, "");
+      const filtered = mockShares.filter((s) => {
+        if (filter?.kind && s.kind !== filter.kind) return false;
+        if (targetFilter && s.target_path !== targetFilter) return false;
+        return true;
+      });
+      return {
+        schema: 1,
+        ok: true,
+        shares: filtered.map(toMockShareSummary),
+      };
+    },
+    async createShare(req: ShareCreateRequest): Promise<ShareMutationResponse> {
+      requireAuthentication();
+      const preset: ShareExpirationPreset = req.expires_in ?? "30d";
+      const captured = captureMockShareData(req.kind, req.target_path);
+      const nowIso = new Date().toISOString();
+      const id = `mockshare_${String(++mockShareSeq).padStart(22, "0")}`;
+      const stored: MockStoredShare = {
+        id,
+        kind: req.kind,
+        target_path: req.target_path.replace(/^\/+/, ""),
+        title: captured.title,
+        created_at: nowIso,
+        updated_at: nowIso,
+        expires_at: computeMockExpiresAt(preset),
+        expiration_preset: preset,
+        snapshot_revision: captured.snapshot_revision,
+        media_type: captured.media_type,
+        skill_metadata: captured.skill_metadata,
+        files: captured.files,
+      };
+      mockShares.unshift(stored);
+      return {
+        schema: 1,
+        ok: true,
+        share: toMockShareSummary(stored),
+      };
+    },
+    async updateShare(
+      id: string,
+      req: ShareUpdateRequest,
+    ): Promise<ShareMutationResponse> {
+      requireAuthentication();
+      const found = mockShares.find((s) => s.id === id);
+      if (!found) throw error(404, "share_not_found");
+      if (req.action === "sync") {
+        const captured = captureMockShareData(found.kind, found.target_path);
+        found.title = captured.title;
+        found.snapshot_revision = captured.snapshot_revision;
+        found.media_type = captured.media_type;
+        found.skill_metadata = captured.skill_metadata;
+        found.files = captured.files;
+      }
+      if (req.expires_in) {
+        found.expiration_preset = req.expires_in;
+        found.expires_at = computeMockExpiresAt(req.expires_in);
+      }
+      found.updated_at = new Date().toISOString();
+      return {
+        schema: 1,
+        ok: true,
+        share: toMockShareSummary(found),
+      };
+    },
+    async syncShare(
+      id: string,
+      expiresIn?: ShareExpirationPreset,
+    ): Promise<ShareMutationResponse> {
+      requireAuthentication();
+      const found = mockShares.find((s) => s.id === id);
+      if (!found) throw error(404, "share_not_found");
+      const captured = captureMockShareData(found.kind, found.target_path);
+      found.title = captured.title;
+      found.snapshot_revision = captured.snapshot_revision;
+      found.media_type = captured.media_type;
+      found.skill_metadata = captured.skill_metadata;
+      found.files = captured.files;
+      if (expiresIn) {
+        found.expiration_preset = expiresIn;
+        found.expires_at = computeMockExpiresAt(expiresIn);
+      }
+      found.updated_at = new Date().toISOString();
+      return {
+        schema: 1,
+        ok: true,
+        share: toMockShareSummary(found),
+      };
+    },
+    async deleteShare(id: string): Promise<ShareDeleteResponse> {
+      requireAuthentication();
+      const idx = mockShares.findIndex((s) => s.id === id);
+      if (idx < 0) throw error(404, "share_not_found");
+      mockShares.splice(idx, 1);
+      return { schema: 1, ok: true, id };
+    },
+    async getPublicShare(id: string): Promise<PublicShareResponse> {
+      const found = mockShares.find((s) => s.id === id);
+      if (!found) throw error(404, "share_not_found");
+      const primary =
+        found.kind === "workspace"
+          ? (found.files.find((f) => f.path === found.target_path) ??
+            found.files[0])
+          : (found.files.find((f) => f.path === "SKILL.md") ?? found.files[0]);
+      const totalBytes = found.files.reduce((acc, f) => acc + f.size, 0);
+      return {
+        schema: 1,
+        ok: true,
+        share: {
+          id: found.id,
+          kind: found.kind,
+          target_path: found.target_path,
+          title: found.title,
+          created_at: found.created_at,
+          updated_at: found.updated_at,
+          expires_at: found.expires_at,
+          expiration_preset: found.expiration_preset,
+          snapshot_revision: found.snapshot_revision,
+          file_count: found.files.length,
+          total_bytes: totalBytes,
+          media_type: found.media_type,
+          editable: primary ? primary.editable : true,
+          ...(primary?.content !== undefined
+            ? { content: primary.content }
+            : {}),
+          ...(found.skill_metadata
+            ? { skill_metadata: found.skill_metadata }
+            : {}),
+          files: found.files,
+        },
+      };
+    },
+    publicShareRawUrl: (id: string, filePath?: string) => {
+      const q = filePath
+        ? `?${new URLSearchParams({ path: filePath }).toString()}`
+        : "";
+      return `/api/public/share/${encodeURIComponent(id)}/raw${q}`;
+    },
+    publicShareDownloadUrl: (id: string, filePath?: string) => {
+      const q = filePath
+        ? `?${new URLSearchParams({ path: filePath }).toString()}`
+        : "";
+      return `/api/public/share/${encodeURIComponent(id)}/download${q}`;
+    },
+    publicShareSkillDownloadUrl: (id: string) =>
+      `/api/public/share/skill/${encodeURIComponent(id)}/download`,
   };
 }

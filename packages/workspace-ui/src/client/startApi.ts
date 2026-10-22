@@ -7,6 +7,14 @@ import type {
   MigrationDetailResponse,
   MigrationFeedbackRequest,
   MigrationListResponse,
+  PublicShareResponse,
+  ShareCreateRequest,
+  ShareDeleteResponse,
+  ShareExpirationPreset,
+  ShareKind,
+  ShareListResponse,
+  ShareMutationResponse,
+  ShareUpdateRequest,
   SourceDocument,
   SourceSearchResponse,
   SourceUpdateRequest,
@@ -292,5 +300,44 @@ export const startWorkspaceApi: WorkspaceApi = {
       body: requestBody,
       method: "POST",
       path: "/api/skills/create",
+    }),
+  listShares: (filter?: {
+    kind?: ShareKind | undefined;
+    targetPath?: string | undefined;
+  }) => {
+    const params = new URLSearchParams();
+    if (filter?.kind) params.set("kind", filter.kind);
+    if (filter?.targetPath) params.set("target_path", filter.targetPath);
+    const query = params.toString();
+    return request<ShareListResponse>({
+      path: `/api/shares${query ? `?${query}` : ""}`,
+    });
+  },
+  createShare: (req: ShareCreateRequest) =>
+    request<ShareMutationResponse>({
+      body: req,
+      method: "POST",
+      path: "/api/shares",
+    }),
+  updateShare: (id: string, req: ShareUpdateRequest) =>
+    request<ShareMutationResponse>({
+      body: req,
+      method: "PATCH",
+      path: `/api/shares/${encodeURIComponent(id)}`,
+    }),
+  syncShare: (id: string, expiresIn?: ShareExpirationPreset) =>
+    request<ShareMutationResponse>({
+      body: expiresIn !== undefined ? { expires_in: expiresIn } : {},
+      method: "POST",
+      path: `/api/shares/${encodeURIComponent(id)}/sync`,
+    }),
+  deleteShare: (id: string) =>
+    request<ShareDeleteResponse>({
+      method: "DELETE",
+      path: `/api/shares/${encodeURIComponent(id)}`,
+    }),
+  getPublicShare: (id: string) =>
+    request<PublicShareResponse>({
+      path: `/api/public/share/${encodeURIComponent(id)}`,
     }),
 };

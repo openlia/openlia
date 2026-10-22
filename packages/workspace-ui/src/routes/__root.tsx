@@ -23,10 +23,14 @@ export const Route = createRootRouteWithContext<RouterContext>()({
   ssr: "data-only",
   staleTime: Infinity,
   loader: async ({ context, location }) => {
-    const scenario = new URL(
-      String(location.href),
-      "http://localhost",
-    ).searchParams.get("scenario");
+    const parsedUrl = new URL(String(location.href), "http://localhost");
+    if (
+      parsedUrl.pathname === "/share" ||
+      parsedUrl.pathname.startsWith("/share/")
+    ) {
+      return { session: undefined, tree: undefined };
+    }
+    const scenario = parsedUrl.searchParams.get("scenario");
     if (scenario === "error" || scenario === "loading") {
       return { session: undefined, tree: undefined };
     }

@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { createWorkspaceHandler } from "./app";
 
@@ -78,6 +79,18 @@ export function createConfiguredWorkspaceHandler() {
     sessionDatabasePath:
       process.env.OPENLIA_WORKSPACE_UI_SESSION_DB ??
       "/var/lib/openlia/sessions.sqlite",
+    sharesDatabasePath:
+      process.env.OPENLIA_WORKSPACE_UI_SHARES_DB ??
+      (process.env.OPENLIA_RUNTIME_ROOT === "/var/lib/openlia" ||
+      existsSync("/var/lib/openlia")
+        ? "/var/lib/openlia/shares.sqlite"
+        : join(
+            homedir(),
+            ".openlia",
+            "cache",
+            "workspace-ui",
+            "shares.sqlite",
+          )),
     skillsRoot,
     ...(staticRoot ? { staticRoot } : {}),
     systemInfo: {

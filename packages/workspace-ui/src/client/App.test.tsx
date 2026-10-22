@@ -1205,6 +1205,7 @@ messages:
       "Calendar",
       "Ingestion",
       "Skills",
+      "Shared Links",
       "MigrationsBeta",
       "Usage",
       "Schedule",
@@ -1633,5 +1634,102 @@ messages:
     // Navigates to migration view
     expect(await screen.findByText("Revision Summary")).toBeInTheDocument();
     expect(window.location.pathname).toMatch(/^\/migration\/mig-/);
+  });
+
+  test("shares a workspace document via Share modal, detects stale snapshot after edit, and manages it in Shared Links tab", async () => {
+    window.history.replaceState(null, "", "/");
+    const mockApi = createMockWorkspaceApi();
+    render(<App api={mockApi} />);
+
+    // Open notes.md
+    const fileBtn = await screen.findByRole("button", { name: "notes.md" });
+    fireEvent.click(fileBtn);
+
+    // Click Share button in DocumentPane toolbar
+    const shareBtn = await screen.findByRole("button", {
+      name: "Share document",
+    });
+    fireEvent.click(shareBtn);
+
+    // Share modal opens
+    const dialog = await screen.findByRole("dialog", {
+      name: "Share notes.md",
+    });
+    expect(dialog).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "Create Share Link" }),
+    ).toBeInTheDocument();
+
+    // Create a share link
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Create Share Link" }),
+    );
+    expect(await within(dialog).findByText("Up to date")).toBeInTheDocument();
+
+    // Close modal
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Close share modal" }),
+    );
+
+    // Edit and save notes.md so the snapshot becomes stale
+    const currentNotes = await mockApi.loadFile("notes.md");
+    await mockApi.saveFile(
+      "notes.md",
+      "# Updated Notes\n\nNew content after snapshot.\n",
+      currentNotes.revision,
+    );
+
+    // Navigate to Shared Links tab
+    fireEvent.click(screen.getByRole("button", { name: "Shared Links" }));
+    expect(window.location.pathname).toBe("/shares");
+
+    // Verify the share appears as Stale in Shared Links section
+    const section = await screen.findByRole("region", { name: "Shared Links" });
+    const card = await within(section).findByTestId(
+      "shared-link-card-mockshare_0000000000000000000001",
+    );
+    expect(card).toBeInTheDocument();
+
+    // Click Update Snapshot on the stale share
+    const updateBtn = within(card).getByRole("button", {
+      name: "Update Snapshot",
+    });
+    fireEvent.click(updateBtn);
+    expect(await within(card).findByText("Up to date")).toBeInTheDocument();
+  });
+
+  test("renders standalone Public Share View at /share/<share_id> without workspace login or navigation", async () => {
+    const mockApi = createMockWorkspaceApi();
+    const created = await mockApi.createShare({
+      expires_in: "7d",
+      kind: "workspace",
+      target_path: "notes.md",
+    });
+
+    window.history.replaceState(null, "", `/share/${created.share.id}`);
+    // Even if session requires auth, public share view renders directly without login
+    mockApi.loadSession = async () => ({
+      auth_required: true,
+      authenticated: false,
+      schema: 1,
+    });
+    render(<App api={mockApi} />);
+
+    // Does NOT render login screen or workspace navigation even though auth is required
+    expect(
+      await screen.findByText("OPENLIA / SHARED DOCUMENT"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("navigation", { name: "Workspace navigation" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Sign in to your workspace" }),
+    ).not.toBeInTheDocument();
+
+    // Injects noindex meta tag in head
+    const robotsMeta = document.head.querySelector('meta[name="robots"]');
+    expect(robotsMeta?.getAttribute("content")).toBe(
+      "noindex, nofollow, noarchive",
+    );
   });
 });

@@ -80,7 +80,7 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 			return BootstrapResult{}, err
 		}
 	}
-	if isFirebase || config.WorkspaceUIAuthRequired {
+	if config.WorkspaceUIHost != "" || isFirebase || config.WorkspaceUIAuthRequired {
 		sessionDir := filepath.Join(config.RuntimeRoot, "workspace-ui")
 		if err := EnsureDir(sessionDir, 0o700); err != nil {
 			return BootstrapResult{}, err

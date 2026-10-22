@@ -7,7 +7,7 @@ import { setResponseHeader } from "@tanstack/react-start/server";
 import { buildContentSecurityPolicy } from "./cspPolicy";
 import { withCspNonce } from "./server/cspContext";
 
-const securityMiddleware = createMiddleware().server(({ next }) => {
+const securityMiddleware = createMiddleware().server(({ next, request }) => {
   const nonce = globalThis.crypto.randomUUID();
   setResponseHeader("Cache-Control", "no-store");
   setResponseHeader(
@@ -16,6 +16,16 @@ const securityMiddleware = createMiddleware().server(({ next }) => {
   );
   setResponseHeader("Referrer-Policy", "no-referrer");
   setResponseHeader("X-Content-Type-Options", "nosniff");
+  try {
+    const pathname = new URL(request.url).pathname;
+    if (
+      pathname === "/share" ||
+      pathname.startsWith("/share/") ||
+      pathname.startsWith("/api/public/share/")
+    ) {
+      setResponseHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+    }
+  } catch {}
   return withCspNonce(nonce, next);
 });
 

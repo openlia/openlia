@@ -76,7 +76,19 @@ const server = Bun.serve({
         value: { clientAddress },
       });
     }
-    return clientAsset(request) ?? startEntry.fetch(request);
+    const assetResponse = clientAsset(request);
+    if (assetResponse) return assetResponse;
+    const response: Response = await startEntry.fetch(request);
+    if (url.pathname === "/share" || url.pathname.startsWith("/share/")) {
+      const headers = new Headers(response.headers);
+      headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    }
+    return response;
   },
   hostname: bind,
   port: portFromEnvironment(port),

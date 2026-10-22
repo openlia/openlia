@@ -12,6 +12,14 @@ import type {
   MigrationFeedbackRequest,
   MigrationListResponse,
   MigrationSummary,
+  PublicShareResponse,
+  ShareCreateRequest,
+  ShareDeleteResponse,
+  ShareExpirationPreset,
+  ShareKind,
+  ShareListResponse,
+  ShareMutationResponse,
+  ShareUpdateRequest,
   SkillCreateRequest,
   SkillDetailResponse,
   SkillFileResponse,
@@ -230,6 +238,25 @@ export interface WorkspaceApi {
     paused?: boolean,
   ): Promise<{ schema: 1; ok: true; job: HermesCronJob }>;
   deleteCronJob(id: string): Promise<{ schema: 1; ok: true; id: string }>;
+
+  listShares(filter?: {
+    kind?: ShareKind | undefined;
+    targetPath?: string | undefined;
+  }): Promise<ShareListResponse>;
+  createShare(request: ShareCreateRequest): Promise<ShareMutationResponse>;
+  updateShare(
+    id: string,
+    request: ShareUpdateRequest,
+  ): Promise<ShareMutationResponse>;
+  syncShare(
+    id: string,
+    expiresIn?: ShareExpirationPreset | undefined,
+  ): Promise<ShareMutationResponse>;
+  deleteShare(id: string): Promise<ShareDeleteResponse>;
+  getPublicShare(id: string): Promise<PublicShareResponse>;
+  publicShareRawUrl(id: string, filePath?: string | undefined): string;
+  publicShareDownloadUrl(id: string, filePath?: string | undefined): string;
+  publicShareSkillDownloadUrl(id: string): string;
 }
 
 type ResponseValidator<T> = (value: unknown) => value is T;
@@ -1173,6 +1200,100 @@ export const httpWorkspaceApi: WorkspaceApi = {
         method: "DELETE",
       },
     ),
+
+  listShares: (filter) => {
+    const params = new URLSearchParams();
+    if (filter?.kind) params.set("kind", filter.kind);
+    if (filter?.targetPath) params.set("target_path", filter.targetPath);
+    const query = params.toString();
+    return requestJson<ShareListResponse>(
+      `/api/shares${query ? `?${query}` : ""}`,
+      (v): v is ShareListResponse =>
+        isObject(v) &&
+        v.schema === 1 &&
+        v.ok === true &&
+        Array.isArray((v as any).shares),
+    );
+  },
+  createShare: (req) =>
+    requestJson<ShareMutationResponse>(
+      "/api/shares",
+      (v): v is ShareMutationResponse =>
+        isObject(v) &&
+        v.schema === 1 &&
+        v.ok === true &&
+        isObject((v as any).share),
+      {
+        body: JSON.stringify(req),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  updateShare: (id, req) =>
+    requestJson<ShareMutationResponse>(
+      `/api/shares/${encodeURIComponent(id)}`,
+      (v): v is ShareMutationResponse =>
+        isObject(v) &&
+        v.schema === 1 &&
+        v.ok === true &&
+        isObject((v as any).share),
+      {
+        body: JSON.stringify(req),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      },
+    ),
+  syncShare: (id, expiresIn) =>
+    requestJson<ShareMutationResponse>(
+      `/api/shares/${encodeURIComponent(id)}/sync`,
+      (v): v is ShareMutationResponse =>
+        isObject(v) &&
+        v.schema === 1 &&
+        v.ok === true &&
+        isObject((v as any).share),
+      {
+        body: JSON.stringify(
+          expiresIn !== undefined ? { expires_in: expiresIn } : {},
+        ),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  deleteShare: (id) =>
+    requestJson<ShareDeleteResponse>(
+      `/api/shares/${encodeURIComponent(id)}`,
+      (v): v is ShareDeleteResponse =>
+        isObject(v) &&
+        v.schema === 1 &&
+        v.ok === true &&
+        typeof (v as any).id === "string",
+      {
+        method: "DELETE",
+      },
+    ),
+  getPublicShare: (id) =>
+    requestJson<PublicShareResponse>(
+      `/api/public/share/${encodeURIComponent(id)}`,
+      (v): v is PublicShareResponse =>
+        isObject(v) &&
+        v.schema === 1 &&
+        v.ok === true &&
+        isObject((v as any).share),
+    ),
+  publicShareRawUrl: (id, filePath) => {
+    const query = filePath
+      ? `?${new URLSearchParams({ path: filePath }).toString()}`
+      : "";
+    return `/api/public/share/${encodeURIComponent(id)}/raw${query}`;
+  },
+  publicShareDownloadUrl: (id, filePath) => {
+    const query = filePath
+      ? `?${new URLSearchParams({ path: filePath }).toString()}`
+      : "";
+    return `/api/public/share/${encodeURIComponent(id)}/download${query}`;
+  },
+  publicShareSkillDownloadUrl: (id) =>
+    `/api/public/share/skill/${encodeURIComponent(id)}/download`,
 };
 
 export const api = httpWorkspaceApi;

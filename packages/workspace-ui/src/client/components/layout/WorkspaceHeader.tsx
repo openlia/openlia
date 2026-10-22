@@ -24,6 +24,7 @@ export function WorkspaceHeader({
   activeTab?:
     | "documents"
     | "skills"
+    | "shares"
     | "ingestion"
     | "git-activity"
     | "configuration"
@@ -46,6 +47,7 @@ export function WorkspaceHeader({
         tab:
           | "documents"
           | "skills"
+          | "shares"
           | "ingestion"
           | "git-activity"
           | "configuration"
@@ -66,7 +68,8 @@ export function WorkspaceHeader({
     <header className="workspace-header">
       {activeTab !== "configuration" &&
         activeTab !== "usage" &&
-        activeTab !== "schedule" && (
+        activeTab !== "schedule" &&
+        activeTab !== "shares" && (
           <button
             aria-label={
               activeTab === "skills"
@@ -154,6 +157,20 @@ export function WorkspaceHeader({
           )}
           {onTabChange && (
             <button
+              aria-current={activeTab === "shares" ? "page" : undefined}
+              className={`btn btn-xs join-item ${
+                activeTab === "shares"
+                  ? "btn-primary shadow-xs"
+                  : "btn-ghost text-base-content/70"
+              }`}
+              onClick={() => onTabChange("shares")}
+              type="button"
+            >
+              Shared Links
+            </button>
+          )}
+          {onTabChange && (
+            <button
               aria-current={activeTab === "migration" ? "page" : undefined}
               aria-label="Migrations"
               className={`btn btn-xs join-item ${
@@ -216,19 +233,21 @@ export function WorkspaceHeader({
               ? "SCHEDULE"
               : activeTab === "skills"
                 ? "SKILLS"
-                : activeTab === "git-activity"
-                  ? "GIT ACTIVITY"
-                  : activeTab === "ingestion"
-                    ? "INGESTION RUNTIME"
-                    : activeTab === "migration"
-                      ? "MIGRATION"
-                      : activeTab === "configuration"
-                        ? "CONFIGURATION"
-                        : file
-                          ? file.source === "memory"
-                            ? "ASSISTANT MEMORY"
-                            : "WORKSPACE"
-                          : "ACTIVITY"}
+                : activeTab === "shares"
+                  ? "SHARED LINKS"
+                  : activeTab === "git-activity"
+                    ? "GIT ACTIVITY"
+                    : activeTab === "ingestion"
+                      ? "INGESTION RUNTIME"
+                      : activeTab === "migration"
+                        ? "MIGRATION"
+                        : activeTab === "configuration"
+                          ? "CONFIGURATION"
+                          : file
+                            ? file.source === "memory"
+                              ? "ASSISTANT MEMORY"
+                              : "WORKSPACE"
+                            : "ACTIVITY"}
         </p>
         <div className="flex items-center gap-1.5">
           <h1 className="workspace-title" title={file?.path}>
@@ -239,13 +258,15 @@ export function WorkspaceHeader({
                   ? "Schedule"
                   : activeTab === "skills"
                     ? "Skills"
-                    : activeTab === "git-activity"
-                      ? "Git Activity"
-                      : activeTab === "ingestion"
-                        ? "Ingestion"
-                        : activeTab === "configuration"
-                          ? "Configuration"
-                          : "Activity")}
+                    : activeTab === "shares"
+                      ? "Shared Links"
+                      : activeTab === "git-activity"
+                        ? "Git Activity"
+                        : activeTab === "ingestion"
+                          ? "Ingestion"
+                          : activeTab === "configuration"
+                            ? "Configuration"
+                            : "Activity")}
           </h1>
           {currentLink && (
             <CopyLinkButton

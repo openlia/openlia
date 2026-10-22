@@ -68,6 +68,7 @@ func isPortableExportExcludedPath(relPath string) bool {
 	}
 	if lowerPath == "sources/document-passwords.toml" ||
 		lowerPath == "@memories" || strings.HasPrefix(lowerPath, "@memories/") ||
+		base == "shares.sqlite" || base == "shares.sqlite-wal" || base == "shares.sqlite-shm" ||
 		base == ".gitignore" || base == "agents.md" || base == "claude.md" ||
 		base == ".cursorrules" || base == "auth.json" ||
 		strings.Contains(lowerPath, ".secret") ||
