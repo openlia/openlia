@@ -7,14 +7,17 @@ trap 'rm -rf "$work"' EXIT
 for command in ffmpeg ffprobe pdfinfo pdftoppm pdftotext yt-dlp; do
     command -v "$command" >/dev/null
 done
+python=/opt/hermes/.venv/bin/python
+python_site="$($python -c 'import site; print(site.getsitepackages()[0])')"
+export PYTHONPATH="$python_site${PYTHONPATH:+:$PYTHONPATH}"
 printf '%s\n' 'Hermes Python runtime:'
-/opt/hermes/.venv/bin/python - <<'PY'
+$python - <<'PY'
 import sys
 print(sys.executable)
 print(sys.path)
 PY
 find /opt/hermes/.venv -maxdepth 4 -type d -name 'openpyxl*' -print
-/opt/hermes/.venv/bin/python - <<'PY'
+$python - <<'PY'
 import jsonschema
 import openpyxl
 import PIL

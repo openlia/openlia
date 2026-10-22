@@ -70,10 +70,20 @@ RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache \
 	&& rm -f /tmp/workspace-template-req.txt
 
 COPY --chmod=0755 docker/secret-source.sh /usr/local/bin/openlia-secret-source
-COPY docker/openlia_link_rewriter.py /opt/hermes/.venv/lib/python3.13/site-packages/openlia_link_rewriter.py
-COPY docker/openlia_usage.py /opt/hermes/.venv/lib/python3.13/site-packages/openlia_usage.py
+COPY docker/openlia_link_rewriter.py /tmp/openlia_link_rewriter.py
+COPY docker/openlia_usage.py /tmp/openlia_usage.py
 COPY profile/plugins/openlia-usage /opt/hermes/plugins/openlia-usage
-COPY docker/openlia_link_rewriter.pth /opt/hermes/.venv/lib/python3.13/site-packages/openlia_link_rewriter.pth
+COPY docker/openlia_link_rewriter.pth /tmp/openlia_link_rewriter.pth
+RUN /opt/hermes/.venv/bin/python - <<'PY'
+import pathlib
+import shutil
+import site
+
+target = pathlib.Path(site.getsitepackages()[0])
+target.mkdir(parents=True, exist_ok=True)
+for name in ("openlia_link_rewriter.py", "openlia_usage.py", "openlia_link_rewriter.pth"):
+    shutil.copy2(pathlib.Path("/tmp") / name, target / name)
+PY
 # OpenLia's policy plugin is bundled with the image and enabled by profile/config.yaml.
 COPY profile/plugins/openlia-policy /opt/hermes/plugins/openlia-policy
 
@@ -90,7 +100,7 @@ COPY profile/plugins/openlia-ingestion /opt/hermes/plugins/openlia-ingestion
 # Release archives protect source files with mode 0600; supervised Hermes runs
 # as an unprivileged user and must be able to read the bundled plugins.
 RUN chmod -R a+rX /opt/hermes/plugins/openlia-policy /opt/hermes/plugins/openlia-ingestion /opt/hermes/plugins/openlia-usage \
-    && chmod a+r /opt/hermes/.venv/lib/python3.13/site-packages/openlia_usage.py
+    && /opt/hermes/.venv/bin/python -c "import pathlib, site; pathlib.Path(site.getsitepackages()[0], 'openlia_usage.py').chmod(0o644)"
 LABEL org.openlia.project="${OPENLIA_PROJECT_NAME}" org.openlia.ingestion="required" org.openlia.debian-snapshot="${DEBIAN_SNAPSHOT}"
 
 # Keep the upstream default USER and ENTRYPOINT unchanged. s6 must start as
@@ -98,4 +108,3 @@ LABEL org.openlia.project="${OPENLIA_PROJECT_NAME}" org.openlia.ingestion="requi
 ENV HERMES_TIMEZONE="Asia/Ho_Chi_Minh"
 ENV TZ="Asia/Ho_Chi_Minh"
 ENV PATH="/usr/local/bin:/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:${PATH}"
-ENV PYTHONPATH="/opt/hermes/.venv/lib/python3.13/site-packages:${PYTHONPATH}"
