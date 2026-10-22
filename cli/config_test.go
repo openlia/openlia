@@ -456,6 +456,22 @@ func TestMissingConfigReturnsDefaultAndSentinel(t *testing.T) {
 	}
 }
 
+func TestDefaultSkillsAreInheritedWhenNotConfigured(t *testing.T) {
+	config, err := parseConfig("[openlia]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.SkillsConfigured {
+		t.Fatal("skills should be inherited when skills.enabled is absent")
+	}
+	if !contains(config.EnabledSkills, "document-intelligence") {
+		t.Fatal("document-intelligence is missing from default skills")
+	}
+	if rendered := renderConfig(config); strings.Contains(rendered, "[skills]") {
+		t.Fatalf("inherited skills should not be serialized: %s", rendered)
+	}
+}
+
 func TestDefaultSkillsExcludeRetiredBrowserAutomation(t *testing.T) {
 	for _, name := range []string{"browser-pilot", "chatgpt-chat", "gemini-chat"} {
 		if contains(defaultSkills, name) {

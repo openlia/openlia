@@ -38,6 +38,7 @@ const (
 
 var defaultSkills = []string{
 	"inbox-triage",
+	"document-intelligence",
 	"daily-briefing",
 	"weekly-review",
 	"project-review",
@@ -114,6 +115,7 @@ type Config struct {
 	SecretSource                  string
 	ReleaseSource                 string
 	EnabledSkills                 []string
+	SkillsConfigured              bool
 	IngestionMaxConcurrentJobs    int
 	BackupIdentityFile            string
 	BackupKnownHosts              string
@@ -524,6 +526,7 @@ func parseConfigUnchecked(data string) (Config, error) {
 				config.SecretSource, err = parseString(value)
 			case "skills.enabled":
 				config.EnabledSkills, err = parseStringArray(value)
+				config.SkillsConfigured = true
 			case "ingestion.max_concurrent_jobs":
 				config.IngestionMaxConcurrentJobs, err = parseInt(value)
 			case "backup.identity_file":
@@ -1249,6 +1252,18 @@ func saveConfig(config Config) error {
 	return nil
 }
 
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
 func renderConfig(config Config) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "[openlia]\nschema = %d\nversion = %q\nmode = %q\ntarget = %q\nroot = %q\nproject = %q\nmodel = %q\noutput_language = %q\ntimezone = %q\nprovider = %q\nexternal_network = %q\n\n", config.Schema, config.Version, config.Mode, config.Target, config.InstallRoot, config.Project, config.Model, config.OutputLanguage, config.Timezone, config.Provider, config.ExternalNetwork)
@@ -1357,14 +1372,16 @@ func renderConfig(config Config) string {
 	fmt.Fprintf(&builder, "[components]\nhermes_image = %q\nhermes_tag = %q\nhermes_digest = %q\nlocho_image = %q\nlocho_version = %q\nlocho_x86_64_sha256 = %q\nlocho_arm64_sha256 = %q\n\n", config.HermesImage, config.HermesTag, config.HermesDigest, config.LochoImage, config.LochoVersion, config.LochoX8664SHA256, config.LochoARM64SHA256)
 	fmt.Fprintf(&builder, "[api]\nenabled = %t\nhost = %q\n\n", config.APIEnabled, config.APIHost)
 	fmt.Fprintf(&builder, "[secrets]\nsource = %q\n\n", config.SecretSource)
-	builder.WriteString("[skills]\nenabled = [")
-	for index, skill := range config.EnabledSkills {
-		if index > 0 {
-			builder.WriteString(", ")
+	if config.SkillsConfigured || !sameStrings(config.EnabledSkills, defaultSkills) {
+		builder.WriteString("[skills]\nenabled = [")
+		for index, skill := range config.EnabledSkills {
+			if index > 0 {
+				builder.WriteString(", ")
+			}
+			fmt.Fprintf(&builder, "%q", skill)
 		}
-		fmt.Fprintf(&builder, "%q", skill)
+		builder.WriteString("]\n")
 	}
-	builder.WriteString("]\n")
 	fmt.Fprintf(&builder, "\n[ingestion]\nmax_concurrent_jobs = %d\n", config.IngestionMaxConcurrentJobs)
 	fmt.Fprintf(&builder, "\n[workspace_git]\nenabled = %t\nschedule = %q\n", config.WorkspaceGitEnabled, config.WorkspaceGitSchedule)
 	fmt.Fprintf(&builder, "\n[backup]\nschedule = %q\nschedule_enabled = %t\nlocal_retention = %d\nlocal_max_size = %q\nremote_retention_days = %d\n", config.BackupSchedule, config.BackupScheduleEnabled, config.BackupLocalRetention, formatBackupSize(config.BackupLocalMaxBytes), config.BackupRemoteRetentionDays)

@@ -1,13 +1,13 @@
 ---
 name: document-intelligence
-description: Capture, unlock, OCR, search, and inspect evidence documents in the OpenLia Ingestion Vault across embedded and standalone deployments.
+description: Capture, unlock, OCR, search, and inspect evidence documents, YouTube video transcripts, and video summaries in the OpenLia Ingestion Vault across embedded and standalone deployments.
 version: 0.2.0
 platforms: [macos, linux]
 required_environment_variables: []
 required_credential_files: []
 metadata:
   hermes:
-    tags: [personal-os, documents, ingestion, ocr, vault]
+    tags: [personal-os, documents, ingestion, ocr, vault, youtube, transcript, video]
     category: productivity
 ---
 
@@ -16,6 +16,7 @@ metadata:
 ## When to Use
 
 - Use when a user shares a file, PDF, receipt, statement, spreadsheet, image, or URL via a messaging platform (Telegram, Discord, Slack) or chat and wants it durably captured, unlocked, extracted, or searched.
+- Use when a user shares one or more YouTube links (`youtube.com`, `youtu.be`) and asks for transcript extraction, video summarization, or video content analysis.
 - Use when a captured PDF or document is password-protected (`awaiting-unlock` / `password_required`) and needs smart password profile resolution or user-assisted password setup.
 - Use when inspecting multi-page documents, OCR transcripts, tables, or structured `custom_fields` in the Ingestion Vault before handing off to [Inbox Triage](openlia://skills/inbox-triage) or [Personal Finance](openlia://skills/personal-finance).
 
@@ -41,11 +42,22 @@ When a user shares a file, image, or document in chat:
    - `wait_seconds=15`: waits inline for fast extraction and auto-tagging to complete in a single turn
    - `auto_unlock=True`: automatically tests the top high-confidence password profile (`score >= 70`) when filename/correspondent/message hints match
 2. Inspect the returned `state`:
-   - **`completed` or `partial`**: Extraction and auto-tagging (`tags`, `summary`, `custom_fields`, `canonical_uri`, `markdown_citation`) are immediately available in the response. Proceed directly to answering the user or handing off to domain workflows.
+   - **`completed`**: Extraction and auto-tagging (`tags`, `summary`, `custom_fields`, `canonical_uri`, `markdown_citation`) are immediately available in the response. To read the full extracted text or transcript, call `ingestion_get_document(source_id=...)` (or inspect `page_outline` and fetch specific pages).
+   - **`partial`**: Inspect `warnings` (or `result.summary.warnings`). If `"transcript_unavailable"` is present on a YouTube source, explain honestly that no transcript was obtained from the video; never summarize from video title or metadata as though it were transcript content.
    - **`awaiting-unlock`**: Proceed to **Smart Password Resolution** below.
    - **`queued` or `processing`**: The document is large and still processing in the background. Inform the user that capture is durable (`source_id`) and check progress later with `ingestion_status(source_id=...)`.
 
-### 2. Smart Password Resolution (`awaiting-unlock`)
+### 2. YouTube Transcript & Video Analysis (`kind="youtube"`)
+
+When a user asks to extract a transcript, summarize, or analyze one or more YouTube videos (`youtube.com`, `youtu.be`):
+1. For each video URL, call `ingestion_capture(kind="youtube", url=..., wait_seconds=15)`.
+2. Inspect `state` and `warnings`:
+   - **`completed`**: Call `ingestion_get_document(source_id=...)` to retrieve the extracted transcript text (`content`), summarize or analyze it, and cite the video using its `canonical_uri` (`openlia://source/{source_id}#{version_id}/p{page}` or `markdown_citation`).
+   - **`partial` with `"transcript_unavailable"`**: Report clearly that the video did not provide a retrievable transcript. Do not fabricate or extrapolate a transcript summary from the video title or metadata.
+   - **`queued` or `processing`**: Report the pending `source_id` / `job_id` so status can be checked with `ingestion_status(source_id=...)`.
+   - **Missing ingestion tools or failed extraction**: Report the ingestion blocker honestly. Never bypass ingestion via `web_extract`, custom transcript-helper scripts, direct `yt-dlp` shell calls, or `pip install youtube-transcript-api`.
+
+### 3. Smart Password Resolution (`awaiting-unlock`)
 
 Never store raw passwords in workspace Markdown files, chat summaries, or memory. Always use named password profiles in the Vault (`save_document_password`).
 
@@ -63,14 +75,14 @@ Never store raw passwords in workspace Markdown files, chat summaries, or memory
      - `patterns`: filename globs (e.g. `["*VCB*.pdf", "*vietcombank*"]`)
    - Then call `retry_ingestion_with_password_profile(source_id=..., profile_id=..., wait_seconds=15)` to unlock and extract the document in the same turn.
 
-### 3. Multi-Page Document Inspection
+### 4. Multi-Page Document Inspection
 
 Avoid loading entire 50-page transcripts into model context at once:
 1. Call `ingestion_get_document(source_id=..., include_content=False)` or `ingestion_get_document(source_id=..., page=1)` first.
 2. Read `page_count` and `page_outline` (which lists every page number, character length, and preview snippet) along with `summary` and `custom_fields`.
 3. Fetch only the relevant pages via `ingestion_get_document(source_id=..., page=N, max_chars=20000)`.
 
-### 4. Version Replacement & Re-Upload (`source_id`)
+### 5. Version Replacement & Re-Upload (`source_id`)
 
 When a user uploads a corrected, clearer, or revised version of an already-ingested document:
 1. Locate the existing `source_id` via `ingestion_search` if not already known.
@@ -81,7 +93,7 @@ When a user uploads a corrected, clearer, or revised version of an already-inges
    - If `stale_backlinks` is non-empty, domain records in `workspace/` (e.g. `finance/journal.hledger`, `knowledge/claims/`, `inbox/`) cite this source or an older `#ver_...` pin.
    - Compare the newly extracted `custom_fields` / text with the prior version and hand off to the appropriate domain skill ([Personal Finance](openlia://skills/personal-finance), [Inbox Triage](openlia://skills/inbox-triage), [Personal Health](openlia://skills/personal-health)) to propose any needed adjustments before updating version pins.
 
-### 5. Soft Archive vs. Hard Deletion (`ingestion_delete_document`)
+### 6. Soft Archive vs. Hard Deletion (`ingestion_delete_document`)
 
 Always distinguish between **retiring a document from active views** and **permanently purging a document**:
 1. **Soft Archive (`lifecycle="archived"`) — Default for historical/valid documents**:
@@ -95,7 +107,7 @@ Always distinguish between **retiring a document from active views** and **perma
        2. **Delete the Vault source and keep domain records** (which automatically rewrites `openlia://source/<id>` citations to non-clickable `(deleted source: <id>)` / `; source-deleted: <id>` markers via `annotate_backlinks=True`), or
        3. **Delete the Vault source AND reverse/update the derived domain records** via the domain skill.
 
-### 6. Domain Handoffs & Review Lifecycle
+### 7. Domain Handoffs & Review Lifecycle
 
 - **Personal Finance Handoff**: When `tags` include `"finance"` or `document_type` is `"invoice"`, `"receipt"`, `"statement"`, or `"payslip"`, hand off to [Personal Finance](openlia://skills/personal-finance). Use `custom_fields` (`total_amount`, `currency`, `due_date`, `invoice_number`, `account_hint`) and page slices to stage or post transactions with `; source: openlia://source/{source_id}#{version_id}/p{page}`.
 - **Inbox Triage Handoff**: When the document contains tasks, events, decisions, or durable claims requiring review, follow [Inbox Triage](openlia://skills/inbox-triage) and cite `[Title](openlia://source/{source_id}#{version_id}/p{page})`.
@@ -108,3 +120,4 @@ Always distinguish between **retiring a document from active views** and **perma
 - Never expose a password value in `hint` or `description` fields; `hint` is displayed in plaintext in the UI and chat prompts.
 - Never silently delete a document that has active workspace `backlinks` without surfacing the downstream impact on ledgers or claims.
 - Do not poll `ingestion_status` in a tight loop when `wait_seconds` already timed out on a slow job; report the `job_id` and `source_id` and check on the next turn.
+- Never bypass `openlia-ingestion` for YouTube transcripts or summaries by running custom transcript scripts, `yt-dlp`, `web_extract`, or installing Python packages (`youtube-transcript-api`). If `state == "partial"` with `transcript_unavailable`, report the missing transcript honestly rather than summarizing metadata as transcript content.

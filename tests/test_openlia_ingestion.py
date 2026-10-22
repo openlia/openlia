@@ -789,6 +789,58 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(result["status"], "partial")
         self.assertIn("transcript_unavailable", result["summary"]["warnings"])
 
+    def test_youtube_runtime_inline_capture_and_warnings_enrichment(self):
+        ctx = MockHermesContext()
+        runtime = self.runtime_mod.IngestionRuntime(ctx)
+        url_ok = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+        url_partial = "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
+
+        metadata_fixture = (FIXTURES_DIR / "sample_youtube_metadata.json").read_text(encoding="utf-8")
+        vtt_fixture = (FIXTURES_DIR / "sample_subtitles.vtt").read_text(encoding="utf-8")
+
+        def mock_command(command, code):
+            if any("dump-single-json" in str(arg) for arg in command):
+                return metadata_fixture
+            return ""
+
+        def mock_subprocess_run_with_subs(command, *args, **kwargs):
+            out_pattern = None
+            for idx, arg in enumerate(command):
+                if arg == "--output" and idx + 1 < len(command):
+                    out_pattern = command[idx + 1]
+                    break
+            if out_pattern:
+                out_path = Path(out_pattern.replace("%(ext)s", "en.vtt"))
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(vtt_fixture, encoding="utf-8")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        with patch.object(self.adapters, "_command", side_effect=mock_command), \
+             patch.object(self.adapters.subprocess, "run", side_effect=mock_subprocess_run_with_subs):
+            resp_ok = json.loads(
+                runtime.capture({"kind": "youtube", "url": url_ok, "wait_seconds": 5})
+            )
+
+        self.assertTrue(resp_ok["ok"])
+        self.assertEqual(resp_ok["state"], "completed")
+        self.assertTrue(resp_ok["canonical_uri"].startswith(f"openlia://source/{resp_ok['source_id']}"))
+        self.assertNotIn("warnings", resp_ok)
+
+        doc_ok = json.loads(runtime.get_document({"source_id": resp_ok["source_id"]}))
+        self.assertTrue(doc_ok["ok"])
+        self.assertIn("Welcome to OpenLia", doc_ok["content"])
+
+        with patch.object(self.adapters, "_command", return_value=metadata_fixture), \
+             patch.object(self.adapters.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+            resp_partial = json.loads(
+                runtime.capture({"kind": "youtube", "url": url_partial, "wait_seconds": 5})
+            )
+
+        self.assertTrue(resp_partial["ok"])
+        self.assertEqual(resp_partial["state"], "partial")
+        self.assertIn("warnings", resp_partial)
+        self.assertIn("transcript_unavailable", resp_partial["warnings"])
+
     def test_youtube_live_extraction(self):
         # Sample video: "Me at the zoo" (first YouTube video, 19 seconds, permanent captions)
         sample_url = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
