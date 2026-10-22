@@ -300,6 +300,12 @@ REM 2026-10-12 MSG Sports Day`;
     // Should indicate duration of 5 days (5d) in both row and timeline bar
     expect(screen.getAllByText("5d")).toHaveLength(2);
     expect(screen.getByText("#holiday")).toBeInTheDocument();
+
+    // Left panel uses responsive mobile width (w-36) scaling up on larger screens
+    const leftPanel = screen.getByTestId("gantt-left-panel");
+    expect(leftPanel.className).toContain("w-36");
+    expect(leftPanel.className).toContain("sm:w-56");
+    expect(screen.getByTestId("gantt-timeline-panel")).toBeInTheDocument();
   });
 
   test("filters calendar events by tag", () => {
