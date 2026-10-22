@@ -7,7 +7,10 @@ trap 'rm -rf "$work"' EXIT
 for command in ffmpeg ffprobe pdfinfo pdftoppm pdftotext yt-dlp; do
     command -v "$command" >/dev/null
 done
-/opt/hermes/.venv/bin/python - <<'PY'
+python=/opt/hermes/.venv/bin/python
+python_site="$($python -c 'import site; print(site.getsitepackages()[0])')"
+export PYTHONPATH="$python_site${PYTHONPATH:+:$PYTHONPATH}"
+$python - <<'PY'
 import jsonschema
 import openpyxl
 import PIL

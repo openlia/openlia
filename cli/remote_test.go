@@ -139,7 +139,7 @@ func TestOperationCommandUsesProjectScopedManagedHermesImage(t *testing.T) {
 	if firstImage == secondImage || !strings.Contains(firstCommand, "OPENLIA_HERMES_IMAGE='"+firstImage+"'") || !strings.Contains(secondCommand, "OPENLIA_HERMES_IMAGE='"+secondImage+"'") {
 		t.Fatalf("project-scoped Hermes images were not transported: first=%s second=%s", firstCommand, secondCommand)
 	}
-	if !strings.Contains(firstCommand, "DEBIAN_SNAPSHOT='20260505T000000Z'") {
+	if !strings.Contains(firstCommand, "DEBIAN_SNAPSHOT='20260801T000000Z'") {
 		t.Fatalf("managed Debian snapshot was not transported: %s", firstCommand)
 	}
 

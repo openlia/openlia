@@ -33,7 +33,7 @@ func TestEmbeddedRuntimeWiresRequiredIngestion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(compose), `DEBIAN_SNAPSHOT: "${DEBIAN_SNAPSHOT:-20260505T000000Z}"`) {
+	if !strings.Contains(string(compose), `DEBIAN_SNAPSHOT: "${DEBIAN_SNAPSHOT:-20260801T000000Z}"`) {
 		t.Fatal("embedded Compose file does not pin the Debian snapshot")
 	}
 	if !strings.Contains(string(dockerfile), "openlia-install-tools") || !strings.Contains(string(dockerfile), "openlia-ingestion") {

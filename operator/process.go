@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"openlia/internal/releaseinfo"
 )
 
 // CommandResult keeps stdout and stderr separate so JSON output can remain
@@ -129,6 +131,26 @@ func (c Compose) Run(ctx context.Context, args ...string) (CommandResult, error)
 }
 
 func (c Compose) composeEnvironment() []string {
+	hermesImage := c.Config.HermesImage
+	if hermesImage == "" {
+		hermesImage = releaseinfo.InternalImage("openlia-hermes", releaseinfo.Default.Hermes.Tag)
+	}
+	hermesVersion := c.Config.HermesVersion
+	if hermesVersion == "" {
+		hermesVersion = releaseinfo.Default.Hermes.Tag
+	}
+	hermesDigest := c.Config.HermesDigest
+	if hermesDigest == "" {
+		hermesDigest = releaseinfo.Default.Hermes.Digest
+	}
+	lochoImage := c.Config.LochoImage
+	if lochoImage == "" {
+		lochoImage = releaseinfo.InternalImage("openlia-locho", releaseinfo.Default.Locho.Version)
+	}
+	openWebUIImage := c.Config.OpenWebUIImage
+	if openWebUIImage == "" {
+		openWebUIImage = releaseinfo.Default.OpenWebUI.Ref()
+	}
 	knownHosts := os.Getenv("OPENLIA_BACKUP_KNOWN_HOSTS_SOURCE")
 	if knownHosts == "" {
 		if home, err := os.UserHomeDir(); err == nil {
@@ -155,6 +177,13 @@ func (c Compose) composeEnvironment() []string {
 		awsConfig = "/dev/null"
 	}
 	return []string{
+		"OPENLIA_HERMES_IMAGE=" + hermesImage,
+		"OPENLIA_BACKUP_SCHEDULER_IMAGE=" + releaseinfo.InternalImage("openlia-backup-scheduler", hermesVersion),
+		"HERMES_BASE_IMAGE=" + releaseinfo.Default.Hermes.Image,
+		"HERMES_BASE_TAG=" + hermesVersion,
+		"HERMES_BASE_DIGEST=" + hermesDigest,
+		"OPENLIA_LOCHO_IMAGE=" + lochoImage,
+		"OPENLIA_OPEN_WEBUI_IMAGE=" + openWebUIImage,
 		"OPENLIA_DATA_ROOT=" + c.Config.DataRoot,
 		"OPENLIA_SYSTEM_SKILLS_ROOT=" + c.Config.SystemSkillsRoot,
 		"OPENLIA_SECRET_DIR=" + c.Config.SecretDir,

@@ -10,8 +10,9 @@ replacement for the license files shipped by those projects or images.
 
 | Component | Version or pin | License | Source or notice |
 | --- | --- | --- | --- |
-| Hermes Agent | `nousresearch/hermes-agent:v2026.9.14` at `sha256:99641e57ec762c59e54cb44aa6746b7fc68c18b3c5ddb088af54234c613d9294` | MIT | [Upstream repository](https://github.com/NousResearch/hermes-agent) |
-| Locho | `v1.2.0`; architecture-specific SHA-256 values are recorded in [`release/manifest.json`](release/manifest.json) | MIT | [Upstream repository](https://github.com/trchopan/locho) and [release downloads](https://github.com/trchopan/locho/releases/tag/v1.2.0) |
+| Hermes Agent | `nousresearch/hermes-agent:v0.22.4` at `sha256:7a69201726bc64db2072a1371557137c23312d29705cda2b8ea2a0214a50a4cf` | MIT | [Upstream repository](https://github.com/NousResearch/hermes-agent) |
+| Open WebUI | `ghcr.io/open-webui/open-webui:v0.12.3` at `sha256:a537bbe1e6b428820f52ed4a029d7fff97062e24d5cf32c365fba36fd0542def` | MIT | [Upstream repository](https://github.com/open-webui/open-webui) |
+| Locho | `v1.3.0-beta.2`; architecture-specific SHA-256 values are recorded in [`release/manifest.json`](release/manifest.json) | MIT | [Upstream repository](https://github.com/trchopan/locho) and [release downloads](https://github.com/trchopan/locho/releases/tag/v1.3.0-beta.2) |
 | Bun | `1.2.22`; architecture-specific SHA-256 values are recorded in [`docker/Dockerfile`](docker/Dockerfile) | MIT, with additional bundled component licenses | [Upstream licensing information](https://github.com/oven-sh/bun/blob/main/LICENSE.md) |
 | uv | `0.8.14`; architecture-specific SHA-256 values are recorded in [`docker/Dockerfile`](docker/Dockerfile) | MIT and Apache-2.0 | [MIT License](https://github.com/astral-sh/uv/blob/0.8.14/LICENSE-MIT) and [Apache License 2.0](https://github.com/astral-sh/uv/blob/0.8.14/LICENSE-APACHE) |
 | PyYAML | `6.0.2` | MIT | [Upstream license](https://github.com/yaml/pyyaml/blob/6.0.2/LICENSE) |
@@ -32,7 +33,7 @@ and are also used by the development requirements file.
 
 The derived images use these pinned base images:
 
-- Hermes image base: `nousresearch/hermes-agent:v2026.9.14` at the digest
+- Hermes image base: `nousresearch/hermes-agent:v0.22.4` at the digest
   listed above.
 - Locho image base: `debian:13.4-slim` at
   `sha256:109e2c65005bf160609e4ba6acf7783752f8502ad218e298253428690b9eaa4b`.
@@ -43,7 +44,7 @@ The Dockerfiles install distribution packages including `ca-certificates`,
 libraries. These packages and
 their transitive dependencies have package-specific licenses and copyright
 notices. The image build resolves Debian packages from the dated
-`20260505T000000Z` snapshot configured in `docker/compose.yaml`, making package
+`20260801T000000Z` snapshot configured in `docker/compose.yaml`, making package
 resolution reproducible for that snapshot. For a built image, inspect the
 package metadata and files under
 `/usr/share/doc/*/copyright` and consult the distribution's license

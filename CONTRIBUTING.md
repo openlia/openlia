@@ -27,6 +27,7 @@ make skills-test     # Offline bundled skill self-test suite across bundled skil
 make skills-verify   # Bundled skill tests and openlia-browser MCP relay tests
 make lint
 make compose-config
+make versions-check
 python3 tests/smoke.py --mode cli
 python3 tests/smoke.py --mode local --root /tmp/openlia_smoke
 make smoke-local-live \
@@ -74,6 +75,29 @@ values in repository files.
 - Add or update tests for behavior changes.
 - Keep pinned runtime versions and checksums synchronized with release metadata.
 - Document operational assumptions and known limitations.
+
+Runtime component pins have one source of truth in
+[`release/manifest.json`](release/manifest.json). After changing that file, run
+`make versions-generate`; the command updates generated bindings and checked-in
+examples. `make versions-check` is required before building and fails if any
+generated binding is stale. Do not edit
+`internal/releaseinfo/generated.go` manually.
+
+Development experiments do not need to change the stable manifest. Use an
+explicit local `config.toml` override instead, keeping the image immutable:
+
+```toml
+[components]
+hermes_tag = "v0.23.0-rc.1"
+hermes_digest = "sha256:<Hermes image digest>"
+
+[open-webui]
+image = "ghcr.io/open-webui/open-webui:v0.13.0-rc.1@sha256:<Open WebUI image digest>"
+```
+
+These overrides accept prerelease tags while retaining normal image-reference
+and digest validation. Keep experimental deployments isolated from production
+data, especially when testing Open WebUI migrations.
 
 Before submitting a change, review the complete staged file list and confirm
 that no local or generated files are included.

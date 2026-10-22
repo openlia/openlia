@@ -16,14 +16,12 @@ import (
 
 	"filippo.io/age"
 	"github.com/robfig/cron/v3"
+	"openlia/internal/releaseinfo"
 	"openlia/internal/toolcatalog"
 )
 
 const (
 	configSchema                 = 2
-	defaultVersion               = "0.1.0"
-	defaultHermesTag             = "v2026.9.14"
-	defaultLochoVersion          = "1.2.0"
 	defaultRemoteRoot            = "/srv/openlia"
 	defaultLocalRoot             = ".openlia"
 	defaultProject               = "openlia"
@@ -31,9 +29,15 @@ const (
 	defaultTimezone              = "Asia/Ho_Chi_Minh"
 	defaultWorkspaceUIPort       = 8089
 	defaultOpenWebUIPort         = 8090
-	defaultOpenWebUIImage        = "ghcr.io/open-webui/open-webui:main"
 	maxBackupRemoteRetentionDays = (1<<63 - 1) / int64(24*time.Hour)
-	defaultHermesImage           = "openlia-hermes:" + defaultHermesTag
+)
+
+var (
+	defaultVersion        = releaseinfo.Default.OpenLia
+	defaultHermesTag      = releaseinfo.Default.Hermes.Tag
+	defaultLochoVersion   = releaseinfo.Default.Locho.Version
+	defaultOpenWebUIImage = releaseinfo.Default.OpenWebUI.Ref()
+	defaultHermesImage    = "openlia-hermes:" + defaultHermesTag
 )
 
 var defaultSkills = []string{
@@ -184,11 +188,11 @@ func defaultConfig() Config {
 		Provider:                   "copilot",
 		HermesImage:                defaultHermesImage,
 		HermesTag:                  defaultHermesTag,
-		HermesDigest:               "sha256:99641e57ec762c59e54cb44aa6746b7fc68c18b3c5ddb088af54234c613d9294",
-		LochoImage:                 "openlia-locho:v" + defaultLochoVersion,
+		HermesDigest:               releaseinfo.Default.Hermes.Digest,
+		LochoImage:                 releaseinfo.InternalImage("openlia-locho", defaultLochoVersion),
 		LochoVersion:               defaultLochoVersion,
-		LochoX8664SHA256:           "7687311a3fe9671ac6f75427712dc556b15517493e892d9f81be7d0355bdd5f1",
-		LochoARM64SHA256:           "80d089b3fdabe063b4c89fc6685e9bd0f297190d1af86d0f54624ba63d217b97",
+		LochoX8664SHA256:           releaseinfo.Default.Locho.LinuxX8664SHA,
+		LochoARM64SHA256:           releaseinfo.Default.Locho.LinuxARM64SHA,
 		APIHost:                    "127.0.0.1",
 		WorkspaceUIHost:            "",
 		WorkspaceUIPort:            defaultWorkspaceUIPort,
@@ -1201,7 +1205,11 @@ func safeReference(value string) bool {
 }
 
 func safeImageRef(value string) bool {
-	return safeReference(value) && !strings.Contains(value, "..")
+	parts := strings.Split(value, "@")
+	if len(parts) > 2 || !safeReference(parts[0]) || strings.Contains(parts[0], "..") {
+		return false
+	}
+	return len(parts) == 1 || validDigest(parts[1])
 }
 
 func validDigest(value string) bool {

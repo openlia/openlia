@@ -251,8 +251,8 @@ describe("workspace HTTP handler", () => {
   test("returns configured system information", async () => {
     const configuredHandler = createWorkspaceHandler({
       systemInfo: {
-        hermes_version: "v2026.9.14",
-        locho_version: "1.2.0",
+        hermes_version: "v0.22.4",
+        locho_version: "1.3.0-beta.2",
         openlia_hash: "abc123",
         openlia_version: "0.1.0",
       },
@@ -262,8 +262,8 @@ describe("workspace HTTP handler", () => {
       new Request("http://localhost/api/system/info"),
     );
     expect(await response.json()).toEqual({
-      hermes_version: "v2026.9.14",
-      locho_version: "1.2.0",
+      hermes_version: "v0.22.4",
+      locho_version: "1.3.0-beta.2",
       openlia_hash: "abc123",
       openlia_version: "0.1.0",
       schema: 1,

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const DefaultDebianSnapshot = "20260505T000000Z"
+const DefaultDebianSnapshot = "20260801T000000Z"
 const RequiredIngestionRevision = "ingestion-v1"
 
 // ManagedHermesImage returns a project-specific image reference so separate

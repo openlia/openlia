@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"openlia/internal/releaseinfo"
 )
 
 type recordedRunner struct {
@@ -1164,7 +1165,7 @@ func TestGeneratedAttachmentsContainOpenWebUI(t *testing.T) {
 	config := testConfig(repo, runtimeRoot)
 	config.OpenWebUIHost = "127.0.0.1"
 	config.OpenWebUIPort = 8090
-	config.OpenWebUIImage = "ghcr.io/open-webui/open-webui:main"
+	config.OpenWebUIImage = releaseinfo.Default.OpenWebUI.Ref()
 	config.OpenWebUIAuth = true
 	if err := os.MkdirAll(filepath.Join(repo, "docker"), 0o755); err != nil {
 		t.Fatal(err)
@@ -1188,7 +1189,7 @@ func TestGeneratedAttachmentsContainOpenWebUI(t *testing.T) {
 	text := string(data)
 	for _, expected := range []string{
 		"open-webui:",
-		"ghcr.io/open-webui/open-webui:main",
+		releaseinfo.Default.OpenWebUI.Ref(),
 		"127.0.0.1:8090:8080",
 		"target: /app/backend/data",
 		"OPENAI_API_BASE_URL: \"http://hermes:8642/v1\"",
@@ -1250,7 +1251,7 @@ func TestGeneratedAttachmentsContainOpenWebUIGoogleOAuth(t *testing.T) {
 	config := testConfig(repo, runtimeRoot)
 	config.OpenWebUIHost = "127.0.0.1"
 	config.OpenWebUIPort = 8090
-	config.OpenWebUIImage = "ghcr.io/open-webui/open-webui:main"
+	config.OpenWebUIImage = releaseinfo.Default.OpenWebUI.Ref()
 	config.OpenWebUIAuth = true
 	config.OpenWebUIGoogleClientID = "test-client-id.apps.googleusercontent.com"
 	config.OpenWebUIGoogleClientSecret = "test-client-secret-12345"
@@ -1349,7 +1350,7 @@ func TestOpenWebUILifecycleToggleOffAndReenable(t *testing.T) {
 	// 1. Initial deployment with Open WebUI enabled and Google OAuth
 	config.OpenWebUIHost = "127.0.0.1"
 	config.OpenWebUIPort = 8090
-	config.OpenWebUIImage = "ghcr.io/open-webui/open-webui:main"
+	config.OpenWebUIImage = releaseinfo.Default.OpenWebUI.Ref()
 	config.OpenWebUIAuth = true
 	config.OpenWebUIGoogleClientID = "client-id-1"
 	config.OpenWebUIGoogleClientSecret = "client-secret-1"

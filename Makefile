@@ -3,7 +3,7 @@ GO ?= go
 VENV ?= .venv
 PYTHON ?= $(shell if [ -f "$(VENV)/bin/python3" ]; then echo "$(VENV)/bin/python3"; else echo "python3"; fi)
 
-.PHONY: help build build-host build-cli build-operator build-operator-linux-amd64 build-operator-linux-arm64 test test-go lint lint-go format-go compose-config venv bun-install bun-check bun-build skills-test skills-verify workspace-templates-test clean-logs smoke smoke-local smoke-local-live
+.PHONY: help build build-host build-cli build-operator build-operator-linux-amd64 build-operator-linux-arm64 test test-go lint lint-go format-go compose-config versions-generate versions-check venv bun-install bun-check bun-build skills-test skills-verify workspace-templates-test clean-logs smoke smoke-local smoke-local-live
 
 help:
 	@printf '%s\n' \
@@ -26,14 +26,22 @@ help:
 		'deploy-prod        Verify skills and promote to production stack' \
 		'lint               Run formatting and shell checks' \
 		'compose-config     Validate the base Compose file' \
+		'versions-generate  Generate release pin bindings from release/manifest.json' \
+		'versions-check     Verify generated release pin bindings are current' \
 		'smoke              Run provider-free static smoke checks' \
 		'smoke-local        Deploy and remove a provider-free local stack' \
 		'smoke-local-live   Deploy a credential-backed local stack; cleanup is opt-in'
 
-build:
+build: versions-check
 	$(MAKE) bun-install bun-build build-host build-operator
 
-build-host build-cli: bun-install bun-build
+versions-generate:
+	$(GO) run ./cmd/release-manifest
+
+versions-check:
+	$(GO) run ./cmd/release-manifest --check
+
+build-host build-cli: versions-check bun-install bun-build
 	$(GO) build -o openlia .
 
 build-operator: build-operator-linux-amd64 build-operator-linux-arm64
@@ -58,7 +66,7 @@ venv:
 	fi
 	@echo "Virtual environment ready in $(VENV)."
 
-test:
+test: versions-check
 	$(MAKE) workspace-templates-test
 	$(MAKE) bun-install bun-check bun-build
 	$(MAKE) test-go
@@ -97,6 +105,7 @@ lint:
 	shellcheck docker/*.sh
 
 compose-config:
+	set -a; . docker/.env.example; set +a; \
 	OPENLIA_DATA_ROOT=/tmp/openlia-compose-check/runtime/hermes \
 	OPENLIA_SYSTEM_SKILLS_ROOT=/tmp/openlia-compose-check/runtime/system-skills \
 	OPENLIA_META_ROOT=/tmp/openlia-compose-check/runtime/meta \

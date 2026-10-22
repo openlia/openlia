@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+	"openlia/internal/releaseinfo"
 	"openlia/internal/toolcatalog"
 	"openlia/operator"
 )
@@ -201,6 +202,7 @@ func (remote Remote) operationCommandForRoot(operationRoot, operation string, ar
 		"OPENLIA_LOCHO_ARM64_SHA256=" + shellQuote(remote.Config.LochoARM64SHA256),
 		"OPENLIA_LOCHO_RELAY_CONFIG=" + shellQuote(relayConfigPath),
 		"OPENLIA_LOCHO_RELAY_SECRETS=" + shellQuote(relaySecretsPath),
+		"HERMES_BASE_IMAGE=" + shellQuote(releaseinfo.Default.Hermes.Image),
 		"HERMES_BASE_TAG=" + shellQuote(remote.Config.HermesTag),
 		"HERMES_BASE_DIGEST=" + shellQuote(remote.Config.HermesDigest),
 		"DEBIAN_SNAPSHOT=" + shellQuote(toolcatalog.DefaultDebianSnapshot),
@@ -665,6 +667,7 @@ func operationEnvironment(config Config, operationRoot string) []string {
 		"OPENLIA_LOCHO_ARM64_SHA256=" + config.LochoARM64SHA256,
 		"OPENLIA_LOCHO_RELAY_CONFIG=" + relayConfigPath,
 		"OPENLIA_LOCHO_RELAY_SECRETS=" + relaySecretsPath,
+		"HERMES_BASE_IMAGE=" + releaseinfo.Default.Hermes.Image,
 		"HERMES_BASE_TAG=" + config.HermesTag,
 		"HERMES_BASE_DIGEST=" + config.HermesDigest,
 		"DEBIAN_SNAPSHOT=" + toolcatalog.DefaultDebianSnapshot,

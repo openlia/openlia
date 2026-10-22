@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"openlia/internal/releaseinfo"
 )
 
 type LochoService struct {
@@ -232,6 +234,14 @@ func generateAttachmentsFile(config Config) error {
 			return err
 		}
 	}
+	openWebUIImage := config.OpenWebUIImage
+	if openWebUIImage == "" {
+		openWebUIImage = releaseinfo.Default.OpenWebUI.Ref()
+	}
+	lochoImage := config.LochoImage
+	if lochoImage == "" {
+		lochoImage = releaseinfo.InternalImage("openlia-locho", releaseinfo.Default.Locho.Version)
+	}
 	apiEnvPath := filepath.Join(config.SecretDir, "api-server.env")
 	if config.OpenWebUIHost != "" {
 		if err := EnsureOpenWebUISecrets(config); err != nil {
@@ -426,12 +436,8 @@ func generateAttachmentsFile(config Config) error {
 	if config.OpenWebUIHost != "" {
 		dataRoot, _ := json.Marshal(config.OpenWebUIDataRoot)
 		envFilePath, _ := json.Marshal(filepath.Join(config.SecretDir, "open-webui.env"))
-		image := config.OpenWebUIImage
-		if image == "" {
-			image = "${OPENLIA_OPEN_WEBUI_IMAGE:-ghcr.io/open-webui/open-webui:main}"
-		}
 		builder.WriteString("  open-webui:\n")
-		fmt.Fprintf(&builder, "    image: %q\n", image)
+		fmt.Fprintf(&builder, "    image: %q\n", openWebUIImage)
 		builder.WriteString("    restart: unless-stopped\n")
 		fmt.Fprintf(&builder, "    ports:\n      - %q\n", fmt.Sprintf("%s:%d:8080", config.OpenWebUIHost, config.OpenWebUIPort))
 		builder.WriteString("    volumes:\n      - type: bind\n        source: ")
@@ -476,7 +482,7 @@ func generateAttachmentsFile(config Config) error {
 		}
 		quotedLochoCommand, _ := json.Marshal(lochoCommand)
 		builder.WriteString("  locho-host:\n")
-		builder.WriteString("    image: \"${OPENLIA_LOCHO_IMAGE:-openlia-locho:v1.2.0}\"\n")
+		fmt.Fprintf(&builder, "    image: %q\n", lochoImage)
 		fmt.Fprintf(&builder, "    build:\n      context: ..\n      dockerfile: docker/locho.Dockerfile\n      args:\n        LOCHO_BASE_IMAGE: \"${LOCHO_BASE_IMAGE:-debian}\"\n        LOCHO_BASE_TAG: \"${LOCHO_BASE_TAG:-13.4-slim}\"\n        LOCHO_BASE_DIGEST: \"${LOCHO_BASE_DIGEST:-sha256:109e2c65005bf160609e4ba6acf7783752f8502ad218e298253428690b9eaa4b}\"\n        LOCHO_VERSION: %q\n        LOCHO_X86_64_SHA256: %q\n        LOCHO_AARCH64_SHA256: %q\n", config.LochoVersion, config.LochoX8664SHA256, config.LochoARM64SHA256)
 		builder.WriteString(fmt.Sprintf("    entrypoint: [\"sh\", \"-c\"]\n    command: [%s]\n    restart: unless-stopped\n    user: \"%d:%d\"\n    read_only: true\n    tmpfs:\n      - /tmp\n    security_opt:\n      - no-new-privileges:true\n    cap_drop: [ALL]\n    environment:\n      LOCHO_STATE_DIR: /var/lib/openlia-locho-host/state\n    volumes:\n      - type: bind\n        source: %s\n        target: /var/lib/openlia-locho-host\n", quotedLochoCommand, config.RuntimeUID, config.RuntimeGID, lochoRoot))
 		if config.LochoRelayConfig != "" {
@@ -491,7 +497,7 @@ func generateAttachmentsFile(config Config) error {
 		configPath := filepath.Join(config.LochoRoot, host.Host, "attachments.toml")
 		quoted, _ := json.Marshal(configPath)
 		fmt.Fprintf(&builder, "  locho-%s:\n", host.Host)
-		builder.WriteString("    image: \"${OPENLIA_LOCHO_IMAGE:-openlia-locho:v1.2.0}\"\n")
+		fmt.Fprintf(&builder, "    image: %q\n", lochoImage)
 		fmt.Fprintf(&builder, "    build:\n      context: ..\n      dockerfile: docker/locho.Dockerfile\n      args:\n        LOCHO_BASE_IMAGE: \"${LOCHO_BASE_IMAGE:-debian}\"\n        LOCHO_BASE_TAG: \"${LOCHO_BASE_TAG:-13.4-slim}\"\n        LOCHO_BASE_DIGEST: \"${LOCHO_BASE_DIGEST:-sha256:109e2c65005bf160609e4ba6acf7783752f8502ad218e298253428690b9eaa4b}\"\n        LOCHO_VERSION: %q\n        LOCHO_X86_64_SHA256: %q\n        LOCHO_AARCH64_SHA256: %q\n", config.LochoVersion, config.LochoX8664SHA256, config.LochoARM64SHA256)
 		builder.WriteString("    command: [\"attach\", \"--config\", \"/etc/locho/attachments.toml\"")
 		if config.LochoRelayConfig != "" {
