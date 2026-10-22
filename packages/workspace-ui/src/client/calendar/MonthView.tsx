@@ -229,7 +229,7 @@ export function MonthView({
             return (
               <div
                 key={`week-${weekStartIso}`}
-                className="relative flex flex-col min-h-0 min-w-0"
+                className="relative flex flex-col min-h-[4.5rem] sm:min-h-[7rem] min-w-0"
               >
                 {/* Background 7 Day Cells */}
                 <div className="absolute inset-0 grid grid-cols-7 divide-x divide-base-content/10 pointer-events-none">
@@ -354,7 +354,7 @@ export function MonthView({
                           </span>
                         )}
                         {ev.time && (
-                          <span className="shrink-0 font-bold opacity-80">
+                          <span className="hidden sm:inline shrink-0 font-bold opacity-80">
                             {ev.time}
                           </span>
                         )}

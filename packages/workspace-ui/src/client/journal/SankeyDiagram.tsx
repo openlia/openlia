@@ -33,7 +33,16 @@ export function SankeyDiagram({
   const [hoverInfo, setHoverInfo] = useState<HoverInfo | null>(null);
 
   const svgWidth = 920;
-  const svgHeight = 360;
+  const maxColumnNodes = useMemo(() => {
+    const counts = { income: 0, pool: 0, outflow: 0 };
+    for (const n of nodes) {
+      if (n.type === "income") counts.income++;
+      else if (n.type === "pool") counts.pool++;
+      else counts.outflow++;
+    }
+    return Math.max(counts.income, counts.pool, counts.outflow, 1);
+  }, [nodes]);
+  const svgHeight = Math.max(360, maxColumnNodes * 44 + 70);
 
   const { layoutNodes, layoutLinks } = useMemo(() => {
     if (nodes.length === 0 || links.length === 0) {
@@ -44,10 +53,10 @@ export function SankeyDiagram({
       const sankeyGenerator = sankey<SankeyNode, SankeyLink>()
         .nodeId((d) => d.id)
         .nodeWidth(170)
-        .nodePadding(14)
+        .nodePadding(18)
         .extent([
           [40, 45],
-          [svgWidth - 40, svgHeight - 30],
+          [svgWidth - 40, svgHeight - 25],
         ])
         .nodeAlign(sankeyJustify);
 
@@ -60,7 +69,7 @@ export function SankeyDiagram({
     } catch {
       return { layoutNodes: [], layoutLinks: [] };
     }
-  }, [nodes, links]);
+  }, [nodes, links, svgHeight]);
 
   const pathGenerator = useMemo(() => {
     return sankeyLinkHorizontal<SankeyNode, SankeyLink>();
@@ -223,7 +232,8 @@ export function SankeyDiagram({
               const x1 = node.x1 ?? 0;
               const y1 = node.y1 ?? 0;
               const width = Math.max(20, x1 - x0);
-              const height = Math.max(26, y1 - y0);
+              const height = Math.max(20, y1 - y0);
+              const isCompact = height < 34;
 
               return (
                 // biome-ignore lint/a11y/noStaticElementInteractions: Interactive SVG node element
@@ -266,29 +276,47 @@ export function SankeyDiagram({
                     y={y0}
                   />
 
-                  {/* Node label text */}
-                  <text
-                    className="font-medium"
-                    fill={colors.text}
-                    fontSize={height > 38 ? "12" : "11"}
-                    x={x0 + 10}
-                    y={y0 + (height > 38 ? 16 : 14)}
-                  >
-                    {node.name.length > 20
-                      ? `${node.name.slice(0, 19)}…`
-                      : node.name}
-                  </text>
+                  {isCompact ? (
+                    <text
+                      className="font-medium"
+                      dominantBaseline="central"
+                      fill={colors.text}
+                      fontSize="10"
+                      x={x0 + 8}
+                      y={y0 + height / 2}
+                    >
+                      {node.name.length > 13
+                        ? `${node.name.slice(0, 12)}…`
+                        : node.name}{" "}
+                      · {formatCurrency(node.value ?? 0, currency)}
+                    </text>
+                  ) : (
+                    <>
+                      {/* Node label text */}
+                      <text
+                        className="font-medium"
+                        fill={colors.text}
+                        fontSize={height > 38 ? "12" : "11"}
+                        x={x0 + 10}
+                        y={y0 + (height > 38 ? 16 : 14)}
+                      >
+                        {node.name.length > 20
+                          ? `${node.name.slice(0, 19)}…`
+                          : node.name}
+                      </text>
 
-                  {/* Node amount text */}
-                  <text
-                    className="font-bold opacity-90"
-                    fill={colors.text}
-                    fontSize={height > 38 ? "11" : "10"}
-                    x={x0 + 10}
-                    y={y0 + (height > 38 ? 32 : height - 5)}
-                  >
-                    {formatCurrency(node.value ?? 0, currency)}
-                  </text>
+                      {/* Node amount text */}
+                      <text
+                        className="font-bold opacity-90"
+                        fill={colors.text}
+                        fontSize={height > 38 ? "11" : "10"}
+                        x={x0 + 10}
+                        y={y0 + (height > 38 ? 32 : height - 5)}
+                      >
+                        {formatCurrency(node.value ?? 0, currency)}
+                      </text>
+                    </>
+                  )}
                 </g>
               );
             })}

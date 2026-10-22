@@ -73,9 +73,9 @@ export function CalendarToolbar({
   return (
     <div className="flex flex-col border-b border-base-content/10 bg-base-200/50">
       {/* Top main toolbar row */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-1.5 px-2.5 py-1.5 sm:gap-2 sm:px-4 sm:py-2 text-sm">
         {/* Left: View Mode Switcher & Navigation */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           <div className="join border border-base-content/15 rounded-lg bg-base-100 p-0.5 shadow-xs">
             <button
               type="button"
