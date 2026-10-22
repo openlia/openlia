@@ -60,13 +60,16 @@ function isGeneratedArtifactPath(path: string): boolean {
   );
 }
 
-function isPortableExportExcludedPath(path: string): boolean {
+export function isPortableExportExcludedPath(path: string): boolean {
   const normalized = path.replaceAll("\\", "/").toLowerCase();
   const parts = normalized.split("/");
   const basename = parts.at(-1) ?? "";
   return (
     isGeneratedArtifactPath(normalized) ||
     normalized === "sources/document-passwords.toml" ||
+    basename === "shares.sqlite" ||
+    basename === "shares.sqlite-wal" ||
+    basename === "shares.sqlite-shm" ||
     basename === ".gitignore" ||
     basename === "agents.md" ||
     basename === "claude.md" ||

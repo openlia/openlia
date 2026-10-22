@@ -719,3 +719,98 @@ export interface WorkspaceFixTemplateResponse {
   ok: true;
   migration_id: string;
 }
+
+export type ShareKind = "workspace" | "skill";
+export type ShareExpirationPreset = "1d" | "7d" | "30d" | "90d" | "never";
+export type ShareSyncStatus = "up_to_date" | "stale" | "source_missing";
+
+export interface ShareSkillMetadata {
+  name: string;
+  category: string;
+  description: string;
+  version?: string | undefined;
+  author?: string | undefined;
+  license?: string | undefined;
+  tags: string[];
+  platforms: string[];
+  prerequisites?: SkillPrerequisites | undefined;
+}
+
+export interface ShareSummary {
+  id: string;
+  kind: ShareKind;
+  target_path: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  expires_at: string | null;
+  expiration_preset: ShareExpirationPreset;
+  snapshot_revision: string;
+  current_revision: string | null;
+  status: ShareSyncStatus;
+  file_count: number;
+  total_bytes: number;
+  media_type: string;
+  skill_metadata?: ShareSkillMetadata | undefined;
+}
+
+export interface ShareListResponse {
+  schema: 1;
+  ok: true;
+  shares: ShareSummary[];
+}
+
+export interface ShareMutationResponse {
+  schema: 1;
+  ok: true;
+  share: ShareSummary;
+}
+
+export interface ShareDeleteResponse {
+  schema: 1;
+  ok: true;
+  id: string;
+}
+
+export interface ShareCreateRequest {
+  kind: ShareKind;
+  target_path: string;
+  expires_in?: ShareExpirationPreset | undefined;
+}
+
+export interface ShareUpdateRequest {
+  action?: "sync" | undefined;
+  expires_in?: ShareExpirationPreset | undefined;
+}
+
+export interface PublicShareFileEntry {
+  path: string;
+  size: number;
+  modified_at: string;
+  media_type: string;
+  editable: boolean;
+  content?: string | undefined;
+}
+
+export interface PublicShareResponse {
+  schema: 1;
+  ok: true;
+  share: {
+    id: string;
+    kind: ShareKind;
+    target_path: string;
+    title: string;
+    created_at: string;
+    updated_at: string;
+    expires_at: string | null;
+    expiration_preset: ShareExpirationPreset;
+    snapshot_revision: string;
+    file_count: number;
+    total_bytes: number;
+    media_type: string;
+    editable: boolean;
+    content?: string | undefined;
+    skill_metadata?: ShareSkillMetadata | undefined;
+    files: PublicShareFileEntry[];
+  };
+}

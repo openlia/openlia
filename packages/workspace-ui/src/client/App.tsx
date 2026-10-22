@@ -9,6 +9,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { workspaceKeys } from "./queries/useWorkspaceQueries";
 import type {
+  ShareKind,
   SkillDetail,
   SkillFileEntry,
   SkillFileResponse,
@@ -41,6 +42,9 @@ import { isJournalPath, isMarkdownPath, isRemindPath } from "./CodeEditor";
 import { CreateSkillModal } from "./CreateSkillModal";
 import { ConfigurationPage } from "./ConfigurationPage";
 import { SchedulePage } from "./SchedulePage";
+import { ShareModal } from "./ShareModal";
+import { SharedLinksSection } from "./SharedLinksSection";
+import { SharePublicView } from "./SharePublicView";
 import { UsagePage, UsagePricingOverrides } from "./UsagePage";
 import { UsageSummary } from "./UsageSummary";
 import { isMemoryDocument } from "../shared/memory";
@@ -405,6 +409,7 @@ export function App({
           filter: undefined,
           path: undefined,
           scenario: undefined,
+          shareId: undefined,
           skill: undefined,
           skillFile: undefined,
           tab: undefined,
@@ -413,6 +418,15 @@ export function App({
           view: undefined,
         },
   );
+
+  const [publicShareId, setPublicShareId] = useState<string | undefined>(
+    () => initialRoute.current.shareId,
+  );
+  const [shareModalTarget, setShareModalTarget] = useState<{
+    kind: ShareKind;
+    targetPath: string;
+    title: string;
+  } | null>(null);
 
   const [activeTab, setActiveTab] = useState<MainTab>(
     () =>
@@ -685,6 +699,7 @@ export function App({
   );
 
   useEffect(() => {
+    if (publicShareId) return;
     let cancelled = false;
     api
       .loadCreatableDomains()
@@ -695,7 +710,7 @@ export function App({
     return () => {
       cancelled = true;
     };
-  }, [api]);
+  }, [api, publicShareId]);
 
   const appStateRef = useRef({
     activeTab,
@@ -864,6 +879,8 @@ export function App({
             if (route.skill) {
               void appStateRef.current.openSkill(route.skill, route.skillFile);
             }
+          } else if (route.tab === "shares") {
+            setActiveTab("shares");
           } else if (route.tab === "usage") {
             setActiveTab("usage");
           } else if (route.tab === "schedule") {
@@ -1057,14 +1074,16 @@ export function App({
   }, [api]);
 
   useEffect(() => {
+    if (publicShareId) return;
     let active = true;
     void loadWorkspace(() => active);
     return () => {
       active = false;
     };
-  }, [loadWorkspace]);
+  }, [loadWorkspace, publicShareId]);
 
   useEffect(() => {
+    if (publicShareId) return;
     const timer = setInterval(() => {
       void syncWorkspace();
     }, 4000);
@@ -1083,7 +1102,7 @@ export function App({
       window.removeEventListener("focus", handleRevalidation);
       document.removeEventListener("visibilitychange", handleRevalidation);
     };
-  }, [syncWorkspace]);
+  }, [syncWorkspace, publicShareId]);
 
   useEffect(() => {
     function warnBeforeUnload(event: BeforeUnloadEvent) {
@@ -1145,6 +1164,12 @@ export function App({
       } = appStateRef.current;
       const route = parseRoute(window.location);
 
+      if (route.shareId) {
+        setPublicShareId(route.shareId);
+        return;
+      }
+      setPublicShareId(undefined);
+
       if (dirty) {
         if (activeTab === "documents" && file?.path) {
           navigateRoute(
@@ -1163,6 +1188,11 @@ export function App({
             id: route.skill ?? "",
             kind: "openSkill",
             skillFile: route.skillFile,
+          });
+        } else if (route.tab === "shares") {
+          setPendingAction({
+            kind: "switchTab",
+            tab: "shares",
           });
         } else if (route.tab === "git-activity") {
           setPendingAction({
@@ -1214,6 +1244,8 @@ export function App({
         if (route.skill) {
           void openSkill(route.skill, route.skillFile);
         }
+      } else if (route.tab === "shares") {
+        setActiveTab("shares");
       } else if (route.tab === "git-activity") {
         setActiveTab("git-activity");
         setFile(null);
@@ -1269,11 +1301,13 @@ export function App({
   }, [loadIngestionDetail, loadMigrationDetail, refreshMigrations]);
 
   useEffect(() => {
-    if (typeof document === "undefined") return;
+    if (typeof document === "undefined" || publicShareId) return;
     if (activeTab === "skills") {
       document.title = selectedSkillDetail
         ? `${selectedSkillDetail.name} - OpenLia Skills`
         : "Skills - OpenLia Workspace";
+    } else if (activeTab === "shares") {
+      document.title = "Shared Links - OpenLia Workspace";
     } else if (activeTab === "git-activity") {
       document.title = "Git Activity - OpenLia Workspace";
     } else if (activeTab === "ingestion") {
@@ -1291,7 +1325,13 @@ export function App({
         document.title = "OpenLia Workspace";
       }
     }
-  }, [activeTab, artifact?.path, file?.path, selectedSkillDetail]);
+  }, [
+    activeTab,
+    artifact?.path,
+    file?.path,
+    publicShareId,
+    selectedSkillDetail,
+  ]);
 
   function handleUnauthorized() {
     clearWorkspaceCache();
@@ -1357,6 +1397,8 @@ export function App({
           if (route.skill) {
             void appStateRef.current.openSkill(route.skill, route.skillFile);
           }
+        } else if (route.tab === "shares") {
+          setActiveTab("shares");
         } else if (route.tab === "usage") {
           setActiveTab("usage");
         } else if (route.tab === "schedule") {
@@ -1448,6 +1490,8 @@ export function App({
           if (route.skill) {
             void appStateRef.current.openSkill(route.skill, route.skillFile);
           }
+        } else if (route.tab === "shares") {
+          setActiveTab("shares");
         } else if (route.tab === "usage") {
           setActiveTab("usage");
         } else if (route.tab === "schedule") {
@@ -2557,6 +2601,10 @@ export function App({
     }
   }
 
+  if (publicShareId) {
+    return <SharePublicView api={api} shareId={publicShareId} />;
+  }
+
   if (!authReady)
     return (
       <main className="grid min-h-dvh place-items-center bg-base-300 p-4 text-base-content">
@@ -2735,6 +2783,23 @@ export function App({
                 void openFile(pathToRetry, { requestedView: view });
             }}
             onSave={() => void save()}
+            onShare={
+              file && !isMemoryDocument(file.path) && !file.missing
+                ? () =>
+                    setShareModalTarget({
+                      kind: "workspace",
+                      targetPath: file.path,
+                      title: file.path.split("/").at(-1) ?? file.path,
+                    })
+                : artifact && !isMemoryDocument(artifact.path)
+                  ? () =>
+                      setShareModalTarget({
+                        kind: "workspace",
+                        targetPath: artifact.path,
+                        title: artifact.path.split("/").at(-1) ?? artifact.path,
+                      })
+                  : undefined
+            }
             totalDocuments={tree.filter((e) => e.kind === "file").length}
             onViewChange={handleViewChange}
             rawUrl={api.rawUrl}
@@ -2793,6 +2858,13 @@ export function App({
               }}
               onSaveFile={() => void saveSkillFile()}
               onSelectFile={(f) => void openSkillFile(f)}
+              onShare={() =>
+                setShareModalTarget({
+                  kind: "skill",
+                  targetPath: selectedSkillDetail.id,
+                  title: selectedSkillDetail.name,
+                })
+              }
               onSubTabChange={setActiveSkillSubTab}
               onToggleEnable={(en) => void handleToggleSkillEnable(en)}
               onTogglePin={(pin) => {
@@ -2838,6 +2910,17 @@ export function App({
               </div>
             </div>
           )}
+        </div>
+      ) : activeTab === "shares" ? (
+        <div className="workspace-layout xl:grid-cols-1">
+          <SharedLinksSection
+            api={api}
+            onOpenWorkspaceDocument={(docPath) => requestOpenFile(docPath)}
+            onOpenSkill={(skillId) => {
+              setActiveTab("skills");
+              requestOpenSkill(skillId);
+            }}
+          />
         </div>
       ) : activeTab === "ingestion" ? (
         <div className="workspace-layout xl:grid-cols-1">
@@ -3043,6 +3126,17 @@ export function App({
         skills={skills}
         tree={tree}
       />
+
+      {shareModalTarget && (
+        <ShareModal
+          api={api}
+          isOpen={true}
+          kind={shareModalTarget.kind}
+          onClose={() => setShareModalTarget(null)}
+          targetPath={shareModalTarget.targetPath}
+          title={shareModalTarget.title}
+        />
+      )}
     </main>
   );
 }

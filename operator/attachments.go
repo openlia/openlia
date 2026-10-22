@@ -120,7 +120,7 @@ func GenerateAttachmentsContext(ctx context.Context, config Config, composers ..
 	if err := EnsureDir(config.MetaRoot, 0o700); err != nil {
 		return err
 	}
-	if config.WorkspaceUIAuthRequired {
+	if config.WorkspaceUIHost != "" || config.WorkspaceUIAuthRequired || config.WorkspaceUIFirebaseProjectID != "" {
 		sessionDir := filepath.Join(config.RuntimeRoot, "workspace-ui")
 		if err := EnsureDir(sessionDir, 0o700); err != nil {
 			return err
@@ -386,6 +386,7 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("      OPENLIA_MEMORIES_ROOT: /memories\n")
 		builder.WriteString("      OPENLIA_MIGRATIONS_ROOT: /migrations\n")
 		builder.WriteString("      OPENLIA_RUNTIME_ROOT: /var/lib/openlia\n")
+		builder.WriteString("      OPENLIA_WORKSPACE_UI_SHARES_DB: /var/lib/openlia/shares.sqlite\n")
 		builder.WriteString("      OPENLIA_DATA_ROOT: /workspace/..\n")
 		quotedPublicOrigin, _ := json.Marshal(config.WorkspaceUIPublicOrigin)
 		builder.WriteString("      OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN: ")
@@ -426,11 +427,9 @@ func generateAttachmentsFile(config Config) error {
 			builder.Write(passwordHashFile)
 			builder.WriteString("\n        target: /run/openlia-secrets/workspace-ui-password.hash\n        read_only: true")
 		}
-		if isFirebase || config.WorkspaceUIAuthRequired {
-			builder.WriteString("\n      - type: bind\n        source: ")
-			builder.Write(sessionDir)
-			builder.WriteString("\n        target: /var/lib/openlia")
-		}
+		builder.WriteString("\n      - type: bind\n        source: ")
+		builder.Write(sessionDir)
+		builder.WriteString("\n        target: /var/lib/openlia")
 		builder.WriteString(fmt.Sprintf("\n    ports:\n      - %q\n    networks:\n      - openlia-private\n    healthcheck:\n      test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:%d/health').then(r => { if (!r.ok) process.exit(1) })\"]\n      interval: 10s\n      timeout: 3s\n      retries: 5\n    deploy:\n      resources:\n        limits:\n          cpus: \"0.5\"\n          memory: 256M\n    logging:\n      driver: \"json-file\"\n      options:\n        max-size: \"20m\"\n        max-file: \"5\"\n", fmt.Sprintf("%s:%d:%d", workspaceUIHost, workspaceUIPort, workspaceUIPort), workspaceUIPort))
 	}
 	if config.OpenWebUIHost != "" {

@@ -14,6 +14,7 @@ import { Route as SplatRouteImport } from './routes/$'
 import { Route as ConfigurationRouteImport } from './routes/configuration'
 import { Route as GitActivityRouteImport } from './routes/git-activity'
 import { Route as ScheduleRouteImport } from './routes/schedule'
+import { Route as SharesRouteImport } from './routes/shares'
 import { Route as UsageRouteImport } from './routes/usage'
 import { Route as FilesIndexRouteImport } from './routes/files/index'
 import { Route as FilesSplatRouteImport } from './routes/files/$'
@@ -23,6 +24,7 @@ import { Route as MemoryIndexRouteImport } from './routes/memory/index'
 import { Route as MemorySplatRouteImport } from './routes/memory/$'
 import { Route as MigrationIndexRouteImport } from './routes/migration/index'
 import { Route as MigrationSplatRouteImport } from './routes/migration/$'
+import { Route as ShareSplatRouteImport } from './routes/share/$'
 import { Route as SkillsIndexRouteImport } from './routes/skills/index'
 import { Route as SkillsSplatRouteImport } from './routes/skills/$'
 
@@ -49,6 +51,11 @@ const GitActivityRoute = GitActivityRouteImport.update({
 const ScheduleRoute = ScheduleRouteImport.update({
   id: '/schedule',
   path: '/schedule',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SharesRoute = SharesRouteImport.update({
+  id: '/shares',
+  path: '/shares',
   getParentRoute: () => rootRouteImport,
 } as any)
 const UsageRoute = UsageRouteImport.update({
@@ -96,6 +103,11 @@ const MigrationSplatRoute = MigrationSplatRouteImport.update({
   path: '/migration/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ShareSplatRoute = ShareSplatRouteImport.update({
+  id: '/share/$',
+  path: '/share/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SkillsIndexRoute = SkillsIndexRouteImport.update({
   id: '/skills/',
   path: '/skills/',
@@ -113,11 +125,13 @@ export interface FileRoutesByFullPath {
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
   '/schedule': typeof ScheduleRoute
+  '/shares': typeof SharesRoute
   '/usage': typeof UsageRoute
   '/files/$': typeof FilesSplatRoute
   '/ingestion/$': typeof IngestionSplatRoute
   '/memory/$': typeof MemorySplatRoute
   '/migration/$': typeof MigrationSplatRoute
+  '/share/$': typeof ShareSplatRoute
   '/skills/$': typeof SkillsSplatRoute
   '/files/': typeof FilesIndexRoute
   '/ingestion/': typeof IngestionIndexRoute
@@ -131,11 +145,13 @@ export interface FileRoutesByTo {
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
   '/schedule': typeof ScheduleRoute
+  '/shares': typeof SharesRoute
   '/usage': typeof UsageRoute
   '/files/$': typeof FilesSplatRoute
   '/ingestion/$': typeof IngestionSplatRoute
   '/memory/$': typeof MemorySplatRoute
   '/migration/$': typeof MigrationSplatRoute
+  '/share/$': typeof ShareSplatRoute
   '/skills/$': typeof SkillsSplatRoute
   '/files': typeof FilesIndexRoute
   '/ingestion': typeof IngestionIndexRoute
@@ -150,11 +166,13 @@ export interface FileRoutesById {
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
   '/schedule': typeof ScheduleRoute
+  '/shares': typeof SharesRoute
   '/usage': typeof UsageRoute
   '/files/$': typeof FilesSplatRoute
   '/ingestion/$': typeof IngestionSplatRoute
   '/memory/$': typeof MemorySplatRoute
   '/migration/$': typeof MigrationSplatRoute
+  '/share/$': typeof ShareSplatRoute
   '/skills/$': typeof SkillsSplatRoute
   '/files/': typeof FilesIndexRoute
   '/ingestion/': typeof IngestionIndexRoute
@@ -170,11 +188,13 @@ export interface FileRouteTypes {
     | '/configuration'
     | '/git-activity'
     | '/schedule'
+    | '/shares'
     | '/usage'
     | '/files/$'
     | '/ingestion/$'
     | '/memory/$'
     | '/migration/$'
+    | '/share/$'
     | '/skills/$'
     | '/files/'
     | '/ingestion/'
@@ -188,11 +208,13 @@ export interface FileRouteTypes {
     | '/configuration'
     | '/git-activity'
     | '/schedule'
+    | '/shares'
     | '/usage'
     | '/files/$'
     | '/ingestion/$'
     | '/memory/$'
     | '/migration/$'
+    | '/share/$'
     | '/skills/$'
     | '/files'
     | '/ingestion'
@@ -206,11 +228,13 @@ export interface FileRouteTypes {
     | '/configuration'
     | '/git-activity'
     | '/schedule'
+    | '/shares'
     | '/usage'
     | '/files/$'
     | '/ingestion/$'
     | '/memory/$'
     | '/migration/$'
+    | '/share/$'
     | '/skills/$'
     | '/files/'
     | '/ingestion/'
@@ -225,11 +249,13 @@ export interface RootRouteChildren {
   ConfigurationRoute: typeof ConfigurationRoute
   GitActivityRoute: typeof GitActivityRoute
   ScheduleRoute: typeof ScheduleRoute
+  SharesRoute: typeof SharesRoute
   UsageRoute: typeof UsageRoute
   FilesSplatRoute: typeof FilesSplatRoute
   IngestionSplatRoute: typeof IngestionSplatRoute
   MemorySplatRoute: typeof MemorySplatRoute
   MigrationSplatRoute: typeof MigrationSplatRoute
+  ShareSplatRoute: typeof ShareSplatRoute
   SkillsSplatRoute: typeof SkillsSplatRoute
   FilesIndexRoute: typeof FilesIndexRoute
   IngestionIndexRoute: typeof IngestionIndexRoute
@@ -273,6 +299,13 @@ declare module '@tanstack/react-router' {
       path: '/schedule'
       fullPath: '/schedule'
       preLoaderRoute: typeof ScheduleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/shares': {
+      id: '/shares'
+      path: '/shares'
+      fullPath: '/shares'
+      preLoaderRoute: typeof SharesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/usage': {
@@ -338,6 +371,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MigrationSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/share/$': {
+      id: '/share/$'
+      path: '/share/$'
+      fullPath: '/share/$'
+      preLoaderRoute: typeof ShareSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/skills/': {
       id: '/skills/'
       path: '/skills'
@@ -361,11 +401,13 @@ const rootRouteChildren: RootRouteChildren = {
   ConfigurationRoute: ConfigurationRoute,
   GitActivityRoute: GitActivityRoute,
   ScheduleRoute: ScheduleRoute,
+  SharesRoute: SharesRoute,
   UsageRoute: UsageRoute,
   FilesSplatRoute: FilesSplatRoute,
   IngestionSplatRoute: IngestionSplatRoute,
   MemorySplatRoute: MemorySplatRoute,
   MigrationSplatRoute: MigrationSplatRoute,
+  ShareSplatRoute: ShareSplatRoute,
   SkillsSplatRoute: SkillsSplatRoute,
   FilesIndexRoute: FilesIndexRoute,
   IngestionIndexRoute: IngestionIndexRoute,

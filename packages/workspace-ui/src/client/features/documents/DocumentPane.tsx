@@ -121,6 +121,7 @@ function ArtifactPane({
   downloadUrl,
   onDelete,
   onDownload,
+  onShare,
   rawUrl,
 }: {
   artifact: WorkspaceFileMetadata;
@@ -128,6 +129,7 @@ function ArtifactPane({
   downloadUrl?: ((path: string) => string) | undefined;
   onDelete?: (() => void) | undefined;
   onDownload: () => void;
+  onShare?: (() => void) | undefined;
   rawUrl?: ((path: string) => string) | undefined;
 }) {
   const previewKind = artifactPreviewKind(artifact.path);
@@ -154,6 +156,16 @@ function ArtifactPane({
           >
             Open in New Tab ↗
           </a>
+          {onShare && (
+            <button
+              aria-label="Share document"
+              className="btn btn-sm btn-outline gap-1.5"
+              onClick={onShare}
+              type="button"
+            >
+              <span>Share</span>
+            </button>
+          )}
           <CopyLinkButton
             className="btn btn-sm btn-ghost"
             label="Copy Link"
@@ -335,6 +347,7 @@ export function DocumentPane({
   onLoadInclude,
   onFixTemplate,
   fixingTemplate,
+  onShare,
 }: {
   conflict: string;
   detailsOpen?: boolean;
@@ -384,6 +397,7 @@ export function DocumentPane({
     | undefined;
   onFixTemplate?: (() => void) | undefined;
   fixingTemplate?: boolean | undefined;
+  onShare?: (() => void) | undefined;
 }) {
   const dirty = file !== null && file.content !== draft;
   const canEdit = Boolean(file?.editable);
@@ -401,6 +415,7 @@ export function DocumentPane({
           downloadUrl={downloadUrl}
           onDelete={onDelete}
           onDownload={onDownload}
+          onShare={!isMemoryDocument(artifact.path) ? onShare : undefined}
           rawUrl={rawUrl}
         />
       ) : file ? (
@@ -510,6 +525,30 @@ export function DocumentPane({
                 </>
               )}
             </button>
+            {!isMemory && !file.missing && onShare && (
+              <button
+                aria-label="Share document"
+                className="btn btn-sm btn-outline gap-1.5"
+                onClick={onShare}
+                type="button"
+              >
+                <svg
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 opacity-70"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <span>Share</span>
+              </button>
+            )}
             <button
               aria-pressed={detailsOpen}
               className={`btn btn-sm gap-1.5 ${detailsOpen ? "btn-secondary" : "btn-outline"}`}

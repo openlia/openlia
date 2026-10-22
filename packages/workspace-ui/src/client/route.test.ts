@@ -379,4 +379,24 @@ describe("route helpers", () => {
     });
     expect(buildRouteUrl({ tab: "schedule" })).toBe("/schedule");
   });
+
+  test("parses and builds shares and public share routes", () => {
+    expect(parseRoute("/shares")).toMatchObject({
+      tab: "shares",
+    });
+    expect(parseRoute("openlia://shares")).toMatchObject({
+      tab: "shares",
+    });
+    expect(parseRoute("/?tab=shares")).toMatchObject({
+      tab: "shares",
+    });
+    expect(buildRouteUrl({ tab: "shares" })).toBe("/shares");
+
+    expect(parseRoute("/share/abcd1234efgh5678")).toMatchObject({
+      shareId: "abcd1234efgh5678",
+    });
+    expect(buildRouteUrl({ shareId: "abcd1234efgh5678" })).toBe(
+      "/share/abcd1234efgh5678",
+    );
+  });
 });

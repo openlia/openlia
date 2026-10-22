@@ -228,6 +228,9 @@ describe("export archive", () => {
     writeFileSync(join(ingestionRoot, "vault.sqlite"), "vault db content");
     writeFileSync(join(ingestionRoot, "vault.sqlite-shm"), "transient shm");
     writeFileSync(join(ingestionRoot, "ingestion.lock"), "lock file");
+    writeFileSync(join(workspaceRoot, "shares.sqlite"), "shares db content");
+    writeFileSync(join(workspaceRoot, "shares.sqlite-wal"), "shares wal");
+    writeFileSync(join(workspaceRoot, "shares.sqlite-shm"), "shares shm");
     writeFileSync(
       join(ingestionRoot, "blobs", "src_001", "ver_001", "original.pdf"),
       "%PDF-1.4 sample",
@@ -256,5 +259,8 @@ describe("export archive", () => {
     expect(listResult.stdout).toContain("ingestion/document-passwords.toml");
     expect(listResult.stdout).not.toContain("vault.sqlite-shm");
     expect(listResult.stdout).not.toContain("ingestion.lock");
+    expect(listResult.stdout).not.toContain("shares.sqlite");
+    expect(listResult.stdout).not.toContain("shares.sqlite-wal");
+    expect(listResult.stdout).not.toContain("shares.sqlite-shm");
   });
 });

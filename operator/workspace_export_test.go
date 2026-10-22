@@ -174,6 +174,15 @@ func TestWorkspaceExportIncludesIngestion(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ingestionDir, "document-passwords.toml"), []byte("[profiles.pin]\npassword = \"secret\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(ingestionDir, "shares.sqlite"), []byte("shares db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ingestionDir, "shares.sqlite-wal"), []byte("shares wal"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ingestionDir, "shares.sqlite-shm"), []byte("shares shm"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	exportFile := filepath.Join(tempDir, "export-ingestion.zip")
 	config := Config{
@@ -222,5 +231,13 @@ func TestWorkspaceExportIncludesIngestion(t *testing.T) {
 	}
 	if _, hasLock := found["ingestion/ingestion.lock"]; hasLock {
 		t.Errorf("zip contains ingestion.lock which should be omitted")
+	}
+	for _, shareArtifact := range []string{"ingestion/shares.sqlite", "ingestion/shares.sqlite-wal", "ingestion/shares.sqlite-shm"} {
+		if _, hasShare := found[shareArtifact]; hasShare {
+			t.Errorf("zip contains %s which should be omitted", shareArtifact)
+		}
+	}
+	if !excludedBackupPath("workspace-ui/shares.sqlite") || !excludedBackupPath("shares.sqlite-wal") || !excludedBackupPath("shares.sqlite-shm") {
+		t.Errorf("excludedBackupPath did not exclude shares.sqlite artifacts")
 	}
 }
