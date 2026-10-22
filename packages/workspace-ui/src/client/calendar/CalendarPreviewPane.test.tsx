@@ -182,6 +182,53 @@ describe("CalendarPreviewPane", () => {
     expect(revision).toBe("holiday-revision");
   });
 
+  test("does not retain included events when switching to that file", async () => {
+    const holidayContent = `REM 2026-10-09 MSG Hangul Day
+REM 2026-10-12 MSG Sports Day`;
+    const loadCalendarFile = vi.fn(async (path: string) => {
+      if (path !== "calendar/holiday.rem") throw new Error("Not found");
+      return { content: holidayContent, revision: "holiday-revision" };
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      const view = render(
+        <CalendarPreviewPane
+          content={`INCLUDE holiday.rem\nREM 2026-10-13 MSG Root Event`}
+          filePath="calendar/reminders.rem"
+          fileRevision="root-revision"
+          onLoadCalendarFile={loadCalendarFile}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Hangul Day")).toBeInTheDocument();
+      });
+
+      view.rerender(
+        <CalendarPreviewPane
+          content={holidayContent}
+          filePath="calendar/holiday.rem"
+          fileRevision="holiday-revision"
+          onLoadCalendarFile={loadCalendarFile}
+        />,
+      );
+
+      expect(screen.getAllByText("Hangul Day")).toHaveLength(1);
+      expect(screen.getAllByText("Sports Day")).toHaveLength(1);
+      expect(screen.queryByText("Root Event")).not.toBeInTheDocument();
+      expect(
+        consoleError.mock.calls.some((args) =>
+          args.some((value) => String(value).includes("same key")),
+        ),
+      ).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   test("edits an included THROUGH occurrence without collapsing its rule", async () => {
     const today = new Date();
     const start = new Date(today.getTime() - 86400000)

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { resolveRelativePath } from "../openliaLinks";
 import { CalendarToolbar } from "./CalendarToolbar";
+import { EventModal } from "./EventModal";
 import {
   extractFilterOptions,
   filterLogicalEvents,
   interpretLogicalEvents,
 } from "./eventInterpretation";
-import { EventModal } from "./EventModal";
 import { GanttView } from "./GanttView";
 import { MonthView } from "./MonthView";
 import {
@@ -46,6 +46,11 @@ interface LoadedCalendarFile {
   path: string;
   content: string;
   revision: string;
+}
+
+interface IncludedFilesState {
+  loadKey: string | null;
+  files: Map<string, LoadedCalendarFile>;
 }
 
 const COLOR_PALETTES = [
@@ -92,9 +97,11 @@ export function CalendarPreviewPane({
 }: CalendarPreviewPaneProps) {
   const [viewMode, setViewMode] = useState<CalendarViewMode>("month");
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
-  const [includedFiles, setIncludedFiles] = useState<
-    Map<string, LoadedCalendarFile>
-  >(() => new Map());
+  const [includedFilesState, setIncludedFilesState] =
+    useState<IncludedFilesState>(() => ({
+      loadKey: null,
+      files: new Map(),
+    }));
   const [includesLoading, setIncludesLoading] = useState(false);
 
   // Filter state
@@ -123,17 +130,24 @@ export function CalendarPreviewPane({
     return parseRemindFile(content, filePath);
   }, [content, filePath]);
 
+  // Included files belong to a specific root file and include list. Keep that
+  // identity with the loaded data so a file switch cannot render the previous
+  // calendar's files while the new include tree is loading.
+  const includeLoadKey = `${filePath}\u0000${parsedCurrent.includedFiles.join(
+    "\u0000",
+  )}`;
+
   useEffect(() => {
     let cancelled = false;
 
     async function loadIncludedFiles() {
       if (!onLoadCalendarFile) {
-        setIncludedFiles(new Map());
+        setIncludedFilesState({ loadKey: null, files: new Map() });
         return;
       }
 
       setIncludesLoading(true);
-      setIncludedFiles(new Map());
+      setIncludedFilesState({ loadKey: null, files: new Map() });
       const loaded = new Map<string, LoadedCalendarFile>();
       const queue: Array<{ includePath: string; fromFile: string }> =
         parsedCurrent.includedFiles.map((includePath) => ({
@@ -171,7 +185,7 @@ export function CalendarPreviewPane({
       }
 
       if (!cancelled) {
-        setIncludedFiles(loaded);
+        setIncludedFilesState({ loadKey: includeLoadKey, files: loaded });
         setIncludesLoading(false);
       }
     }
@@ -180,15 +194,31 @@ export function CalendarPreviewPane({
     return () => {
       cancelled = true;
     };
-  }, [filePath, onLoadCalendarFile, parsedCurrent.includedFiles]);
+  }, [
+    filePath,
+    includeLoadKey,
+    onLoadCalendarFile,
+    parsedCurrent.includedFiles,
+  ]);
 
-  const calendarFiles = useMemo<LoadedCalendarFile[]>(
-    () => [
-      { path: filePath, content, revision: fileRevision },
-      ...includedFiles.values(),
-    ],
-    [content, filePath, fileRevision, includedFiles],
-  );
+  const calendarFiles = useMemo<LoadedCalendarFile[]>(() => {
+    const filesByPath = new Map<string, LoadedCalendarFile>();
+    filesByPath.set(filePath, {
+      path: filePath,
+      content,
+      revision: fileRevision,
+    });
+
+    if (includedFilesState.loadKey === includeLoadKey) {
+      for (const file of includedFilesState.files.values()) {
+        // The selected file is always the root source. Prefer it if a cyclic
+        // or stale include happens to return the same path.
+        if (!filesByPath.has(file.path)) filesByPath.set(file.path, file);
+      }
+    }
+
+    return [...filesByPath.values()];
+  }, [content, filePath, fileRevision, includeLoadKey, includedFilesState]);
 
   const parsedCalendarFiles = useMemo(
     () =>
@@ -251,14 +281,14 @@ export function CalendarPreviewPane({
     const result = await onSaveCalendarFile(path, nextContent, source.revision);
 
     if (path !== filePath) {
-      setIncludedFiles((previous) => {
-        const next = new Map(previous);
+      setIncludedFilesState((previous) => {
+        const next = new Map(previous.files);
         next.set(path, {
           path,
           content: nextContent,
           revision: result.revision,
         });
-        return next;
+        return { ...previous, files: next };
       });
     }
   };
