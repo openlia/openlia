@@ -10,13 +10,6 @@ done
 python=/opt/hermes/.venv/bin/python
 python_site="$($python -c 'import site; print(site.getsitepackages()[0])')"
 export PYTHONPATH="$python_site${PYTHONPATH:+:$PYTHONPATH}"
-printf '%s\n' 'Hermes Python runtime:'
-$python - <<'PY'
-import sys
-print(sys.executable)
-print(sys.path)
-PY
-find /opt/hermes/.venv -maxdepth 4 -type d -name 'openpyxl*' -print
 $python - <<'PY'
 import jsonschema
 import openpyxl
