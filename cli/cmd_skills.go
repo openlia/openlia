@@ -103,7 +103,9 @@ func commandSkills(options Options, args []string, assets fs.FS) int {
 		if code != ExitOK {
 			return code
 		}
-		config.EnabledSkills = setSkill(config.EnabledSkills, args[0], action == "enable")
+		if !(action == "enable" && !config.SkillsConfigured && contains(config.EnabledSkills, args[0])) {
+			config.EnabledSkills = setSkill(config.EnabledSkills, args[0], action == "enable")
+		}
 		if err := saveConfig(config); err != nil {
 			return fail(options, ExitFailure, err.Error(), nil)
 		}

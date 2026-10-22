@@ -104,6 +104,14 @@ _UNKNOWN_MUTATION = re.compile(
     r"\b(?:archive|commit|create|delete|execute|fork|generate|install|manage|modify|move|remove|save|submit|update|upload|write)\b",
     re.IGNORECASE,
 )
+_YOUTUBE_URL = re.compile(
+    r"https?://(?:(?:www|m)\.)?(?:youtube\.com|youtu\.be)/",
+    re.IGNORECASE,
+)
+_YOUTUBE_TERMINAL_BYPASS = re.compile(
+    r"\b(?:yt-dlp|youtube-dl|youtube[_-]transcript[_-]api)\b",
+    re.IGNORECASE,
+)
 
 
 class PolicyLoadError(RuntimeError):
@@ -508,6 +516,14 @@ class PolicyEnforcer:
         command = args.get("command") or args.get("cmd")
         if not isinstance(command, str) or not command.strip():
             return _block("OpenLia policy blocked a terminal call with no command.")
+        if _YOUTUBE_TERMINAL_BYPASS.search(command) or (
+            _YOUTUBE_URL.search(command)
+            and re.search(r"\b(?:curl|wget|python|python3|pip|pip3|uv)\b", command, re.IGNORECASE)
+        ):
+            return _block(
+                "OpenLia policy blocked direct YouTube transcript extraction or helper installation in terminal. "
+                "Use ingestion_capture(kind='youtube', url=..., wait_seconds=15) and ingestion_get_document(source_id=...) instead."
+            )
         lowered = command.lower()
         external_key = None
         if re.search(r"\b(?:curl|wget)\b.*(?:-x\s*(?:post|put|patch|delete)|--data|--form)", lowered):
@@ -587,6 +603,17 @@ class PolicyEnforcer:
         session_id: str = "",
     ) -> dict[str, str] | None:
         args = args if isinstance(args, dict) else {}
+        if tool_name == "web_extract":
+            raw_urls: list[str] = []
+            if isinstance(args.get("url"), str):
+                raw_urls.append(args["url"])
+            if isinstance(args.get("urls"), list):
+                raw_urls.extend(str(u) for u in args["urls"] if isinstance(u, str))
+            if any(_YOUTUBE_URL.search(u) for u in raw_urls):
+                return _block(
+                    "OpenLia policy requires YouTube URLs to be processed through the Ingestion Vault. "
+                    "Call ingestion_capture(kind='youtube', url=..., wait_seconds=15) and ingestion_get_document(source_id=...) instead."
+                )
         if tool_name in _READ_ONLY_TOOLS or tool_name in _BROWSER_READ_TOOLS:
             return None
         authority = self._load()

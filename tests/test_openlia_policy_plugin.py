@@ -172,3 +172,44 @@ class PolicyPluginTests(unittest.TestCase):
         self.assertEqual(del_decision["action"], "approve")
         self.assertEqual(del_decision["rule_key"], "openlia.policy.delete_records")
         self.assertIn("delete_records on sources", del_decision["message"])
+
+    def test_youtube_bypass_is_blocked_while_ingestion_is_allowed(self):
+        # 1. ingestion_capture with kind="youtube" is allowed under delegated capture
+        self.assertIsNone(
+            self.policy.pre_tool_call(
+                "ingestion_capture",
+                {
+                    "kind": "youtube",
+                    "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+                    "wait_seconds": 15,
+                },
+            )
+        )
+
+        # 2. web_extract on YouTube URLs is blocked
+        for yt_url in (
+            "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+            "https://youtu.be/jNQXAC9IVRw",
+            "https://m.youtube.com/watch?v=jNQXAC9IVRw",
+        ):
+            web_decision = self.policy.pre_tool_call("web_extract", {"url": yt_url})
+            self.assertIsNotNone(web_decision)
+            self.assertEqual(web_decision["action"], "block")
+            self.assertIn("ingestion_capture", web_decision["message"])
+
+        # Non-YouTube web_extract remains allowed
+        self.assertIsNone(
+            self.policy.pre_tool_call("web_extract", {"url": "https://example.com/article"})
+        )
+
+        # 3. Terminal YouTube transcript helpers or package installs are blocked
+        for cmd in (
+            "yt-dlp --write-subs https://www.youtube.com/watch?v=jNQXAC9IVRw",
+            "pip install youtube-transcript-api",
+            "python3 -c 'import youtube_transcript_api'",
+            "curl -s https://www.youtube.com/watch?v=jNQXAC9IVRw",
+        ):
+            term_decision = self.policy.pre_tool_call("terminal", {"command": cmd})
+            self.assertIsNotNone(term_decision)
+            self.assertEqual(term_decision["action"], "block")
+            self.assertIn("ingestion_capture", term_decision["message"])

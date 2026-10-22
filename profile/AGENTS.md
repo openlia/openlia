@@ -24,6 +24,20 @@ installation may contain only starter data.
   their output before applying it to the workspace.
 - Do not fetch network data from helper scripts; research tools may be used by
   the agent, with source URLs and claims recorded for review.
+
+## YouTube transcript routing
+
+- Route every YouTube transcript, summary, or video-analysis request through the
+  `openlia-ingestion` tools:
+  1. Call `ingestion_capture(kind="youtube", url=..., wait_seconds=15)`.
+  2. Inspect the returned `state` and `result`:
+     - If `state == "completed"`, call `ingestion_get_document(source_id=...)` to retrieve the extracted transcript and cite its `canonical_uri` (`openlia://source/{source_id}#{version_id}/p{page}`).
+     - If `state in {"queued", "processing"}`, report that ingestion is still pending (`source_id` / `job_id`) rather than guessing or bypassing.
+     - If `state == "partial"` with `"transcript_unavailable"` in warnings (or if extraction fails), report honestly that no transcript could be obtained; never summarize from video title or metadata as though it were transcript content.
+     - If `openlia-ingestion` tools are unavailable, report an ingestion configuration blocker rather than a missing Python package.
+- Do not substitute a standalone transcript helper, direct subtitle download,
+  `web_extract` on YouTube URLs, or package installation such as `youtube-transcript-api` or `yt-dlp`.
+
 - Personal finance journal edits are local bookkeeping actions. They may use the
   explicit `record_financial_data` delegation when the workspace policy allows it;
   external transfers, purchases, and trades remain separate approval-gated actions.

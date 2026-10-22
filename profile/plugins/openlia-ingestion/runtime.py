@@ -656,6 +656,10 @@ class IngestionRuntime:
             out["error_summary"] = job["error_summary"]
         if job.get("result") is not None:
             out["result"] = job["result"]
+            if isinstance(job["result"], dict):
+                warnings = (job["result"].get("summary") or {}).get("warnings")
+                if isinstance(warnings, list) and warnings:
+                    out["warnings"] = warnings
         source_id = job.get("source_id") or out.get("source_id")
         if job["state"] == "awaiting-unlock" and source_id:
             out["password_suggestions"] = self._suggestions_for_source(str(source_id))
