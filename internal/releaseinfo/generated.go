@@ -6,14 +6,16 @@ var Default = Manifest{
 	Schema:  1,
 	OpenLia: "0.1.0",
 	Hermes: ImagePin{
-		Image:  "nousresearch/hermes-agent",
-		Tag:    "v0.22.4",
-		Digest: "sha256:7a69201726bc64db2072a1371557137c23312d29705cda2b8ea2a0214a50a4cf",
+		Image:   "nousresearch/hermes-agent",
+		Channel: "stable",
+		Tag:     "v0.22.4",
+		Digest:  "sha256:7a69201726bc64db2072a1371557137c23312d29705cda2b8ea2a0214a50a4cf",
 	},
 	OpenWebUI: ImagePin{
-		Image:  "ghcr.io/open-webui/open-webui",
-		Tag:    "v0.12.3",
-		Digest: "sha256:a537bbe1e6b428820f52ed4a029d7fff97062e24d5cf32c365fba36fd0542def",
+		Image:   "ghcr.io/open-webui/open-webui",
+		Channel: "stable",
+		Tag:     "v0.12.3",
+		Digest:  "sha256:a537bbe1e6b428820f52ed4a029d7fff97062e24d5cf32c365fba36fd0542def",
 	},
 	Locho: LochoPin{
 		Version:       "1.3.0-beta.2",

@@ -740,6 +740,16 @@ func TestOpenWebUIValidation(t *testing.T) {
 	}
 }
 
+func TestDevelopmentOverridesAllowExperimentalComponentPins(t *testing.T) {
+	config := defaultConfig()
+	config.HermesTag = "v0.23.0-rc.1"
+	config.HermesDigest = "sha256:" + strings.Repeat("a", 64)
+	config.OpenWebUIImage = "ghcr.io/open-webui/open-webui:v0.13.0-rc.1@sha256:" + strings.Repeat("b", 64)
+	if err := validateConfig(config); err != nil {
+		t.Fatalf("experimental development overrides rejected: %v", err)
+	}
+}
+
 func TestOpenWebUIRender(t *testing.T) {
 	config := defaultConfig()
 	config.OpenWebUIHost = "127.0.0.1"

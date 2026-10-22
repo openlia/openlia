@@ -9,9 +9,10 @@ package releaseinfo
 import "strings"
 
 type ImagePin struct {
-	Image  string
-	Tag    string
-	Digest string
+	Image   string
+	Channel string
+	Tag     string
+	Digest  string
 }
 
 func (pin ImagePin) TagRef() string {

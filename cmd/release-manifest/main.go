@@ -18,9 +18,10 @@ type manifest struct {
 }
 
 type image struct {
-	Image  string `json:"image"`
-	Tag    string `json:"tag"`
-	Digest string `json:"image_digest"`
+	Image   string `json:"image"`
+	Channel string `json:"channel"`
+	Tag     string `json:"tag"`
+	Digest  string `json:"image_digest"`
 }
 
 type locho struct {
@@ -79,17 +80,38 @@ func validate(value manifest) error {
 		return fmt.Errorf("release manifest has an unsupported schema or missing OpenLia version")
 	}
 	for name, pin := range map[string]image{"Hermes": value.Hermes, "Open WebUI": value.OpenWebUI} {
-		if pin.Image == "" || pin.Tag == "" || !validDigest(pin.Digest) {
+		if pin.Image == "" || pin.Channel != "stable" || pin.Tag == "" || !validDigest(pin.Digest) {
 			return fmt.Errorf("%s release pin is incomplete", name)
 		}
-		if strings.Contains(pin.Tag, "-") {
-			return fmt.Errorf("%s must use a stable release tag, got %q", name, pin.Tag)
+		if !stableTag(pin.Tag) {
+			return fmt.Errorf("%s must use an immutable stable version tag, got %q", name, pin.Tag)
 		}
 	}
 	if value.Locho.Version == "" || !validSHA(value.Locho.LinuxX8664SHA) || !validSHA(value.Locho.LinuxARM64SHA) {
 		return fmt.Errorf("Locho release pin is incomplete")
 	}
 	return nil
+}
+
+func stableTag(value string) bool {
+	if !strings.HasPrefix(value, "v") {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(value, "v"), ".")
+	if len(parts) != 3 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		for _, character := range part {
+			if character < '0' || character > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func validDigest(value string) bool {
@@ -117,14 +139,16 @@ var Default = Manifest{
 	Schema:  %d,
 	OpenLia: %q,
 	Hermes: ImagePin{
-		Image:  %q,
-		Tag:    %q,
-		Digest: %q,
+		Image:   %q,
+		Channel: %q,
+		Tag:     %q,
+		Digest:  %q,
 	},
 	OpenWebUI: ImagePin{
-		Image:  %q,
-		Tag:    %q,
-		Digest: %q,
+		Image:   %q,
+		Channel: %q,
+		Tag:     %q,
+		Digest:  %q,
 	},
 	Locho: LochoPin{
 		Version:       %q,
@@ -132,7 +156,7 @@ var Default = Manifest{
 		LinuxARM64SHA: %q,
 	},
 }
-`, value.Schema, value.OpenLia, value.Hermes.Image, value.Hermes.Tag, value.Hermes.Digest, value.OpenWebUI.Image, value.OpenWebUI.Tag, value.OpenWebUI.Digest, value.Locho.Version, value.Locho.LinuxX8664SHA, value.Locho.LinuxARM64SHA)
+`, value.Schema, value.OpenLia, value.Hermes.Image, value.Hermes.Channel, value.Hermes.Tag, value.Hermes.Digest, value.OpenWebUI.Image, value.OpenWebUI.Channel, value.OpenWebUI.Tag, value.OpenWebUI.Digest, value.Locho.Version, value.Locho.LinuxX8664SHA, value.Locho.LinuxARM64SHA)
 }
 
 func syncManagedFiles(root string, value manifest, check bool) error {
