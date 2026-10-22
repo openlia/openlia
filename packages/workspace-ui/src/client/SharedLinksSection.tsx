@@ -144,28 +144,28 @@ export function SharedLinksSection({
   return (
     <section
       aria-label="Shared Links"
-      className="flex flex-1 flex-col overflow-hidden bg-base-100"
+      className="flex flex-1 flex-col overflow-y-auto bg-base-100"
     >
-      <div className="border-b border-base-300 bg-base-200/40 px-6 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest text-primary">
+      <div className="border-b border-base-300 bg-base-200/40 px-3.5 py-2.5 sm:px-6 sm:py-4">
+        <div className="flex items-start justify-between gap-2 sm:items-center sm:gap-4">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-primary sm:text-[11px]">
               Snapshot Sharing
             </p>
-            <h2 className="text-lg font-bold text-base-content">
+            <h2 className="text-base font-bold text-base-content sm:text-lg">
               Shared Links
             </h2>
-            <p className="mt-0.5 text-xs text-base-content/65">
+            <p className="mt-0.5 hidden text-xs text-base-content/65 sm:block">
               Public share links serve isolated snapshots from{" "}
               <code className="font-mono">shares.sqlite</code> (excluded from
               workspace backups and exports). Expired links are automatically
               pruned.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              className="btn btn-outline btn-sm"
+              className="btn btn-outline btn-xs sm:btn-sm"
               disabled={loading}
               onClick={() => void loadAllShares()}
             >
@@ -174,48 +174,48 @@ export function SharedLinksSection({
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="rounded-lg border border-base-300 bg-base-100 px-3.5 py-2.5">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-base-content/55">
+        <div className="mt-2.5 grid grid-cols-4 gap-1.5 sm:mt-4 sm:gap-3">
+          <div className="rounded-lg border border-base-300 bg-base-100 px-2 py-1.5 sm:px-3.5 sm:py-2.5">
+            <div className="truncate text-[9px] font-semibold uppercase tracking-wider text-base-content/55 sm:text-[11px]">
               Active Shares
             </div>
-            <div className="mt-0.5 text-lg font-bold text-base-content">
+            <div className="mt-0.5 text-sm font-bold text-base-content sm:text-lg">
               {counts.total}
             </div>
           </div>
-          <div className="rounded-lg border border-base-300 bg-base-100 px-3.5 py-2.5">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-base-content/55">
+          <div className="rounded-lg border border-base-300 bg-base-100 px-2 py-1.5 sm:px-3.5 sm:py-2.5">
+            <div className="truncate text-[9px] font-semibold uppercase tracking-wider text-base-content/55 sm:text-[11px]">
               Documents
             </div>
-            <div className="mt-0.5 text-lg font-bold text-base-content">
+            <div className="mt-0.5 text-sm font-bold text-base-content sm:text-lg">
               {counts.docs}
             </div>
           </div>
-          <div className="rounded-lg border border-base-300 bg-base-100 px-3.5 py-2.5">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-base-content/55">
+          <div className="rounded-lg border border-base-300 bg-base-100 px-2 py-1.5 sm:px-3.5 sm:py-2.5">
+            <div className="truncate text-[9px] font-semibold uppercase tracking-wider text-base-content/55 sm:text-[11px]">
               Skill Packages
             </div>
-            <div className="mt-0.5 text-lg font-bold text-base-content">
+            <div className="mt-0.5 text-sm font-bold text-base-content sm:text-lg">
               {counts.skills}
             </div>
           </div>
-          <div className="rounded-lg border border-base-300 bg-base-100 px-3.5 py-2.5">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-base-content/55">
+          <div className="rounded-lg border border-base-300 bg-base-100 px-2 py-1.5 sm:px-3.5 sm:py-2.5">
+            <div className="truncate text-[9px] font-semibold uppercase tracking-wider text-base-content/55 sm:text-[11px]">
               Stale Snapshots
             </div>
-            <div className="mt-0.5 text-lg font-bold text-warning">
+            <div className="mt-0.5 text-sm font-bold text-warning sm:text-lg">
               {counts.stale}
             </div>
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 sm:mt-4 sm:gap-3">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <input
               type="search"
               aria-label="Search shared links"
               placeholder="Filter by title, path, or share ID..."
-              className="input input-bordered input-sm w-64 bg-base-100"
+              className="input input-bordered input-xs sm:input-sm w-full sm:w-64 bg-base-100"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -255,7 +255,7 @@ export function SharedLinksSection({
 
             <select
               aria-label="Filter by status"
-              className="select select-bordered select-sm bg-base-100 text-xs"
+              className="select select-bordered select-xs sm:select-sm flex-1 sm:flex-none bg-base-100 text-xs"
               value={statusFilter}
               onChange={(e) =>
                 setStatusFilter(e.target.value as "all" | ShareSyncStatus)
@@ -270,7 +270,7 @@ export function SharedLinksSection({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="p-3 sm:p-6">
         {errorMessage && (
           <div
             role="alert"
@@ -296,7 +296,7 @@ export function SharedLinksSection({
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2.5 sm:space-y-3">
             {filteredShares.map((share) => {
               const sharePath = `/share/${share.id}`;
               const isBusy = busyId === share.id;
@@ -306,7 +306,7 @@ export function SharedLinksSection({
                 <div
                   key={share.id}
                   data-testid={`shared-link-card-${share.id}`}
-                  className="rounded-xl border border-base-300 bg-base-200/25 p-4 transition-colors hover:border-base-content/20"
+                  className="rounded-xl border border-base-300 bg-base-200/25 p-3 transition-colors hover:border-base-content/20 sm:p-4"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 space-y-1">

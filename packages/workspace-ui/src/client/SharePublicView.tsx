@@ -263,27 +263,34 @@ export function SharePublicView({
         aria-label="Public Share View"
         className="flex min-h-dvh flex-col bg-base-300 text-base-content"
       >
-        <header className="border-b border-base-300 bg-base-100 px-6 py-4 shadow-xs">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[11px] font-extrabold uppercase tracking-widest text-primary">
+        <header className="border-b border-base-300 bg-base-100 px-3.5 py-2.5 shadow-xs sm:px-6 sm:py-4">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 sm:gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-primary sm:text-[11px]">
                   OPENLIA / SHARED DOCUMENT
                 </span>
-                <span className="badge badge-ghost badge-xs font-mono">
-                  {data.target_path}
+                <span
+                  className="badge badge-ghost badge-xs max-w-[200px] font-mono sm:max-w-none"
+                  title={data.target_path}
+                >
+                  <span className="truncate">{data.target_path}</span>
                 </span>
-                <span className="badge badge-outline badge-xs">
+                <span className="badge badge-outline badge-xs hidden sm:inline-flex">
                   {formatExpirationSummary(data.expires_at)}
                 </span>
               </div>
-              <h1 className="mt-1 truncate text-xl font-bold text-base-content">
+              <h1 className="mt-0.5 truncate text-base font-bold text-base-content sm:mt-1 sm:text-xl">
                 {data.title}
               </h1>
-              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-base-content/60">
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-base-content/60 sm:gap-x-3 sm:text-xs">
                 <span>Snapshotted {formatShareTimestamp(data.updated_at)}</span>
                 <span>·</span>
                 <span>{formatByteSize(data.total_bytes)}</span>
+                <span className="sm:hidden">·</span>
+                <span className="sm:hidden">
+                  {formatExpirationSummary(data.expires_at)}
+                </span>
                 {data.file_count > 1 && (
                   <>
                     <span>·</span>
@@ -296,7 +303,7 @@ export function SharePublicView({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex w-full flex-wrap items-center justify-between gap-1.5 sm:w-auto sm:justify-end sm:gap-2">
               {hasRichPreview && (
                 <fieldset
                   aria-label="View mode"
@@ -304,56 +311,71 @@ export function SharePublicView({
                 >
                   <button
                     type="button"
-                    className={`btn btn-xs join-item ${
+                    className={`btn btn-xs join-item px-2 sm:px-3 ${
                       docViewMode === "preview" ? "btn-primary" : "btn-ghost"
                     }`}
                     onClick={() => setDocViewMode("preview")}
                   >
-                    {isJournal
-                      ? "Visual Journal"
-                      : isRemind
-                        ? "Calendar View"
-                        : "Rendered Preview"}
+                    {isJournal ? (
+                      "Visual Journal"
+                    ) : isRemind ? (
+                      "Calendar View"
+                    ) : (
+                      <>
+                        <span className="hidden sm:inline">Rendered </span>
+                        Preview
+                      </>
+                    )}
                   </button>
                   <button
                     type="button"
-                    className={`btn btn-xs join-item ${
+                    className={`btn btn-xs join-item px-2 sm:px-3 ${
                       docViewMode === "raw" ? "btn-primary" : "btn-ghost"
                     }`}
                     onClick={() => setDocViewMode("raw")}
                   >
-                    Raw Source
+                    Raw<span className="hidden sm:inline"> Source</span>
                   </button>
                 </fieldset>
               )}
 
-              {data.editable && (
-                <button
-                  type="button"
-                  className="btn btn-outline btn-sm"
-                  onClick={() => void handleCopyText(primaryContent)}
-                >
-                  {copiedText ? "Copied!" : "Copy Content"}
-                </button>
-              )}
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                {data.editable && (
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-xs sm:btn-sm"
+                    onClick={() => void handleCopyText(primaryContent)}
+                  >
+                    {copiedText ? (
+                      "Copied!"
+                    ) : (
+                      <>
+                        Copy<span className="hidden sm:inline"> Content</span>
+                      </>
+                    )}
+                  </button>
+                )}
 
-              <a href={downloadUrl} download className="btn btn-primary btn-sm">
-                Download File
-              </a>
+                <a
+                  href={downloadUrl}
+                  download
+                  className="btn btn-primary btn-xs sm:btn-sm"
+                >
+                  Download<span className="hidden sm:inline"> File</span>
+                </a>
+              </div>
             </div>
           </div>
         </header>
 
-        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col p-6">
-          <div className="flex-1 overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-sm">
+        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col p-0 sm:p-6">
+          <div className="flex-1 overflow-hidden border-b border-base-300 bg-base-100 sm:rounded-xl sm:border sm:shadow-sm">
             {data.editable ? (
               docViewMode === "preview" && isMarkdown ? (
-                <div className="p-6">
-                  <MarkdownPreview
-                    content={primaryContent}
-                    currentFilePath={data.target_path}
-                  />
-                </div>
+                <MarkdownPreview
+                  content={primaryContent}
+                  currentFilePath={data.target_path}
+                />
               ) : docViewMode === "preview" && isJournal ? (
                 <div className="h-full min-h-[36rem]">
                   <JournalPreviewPane
@@ -372,12 +394,12 @@ export function SharePublicView({
                   />
                 </div>
               ) : (
-                <pre className="overflow-x-auto p-6 font-mono text-xs leading-relaxed text-base-content">
+                <pre className="overflow-x-auto p-3.5 font-mono text-xs leading-relaxed text-base-content sm:p-6">
                   <code>{primaryContent}</code>
                 </pre>
               )
             ) : (
-              <div className="flex flex-col items-center justify-center gap-4 p-8">
+              <div className="flex flex-col items-center justify-center gap-4 p-4 sm:p-8">
                 {binaryKind === "image" && (
                   <img
                     src={rawUrl}
@@ -441,12 +463,12 @@ export function SharePublicView({
       aria-label="Public Share View"
       className="flex min-h-dvh flex-col bg-base-300 text-base-content"
     >
-      <header className="border-b border-base-300 bg-base-100 px-6 py-5 shadow-xs">
-        <div className="mx-auto max-w-6xl space-y-3">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0 space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[11px] font-extrabold uppercase tracking-widest text-secondary">
+      <header className="border-b border-base-300 bg-base-100 px-3.5 py-2.5 shadow-xs sm:px-6 sm:py-5">
+        <div className="mx-auto max-w-6xl space-y-2 sm:space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-2 sm:gap-4">
+            <div className="min-w-0 space-y-0.5 sm:space-y-1">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-secondary sm:text-[11px]">
                   OPENLIA / SHARED SKILL PACKAGE
                 </span>
                 {meta?.category && (
@@ -469,16 +491,16 @@ export function SharePublicView({
                 </span>
               </div>
 
-              <h1 className="text-2xl font-bold text-base-content">
+              <h1 className="text-lg font-bold text-base-content sm:text-2xl">
                 {meta?.name || data.title}
               </h1>
               {meta?.description && (
-                <p className="max-w-3xl text-sm text-base-content/75">
+                <p className="max-w-3xl text-xs text-base-content/75 sm:text-sm">
                   {meta.description}
                 </p>
               )}
 
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-xs text-base-content/60">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-0.5 text-[11px] text-base-content/60 sm:gap-x-3 sm:pt-1 sm:text-xs">
                 <span>Snapshotted {formatShareTimestamp(data.updated_at)}</span>
                 <span>·</span>
                 <span>
@@ -498,7 +520,7 @@ export function SharePublicView({
               <a
                 href={zipDownloadUrl}
                 download
-                className="btn btn-primary btn-sm gap-2"
+                className="btn btn-primary btn-xs gap-1.5 sm:btn-sm sm:gap-2"
               >
                 Download Skill Package (.zip)
               </a>
@@ -521,13 +543,13 @@ export function SharePublicView({
           <div
             role="tablist"
             aria-label="Skill package sections"
-            className="tabs tabs-bordered pt-2"
+            className="tabs tabs-bordered pt-1 sm:pt-2"
           >
             <button
               type="button"
               role="tab"
               aria-selected={skillTab === "instructions"}
-              className={`tab tab-sm font-semibold ${
+              className={`tab tab-xs sm:tab-sm font-semibold ${
                 skillTab === "instructions" ? "tab-active text-primary" : ""
               }`}
               onClick={() => setSkillTab("instructions")}
@@ -538,7 +560,7 @@ export function SharePublicView({
               type="button"
               role="tab"
               aria-selected={skillTab === "files"}
-              className={`tab tab-sm font-semibold ${
+              className={`tab tab-xs sm:tab-sm font-semibold ${
                 skillTab === "files" ? "tab-active text-primary" : ""
               }`}
               onClick={() => setSkillTab("files")}
@@ -549,7 +571,7 @@ export function SharePublicView({
               type="button"
               role="tab"
               aria-selected={skillTab === "overview"}
-              className={`tab tab-sm font-semibold ${
+              className={`tab tab-xs sm:tab-sm font-semibold ${
                 skillTab === "overview" ? "tab-active text-primary" : ""
               }`}
               onClick={() => setSkillTab("overview")}
@@ -560,10 +582,10 @@ export function SharePublicView({
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col p-6">
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col p-0 sm:p-6">
         {skillTab === "instructions" && (
-          <div className="flex-1 overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-base-300 bg-base-200/40 px-4 py-2.5">
+          <div className="flex-1 overflow-hidden border-b border-base-300 bg-base-100 sm:rounded-xl sm:border sm:shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-base-300 bg-base-200/40 px-3.5 py-2 sm:px-4 sm:py-2.5">
               <span className="font-mono text-xs font-semibold text-base-content/75">
                 SKILL.md
               </span>
@@ -599,14 +621,12 @@ export function SharePublicView({
             </div>
 
             {skillDocMode === "preview" ? (
-              <div className="p-6">
-                <MarkdownPreview
-                  content={skillMdContent}
-                  currentFilePath="SKILL.md"
-                />
-              </div>
+              <MarkdownPreview
+                content={skillMdContent}
+                currentFilePath="SKILL.md"
+              />
             ) : (
-              <pre className="overflow-x-auto p-6 font-mono text-xs leading-relaxed text-base-content">
+              <pre className="overflow-x-auto p-3.5 font-mono text-xs leading-relaxed text-base-content sm:p-6">
                 <code>{skillMdContent}</code>
               </pre>
             )}
@@ -614,12 +634,12 @@ export function SharePublicView({
         )}
 
         {skillTab === "files" && (
-          <div className="grid flex-1 grid-cols-1 overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-sm md:grid-cols-[260px_1fr]">
+          <div className="grid flex-1 grid-cols-1 overflow-hidden border-b border-base-300 bg-base-100 sm:rounded-xl sm:border sm:shadow-sm md:grid-cols-[260px_1fr]">
             <aside
               aria-label="Skill snapshot files"
-              className="border-b border-base-300 bg-base-200/30 p-3 md:border-r md:border-b-0"
+              className="max-h-36 overflow-y-auto border-b border-base-300 bg-base-200/30 p-2.5 md:max-h-none md:border-r md:border-b-0 md:p-3"
             >
-              <div className="mb-2 px-2 text-[11px] font-bold uppercase tracking-wider text-base-content/55">
+              <div className="mb-1.5 px-2 text-[11px] font-bold uppercase tracking-wider text-base-content/55 sm:mb-2">
                 Package Files ({data.files.length})
               </div>
               <ul className="space-y-1">
@@ -650,7 +670,7 @@ export function SharePublicView({
             <section className="flex flex-col overflow-hidden">
               {activeFileEntry ? (
                 <>
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-base-300 bg-base-200/40 px-4 py-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-base-300 bg-base-200/40 px-3.5 py-2 sm:px-4 sm:py-2.5">
                     <div className="flex items-center gap-2">
                       <code className="font-mono text-xs font-bold text-base-content">
                         {activeFileEntry.path}
@@ -686,19 +706,19 @@ export function SharePublicView({
 
                   {activeFileEntry.content !== undefined ? (
                     isMarkdownPath(activeFileEntry.path) ? (
-                      <div className="p-6 overflow-y-auto">
+                      <div className="overflow-y-auto">
                         <MarkdownPreview
                           content={activeFileEntry.content}
                           currentFilePath={activeFileEntry.path}
                         />
                       </div>
                     ) : (
-                      <pre className="flex-1 overflow-auto p-6 font-mono text-xs leading-relaxed text-base-content">
+                      <pre className="flex-1 overflow-auto p-3.5 font-mono text-xs leading-relaxed text-base-content sm:p-6">
                         <code>{activeFileEntry.content}</code>
                       </pre>
                     )
                   ) : (
-                    <div className="p-8 text-center text-xs text-base-content/60">
+                    <div className="p-6 text-center text-xs text-base-content/60 sm:p-8">
                       Binary file ({activeFileEntry.media_type}). Use Download
                       File to inspect locally.
                     </div>
@@ -710,40 +730,40 @@ export function SharePublicView({
         )}
 
         {skillTab === "overview" && (
-          <div className="space-y-6 rounded-xl border border-base-300 bg-base-100 p-6 shadow-sm">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-lg border border-base-300 bg-base-200/30 p-3.5">
-                <div className="text-[11px] font-semibold uppercase text-base-content/55">
+          <div className="space-y-4 border-b border-base-300 bg-base-100 p-3.5 sm:space-y-6 sm:rounded-xl sm:border sm:p-6 sm:shadow-sm">
+            <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
+              <div className="rounded-lg border border-base-300 bg-base-200/30 p-2.5 sm:p-3.5">
+                <div className="text-[10px] font-semibold uppercase text-base-content/55 sm:text-[11px]">
                   Skill ID
                 </div>
-                <div className="mt-1 font-mono text-sm font-bold">
+                <div className="mt-0.5 truncate font-mono text-xs font-bold sm:mt-1 sm:text-sm">
                   {data.target_path}
                 </div>
               </div>
-              <div className="rounded-lg border border-base-300 bg-base-200/30 p-3.5">
-                <div className="text-[11px] font-semibold uppercase text-base-content/55">
+              <div className="rounded-lg border border-base-300 bg-base-200/30 p-2.5 sm:p-3.5">
+                <div className="text-[10px] font-semibold uppercase text-base-content/55 sm:text-[11px]">
                   Category
                 </div>
-                <div className="mt-1 text-sm font-bold">
+                <div className="mt-0.5 text-xs font-bold sm:mt-1 sm:text-sm">
                   {meta?.category || "standalone"}
                 </div>
               </div>
-              <div className="rounded-lg border border-base-300 bg-base-200/30 p-3.5">
-                <div className="text-[11px] font-semibold uppercase text-base-content/55">
+              <div className="rounded-lg border border-base-300 bg-base-200/30 p-2.5 sm:p-3.5">
+                <div className="text-[10px] font-semibold uppercase text-base-content/55 sm:text-[11px]">
                   Platforms
                 </div>
-                <div className="mt-1 text-sm font-bold">
+                <div className="mt-0.5 text-xs font-bold sm:mt-1 sm:text-sm">
                   {meta?.platforms && meta.platforms.length > 0
                     ? meta.platforms.join(", ")
                     : "All platforms"}
                 </div>
               </div>
-              <div className="rounded-lg border border-base-300 bg-base-200/30 p-3.5">
-                <div className="text-[11px] font-semibold uppercase text-base-content/55">
+              <div className="rounded-lg border border-base-300 bg-base-200/30 p-2.5 sm:p-3.5">
+                <div className="text-[10px] font-semibold uppercase text-base-content/55 sm:text-[11px]">
                   Snapshot Revision
                 </div>
                 <div
-                  className="mt-1 truncate font-mono text-xs"
+                  className="mt-0.5 truncate font-mono text-xs sm:mt-1"
                   title={data.snapshot_revision}
                 >
                   {data.snapshot_revision}

@@ -114,19 +114,46 @@ function ItemRow({
 
 function DetailPane({
   detail,
+  onBack,
   onOpenFile,
   rawUrl,
 }: {
   detail: IngestionDetailResponse;
+  onBack?: () => void;
   onOpenFile: (path: string) => void;
   rawUrl: (path: string) => string;
 }) {
   const { intake } = detail;
   return (
     <section
-      className="min-w-0 flex-1 overflow-y-auto bg-base-100 p-5 sm:p-7"
+      className="min-w-0 flex-1 overflow-y-auto bg-base-100 p-4 sm:p-7"
       aria-label="Ingestion details"
     >
+      {onBack && (
+        <div className="mb-3 xl:hidden">
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs gap-1 px-2 text-base-content/70 hover:text-base-content"
+            onClick={onBack}
+          >
+            <svg
+              aria-hidden="true"
+              className="h-3.5 w-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M10 19l-7-7m0 0l7-7m-7 7h18"
+              />
+            </svg>
+            Back to Queue
+          </button>
+        </div>
+      )}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="workspace-eyebrow">INGESTION / DETAIL</p>
@@ -289,12 +316,22 @@ export function IngestionSection({
       });
       setSearchResults(res);
 
-      // Keep the inspector inside the active filtered collection.
+      // Keep the inspector inside the active filtered collection on desktop,
+      // or if a previously selected source is still in the filtered results.
       if (res.matches.length === 0) {
         setSelectedSourceId(undefined);
       } else if (
-        !selectedSourceId ||
+        selectedSourceId &&
         !res.matches.some((match) => match.source_id === selectedSourceId)
+      ) {
+        setSelectedSourceId(
+          typeof window !== "undefined" && window.innerWidth < 768
+            ? undefined
+            : res.matches[0]?.source_id,
+        );
+      } else if (
+        !selectedSourceId &&
+        (typeof window === "undefined" || window.innerWidth >= 768)
       ) {
         setSelectedSourceId(res.matches[0]?.source_id);
       }
@@ -448,7 +485,9 @@ export function IngestionSection({
         /* Legacy Queue & Worker Leases View */
         <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
           <section
-            className="max-h-[28rem] w-full overflow-y-auto border-b border-base-content/10 xl:max-h-none xl:w-[min(34rem,38%)] xl:border-b-0 xl:border-r"
+            className={`${
+              detail ? "hidden xl:block" : "flex-1 min-h-0"
+            } w-full overflow-y-auto border-b border-base-content/10 xl:max-h-none xl:w-[min(34rem,38%)] xl:border-b-0 xl:border-r`}
             aria-label="Ingestion intakes"
           >
             {overview && overview.intakes.length > 0 ? (
@@ -467,7 +506,7 @@ export function IngestionSection({
             )}
           </section>
           {detailLoading ? (
-            <div className="flex min-h-[24rem] flex-1 items-center justify-center">
+            <div className="flex min-h-0 flex-1 items-center justify-center">
               <span
                 className="loading loading-spinner loading-md text-primary"
                 role="status"
@@ -476,11 +515,12 @@ export function IngestionSection({
           ) : detail ? (
             <DetailPane
               detail={detail}
+              onBack={() => onSelect(undefined)}
               onOpenFile={onOpenFile}
               rawUrl={rawUrl}
             />
           ) : (
-            <div className="flex min-h-[24rem] flex-1 items-center justify-center p-8 text-center text-sm text-base-content/60">
+            <div className="hidden xl:flex min-h-0 flex-1 items-center justify-center p-8 text-center text-sm text-base-content/60">
               Select an intake to inspect worker leases and published
               extractions.
             </div>
@@ -491,7 +531,9 @@ export function IngestionSection({
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
           {/* Document List (Left Column) */}
           <section
-            className="w-full md:w-[min(32rem,40%)] border-b md:border-b-0 md:border-r border-base-content/10 overflow-y-auto bg-base-100 flex flex-col"
+            className={`${
+              selectedSourceId ? "hidden md:flex" : "flex flex-1"
+            } min-h-0 w-full md:flex-none md:w-[min(32rem,40%)] border-b md:border-b-0 md:border-r border-base-content/10 overflow-y-auto bg-base-100 flex-col`}
             aria-label="Document library"
           >
             {searchLoading ? (
@@ -544,11 +586,16 @@ export function IngestionSection({
           </section>
 
           {/* Document Inspector (Right Column) */}
-          <section className="flex-1 min-w-0 flex flex-col overflow-hidden bg-base-100">
+          <section
+            className={`${
+              selectedSourceId ? "flex" : "hidden md:flex"
+            } min-h-0 flex-1 min-w-0 flex-col overflow-hidden bg-base-100`}
+          >
             <DocumentInspector
               api={api}
               document={selectedSource}
               loading={sourceLoading}
+              onBack={() => setSelectedSourceId(undefined)}
               onUpdate={(updated) => {
                 setSelectedSource(updated);
                 void performSearch();

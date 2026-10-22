@@ -221,13 +221,13 @@ export function ShareModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2.5 backdrop-blur-xs sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-label={`Share ${title}`}
     >
-      <div className="relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-base-300 bg-base-200/40 px-5 py-4">
+      <div className="relative z-10 flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-2xl sm:max-h-[85vh]">
+        <div className="flex items-start justify-between gap-2 border-b border-base-300 bg-base-200/40 px-3.5 py-2.5 sm:gap-4 sm:px-5 sm:py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="badge badge-xs badge-primary uppercase tracking-wider">
@@ -237,10 +237,10 @@ export function ShareModal({
                 {targetPath}
               </span>
             </div>
-            <h3 className="mt-1 truncate text-base font-bold text-base-content">
+            <h3 className="mt-0.5 truncate text-sm font-bold text-base-content sm:mt-1 sm:text-base">
               Share “{title}”
             </h3>
-            <p className="mt-0.5 text-xs text-base-content/65">
+            <p className="mt-0.5 hidden text-xs text-base-content/65 sm:block">
               Public share links capture an isolated snapshot in{" "}
               <code className="font-mono">shares.sqlite</code>. Local edits stay
               private until you explicitly update the snapshot.
@@ -248,7 +248,7 @@ export function ShareModal({
           </div>
           <button
             type="button"
-            className="btn btn-ghost btn-sm btn-square"
+            className="btn btn-ghost btn-xs btn-square sm:btn-sm"
             aria-label="Close share modal"
             onClick={onClose}
           >
@@ -256,7 +256,7 @@ export function ShareModal({
           </button>
         </div>
 
-        <div className="flex-1 space-y-5 overflow-y-auto p-5">
+        <div className="flex-1 space-y-3 overflow-y-auto p-3.5 sm:space-y-5 sm:p-5">
           {errorMessage && (
             <div
               role="alert"
@@ -266,9 +266,9 @@ export function ShareModal({
             </div>
           )}
 
-          <div className="rounded-lg border border-base-300 bg-base-200/40 p-4">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <label className="form-control flex-1 min-w-[180px]">
+          <div className="rounded-lg border border-base-300 bg-base-200/40 p-3 sm:p-4">
+            <div className="flex flex-wrap items-end justify-between gap-2 sm:gap-3">
+              <label className="form-control min-w-[140px] flex-1">
                 <span className="label-text mb-1 text-xs font-semibold text-base-content/80">
                   Expiration
                 </span>
@@ -298,7 +298,7 @@ export function ShareModal({
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2.5 sm:space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-bold uppercase tracking-wider text-base-content/60">
                 Active Share Links ({shares.length})
@@ -318,16 +318,16 @@ export function ShareModal({
             </div>
 
             {loading ? (
-              <div className="py-8 text-center text-xs text-base-content/60">
+              <div className="py-6 text-center text-xs text-base-content/60 sm:py-8">
                 Loading active share links...
               </div>
             ) : shares.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-base-300 px-4 py-8 text-center text-xs text-base-content/60">
+              <div className="rounded-lg border border-dashed border-base-300 px-4 py-6 text-center text-xs text-base-content/60 sm:py-8">
                 No active share links for this{" "}
                 {kind === "skill" ? "skill package" : "document"}.
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2.5 sm:space-y-3">
                 {shares.map((share) => {
                   const sharePath = `/share/${share.id}`;
                   const isBusy = busyShareId === share.id;
@@ -336,7 +336,7 @@ export function ShareModal({
                   return (
                     <div
                       key={share.id}
-                      className="rounded-lg border border-base-300 bg-base-200/30 p-3.5 space-y-2.5"
+                      className="space-y-2 rounded-lg border border-base-300 bg-base-200/30 p-2.5 sm:space-y-2.5 sm:p-3.5"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">

@@ -12,6 +12,7 @@ export interface DocumentInspectorProps {
   api: WorkspaceApi;
   document: SourceDocument | null;
   loading: boolean;
+  onBack?: () => void;
   onUpdate: (updated: SourceDocument) => void;
   onOpenFile: (path: string) => void;
   rawUrl: (path: string) => string;
@@ -51,6 +52,7 @@ export function DocumentInspector({
   api,
   document,
   loading,
+  onBack,
   onUpdate,
   onOpenFile,
   rawUrl: _rawUrl,
@@ -535,12 +537,36 @@ export function DocumentInspector({
       : displayedContent;
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col overflow-y-auto bg-base-100">
-      {/* Inspector Header */}
-      <div className="border-b border-base-content/10 p-5">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-xs text-base-content/50">
+    <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-base-100">
+      {/* Sticky Compact Inspector Header */}
+      <div className="shrink-0 border-b border-base-content/10 bg-base-100 px-3 py-2 sm:px-5 sm:py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {onBack && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs gap-1 px-1.5 md:hidden"
+                onClick={onBack}
+                aria-label="Back to library"
+              >
+                <svg
+                  aria-hidden="true"
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M10 19l-7-7m0 0l7-7m-7 7h18"
+                  />
+                </svg>
+                <span className="text-xs">Library</span>
+              </button>
+            )}
+            <span className="truncate font-mono text-xs text-base-content/50">
               {document.id}
             </span>
             {document.document_type && (
@@ -567,95 +593,11 @@ export function DocumentInspector({
               </span>
             )}
           </div>
-          <h2 className="mt-1 break-words text-xl font-bold">
-            {document.title}
-          </h2>
-          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-base-content/60">
-            {document.correspondent && (
-              <span>
-                Correspondent: <strong>{document.correspondent}</strong>
-              </span>
-            )}
-            {document.document_date && (
-              <span>Date: {document.document_date}</span>
-            )}
-            <span>
-              Captured: {new Date(document.captured_at).toLocaleDateString()}
-            </span>
-          </div>
 
-          {/* Version Selector */}
-          {versions.length > 1 && (
-            <div className="mt-3 flex items-center gap-2 text-xs">
-              <span className="font-semibold text-base-content/60">
-                Version:
-              </span>
-              <div className="join">
-                {versions.map((ver, idx) => {
-                  const vid =
-                    (ver.id as string) ??
-                    (ver.version_id as string) ??
-                    `ver_${String(idx + 1).padStart(3, "0")}`;
-                  const isLatest = idx === versions.length - 1;
-                  const isCurrent = vid === currentVersionId;
-                  return (
-                    <button
-                      key={vid}
-                      type="button"
-                      className={`join-item btn btn-xs ${
-                        isCurrent
-                          ? "btn-active btn-primary"
-                          : "btn-ghost border border-base-content/10"
-                      }`}
-                      onClick={() => setSelectedVersionId(vid)}
-                    >
-                      {vid} {isLatest ? "(latest)" : ""}
-                    </button>
-                  );
-                })}
-              </div>
-              {selectedVersionLoading && (
-                <span className="loading loading-spinner loading-xs" />
-              )}
-            </div>
-          )}
-
-          {/* Stale Backlinks Warning Banner */}
-          {document.stale_backlinks && document.stale_backlinks.length > 0 && (
-            <div className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-warning-content flex items-start gap-2">
-              <svg
-                className="h-4 w-4 shrink-0 mt-0.5 fill-current"
-                viewBox="0 0 20 20"
-              >
-                <title>Warning: Pinned to older version</title>
-                <path
-                  fillRule="evenodd"
-                  d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              <div>
-                <p className="font-semibold">
-                  {document.stale_backlinks.length} backlink(s) are pinned to
-                  older versions of this document.
-                </p>
-                <p className="mt-0.5 text-[11px] opacity-80">
-                  References like{" "}
-                  <code>openlia://source/{document.id}#ver_...</code> in your
-                  workspace cite superseded versions. Check the Backlinks tab
-                  for details.
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Keep frequent actions visible; tuck lifecycle and copy variants away. */}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-base-content/10 pt-3">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5">
             <button
               type="button"
-              className={`btn btn-sm ${
+              className={`btn btn-xs sm:btn-sm ${
                 isReviewed ? "btn-outline btn-success" : "btn-warning"
               }`}
               onClick={toggleReviewStatus}
@@ -665,312 +607,135 @@ export function DocumentInspector({
             </button>
             <button
               type="button"
-              className="btn btn-outline btn-sm"
+              className="btn btn-outline btn-xs sm:btn-sm"
               onClick={copyMarkdownCitation}
               title="Copy markdown citation link"
             >
               {copiedCitation ? "Copied!" : "Copy Citation"}
             </button>
-          </div>
 
-          <div className="dropdown dropdown-end">
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm gap-1.5"
-              aria-haspopup="menu"
-              aria-label="More document actions"
-              tabIndex={0}
-              title="More document actions"
-            >
-              More
-              <svg
-                aria-hidden="true"
-                className="h-4 w-4"
-                fill="currentColor"
-                viewBox="0 0 24 24"
+            <div className="dropdown dropdown-end">
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs sm:btn-sm gap-1"
+                aria-haspopup="menu"
+                aria-label="More document actions"
+                tabIndex={0}
+                title="More document actions"
               >
-                <circle cx="5" cy="12" r="1.75" />
-                <circle cx="12" cy="12" r="1.75" />
-                <circle cx="19" cy="12" r="1.75" />
-              </svg>
-            </button>
-            <ul className="dropdown-content menu z-30 mt-1 w-56 rounded-box border border-base-content/10 bg-base-100 p-1.5 text-xs shadow-lg">
-              <li>
-                <button
-                  type="button"
-                  className="justify-start"
-                  onClick={() => setIsReplaceModalOpen(true)}
-                  title="Upload a new version to replace this source"
+                More
+                <svg
+                  aria-hidden="true"
+                  className="h-4 w-4"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
                 >
-                  Replace / New Version
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  className="justify-start"
-                  onClick={toggleArchiveStatus}
-                  disabled={saving}
-                  title={
-                    document.lifecycle === "archived"
-                      ? "Restore document to active library"
-                      : "Archive this document"
-                  }
-                >
-                  {document.lifecycle === "archived" ? "Restore" : "Archive"}
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  className="justify-start"
-                  onClick={copyCanonicalUri}
-                  title="Copy canonical URI (openlia://source/...)"
-                >
-                  {copiedLink ? "Copied URI!" : "Copy URI"}
-                </button>
-              </li>
-              {canCancel && (
+                  <circle cx="5" cy="12" r="1.75" />
+                  <circle cx="12" cy="12" r="1.75" />
+                  <circle cx="19" cy="12" r="1.75" />
+                </svg>
+              </button>
+              <ul className="dropdown-content menu z-30 mt-1 w-56 rounded-box border border-base-content/10 bg-base-100 p-1.5 text-xs shadow-lg">
                 <li>
                   <button
                     type="button"
-                    className="justify-start text-warning hover:bg-warning/10"
-                    onClick={handleCancelProcessing}
-                    disabled={cancelling}
-                    title="Cancel queued or in-flight processing"
+                    className="justify-start"
+                    onClick={() => setIsReplaceModalOpen(true)}
+                    title="Upload a new version to replace this source"
                   >
-                    {cancelling ? "Cancelling..." : "Cancel Processing"}
+                    Replace / New Version
                   </button>
                 </li>
-              )}
-              {document.processing.status === "cancelled" && (
                 <li>
                   <button
                     type="button"
-                    className="justify-start text-primary hover:bg-primary/10"
-                    onClick={handleRetrySource}
-                    disabled={retrying}
-                    title="Resume extraction using preserved raw Vault blob"
+                    className="justify-start"
+                    onClick={toggleArchiveStatus}
+                    disabled={saving}
+                    title={
+                      document.lifecycle === "archived"
+                        ? "Restore document to active library"
+                        : "Archive this document"
+                    }
                   >
-                    {retrying ? "Resuming..." : "Resume Extraction"}
+                    {document.lifecycle === "archived" ? "Restore" : "Archive"}
                   </button>
                 </li>
-              )}
-              <li className="my-1 border-t border-base-content/10" />
-              <li>
-                <button
-                  type="button"
-                  className="justify-start text-error hover:bg-error/10"
-                  onClick={() => setIsDeleteModalOpen(true)}
-                  title="Delete source and manage backlinks cascade"
-                >
-                  Delete...
-                </button>
-              </li>
-            </ul>
+                <li>
+                  <button
+                    type="button"
+                    className="justify-start"
+                    onClick={copyCanonicalUri}
+                    title="Copy canonical URI (openlia://source/...)"
+                  >
+                    {copiedLink ? "Copied URI!" : "Copy URI"}
+                  </button>
+                </li>
+                {canCancel && (
+                  <li>
+                    <button
+                      type="button"
+                      className="justify-start text-warning hover:bg-warning/10"
+                      onClick={handleCancelProcessing}
+                      disabled={cancelling}
+                      title="Cancel queued or in-flight processing"
+                    >
+                      {cancelling ? "Cancelling..." : "Cancel Processing"}
+                    </button>
+                  </li>
+                )}
+                {document.processing.status === "cancelled" && (
+                  <li>
+                    <button
+                      type="button"
+                      className="justify-start text-primary hover:bg-primary/10"
+                      onClick={handleRetrySource}
+                      disabled={retrying}
+                      title="Resume extraction using preserved raw Vault blob"
+                    >
+                      {retrying ? "Resuming..." : "Resume Extraction"}
+                    </button>
+                  </li>
+                )}
+                <li className="my-1 border-t border-base-content/10" />
+                <li>
+                  <button
+                    type="button"
+                    className="justify-start text-error hover:bg-error/10"
+                    onClick={() => setIsDeleteModalOpen(true)}
+                    title="Delete source and manage backlinks cascade"
+                  >
+                    Delete...
+                  </button>
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
 
-        {/* Password Unlock / Retry Banner */}
-        {needsPasswordOrRetry && (
-          <section
-            className="mt-4 rounded-lg border border-warning/40 bg-warning/10 p-3.5 text-xs"
-            aria-label="Document unlock and retry"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="font-semibold text-warning-content">
-                  {document.processing.status === "awaiting-unlock" ||
-                  document.processing.status === "waiting-for-password"
-                    ? "Password Required to Unlock PDF"
-                    : "Extraction Failed or Incomplete"}
-                </p>
-                {document.processing.error_summary && (
-                  <p className="mt-0.5 text-base-content/70">
-                    {document.processing.error_code
-                      ? `${document.processing.error_code}: `
-                      : ""}
-                    {document.processing.error_summary}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Smart unlock suggestion if available */}
-            {topSuggestion &&
-              topSuggestion.score >= 40 &&
-              !selectedProfileId && (
-                <div className="mt-2.5 flex items-center justify-between rounded bg-warning/20 px-2.5 py-1.5 text-[11px]">
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span className="badge badge-info badge-xs">
-                      {topSuggestion.score}% Match
-                    </span>
-                    <span>
-                      Suggested profile:{" "}
-                      <strong>{topSuggestion.profile.label}</strong>
-                    </span>
-                    {topSuggestion.profile.hint && (
-                      <span className="text-base-content/70">
-                        (Hint: {topSuggestion.profile.hint})
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-xs text-primary underline"
-                    onClick={() =>
-                      setSelectedProfileId(topSuggestion.profile.profile_id)
-                    }
-                  >
-                    Select
-                  </button>
-                </div>
-              )}
-
-            <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              <input
-                type="password"
-                className="input input-bordered input-xs w-full"
-                placeholder="Document password (optional)..."
-                value={retryPassword}
-                onChange={(e) => setRetryPassword(e.target.value)}
-              />
-              {passwordProfiles.length > 0 ? (
-                <select
-                  className="select select-bordered select-xs w-full"
-                  value={selectedProfileId}
-                  onChange={(e) => setSelectedProfileId(e.target.value)}
-                >
-                  <option value="">Or choose saved password profile...</option>
-                  {passwordProfiles.map((prof) => (
-                    <option key={prof.profile_id} value={prof.profile_id}>
-                      {prof.label} ({prof.profile_id})
-                      {prof.hint ? ` [Hint: ${prof.hint}]` : ""}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  className="input input-bordered input-xs w-full"
-                  placeholder="Save password as profile label (optional)..."
-                  value={saveProfileLabel}
-                  onChange={(e) => setSaveProfileLabel(e.target.value)}
-                />
-              )}
-              <div className="flex items-center gap-2">
-                {passwordProfiles.length > 0 && retryPassword && (
-                  <input
-                    type="text"
-                    className="input input-bordered input-xs flex-1"
-                    placeholder="Save as label..."
-                    value={saveProfileLabel}
-                    onChange={(e) => setSaveProfileLabel(e.target.value)}
-                  />
-                )}
-                <button
-                  type="button"
-                  className="btn btn-warning btn-xs"
-                  onClick={handleRetrySource}
-                  disabled={retrying}
-                >
-                  {retrying ? "Retrying..." : "Unlock & Retry"}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-xs text-base-content/70 hover:text-warning"
-                  onClick={handleCancelProcessing}
-                  disabled={cancelling}
-                  title="Cancel extraction for this document"
-                >
-                  {cancelling ? "Cancelling..." : "Cancel"}
-                </button>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Queued Ingestion Banner */}
-        {document.processing.status === "queued" && (
-          <section
-            className="mt-4 rounded-lg border border-info/40 bg-info/10 p-3.5 text-xs"
-            aria-label="Document queued for extraction"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="font-semibold text-info-content">
-                  ⏱ Queued for Extraction
-                </p>
-                <p className="mt-0.5 text-base-content/70">
-                  This document is waiting in the ingestion queue. Extraction
-                  has not started yet.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="btn btn-ghost btn-outline btn-xs text-warning hover:bg-warning/20"
-                onClick={handleCancelProcessing}
-                disabled={cancelling}
-              >
-                {cancelling ? "Cancelling..." : "Cancel Processing"}
-              </button>
-            </div>
-          </section>
-        )}
-
-        {/* Cancelled Processing Banner */}
-        {document.processing.status === "cancelled" && (
-          <section
-            className="mt-4 rounded-lg border border-base-content/20 bg-base-200/60 p-3.5 text-xs"
-            aria-label="Document processing cancelled"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="font-semibold text-base-content">
-                  ⚪ Extraction Cancelled
-                </p>
-                <p className="mt-0.5 text-base-content/70">
-                  Processing was halted. The raw document remains safely stored
-                  in Vault.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="btn btn-primary btn-xs"
-                onClick={handleRetrySource}
-                disabled={retrying}
-              >
-                {retrying ? "Resuming..." : "Resume Extraction"}
-              </button>
-            </div>
-          </section>
-        )}
-
-        {retryMessage && (
-          <div className="alert alert-info mt-3 py-2 text-xs">
-            <span>{retryMessage}</span>
-          </div>
-        )}
+        <h2 className="mt-1 break-words text-lg sm:text-xl font-bold">
+          {document.title}
+        </h2>
 
         {/* Tab selection */}
-        <div className="tabs tabs-bordered mt-4">
+        <div className="tabs tabs-bordered mt-2 sm:mt-3 flex-nowrap overflow-x-auto no-scrollbar">
           <button
             type="button"
-            className={`tab ${activeTab === "content" ? "tab-active font-semibold" : ""}`}
+            className={`tab tab-xs sm:tab-sm whitespace-nowrap ${activeTab === "content" ? "tab-active font-semibold" : ""}`}
             onClick={() => setActiveTab("content")}
           >
             Document Content & OCR
           </button>
           <button
             type="button"
-            className={`tab ${activeTab === "metadata" ? "tab-active font-semibold" : ""}`}
+            className={`tab tab-xs sm:tab-sm whitespace-nowrap ${activeTab === "metadata" ? "tab-active font-semibold" : ""}`}
             onClick={() => setActiveTab("metadata")}
           >
             Metadata & Tags
           </button>
           <button
             type="button"
-            className={`tab ${activeTab === "backlinks" ? "tab-active font-semibold" : ""}`}
+            className={`tab tab-xs sm:tab-sm whitespace-nowrap ${activeTab === "backlinks" ? "tab-active font-semibold" : ""}`}
             onClick={() => setActiveTab("backlinks")}
           >
             Used by ({document.backlinks?.length ?? 0})
@@ -979,7 +744,7 @@ export function DocumentInspector({
       </div>
 
       {saveError && (
-        <div className="alert alert-error mx-5 mt-4 text-xs">
+        <div className="alert alert-error mx-3 mt-3 text-xs sm:mx-5">
           <span>{saveError}</span>
         </div>
       )}
@@ -1030,7 +795,269 @@ export function DocumentInspector({
         )}
 
         {/* Tab Panels */}
-        <div className="flex-1 p-5 overflow-y-auto">
+        <div className="flex-1 p-3 sm:p-5 overflow-y-auto space-y-4">
+          {/* Scrollable Metadata Summary Bar & Status Banners */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-base-content/60 border-b border-base-content/10 pb-3">
+            {document.correspondent && (
+              <span>
+                Correspondent: <strong>{document.correspondent}</strong>
+              </span>
+            )}
+            {document.document_date && (
+              <span>Date: {document.document_date}</span>
+            )}
+            <span>
+              Captured: {new Date(document.captured_at).toLocaleDateString()}
+            </span>
+          </div>
+
+          {/* Version Selector */}
+          {versions.length > 1 && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-semibold text-base-content/60">
+                Version:
+              </span>
+              <div className="join">
+                {versions.map((ver, idx) => {
+                  const vid =
+                    (ver.id as string) ??
+                    (ver.version_id as string) ??
+                    `ver_${String(idx + 1).padStart(3, "0")}`;
+                  const isLatest = idx === versions.length - 1;
+                  const isCurrent = vid === currentVersionId;
+                  return (
+                    <button
+                      key={vid}
+                      type="button"
+                      className={`join-item btn btn-xs ${
+                        isCurrent
+                          ? "btn-active btn-primary"
+                          : "btn-ghost border border-base-content/10"
+                      }`}
+                      onClick={() => setSelectedVersionId(vid)}
+                    >
+                      {vid} {isLatest ? "(latest)" : ""}
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedVersionLoading && (
+                <span className="loading loading-spinner loading-xs" />
+              )}
+            </div>
+          )}
+
+          {/* Stale Backlinks Warning Banner */}
+          {document.stale_backlinks && document.stale_backlinks.length > 0 && (
+            <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-warning-content flex items-start gap-2">
+              <svg
+                className="h-4 w-4 shrink-0 mt-0.5 fill-current"
+                viewBox="0 0 20 20"
+              >
+                <title>Warning: Pinned to older version</title>
+                <path
+                  fillRule="evenodd"
+                  d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <div>
+                <p className="font-semibold">
+                  {document.stale_backlinks.length} backlink(s) are pinned to
+                  older versions of this document.
+                </p>
+                <p className="mt-0.5 text-[11px] opacity-80">
+                  References like{" "}
+                  <code>openlia://source/{document.id}#ver_...</code> in your
+                  workspace cite superseded versions. Check the Backlinks tab
+                  for details.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Password Unlock / Retry Banner */}
+          {needsPasswordOrRetry && (
+            <section
+              className="rounded-lg border border-warning/40 bg-warning/10 p-3.5 text-xs"
+              aria-label="Document unlock and retry"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="font-semibold text-warning-content">
+                    {document.processing.status === "awaiting-unlock" ||
+                    document.processing.status === "waiting-for-password"
+                      ? "Password Required to Unlock PDF"
+                      : "Extraction Failed or Incomplete"}
+                  </p>
+                  {document.processing.error_summary && (
+                    <p className="mt-0.5 text-base-content/70">
+                      {document.processing.error_code
+                        ? `${document.processing.error_code}: `
+                        : ""}
+                      {document.processing.error_summary}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Smart unlock suggestion if available */}
+              {topSuggestion &&
+                topSuggestion.score >= 40 &&
+                !selectedProfileId && (
+                  <div className="mt-2.5 flex items-center justify-between rounded bg-warning/20 px-2.5 py-1.5 text-[11px]">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <span className="badge badge-info badge-xs">
+                        {topSuggestion.score}% Match
+                      </span>
+                      <span>
+                        Suggested profile:{" "}
+                        <strong>{topSuggestion.profile.label}</strong>
+                      </span>
+                      {topSuggestion.profile.hint && (
+                        <span className="text-base-content/70">
+                          (Hint: {topSuggestion.profile.hint})
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-xs text-primary underline"
+                      onClick={() =>
+                        setSelectedProfileId(topSuggestion.profile.profile_id)
+                      }
+                    >
+                      Select
+                    </button>
+                  </div>
+                )}
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                <input
+                  type="password"
+                  className="input input-bordered input-xs w-full"
+                  placeholder="Document password (optional)..."
+                  value={retryPassword}
+                  onChange={(e) => setRetryPassword(e.target.value)}
+                />
+                {passwordProfiles.length > 0 ? (
+                  <select
+                    className="select select-bordered select-xs w-full"
+                    value={selectedProfileId}
+                    onChange={(e) => setSelectedProfileId(e.target.value)}
+                  >
+                    <option value="">
+                      Or choose saved password profile...
+                    </option>
+                    {passwordProfiles.map((prof) => (
+                      <option key={prof.profile_id} value={prof.profile_id}>
+                        {prof.label} ({prof.profile_id})
+                        {prof.hint ? ` [Hint: ${prof.hint}]` : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    className="input input-bordered input-xs w-full"
+                    placeholder="Save password as profile label (optional)..."
+                    value={saveProfileLabel}
+                    onChange={(e) => setSaveProfileLabel(e.target.value)}
+                  />
+                )}
+                <div className="flex items-center gap-2">
+                  {passwordProfiles.length > 0 && retryPassword && (
+                    <input
+                      type="text"
+                      className="input input-bordered input-xs flex-1"
+                      placeholder="Save as label..."
+                      value={saveProfileLabel}
+                      onChange={(e) => setSaveProfileLabel(e.target.value)}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-warning btn-xs"
+                    onClick={handleRetrySource}
+                    disabled={retrying}
+                  >
+                    {retrying ? "Retrying..." : "Unlock & Retry"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-xs text-base-content/70 hover:text-warning"
+                    onClick={handleCancelProcessing}
+                    disabled={cancelling}
+                    title="Cancel extraction for this document"
+                  >
+                    {cancelling ? "Cancelling..." : "Cancel"}
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Queued Ingestion Banner */}
+          {document.processing.status === "queued" && (
+            <section
+              className="rounded-lg border border-info/40 bg-info/10 p-3.5 text-xs"
+              aria-label="Document queued for extraction"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="font-semibold text-info-content">
+                    ⏱ Queued for Extraction
+                  </p>
+                  <p className="mt-0.5 text-base-content/70">
+                    This document is waiting in the ingestion queue. Extraction
+                    has not started yet.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-outline btn-xs text-warning hover:bg-warning/20"
+                  onClick={handleCancelProcessing}
+                  disabled={cancelling}
+                >
+                  {cancelling ? "Cancelling..." : "Cancel Processing"}
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* Cancelled Processing Banner */}
+          {document.processing.status === "cancelled" && (
+            <section
+              className="rounded-lg border border-base-content/20 bg-base-200/60 p-3.5 text-xs"
+              aria-label="Document processing cancelled"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="font-semibold text-base-content">
+                    ⚪ Extraction Cancelled
+                  </p>
+                  <p className="mt-0.5 text-base-content/70">
+                    Processing was halted. The raw document remains safely
+                    stored in Vault.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-xs"
+                  onClick={handleRetrySource}
+                  disabled={retrying}
+                >
+                  {retrying ? "Resuming..." : "Resume Extraction"}
+                </button>
+              </div>
+            </section>
+          )}
+
+          {retryMessage && (
+            <div className="alert alert-info py-2 text-xs">
+              <span>{retryMessage}</span>
+            </div>
+          )}
           {/* 1. Content Tab */}
           {activeTab === "content" && (
             <div className="space-y-4">

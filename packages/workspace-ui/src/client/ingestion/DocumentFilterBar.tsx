@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { SourceSearchFacets } from "../../shared/api";
 
 export type IngestionScope = "library" | "processing" | "archived" | "workers";
@@ -40,6 +41,8 @@ export function DocumentFilterBar({
   onOpenPasswordManager,
   onRebuildFts,
 }: DocumentFilterBarProps) {
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+
   const needsReviewCount =
     (facets.review_status["needs-review"] ?? 0) +
     (facets.review_status.unreviewed ?? 0);
@@ -57,14 +60,21 @@ export function DocumentFilterBar({
   const correspondentsList = Object.keys(facets.correspondents).sort();
   const docTypesList = Object.keys(facets.document_types).sort();
 
+  const activeFilterCount =
+    (scope === "library" && reviewFilter !== "all" ? 1 : 0) +
+    (searchQuery.trim() ? 1 : 0) +
+    (selectedDocType ? 1 : 0) +
+    (selectedCorrespondent ? 1 : 0) +
+    (selectedTag ? 1 : 0);
+
   return (
-    <div className="space-y-3 border-b border-base-content/10 bg-base-100 p-4">
+    <div className="shrink-0 space-y-2 border-b border-base-content/10 bg-base-100 px-3 py-2 sm:space-y-3 sm:p-4">
       {/* Top row: Scope tabs and action buttons */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="tabs tabs-boxed bg-base-200">
+      <div className="flex items-center justify-between gap-2">
+        <div className="tabs tabs-boxed flex-nowrap overflow-x-auto no-scrollbar bg-base-200 p-1">
           <button
             type="button"
-            className={`tab text-xs font-medium ${
+            className={`tab tab-xs sm:tab-sm whitespace-nowrap text-xs font-medium ${
               scope === "library" ? "tab-active" : ""
             }`}
             onClick={() => onScopeChange("library")}
@@ -73,7 +83,7 @@ export function DocumentFilterBar({
           </button>
           <button
             type="button"
-            className={`tab text-xs font-medium ${
+            className={`tab tab-xs sm:tab-sm whitespace-nowrap text-xs font-medium ${
               scope === "processing" ? "tab-active" : ""
             }`}
             onClick={() => onScopeChange("processing")}
@@ -87,7 +97,7 @@ export function DocumentFilterBar({
           </button>
           <button
             type="button"
-            className={`tab text-xs font-medium ${
+            className={`tab tab-xs sm:tab-sm whitespace-nowrap text-xs font-medium ${
               scope === "archived" ? "tab-active" : ""
             }`}
             onClick={() => onScopeChange("archived")}
@@ -96,7 +106,7 @@ export function DocumentFilterBar({
           </button>
           <button
             type="button"
-            className={`tab text-xs font-medium ${
+            className={`tab tab-xs sm:tab-sm whitespace-nowrap text-xs font-medium ${
               scope === "workers" ? "tab-active" : ""
             }`}
             onClick={() => onScopeChange("workers")}
@@ -105,12 +115,46 @@ export function DocumentFilterBar({
           </button>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          {scope !== "workers" && (
+            <button
+              type="button"
+              className={`btn btn-xs sm:btn-sm gap-1 md:hidden ${
+                mobileFiltersOpen || activeFilterCount > 0
+                  ? "btn-secondary"
+                  : "btn-ghost border border-base-content/15"
+              }`}
+              aria-expanded={mobileFiltersOpen}
+              aria-label="Toggle document filters"
+              onClick={() => setMobileFiltersOpen((v) => !v)}
+            >
+              <svg
+                aria-hidden="true"
+                className="h-3.5 w-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
+                />
+              </svg>
+              <span className="hidden xs:inline">Filters</span>
+              {activeFilterCount > 0 && (
+                <span className="badge badge-xs badge-neutral">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+          )}
           {(onOpenPasswordManager || onRebuildFts) && (
             <div className="dropdown dropdown-end">
               <button
                 type="button"
-                className="btn btn-ghost btn-sm gap-1.5"
+                className="btn btn-ghost btn-xs sm:btn-sm gap-1"
                 aria-haspopup="menu"
                 aria-label="Ingestion tools"
                 tabIndex={0}
@@ -163,11 +207,11 @@ export function DocumentFilterBar({
           )}
           <button
             type="button"
-            className="btn btn-primary btn-sm gap-1.5"
+            className="btn btn-primary btn-xs sm:btn-sm gap-1"
             onClick={onOpenUpload}
           >
             <svg
-              className="h-4 w-4"
+              className="h-3.5 w-3.5 sm:h-4 sm:w-4"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -187,7 +231,13 @@ export function DocumentFilterBar({
 
       {/* Second row: Search query and facet filters (when not in raw workers view) */}
       {scope !== "workers" && (
-        <div className="flex flex-wrap items-center gap-2 pt-1">
+        <div
+          className={`${
+            mobileFiltersOpen || activeFilterCount > 0
+              ? "flex"
+              : "hidden md:flex"
+          } flex-wrap items-center gap-2 pt-0.5 sm:pt-1`}
+        >
           {scope === "library" && (
             <select
               aria-label="Review filter"

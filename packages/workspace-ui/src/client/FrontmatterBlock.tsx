@@ -110,9 +110,20 @@ export function FrontmatterBlock({ data, rawYaml }: FrontmatterBlockProps) {
   const extraEntries = Object.entries(data).filter(
     ([k]) => !standardKeys.has(k),
   );
+  const hasStandardMetadata = Boolean(
+    name ||
+      version ||
+      author ||
+      license ||
+      description ||
+      tags.length > 0 ||
+      platforms.length > 0 ||
+      envVars.length > 0 ||
+      credentialFiles.length > 0,
+  );
 
   return (
-    <div className="not-prose mb-6 overflow-hidden rounded-xl border border-base-content/15 bg-base-200/50 shadow-xs">
+    <div className="not-prose mb-4 overflow-hidden rounded-xl border border-base-content/15 bg-base-200/50 shadow-xs sm:mb-6">
       {/* Header bar */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-base-content/10 bg-base-300/40 px-3.5 py-2">
         <div className="flex items-center gap-2">
@@ -224,32 +235,34 @@ export function FrontmatterBlock({ data, rawYaml }: FrontmatterBlockProps) {
 
       {/* Body content */}
       {!isCollapsed && (
-        <div className="p-4 text-xs">
+        <div className="p-2.5 text-xs sm:p-4">
           {viewMode === "structured" ? (
-            <div className="space-y-3">
+            <div className="space-y-2.5 sm:space-y-3">
               {/* Primary metadata row */}
-              <div className="flex flex-wrap items-center gap-2">
-                {name && (
-                  <span className="font-semibold text-base text-base-content">
-                    {name}
-                  </span>
-                )}
-                {version && (
-                  <span className="badge badge-outline badge-sm font-mono">
-                    v{version}
-                  </span>
-                )}
-                {author && (
-                  <span className="badge badge-ghost badge-sm">
-                    by {author}
-                  </span>
-                )}
-                {license && (
-                  <span className="badge badge-ghost badge-sm uppercase">
-                    {license}
-                  </span>
-                )}
-              </div>
+              {(name || version || author || license) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {name && (
+                    <span className="font-semibold text-base text-base-content">
+                      {name}
+                    </span>
+                  )}
+                  {version && (
+                    <span className="badge badge-outline badge-sm font-mono">
+                      v{version}
+                    </span>
+                  )}
+                  {author && (
+                    <span className="badge badge-ghost badge-sm">
+                      by {author}
+                    </span>
+                  )}
+                  {license && (
+                    <span className="badge badge-ghost badge-sm uppercase">
+                      {license}
+                    </span>
+                  )}
+                </div>
+              )}
 
               {description && (
                 <p className="text-base-content/80 text-sm leading-relaxed">
@@ -332,23 +345,36 @@ export function FrontmatterBlock({ data, rawYaml }: FrontmatterBlockProps) {
 
               {/* Custom Extra Key/Value Pairs */}
               {extraEntries.length > 0 && (
-                <div className="mt-3 border-t border-base-content/10 pt-2.5">
-                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {extraEntries.map(([key, val]) => (
-                      <div
-                        key={key}
-                        className="rounded bg-base-100/40 p-2 border border-base-content/5"
-                      >
-                        <dt className="font-mono text-[11px] font-semibold text-base-content/60 truncate">
-                          {key}
-                        </dt>
-                        <dd className="mt-0.5 text-xs text-base-content truncate font-mono">
-                          {typeof val === "object"
-                            ? JSON.stringify(val)
-                            : String(val)}
-                        </dd>
-                      </div>
-                    ))}
+                <div
+                  className={
+                    hasStandardMetadata
+                      ? "mt-3 border-t border-base-content/10 pt-2.5"
+                      : ""
+                  }
+                >
+                  <dl className="grid grid-cols-2 gap-1.5 sm:gap-2">
+                    {extraEntries.map(([key, val]) => {
+                      const strVal =
+                        typeof val === "object"
+                          ? JSON.stringify(val)
+                          : String(val);
+                      const isWide = strVal.length > 26;
+                      return (
+                        <div
+                          key={key}
+                          className={`rounded border border-base-content/5 bg-base-100/40 px-2.5 py-1.5 sm:p-2 ${
+                            isWide ? "col-span-2 sm:col-span-1" : ""
+                          }`}
+                        >
+                          <dt className="truncate font-mono text-[10px] font-semibold text-base-content/60 sm:text-[11px]">
+                            {key}
+                          </dt>
+                          <dd className="mt-0.5 truncate font-mono text-xs text-base-content">
+                            {strVal}
+                          </dd>
+                        </div>
+                      );
+                    })}
                   </dl>
                 </div>
               )}
