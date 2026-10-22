@@ -65,12 +65,18 @@ jobs:
         run: docker build --file docker/workspace-ui.Dockerfile --tag openlia-workspace-ui:ci .
 
       - name: Build Hermes ingestion image
-        run: >-
-          docker build
-          --build-arg OPENLIA_PROJECT_NAME=ci
-          --file docker/Dockerfile
-          --tag openlia-hermes:ci
-          .
+        run: |
+          set -a
+          . docker/.env.example
+          set +a
+          docker build \
+            --build-arg HERMES_BASE_IMAGE="$HERMES_BASE_IMAGE" \
+            --build-arg HERMES_BASE_TAG="$HERMES_BASE_TAG" \
+            --build-arg HERMES_BASE_DIGEST="$HERMES_BASE_DIGEST" \
+            --build-arg OPENLIA_PROJECT_NAME=ci \
+            --file docker/Dockerfile \
+            --tag openlia-hermes:ci \
+            .
 
       - name: Verify Hermes ingestion dependencies
         run: >-

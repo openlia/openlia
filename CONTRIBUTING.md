@@ -27,6 +27,7 @@ make skills-test     # Offline bundled skill self-test suite across bundled skil
 make skills-verify   # Bundled skill tests and openlia-browser MCP relay tests
 make lint
 make compose-config
+make versions-check
 python3 tests/smoke.py --mode cli
 python3 tests/smoke.py --mode local --root /tmp/openlia_smoke
 make smoke-local-live \
@@ -74,6 +75,13 @@ values in repository files.
 - Add or update tests for behavior changes.
 - Keep pinned runtime versions and checksums synchronized with release metadata.
 - Document operational assumptions and known limitations.
+
+Runtime component pins have one source of truth in
+[`release/manifest.json`](release/manifest.json). After changing that file, run
+`make versions-generate`; the command updates generated bindings and checked-in
+examples. `make versions-check` is required before building and fails if any
+generated binding is stale. Do not edit
+`internal/releaseinfo/generated.go` manually.
 
 Before submitting a change, review the complete staged file list and confirm
 that no local or generated files are included.

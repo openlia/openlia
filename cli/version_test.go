@@ -3,6 +3,8 @@ package cli
 import (
 	"runtime/debug"
 	"testing"
+
+	"openlia/internal/releaseinfo"
 )
 
 func TestVersionInfoFromCleanBuild(t *testing.T) {
@@ -13,7 +15,7 @@ func TestVersionInfoFromCleanBuild(t *testing.T) {
 	if info.Release != "0.1.0+release.471234288494" || info.Modified {
 		t.Fatalf("unexpected clean build info: %#v", info)
 	}
-	if info.Hermes != "v0.22.4" || info.Locho != "1.3.0-beta.2" {
+	if info.Hermes != releaseinfo.Default.Hermes.Tag || info.Locho != releaseinfo.Default.Locho.Version {
 		t.Fatalf("unexpected component versions: %#v", info)
 	}
 }

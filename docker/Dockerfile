@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
 # Keep the upstream release tag visible while requiring an immutable digest.
-ARG HERMES_BASE_IMAGE=nousresearch/hermes-agent
-ARG HERMES_BASE_TAG=v0.22.4
-ARG HERMES_BASE_DIGEST=sha256:7a69201726bc64db2072a1371557137c23312d29705cda2b8ea2a0214a50a4cf
+ARG HERMES_BASE_IMAGE
+ARG HERMES_BASE_TAG
+ARG HERMES_BASE_DIGEST
 FROM ${HERMES_BASE_IMAGE}:${HERMES_BASE_TAG}@${HERMES_BASE_DIGEST}
 
 ARG TARGETARCH
