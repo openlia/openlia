@@ -84,7 +84,8 @@ COPY profile/plugins/openlia-ingestion/requirements.txt /tmp/openlia-ingestion-r
 RUN /usr/local/bin/openlia-install-tools \
     && uv pip install --python /opt/hermes/.venv/bin/python --no-cache \
         --requirement /tmp/openlia-ingestion-requirements.txt \
-    && rm -f /tmp/openlia-ingestion-requirements.txt
+    && rm -f /tmp/openlia-ingestion-requirements.txt \
+    && /opt/hermes/.venv/bin/python -c "import jsonschema, msoffcrypto, openpyxl, PIL, pypdfium2, xlrd"
 COPY profile/plugins/openlia-ingestion /opt/hermes/plugins/openlia-ingestion
 # Release archives protect source files with mode 0600; supervised Hermes runs
 # as an unprivileged user and must be able to read the bundled plugins.
