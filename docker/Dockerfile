@@ -98,3 +98,4 @@ LABEL org.openlia.project="${OPENLIA_PROJECT_NAME}" org.openlia.ingestion="requi
 ENV HERMES_TIMEZONE="Asia/Ho_Chi_Minh"
 ENV TZ="Asia/Ho_Chi_Minh"
 ENV PATH="/usr/local/bin:/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:${PATH}"
+ENV PYTHONPATH="/opt/hermes/.venv/lib/python3.13/site-packages:${PYTHONPATH}"
