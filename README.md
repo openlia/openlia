@@ -772,7 +772,7 @@ operator machine:
 ./openlia locho-host share --output openlia-attachments.toml
 ```
 
-Install [Locho `1.2.0`](https://github.com/trchopan/locho/releases/tag/v1.2.0)
+Install [Locho `1.3.0-beta.2`](https://github.com/trchopan/locho/releases/tag/v1.3.0-beta.2)
 on any client machine, transfer the generated
 mode-`0600` file through a trusted channel, and start both local listeners:
 
@@ -780,7 +780,7 @@ mode-`0600` file through a trusted channel, and start both local listeners:
 locho attach --config openlia-attachments.toml
 ```
 
-Locho `1.2.0` also supports custom relay transports and configurable HTTP
+Locho `1.3.0-beta.2` also supports custom relay transports and configurable HTTP
 timeouts. Set `relay_config` in a `[locho]` section to a protected relay TOML
 file and, when needed, set `relay_secrets` there to a separate mode-0600 dotenv file. The
 relay file is mounted into OpenLia's Locho containers; relay bearer tokens are

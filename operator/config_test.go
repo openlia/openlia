@@ -23,9 +23,9 @@ func testConfig(repo, runtime string) Config {
 		DataRoot:          filepath.Join(runtime, "hermes"),
 		SystemSkillsRoot:  filepath.Join(runtime, "system-skills"),
 		LochoRoot:         filepath.Join(runtime, "locho"),
-		LochoVersion:      "1.2.0",
-		LochoX8664SHA256:  "7687311a3fe9671ac6f75427712dc556b15517493e892d9f81be7d0355bdd5f1",
-		LochoARM64SHA256:  "80d089b3fdabe063b4c89fc6685e9bd0f297190d1af86d0f54624ba63d217b97",
+		LochoVersion:      "1.3.0-beta.2",
+		LochoX8664SHA256:  "5efec3f6d1e6ac86017f86bb3dd6f60bb9234cbab223bc9028ee63161ad550a0",
+		LochoARM64SHA256:  "235fb616581636f9f34c47c707fa8af620748d86e1cd86afc49fcbfae14b4267",
 		SecretDir:         filepath.Join(runtime, "secrets"),
 		SecretFile:        filepath.Join(runtime, "secrets", "hermes.env"),
 		BackupRoot:        filepath.Join(runtime, "backups"),
@@ -130,19 +130,19 @@ func TestLoadConfigFromEnv(t *testing.T) {
 		"OPENLIA_WORKSPACE_UI_AUTH_REQUIRED":    "true",
 		"OPENLIA_OPEN_WEBUI_HOST":               "127.0.0.1",
 		"OPENLIA_OPEN_WEBUI_PORT":               "8090",
-		"OPENLIA_OPEN_WEBUI_IMAGE":              "ghcr.io/open-webui/open-webui:main",
+		"OPENLIA_OPEN_WEBUI_IMAGE":              "ghcr.io/open-webui/open-webui:v0.12.3@sha256:a537bbe1e6b428820f52ed4a029d7fff97062e24d5cf32c365fba36fd0542def",
 		"OPENLIA_OPEN_WEBUI_AUTH":               "false",
-		"OPENLIA_LOCHO_VERSION":                 "1.2.0",
+		"OPENLIA_LOCHO_VERSION":                 "1.3.0-beta.2",
 		"OPENLIA_LOCHO_X86_64_SHA256":           "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"OPENLIA_LOCHO_ARM64_SHA256":            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !config.LocalMode || !config.SkillsConfigured || config.OutputLanguage != "vi" || config.WorkspaceUIHost != "0.0.0.0" || config.WorkspaceUIPort != 8090 || config.WorkspaceUIPublicOrigin != "https://workspace.example.test" || config.OpenWebUIHost != "127.0.0.1" || config.OpenWebUIPort != 8090 || config.OpenWebUIImage != "ghcr.io/open-webui/open-webui:main" || config.OpenWebUIAuth != false || config.OpenLiaReleaseSHA256 != releaseDigest || config.LochoX8664SHA256 != strings.Repeat("a", 64) || config.LochoARM64SHA256 != strings.Repeat("b", 64) || len(config.EnabledSkills) != 2 || config.IngestionMaxConcurrentJobs != 2 || config.BackupRetention != 4 || config.BackupMaxBytes != 123456789 || config.BackupRemoteRetentionDays != 17 || config.NetworkName != "example-private" || config.Provider != "copilot" || len(config.FallbackProviders) != 2 || config.FallbackProviders[0].BaseURL != "https://gateway.example.test/v1" || config.FallbackProviders[1].Model != "official-model" {
+	if !config.LocalMode || !config.SkillsConfigured || config.OutputLanguage != "vi" || config.WorkspaceUIHost != "0.0.0.0" || config.WorkspaceUIPort != 8090 || config.WorkspaceUIPublicOrigin != "https://workspace.example.test" || config.OpenWebUIHost != "127.0.0.1" || config.OpenWebUIPort != 8090 || config.OpenWebUIImage != "ghcr.io/open-webui/open-webui:v0.12.3@sha256:a537bbe1e6b428820f52ed4a029d7fff97062e24d5cf32c365fba36fd0542def" || config.OpenWebUIAuth != false || config.OpenLiaReleaseSHA256 != releaseDigest || config.LochoX8664SHA256 != strings.Repeat("a", 64) || config.LochoARM64SHA256 != strings.Repeat("b", 64) || len(config.EnabledSkills) != 2 || config.IngestionMaxConcurrentJobs != 2 || config.BackupRetention != 4 || config.BackupMaxBytes != 123456789 || config.BackupRemoteRetentionDays != 17 || config.NetworkName != "example-private" || config.Provider != "copilot" || len(config.FallbackProviders) != 2 || config.FallbackProviders[0].BaseURL != "https://gateway.example.test/v1" || config.FallbackProviders[1].Model != "official-model" {
 		t.Fatalf("unexpected typed config: %+v", config)
 	}
-	wantImage := toolcatalog.ManagedHermesImage("example", "v2026.9.14", "sha256:99641e57ec762c59e54cb44aa6746b7fc68c18b3c5ddb088af54234c613d9294", toolcatalog.DefaultDebianSnapshot)
+	wantImage := toolcatalog.ManagedHermesImage("example", "v0.22.4", "sha256:7a69201726bc64db2072a1371557137c23312d29705cda2b8ea2a0214a50a4cf", toolcatalog.DefaultDebianSnapshot)
 	if config.HermesImage != wantImage {
 		t.Fatalf("managed Hermes image = %q, want %q", config.HermesImage, wantImage)
 	}

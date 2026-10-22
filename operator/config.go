@@ -222,12 +222,12 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 		OpenLiaRevision:            values["OPENLIA_REVISION"],
 		OpenLiaReleaseSHA256:       values["OPENLIA_RELEASE_SHA256"],
 		FallbackProviders:          fallbackProviders,
-		HermesImage:                getOr(values, "OPENLIA_HERMES_IMAGE", "openlia-hermes:v2026.9.14"),
-		HermesVersion:              getOr(values, "OPENLIA_HERMES_VERSION", getOr(values, "HERMES_BASE_TAG", "v2026.9.14")),
-		LochoImage:                 getOr(values, "OPENLIA_LOCHO_IMAGE", "openlia-locho:v1.2.0"),
-		LochoVersion:               getOr(values, "OPENLIA_LOCHO_VERSION", "1.2.0"),
-		LochoX8664SHA256:           getOr(values, "OPENLIA_LOCHO_X86_64_SHA256", "7687311a3fe9671ac6f75427712dc556b15517493e892d9f81be7d0355bdd5f1"),
-		LochoARM64SHA256:           getOr(values, "OPENLIA_LOCHO_ARM64_SHA256", "80d089b3fdabe063b4c89fc6685e9bd0f297190d1af86d0f54624ba63d217b97"),
+		HermesImage:                getOr(values, "OPENLIA_HERMES_IMAGE", "openlia-hermes:v0.22.4"),
+		HermesVersion:              getOr(values, "OPENLIA_HERMES_VERSION", getOr(values, "HERMES_BASE_TAG", "v0.22.4")),
+		LochoImage:                 getOr(values, "OPENLIA_LOCHO_IMAGE", "openlia-locho:v1.3.0-beta.2"),
+		LochoVersion:               getOr(values, "OPENLIA_LOCHO_VERSION", "1.3.0-beta.2"),
+		LochoX8664SHA256:           getOr(values, "OPENLIA_LOCHO_X86_64_SHA256", "5efec3f6d1e6ac86017f86bb3dd6f60bb9234cbab223bc9028ee63161ad550a0"),
+		LochoARM64SHA256:           getOr(values, "OPENLIA_LOCHO_ARM64_SHA256", "235fb616581636f9f34c47c707fa8af620748d86e1cd86afc49fcbfae14b4267"),
 		LochoRelayConfig:           values["OPENLIA_LOCHO_RELAY_CONFIG"],
 		LochoRelaySecrets:          values["OPENLIA_LOCHO_RELAY_SECRETS"],
 		ExternalNetwork:            values["OPENLIA_EXTERNAL_NETWORK"],
@@ -336,7 +336,7 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 	}
 	config.OpenWebUIHost = values["OPENLIA_OPEN_WEBUI_HOST"]
 	config.OpenWebUIPort = openWebUIPort
-	config.OpenWebUIImage = getOr(values, "OPENLIA_OPEN_WEBUI_IMAGE", "ghcr.io/open-webui/open-webui:main")
+	config.OpenWebUIImage = getOr(values, "OPENLIA_OPEN_WEBUI_IMAGE", "ghcr.io/open-webui/open-webui:v0.12.3@sha256:a537bbe1e6b428820f52ed4a029d7fff97062e24d5cf32c365fba36fd0542def")
 	config.OpenWebUIAuth = openWebUIAuth
 	config.OpenWebUIGoogleClientID = values["OPENLIA_OPEN_WEBUI_GOOGLE_CLIENT_ID"]
 	config.OpenWebUIGoogleClientSecret = values["OPENLIA_OPEN_WEBUI_GOOGLE_CLIENT_SECRET"]
@@ -389,8 +389,8 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 	if strings.TrimSpace(values["OPENLIA_HERMES_IMAGE"]) == "" {
 		config.HermesImage = toolcatalog.ManagedHermesImage(
 			config.ProjectName,
-			getOr(values, "HERMES_BASE_TAG", "v2026.9.14"),
-			getOr(values, "HERMES_BASE_DIGEST", "sha256:99641e57ec762c59e54cb44aa6746b7fc68c18b3c5ddb088af54234c613d9294"),
+			getOr(values, "HERMES_BASE_TAG", "v0.22.4"),
+			getOr(values, "HERMES_BASE_DIGEST", "sha256:7a69201726bc64db2072a1371557137c23312d29705cda2b8ea2a0214a50a4cf"),
 			getOr(values, "DEBIAN_SNAPSHOT", toolcatalog.DefaultDebianSnapshot),
 		)
 	}

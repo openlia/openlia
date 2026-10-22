@@ -1,13 +1,13 @@
 services:
   hermes:
-    image: "${OPENLIA_HERMES_IMAGE:-openlia-hermes:v2026.9.14}"
+    image: "${OPENLIA_HERMES_IMAGE:-openlia-hermes:v0.22.4}"
     build:
       context: ..
       dockerfile: docker/Dockerfile
       args:
         HERMES_BASE_IMAGE: "${HERMES_BASE_IMAGE:-nousresearch/hermes-agent}"
-        HERMES_BASE_TAG: "${HERMES_BASE_TAG:-v2026.9.14}"
-        HERMES_BASE_DIGEST: "${HERMES_BASE_DIGEST:-sha256:99641e57ec762c59e54cb44aa6746b7fc68c18b3c5ddb088af54234c613d9294}"
+        HERMES_BASE_TAG: "${HERMES_BASE_TAG:-v0.22.4}"
+        HERMES_BASE_DIGEST: "${HERMES_BASE_DIGEST:-sha256:7a69201726bc64db2072a1371557137c23312d29705cda2b8ea2a0214a50a4cf}"
         BUN_VERSION: "${BUN_VERSION:-1.2.22}"
         BUN_X86_64_SHA256: "${BUN_X86_64_SHA256:-4c446af1a01d7b40e1e11baebc352f9b2bfd12887e51b97dd3b59879cee2743a}"
         BUN_AARCH64_SHA256: "${BUN_AARCH64_SHA256:-a97c687fb5e54de4e2fb0869a7ac9a2d9c3af75ac182e2b68138c1dd8f98131b}"
@@ -72,7 +72,7 @@ services:
         max-file: "5"
 
   backup-scheduler:
-    image: "${OPENLIA_BACKUP_SCHEDULER_IMAGE:-openlia-backup-scheduler:v2026.9.14}"
+    image: "${OPENLIA_BACKUP_SCHEDULER_IMAGE:-openlia-backup-scheduler:v0.22.4}"
     profiles: ["backup"]
     build:
       context: ..
