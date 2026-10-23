@@ -14,6 +14,7 @@ import (
 	"github.com/robfig/cron/v3"
 	"openlia/internal/releaseinfo"
 	"openlia/internal/toolcatalog"
+	"openlia/internal/webuiauth"
 )
 
 // Config is the typed view of the OPENLIA_* settings consumed by the
@@ -84,6 +85,8 @@ type Config struct {
 	OpenWebUIPort                 int
 	OpenWebUIImage                string
 	OpenWebUIAuth                 bool
+	OpenWebUIAdminEmail           string
+	OpenWebUIAdminPasswordHash    string
 	OpenWebUIGoogleClientID       string
 	OpenWebUIGoogleClientSecret   string
 	OpenWebUIURL                  string
@@ -341,6 +344,11 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 	config.OpenWebUIPort = openWebUIPort
 	config.OpenWebUIImage = getOr(values, "OPENLIA_OPEN_WEBUI_IMAGE", releaseinfo.Default.OpenWebUI.Ref())
 	config.OpenWebUIAuth = openWebUIAuth
+	config.OpenWebUIAdminEmail = values["OPENLIA_OPEN_WEBUI_ADMIN_EMAIL"]
+	config.OpenWebUIAdminPasswordHash = values["OPENLIA_OPEN_WEBUI_ADMIN_PASSWORD_HASH"]
+	if err := webuiauth.ValidateAdmin(config.OpenWebUIAdminEmail, config.OpenWebUIAdminPasswordHash, config.OpenWebUIAuth, values["OPENLIA_OPEN_WEBUI_GOOGLE_CLIENT_ID"]); err != nil {
+		return Config{}, err
+	}
 	config.OpenWebUIGoogleClientID = values["OPENLIA_OPEN_WEBUI_GOOGLE_CLIENT_ID"]
 	config.OpenWebUIGoogleClientSecret = values["OPENLIA_OPEN_WEBUI_GOOGLE_CLIENT_SECRET"]
 	config.OpenWebUIURL = values["OPENLIA_OPEN_WEBUI_URL"]
@@ -645,6 +653,9 @@ func (c Config) ValidatePaths() error {
 		return err
 	}
 	if err := validateWorkspaceUI(c.WorkspaceUIHost, c.WorkspaceUIPort, c.WorkspaceUIAuthRequired, c.WorkspaceUIPasswordHashFile, c.WorkspaceUIFirebaseProjectID, c.WorkspaceUIAllowedEmails, c.WorkspaceUIFirebaseAPIKey, c.WorkspaceUIFirebaseAuthDomain); err != nil {
+		return err
+	}
+	if err := webuiauth.ValidateAdmin(c.OpenWebUIAdminEmail, c.OpenWebUIAdminPasswordHash, c.OpenWebUIAuth, c.OpenWebUIGoogleClientID); err != nil {
 		return err
 	}
 	if err := validateOpenWebUI(c.OpenWebUIHost, c.OpenWebUIPort, c.OpenWebUIGoogleClientID, c.OpenWebUIGoogleClientSecret, c.OpenWebUIURL, c.OpenWebUIAllowedDomains, c.OpenWebUIAllowedEmails, c.OpenWebUIEnableOAuthSignup); err != nil {

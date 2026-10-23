@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"openlia/internal/releaseinfo"
+	"openlia/internal/webuiauth"
 )
 
 type LochoService struct {
@@ -452,6 +453,9 @@ func generateAttachmentsFile(config Config) error {
 			builder.WriteString("      WEBUI_AUTH: \"True\"\n")
 		} else {
 			builder.WriteString("      WEBUI_AUTH: \"False\"\n")
+		}
+		if config.OpenWebUIAdminPasswordHash != "" {
+			builder.WriteString("      ENABLE_LOGIN_FORM: \"True\"\n      ENABLE_PASSWORD_AUTH: \"True\"\n      ENABLE_SIGNUP: \"False\"\n")
 		}
 		if config.OpenWebUIGoogleClientID != "" {
 			builder.WriteString("      ENABLE_OAUTH: \"True\"\n")
@@ -1007,6 +1011,9 @@ func EnsureOpenWebUISecrets(config Config) error {
 	if config.OpenWebUIHost == "" {
 		return nil
 	}
+	if err := webuiauth.ValidateAdmin(config.OpenWebUIAdminEmail, config.OpenWebUIAdminPasswordHash, config.OpenWebUIAuth, config.OpenWebUIGoogleClientID); err != nil {
+		return err
+	}
 	if err := ensureSecretDirectory(config); err != nil {
 		return err
 	}
@@ -1077,6 +1084,11 @@ func EnsureOpenWebUISecrets(config Config) error {
 	if len(config.OpenWebUIAllowedEmails) > 0 {
 		syncWebUIAllowedUsers(filepath.Join(config.OpenWebUIDataRoot, "webui.db"), config.OpenWebUIAllowedEmails)
 	}
+	if config.OpenWebUIAdminPasswordHash != "" {
+		if err := syncWebUIAdmin(filepath.Join(config.OpenWebUIDataRoot, "webui.db"), config.OpenWebUIAdminEmail, config.OpenWebUIAdminPasswordHash); err != nil {
+			return err
+		}
+	}
 	if err := AtomicWriteFile(openWebUIEnvPath, []byte(content), 0o600); err != nil {
 		return err
 	}
@@ -1102,17 +1114,29 @@ func syncWebUIDatabaseKey(dbPath, apiKey string) {
 }
 
 func syncWebUIAllowedUsers(dbPath string, allowedEmails []string) {
-	if len(allowedEmails) == 0 {
-		return
-	}
-	encoded, err := json.Marshal(allowedEmails)
-	if err != nil {
-		return
-	}
-	pyScript := fmt.Sprintf(`import sqlite3, json, time, uuid
+	_ = syncWebUIUsers(dbPath, allowedEmails, "")
+}
 
-db_path = %q
-allowed_emails = json.loads(%q)
+func syncWebUIAdmin(dbPath, email, passwordHash string) error {
+	return syncWebUIUsers(dbPath, []string{strings.ToLower(email)}, passwordHash)
+}
+
+// Password-admin mode updates only the configured account. OAuth mode retains
+// the allowlist role reconciliation used by existing deployments.
+func syncWebUIUsers(dbPath string, allowedEmails []string, passwordHash string) error {
+	if len(allowedEmails) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(map[string]any{"db_path": dbPath, "allowed_emails": allowedEmails, "password_hash": passwordHash})
+	if err != nil {
+		return err
+	}
+	pyScript := `import sqlite3, json, time, uuid, sys
+
+payload = json.load(sys.stdin)
+db_path = payload["db_path"]
+allowed_emails = payload["allowed_emails"]
+password_hash = payload["password_hash"]
 
 conn = sqlite3.connect(db_path)
 cursor = conn.cursor()
@@ -1170,15 +1194,35 @@ for index, email in enumerate(allowed_emails):
     if cursor.fetchone():
         cursor.execute('UPDATE "auth" SET email = ?, active = 1 WHERE id = ?', (clean_email, user_id))
     else:
-        cursor.execute('INSERT INTO "auth" (id, email, password, active) VALUES (?, ?, ?, ?)', (user_id, clean_email, "", 1))
+        cursor.execute('INSERT INTO "auth" (id, email, password, active) VALUES (?, ?, ?, ?)', (user_id, clean_email, password_hash, 1))
+    if password_hash:
+        # Newer WebUI versions use session_stamp to revoke prior sessions.
+        auth_columns = {row[1] for row in cursor.execute('PRAGMA table_info("auth")')}
+        if "session_stamp" in auth_columns:
+            cursor.execute('UPDATE "auth" SET session_stamp = ? WHERE id = ? AND password != ?', (str(uuid.uuid4()), user_id, password_hash))
+        cursor.execute('UPDATE "auth" SET password = ? WHERE id = ?', (password_hash, user_id))
 
 # Demote any users whose email is not in allowed_emails to pending
-placeholders = ",".join("?" for _ in allowed_emails)
-cursor.execute(f'UPDATE "user" SET role = "pending", updated_at = ? WHERE email NOT IN ({placeholders}) AND role != "pending"', [now] + allowed_emails)
+if not password_hash:
+    placeholders = ",".join("?" for _ in allowed_emails)
+    cursor.execute(f'UPDATE "user" SET role = "pending", updated_at = ? WHERE email NOT IN ({placeholders}) AND role != "pending"', [now] + allowed_emails)
+else:
+    # Existing persisted settings take precedence over environment defaults.
+    # Reconcile only these two keys; leave all other WebUI preferences intact.
+    config_columns = {row[1] for row in cursor.execute('PRAGMA table_info("config")')}
+    if {"key", "value"}.issubset(config_columns):
+        for key, value in (("ui.enable_login_form", True), ("ui.enable_signup", False)):
+            cursor.execute('UPDATE "config" SET value = ? WHERE key = ?', (json.dumps(value), key))
 
 conn.commit()
 conn.close()
-`, dbPath, string(encoded))
+`
 
-	_ = exec.Command("python3", "-c", pyScript).Run()
+	cmd := exec.Command("python3", "-c", pyScript)
+	// Keep the verifier out of process arguments and error messages.
+	cmd.Stdin = strings.NewReader(string(encoded))
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("seed Open WebUI accounts: %w", err)
+	}
+	return nil
 }

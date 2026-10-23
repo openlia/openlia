@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/term"
 )
 
@@ -62,14 +63,18 @@ func hashWorkspaceUIPassword(value string) (string, error) {
 }
 
 func readWorkspaceUIPassword(prompt string) (string, error) {
+	return readUIPassword("workspace-ui", prompt)
+}
+
+func readUIPassword(component, prompt string) (string, error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return "", fmt.Errorf("workspace-ui password setup requires an interactive terminal")
+		return "", fmt.Errorf("%s password setup requires an interactive terminal", component)
 	}
 	fmt.Fprint(os.Stderr, prompt)
 	value, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Fprintln(os.Stderr)
 	if err != nil {
-		return "", fmt.Errorf("read workspace-ui password: %w", err)
+		return "", fmt.Errorf("read %s password: %w", component, err)
 	}
 	return string(value), nil
 }
@@ -140,6 +145,46 @@ func commandWorkspaceUI(options Options, args []string) int {
 	// This command intentionally prints the verifier without the usual output redaction.
 	if _, err := fmt.Fprintln(os.Stdout, hash); err != nil {
 		return fail(options, ExitFailure, "write workspace-ui password hash: "+err.Error(), nil)
+	}
+	return ExitOK
+}
+
+func hashOpenWebUIPassword(value string) (string, error) {
+	if value == "" || len(value) > 72 {
+		return "", fmt.Errorf("open-webui password must contain between 1 and 72 bytes")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(value), 12)
+	if err != nil {
+		return "", fmt.Errorf("hash open-webui password: %w", err)
+	}
+	return string(hash), nil
+}
+
+func commandOpenWebUI(options Options, args []string) int {
+	if len(args) != 1 || args[0] != "password" {
+		return fail(options, ExitUsage, "open-webui requires the password subcommand", nil)
+	}
+	if options.NonInteractive {
+		return fail(options, ExitUsage, "open-webui password requires an interactive terminal", nil)
+	}
+	first, err := readUIPassword("open-webui", "New open-webui password: ")
+	if err != nil {
+		return fail(options, ExitUsage, err.Error(), nil)
+	}
+	second, err := readUIPassword("open-webui", "Repeat open-webui password: ")
+	if err != nil {
+		return fail(options, ExitUsage, err.Error(), nil)
+	}
+	if first != second {
+		return fail(options, ExitUsage, "open-webui passwords do not match", nil)
+	}
+	hash, err := hashOpenWebUIPassword(first)
+	if err != nil {
+		return fail(options, ExitUsage, err.Error(), nil)
+	}
+	// Intentionally bypass redaction for this explicitly requested verifier.
+	if _, err := fmt.Fprintln(os.Stdout, hash); err != nil {
+		return fail(options, ExitFailure, "write open-webui password hash: "+err.Error(), nil)
 	}
 	return ExitOK
 }
