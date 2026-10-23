@@ -53,6 +53,7 @@ import type {
 import { suggestPasswordProfiles } from "../shared/passwordSuggester";
 import { ApiError, type WorkspaceApi } from "./api";
 import { mockUsage } from "./usageMock";
+import { createChatMock } from "./chatMock";
 
 export type MockWorkspaceScenario =
   | "default"
@@ -795,6 +796,7 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         ? { ...treeResponse(), entries: [] }
         : treeResponse();
     },
+    chat: createChatMock(),
     async loadSession(): Promise<AuthSessionResponse> {
       if (scenario === "error") throw error(500, "request_failed");
       if (scenario === "loading") await new Promise<void>(() => undefined);

@@ -249,7 +249,7 @@ func generateAttachmentsFile(config Config) error {
 			return err
 		}
 	}
-	if config.APIEnabled || config.OpenWebUIHost != "" {
+	if config.APIEnabled || config.OpenWebUIHost != "" || config.WorkspaceUIHost != "" {
 		if err := ensureAPIServerEnv(config, apiEnvPath); err != nil {
 			return err
 		}
@@ -307,7 +307,7 @@ func generateAttachmentsFile(config Config) error {
 	}
 
 	var builder strings.Builder
-	hasHermesEnv := config.APIEnabled || config.OpenWebUIHost != "" || config.ExternalNetwork != "" || browserURL != "" || ingestionURL != "" || config.WorkspaceUIPublicOrigin != "" || len(allServices) > 0
+	hasHermesEnv := config.APIEnabled || config.OpenWebUIHost != "" || config.WorkspaceUIHost != "" || config.ExternalNetwork != "" || browserURL != "" || ingestionURL != "" || config.WorkspaceUIPublicOrigin != "" || len(allServices) > 0
 	schedulerVolumes := append(backupSchedulerIdentityVolumes(config), backupSchedulerCredentialVolumes(config)...)
 	hasGeneratedServices := hasHermesEnv || config.WorkspaceUIHost != "" || config.OpenWebUIHost != "" || len(hosts.Hosts) > 0 || len(schedulerVolumes) > 0
 	if !hasGeneratedServices {
@@ -320,7 +320,7 @@ func generateAttachmentsFile(config Config) error {
 				fmt.Fprintf(&builder, "    ports:\n      - %q\n", config.APIHost+":8642:8642")
 			}
 			builder.WriteString("    environment:\n")
-			if config.APIEnabled || config.OpenWebUIHost != "" {
+			if config.APIEnabled || config.OpenWebUIHost != "" || config.WorkspaceUIHost != "" {
 				builder.WriteString("      API_SERVER_ENABLED: \"true\"\n      API_SERVER_HOST: \"0.0.0.0\"\n")
 			}
 			if config.WorkspaceUIPublicOrigin != "" {
@@ -338,7 +338,7 @@ func generateAttachmentsFile(config Config) error {
 					fmt.Fprintf(&builder, "      %s: %q\n", envKey, svc.Endpoint)
 				}
 			}
-			if config.APIEnabled || config.OpenWebUIHost != "" {
+			if config.APIEnabled || config.OpenWebUIHost != "" || config.WorkspaceUIHost != "" {
 				quotedAPIEnvPath, _ := json.Marshal(apiEnvPath)
 				builder.WriteString("    env_file:\n      - ")
 				builder.Write(quotedAPIEnvPath)
@@ -387,6 +387,7 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("      OPENLIA_MEMORIES_ROOT: /memories\n")
 		builder.WriteString("      OPENLIA_MIGRATIONS_ROOT: /migrations\n")
 		builder.WriteString("      OPENLIA_RUNTIME_ROOT: /var/lib/openlia\n")
+		builder.WriteString("      OPENLIA_HERMES_API_URL: http://hermes:8642\n")
 		builder.WriteString("      OPENLIA_WORKSPACE_UI_SHARES_DB: /var/lib/openlia/shares.sqlite\n")
 		builder.WriteString("      OPENLIA_DATA_ROOT: /workspace/..\n")
 		quotedPublicOrigin, _ := json.Marshal(config.WorkspaceUIPublicOrigin)
@@ -406,6 +407,10 @@ func generateAttachmentsFile(config Config) error {
 		} else if config.WorkspaceUIAuthRequired {
 			builder.WriteString("      OPENLIA_WORKSPACE_UI_AUTH_REQUIRED: \"true\"\n      OPENLIA_WORKSPACE_UI_PASSWORD_HASH_FILE: /run/openlia-secrets/workspace-ui-password.hash\n      OPENLIA_WORKSPACE_UI_SESSION_DB: /var/lib/openlia/sessions.sqlite\n")
 		}
+		quotedChatAPIEnvPath, _ := json.Marshal(apiEnvPath)
+		builder.WriteString("    env_file:\n      - ")
+		builder.Write(quotedChatAPIEnvPath)
+		builder.WriteString("\n")
 		builder.WriteString("    volumes:\n      - type: bind\n        source: ")
 		builder.Write(workspace)
 		builder.WriteString("\n        target: /workspace\n      - type: bind\n        source: ")
@@ -620,7 +625,13 @@ func writeLochoHostConfig(config Config) error {
 
 func ensureAPIServerEnv(config Config, path string) error {
 	apiKey, err := readSecretValue(config.SecretFile, "API_SERVER_KEY")
-	if err != nil || apiKey == "" {
+	if config.WorkspaceUIHost != "" || config.OpenWebUIHost != "" {
+		apiKey, err = ensureHermesAPIKey(config)
+	}
+	if err != nil {
+		return fmt.Errorf("prepare Hermes API credential: %w", err)
+	}
+	if apiKey == "" {
 		return fmt.Errorf("API_SERVER_KEY is required for the Hermes API server")
 	}
 	if err := ensureSecretDirectory(config); err != nil {
@@ -1021,6 +1032,18 @@ func EnsureOpenWebUISecrets(config Config) error {
 		return err
 	}
 	openWebUIEnvPath := filepath.Join(config.SecretDir, "open-webui.env")
+	apiKey, err := ensureHermesAPIKey(config)
+	if err != nil {
+		return err
+	}
+	return writeOpenWebUIEnv(config, openWebUIEnvPath, apiKey)
+}
+
+// Shared by native Workspace UI chat and the optional Open WebUI service.
+func ensureHermesAPIKey(config Config) (string, error) {
+	if err := ensureSecretDirectory(config); err != nil {
+		return "", err
+	}
 
 	hermesDotEnv := filepath.Join(config.DataRoot, ".env")
 	apiKey, err := readSecretValue(hermesDotEnv, "API_SERVER_KEY")
@@ -1030,14 +1053,14 @@ func EnsureOpenWebUISecrets(config Config) error {
 	if err != nil || apiKey == "" {
 		buf := make([]byte, 16)
 		if _, randErr := rand.Read(buf); randErr != nil {
-			return fmt.Errorf("generate api key: %w", randErr)
+			return "", fmt.Errorf("generate api key: %w", randErr)
 		}
 		apiKey = "sk-openlia-" + hex.EncodeToString(buf)
 		currentData, readErr := os.ReadFile(config.SecretFile)
 		if os.IsNotExist(readErr) {
 			currentData = []byte("# Add KEY=VALUE lines through the operator's secret rotation workflow.\n")
 		} else if readErr != nil {
-			return fmt.Errorf("read secret file: %w", readErr)
+			return "", fmt.Errorf("read secret file: %w", readErr)
 		}
 		newContent := string(currentData)
 		if !strings.HasSuffix(newContent, "\n") && len(newContent) > 0 {
@@ -1045,7 +1068,7 @@ func EnsureOpenWebUISecrets(config Config) error {
 		}
 		newContent += fmt.Sprintf("API_SERVER_KEY=%s\n", apiKey)
 		if writeErr := AtomicWriteFile(config.SecretFile, []byte(newContent), 0o600); writeErr != nil {
-			return fmt.Errorf("write api server key: %w", writeErr)
+			return "", fmt.Errorf("write api server key: %w", writeErr)
 		}
 	}
 
@@ -1056,17 +1079,28 @@ func EnsureOpenWebUISecrets(config Config) error {
 				currentDotEnv, readErr := os.ReadFile(hermesDotEnv)
 				if os.IsNotExist(readErr) {
 					currentDotEnv = []byte{}
+				} else if readErr != nil {
+					return "", fmt.Errorf("read Hermes environment: %w", readErr)
 				}
 				dotEnvText := string(currentDotEnv)
 				if !strings.HasSuffix(dotEnvText, "\n") && len(dotEnvText) > 0 {
 					dotEnvText += "\n"
 				}
 				dotEnvText += fmt.Sprintf("API_SERVER_KEY=%s\n", apiKey)
-				_ = AtomicWriteFile(hermesDotEnv, []byte(dotEnvText), 0o600)
+				if writeErr := AtomicWriteFile(hermesDotEnv, []byte(dotEnvText), 0o600); writeErr != nil {
+					return "", writeErr
+				}
+				if ownerErr := ensureRuntimeOwner(hermesDotEnv, config.RuntimeUID, config.RuntimeGID, 0o600); ownerErr != nil {
+					return "", ownerErr
+				}
 			}
 		}
 	}
 
+	return apiKey, nil
+}
+
+func writeOpenWebUIEnv(config Config, openWebUIEnvPath, apiKey string) error {
 	webuiSecret, _ := readSecretValue(openWebUIEnvPath, "WEBUI_SECRET_KEY")
 	if webuiSecret == "" {
 		buf := make([]byte, 16)

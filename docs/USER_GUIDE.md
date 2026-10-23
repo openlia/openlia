@@ -43,13 +43,24 @@ Telegram is typically the primary daily channel for mobile interactions.
 - **Voice Notes**: Speak your mind on the go. Lia transcribes and captures your voice recordings into structured inbox notes.
 - **Interactive Approvals**: When an action requires confirmation (such as modifying an external schedule or making an irreversible change), Lia prompts you in chat before executing.
 
-### B. Open WebUI (Desktop Chat & Multi-Turn Discussions)
+### B. Workspace UI Chat (Browser Conversations)
+Open the **Chat** tab at `http://localhost:8089/chat` (or your usual private
+Workspace UI address). No separate service or login is required.
+- Conversations and tool history are saved by Hermes and can be resumed later.
+- Rename, pin, archive, or delete Workspace chats; other Hermes sessions are
+  available as read-only history.
+- Replies stream live, with tool activity, approval controls, Stop, and explicit
+  guidance for a running agent. Leaving the page does not stop the agent.
+- Everyone allowed into the workspace can see its chats. These are not private
+  per-user inboxes.
+
+### C. Open WebUI (Optional Alternative)
 If your deployment enables Open WebUI (accessible at `http://localhost:8090` or via an SSH tunnel):
 - Full-featured browser-based chat interface.
 - Ideal for deep research sessions, structured brainstorming, reviewing lengthy drafts, and analyzing complex decision trade-offs.
 - Retains local chat history while seamlessly delegating tasks to your workspace.
 
-### C. Workspace UI (Document Browser & Editor)
+### D. Workspace UI (Document Browser & Editor)
 If your deployment enables the Workspace UI (accessible at `http://localhost:8089` or via an SSH tunnel):
 - Web-based explorer for your entire personal workspace.
 - View Markdown files with live preview, examine YAML frontmatter, inspect Git status, and make direct manual edits.

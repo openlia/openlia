@@ -7,6 +7,7 @@ import {
 } from "../shared/memory";
 
 export type MainTab =
+  | "chat"
   | "documents"
   | "skills"
   | "shares"
@@ -96,6 +97,8 @@ export function parseRoute(
     } else if (host === "migration") {
       if (raw) migrationId = safeDecodeURIComponent(raw);
       tab = "migration";
+    } else if (host === "chat") {
+      tab = "chat";
     } else if (host === "usage") {
       tab = "usage";
     } else if (host === "schedule" || host === "cron") {
@@ -151,6 +154,8 @@ export function parseRoute(
     pathname.startsWith("/git-activity/")
   ) {
     tab = "git-activity";
+  } else if (pathname === "/chat") {
+    tab = "chat";
   } else if (pathname === "/usage") {
     tab = "usage";
   } else if (pathname === "/schedule" || pathname.startsWith("/schedule/")) {
@@ -161,6 +166,7 @@ export function parseRoute(
 
   const tabParam = url.searchParams.get("tab");
   if (
+    tabParam === "chat" ||
     tabParam === "skills" ||
     tabParam === "shares" ||
     tabParam === "documents" ||
@@ -231,6 +237,8 @@ export function buildRouteUrl(route: WorkspaceRoute): string {
     pathname = `/share/${encodeURIComponent(route.shareId)}`;
   } else if (route.tab === "shares") {
     pathname = "/shares";
+  } else if (route.tab === "chat") {
+    pathname = "/chat";
   } else if (route.tab === "usage") {
     pathname = "/usage";
   } else if (route.tab === "schedule") {

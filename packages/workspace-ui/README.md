@@ -9,6 +9,58 @@ TanStack Start owns the SSR request, typed route tree, and server-function
 transport. The existing REST endpoints remain available for compatibility and
 for browser-native binary uploads and downloads.
 
+## Native chat
+
+Open **Chat** (`/chat`) to talk to Lia without a separate Open WebUI service.
+Chat reuses Workspace UI authentication. **All people allowed into a workspace
+share its chat history**; this is not a multi-tenant, per-user chat service.
+
+- Create, rename, pin, archive (with immediate undo), and delete Workspace chats.
+- Stream replies, inspect tool activity/results, respond to approvals, stop runs,
+  or explicitly send guidance to an agent that is still running.
+- Select a model route advertised by Hermes, or leave **Hermes default** selected.
+  The run's reported model is displayed when available. This is not a separate
+  provider/credential configuration or a session model-lock editor.
+- Browse other Hermes sessions, such as Telegram or CLI conversations, read-only.
+- Filter loaded chat titles and load more history. Full-history search, an archive
+  browser, attachments, voice, sharing, and message editing/branching are not yet
+  supported. Archived sessions can be restored through Hermes; the current Hermes
+  API does not expose an archive listing to this UI.
+
+Hermes owns transcripts and compaction lineage. Workspace UI does not read or write
+`state.db`. Its `chat.sqlite` contains only session ownership/lineage and retry/run
+routing metadata. Preserve this file alongside runtime data when moving an install:
+without it, existing Workspace chats become read-only rather than being silently
+claimed by another installation. Production stores it in
+`<root>/runtime/workspace-ui/chat.sqlite`; standalone servers use
+`OPENLIA_RUNTIME_ROOT/chat.sqlite` or `~/.openlia/cache/workspace-ui/chat.sqlite`.
+This runtime metadata is not included in the default durable backup.
+
+The UI uses detached `/v1/runs`, not the disconnect-sensitive session chat stream.
+Navigating away or refreshing disconnects the observer, not the agent. Replay uses
+bounded Hermes event retention; expired events are reconciled with saved messages
+and run status. A gateway restart can interrupt a run; it is never automatically
+resubmitted. Stop is cooperative and does not undo completed tool actions. A lost
+send response is retried with the same idempotency key and unchanged message;
+drafts/retry identities are kept in browser session storage. Sending requires
+Hermes' durable run idempotency. An unresolved retry is refused once its safety
+window expires (at most 23 hours, bounded by Hermes' advertised retention), or
+after its API credential changes. If its outcome remains unknown, inspect Hermes
+before resubmitting elsewhere.
+
+Generated Compose enables the private Hermes API whenever Workspace UI is enabled,
+and supplies only its API credential to the server through `api-server.env`.
+No new service or public Hermes API port is needed. Existing deployments must
+regenerate Compose and recreate **both Hermes and Workspace UI** after upgrading.
+Open WebUI remains optional and unchanged.
+
+For standalone `dev:real`/preview servers, set `OPENLIA_HERMES_API_URL` to the
+Hermes API base (without `/v1`) and `API_SERVER_KEY` on the **server**, never through
+a `VITE_` variable. Without these variables, Chat shows a configuration message and
+the other Workspace UI features remain usable. The mock development server has
+stateful sample chats and simulated runs. The pinned Hermes release must advertise
+session resources, run status, and run SSE support; unsupported controls are hidden.
+
 ## LLM usage monitoring
 
 The **Usage** page combines Hermes, ingestion, and migration estimates. Automatic

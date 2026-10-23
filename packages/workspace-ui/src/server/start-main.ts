@@ -63,6 +63,11 @@ function clientAsset(request: Request): Response | undefined {
 const server = Bun.serve({
   async fetch(request, instance) {
     const url = new URL(request.url);
+    if (
+      request.method === "GET" &&
+      /^\/api\/chat\/runs\/[^/]+\/events$/.test(url.pathname)
+    )
+      instance.timeout(request, 0);
     const clientAddress = instance.requestIP(request)?.address;
     if (url.pathname === "/health" || url.pathname.startsWith("/api/")) {
       return legacyHandler(

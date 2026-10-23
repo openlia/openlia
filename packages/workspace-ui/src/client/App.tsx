@@ -42,6 +42,7 @@ import { isJournalPath, isMarkdownPath, isRemindPath } from "./CodeEditor";
 import { CreateSkillModal } from "./CreateSkillModal";
 import { ConfigurationPage } from "./ConfigurationPage";
 import { SchedulePage } from "./SchedulePage";
+import { ChatPage } from "./ChatPage";
 import { ShareModal } from "./ShareModal";
 import { SharedLinksSection } from "./SharedLinksSection";
 import { SharePublicView } from "./SharePublicView";
@@ -883,6 +884,8 @@ export function App({
             setActiveTab("shares");
           } else if (route.tab === "usage") {
             setActiveTab("usage");
+          } else if (route.tab === "chat") {
+            setActiveTab("chat");
           } else if (route.tab === "schedule") {
             setActiveTab("schedule");
           } else if (route.tab === "configuration") {
@@ -1213,6 +1216,8 @@ export function App({
           });
         } else if (route.tab === "usage") {
           setPendingAction({ kind: "switchTab", tab: "usage" });
+        } else if (route.tab === "chat") {
+          setPendingAction({ kind: "switchTab", tab: "chat" });
         } else if (route.tab === "schedule") {
           setPendingAction({ kind: "switchTab", tab: "schedule" });
         } else if (route.tab === "configuration") {
@@ -1275,6 +1280,8 @@ export function App({
         }
       } else if (route.tab === "usage") {
         setActiveTab("usage");
+      } else if (route.tab === "chat") {
+        setActiveTab("chat");
       } else if (route.tab === "schedule") {
         setActiveTab("schedule");
       } else if (route.tab === "configuration") {
@@ -1312,6 +1319,8 @@ export function App({
       document.title = "Git Activity - OpenLia Workspace";
     } else if (activeTab === "ingestion") {
       document.title = "Ingestion - OpenLia Workspace";
+    } else if (activeTab === "chat") {
+      document.title = "Chat - OpenLia Workspace";
     } else if (activeTab === "usage") {
       document.title = "Usage - OpenLia Workspace";
     } else if (activeTab === "configuration") {
@@ -1401,6 +1410,8 @@ export function App({
           setActiveTab("shares");
         } else if (route.tab === "usage") {
           setActiveTab("usage");
+        } else if (route.tab === "chat") {
+          setActiveTab("chat");
         } else if (route.tab === "schedule") {
           setActiveTab("schedule");
         } else if (route.tab === "configuration") {
@@ -1494,6 +1505,8 @@ export function App({
           setActiveTab("shares");
         } else if (route.tab === "usage") {
           setActiveTab("usage");
+        } else if (route.tab === "chat") {
+          setActiveTab("chat");
         } else if (route.tab === "schedule") {
           setActiveTab("schedule");
         } else if (route.tab === "configuration") {
@@ -2911,6 +2924,8 @@ export function App({
             </div>
           )}
         </div>
+      ) : activeTab === "chat" ? (
+        <ChatPage api={api.chat} />
       ) : activeTab === "shares" ? (
         <div className="workspace-layout xl:grid-cols-1">
           <SharedLinksSection

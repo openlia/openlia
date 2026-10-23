@@ -22,6 +22,7 @@ export function WorkspaceHeader({
   onTabChange,
 }: {
   activeTab?:
+    | "chat"
     | "documents"
     | "skills"
     | "shares"
@@ -45,6 +46,7 @@ export function WorkspaceHeader({
   onTabChange?:
     | ((
         tab:
+          | "chat"
           | "documents"
           | "skills"
           | "shares"
@@ -99,6 +101,16 @@ export function WorkspaceHeader({
           aria-label="Workspace navigation"
           className="workspace-nav join order-3 flex w-full max-w-full shrink-0 flex-nowrap overflow-x-auto border border-base-content/15 rounded-lg bg-base-200/60 p-0.5 xl:order-none xl:w-auto xl:mr-2"
         >
+          {onTabChange && (
+            <button
+              aria-current={activeTab === "chat" ? "page" : undefined}
+              className={`btn btn-xs join-item shrink-0 ${activeTab === "chat" ? "btn-primary shadow-xs" : "btn-ghost text-base-content/70"}`}
+              onClick={() => onTabChange("chat")}
+              type="button"
+            >
+              Chat
+            </button>
+          )}
           {(onOpenDocuments || onTabChange) && (
             <button
               aria-current={
