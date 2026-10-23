@@ -320,7 +320,7 @@ def _validate_template(
 
 def _validate_document(
     path: Path,
-    schema: dict[str, Any],
+    schema: dict[str, Any] | None,
     root: Path,
     template_path: Path | None = None,
 ) -> list[str]:
@@ -328,13 +328,19 @@ def _validate_document(
     if path.is_symlink():
         return [f"{relative}: symbolic links are not validated"]
     try:
-        metadata, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+        if schema is not None:
+            metadata, body = parse_frontmatter(text)
+        else:
+            metadata, body = parse_optional_frontmatter(text)
     except (OSError, UnicodeError, ValueError) as exc:
         return [f"{relative}: {exc}"]
-    errors = [
-        f"{relative}: {error}"
-        for error in validate_frontmatter(_without_schema_directive(metadata), schema)
-    ]
+    errors = []
+    if schema is not None:
+        errors.extend(
+            f"{relative}: {error}"
+            for error in validate_frontmatter(_without_schema_directive(metadata or {}), schema)
+        )
     if template_path is not None and template_path.is_file():
         try:
             template_headings = extract_headings(template_path.read_text(encoding="utf-8"))
@@ -434,6 +440,7 @@ def validate_workspace(workspace_root: Path) -> list[str]:
         return errors + ["no ordinary *-template.md files found; no schemas or records were validated"]
     templates_by_domain: dict[Path, list[Path]] = {}
     schemas_by_template: dict[Path, dict[str, Any]] = {}
+    invalid_templates: set[Path] = set()
     referenced_schemas: set[Path] = set(referenced_registry_schemas)
     referenced_schemas.update(referenced_policy_schemas)
 
@@ -449,9 +456,11 @@ def validate_workspace(workspace_root: Path) -> list[str]:
         domain = template.parent
         templates_by_domain.setdefault(domain, []).append(template)
         template_errors, schema, schema_path = _validate_template(
-            template, root, require_frontmatter=True
+            template, root, require_frontmatter=False
         )
         errors.extend(template_errors)
+        if template_errors:
+            invalid_templates.add(template)
         if schema_path is not None:
             referenced_schemas.add(schema_path)
         if schema is not None:
@@ -470,8 +479,8 @@ def validate_workspace(workspace_root: Path) -> list[str]:
 
         template = domain_templates[0]
         schema = schemas_by_template.get(template)
-        if schema is None:
-            # Frontmatter and schema errors were reported alongside the template.
+        if template in invalid_templates:
+            # An invalid schema is not permission to fall back or skip its errors.
             continue
         for record in sorted(domain.rglob("*.md")):
             if record.name.endswith(TEMPLATE_SUFFIX):

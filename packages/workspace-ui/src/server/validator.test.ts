@@ -88,6 +88,59 @@ test("isolates schemas with the same ID at different paths", () => {
   );
 });
 
+test("plain nested menu template stops project schema inheritance", () => {
+  writeDomain("projects", "active");
+  mkdirSync(join(root, "projects/daily-menu"));
+  writeFileSync(
+    join(root, "projects/daily-menu/menu-template.md"),
+    "# Daily Menu\n\n## Lunch\n\n## Dinner\n",
+  );
+  const result = validateRecordContent(
+    root,
+    "projects/daily-menu/2026-10-23.md",
+    "# Friday\n\n## Lunch\nRice\n\n## Dinner\nSoup\n",
+  );
+  expect(result.valid).toBe(true);
+  expect(result.schema_path).toBeUndefined();
+  expect(result.template_path).toBe("projects/daily-menu/menu-template.md");
+  expect(
+    validateRecordContent(root, "projects/ordinary/note.md", "# No metadata")
+      .valid,
+  ).toBe(false);
+  expect(
+    validateRecordContent(
+      root,
+      "projects/daily-menu/2026-10-24.md",
+      "# Missing sections",
+    ).valid,
+  ).toBe(false);
+});
+
+test("missing or invalid nested schema does not fall back to parent", () => {
+  writeDomain("projects", "posted");
+  mkdirSync(join(root, "projects/daily-menu"));
+  writeFileSync(
+    join(root, "projects/daily-menu/menu-template.md"),
+    "---\n$schema: ./missing.schema.json\n---\n# Menu\n\n## Lunch\n",
+  );
+  const result = validateRecordContent(
+    root,
+    "projects/daily-menu/day.md",
+    content,
+  );
+  expect(result.valid).toBe(false);
+  expect(result.errors).toContain(
+    "Failed to load schema from projects/daily-menu/missing.schema.json",
+  );
+  writeFileSync(
+    join(root, "projects/daily-menu/menu-template.md"),
+    "---\nstatus: draft\n---\n# Menu\n",
+  );
+  expect(
+    validateRecordContent(root, "projects/daily-menu/day.md", content).valid,
+  ).toBe(false);
+});
+
 test("detects misspelled template section headings in records", () => {
   writeDomain("tasks", "posted");
   const typoContent =

@@ -1,7 +1,7 @@
 ---
 name: workspace-template-customization
-description: Customize and validate user-owned workspace templates and frontmatter schemas.
-version: 0.1.0
+description: Design, propose, apply approved workspace organization, and validate user-owned templates and optional schemas.
+version: 0.2.0
 system: true
 forkable: false
 protected: true
@@ -27,14 +27,20 @@ other skills, or existing records without explicit approval.
   `/opt/data/workspace/assistant-policy.schema.json`. It is user-owned and
   controls routine workspace and scheduled actions. A missing or malformed
   policy must not authorize delegated writes.
+- Prefer a plain Markdown template without frontmatter when a reusable format
+  is sufficient. Add a schema only when validation, querying, or automation has
+  concrete value, not merely because a folder is new.
 - A template with YAML frontmatter must include a `$schema` property containing
   a local relative path to its JSON Schema, resolved from the template file. The
   referenced file must remain inside the workspace root or the owning skill
   directory. For example, `goals/goal-template.md` may use
   `$schema: ./goal-template.schema.json`.
-- Workspace schemas apply to every non-template Markdown file in the template's
-  folder and its subfolders. A more-specific nested template governs its own
-  subtree. The `$schema` property is a validator directive, not record metadata.
+- Workspace templates govern their folder and subfolders. A more-specific
+  nested template, including a plain schema-free template, governs its own
+  subtree instead of inheriting the parent schema. Supporting artifacts need
+  not pretend to be parent-domain records. Never silently remove or weaken an
+  existing contract. The `$schema` property is a validator directive, not record
+  metadata.
 - Skill templates without frontmatter are checked for Markdown template
   structure. Skill templates with frontmatter must declare `$schema` and have
   their metadata validated against the referenced schema.
@@ -66,25 +72,56 @@ instructions.
 1. Read `AGENTS.md`, `README.md`, `workspace.yaml`, and `assistant-policy.yaml`
    when present, plus the selected template and schema and relevant existing
    records.
-2. Clarify the intended path, purpose, lifecycle, fields, value types, allowed
-   values, nullability, and Markdown sections. Do not invent personal data or
-   field semantics.
-3. Prefer an existing registered domain. If it is insufficient, propose a
-   registry extension with its path, purpose, route/context tags, and
-   template/schema plan.
-4. Propose changes to the registry, template, schema, and workspace instructions
-   together when they form one extension contract.
-5. Show the complete proposed diff and explain any effect on existing records.
-6. Wait for explicit approval before writing workspace files. A request to
-   inspect or validate is not approval to customize.
-7. After an approved registry or template/schema change, run the validator and report all
-   invalid existing records. Do not rewrite records as part of this step.
-8. If the user requests a migration, propose field mappings and examples first;
-   wait for separate explicit approval before changing records, then validate
-   the result.
-9. After an approved coherent workspace update, follow the workspace Git
-   instructions and create a local `backup:` commit containing only approved
-   files.
+2. Act as the workspace architect. Infer a sensible design from the user's use
+   case and existing conventions; ask only for missing product decisions, not
+   for YAML, schema types, or a directory-design exercise. Do not invent personal
+   data or field semantics. Ordinary nested folders within an authorized domain
+   need no extension proposal merely to save a requested file.
+3. For a recurring use case needing structure, draft the smallest useful folder
+   layout and template, plus a schema only if justified. Prefer an existing
+   domain. Register a semantic extension when introducing a reusable contract,
+   routing, or lifecycle, not every lightweight folder or intermediate ancestor.
+   Draft necessary `workspace.yaml` changes yourself; a routed extension needs
+   context tags and must not silently replace a core route.
+4. Present a semantic proposal: what the user gets, where it lives, the proposed
+   format, and any effect on existing content or routing. Offer **Confirm,
+   Adjust, or Cancel**. Keep the exact path/content changes available for review
+   without making the user read a diff or edit infrastructure. Include the
+   original requested artifact in the same scoped proposal.
+5. Use one `patch` call with `mode="patch"` for the coherent structural changes and first artifact,
+   including required registry edits. Present the product explanation before
+   submitting it to Hermes' tool approval gate; that gate is the confirmation
+   when available, not a second infrastructure approval after a conversational
+   confirmation. Never claim chat approval bypasses the runtime gate. Do not
+   write a persistent approval flag or request an always-allow rule. Adjust means
+   revise and resubmit; Cancel means no writes. Approval applies only to the
+   specific batch, not other restructuring, delegation-policy changes, external
+   effects, destructive operations, or scheduled jobs. Preserve explicit denies.
+6. Once confirmed, apply only the approved changes and run the workspace
+   validator. Keep the batch additive where possible. If application or
+   validation fails, report the actual state and stop; do not claim success,
+   automatically delete files to roll back, or expand the scope to repair
+   unrelated existing records. Report pre-existing validation failures separately.
+7. Continue the original task automatically after successful validation. Return
+   its requested file, not just scaffolding. No extra "shall I proceed?" prompt.
+   If migration of existing records is necessary, propose mappings and examples
+   and obtain separate explicit approval before changing them.
+8. Follow workspace Git instructions. Routine interactive customization does not
+   need an immediate commit; local Git history is recorded in the background.
+
+### Example: Daily Menu
+
+For a recurring family meal-planning request with the destination
+`projects/daily-menu/YYYY-MM-DD.md`, recommend a Daily Menu extension there with
+`menu-template.md` and the requested dated file. A suitable plain template has
+sections for lunch, dinner, individual portions, shopping quantities, estimated
+cost, and relevant constraints. Do not fabricate medical facts or promise
+medical outcomes. Explain that a schema and automatic scheduling are unnecessary
+unless a concrete automation need exists. Draft the extension's registry entry
+with purpose and lifecycle if establishing this reusable contract; do not add a
+new global routing category just for menus. One scoped confirmation covers the
+structure, template, registry entry, and original sample menu. Apply, validate,
+then return the menu without asking the user to design infrastructure.
 
 When the user edits templates or schemas through Workspace UI, validation is
 available on demand using the command above. Never overwrite a workspace

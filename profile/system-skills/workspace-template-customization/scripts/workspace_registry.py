@@ -255,14 +255,14 @@ def load_registry(workspace: str | Path, *, required: bool = False) -> dict[str,
         raise ValueError(
             f"workspace registry core domains must remain kind core: {', '.join(non_core_roots)}"
         )
+    # Organizational ancestors need not be semantic domains. Register the
+    # extension contract, not every intermediate folder.
     for path_value in seen:
-        parts = path_value.split("/")
-        for depth in range(1, len(parts)):
-            parent = "/".join(parts[:depth])
-            if parent not in seen:
-                raise ValueError(
-                    f"workspace registry path {path_value} has unregistered parent {parent}"
-                )
+        root_name = path_value.split("/", 1)[0]
+        if root_name not in seen:
+            raise ValueError(
+                f"workspace registry path {path_value} has unregistered root {root_name}"
+            )
     briefing_paths = {
         domain["path"]
         for domain in domains

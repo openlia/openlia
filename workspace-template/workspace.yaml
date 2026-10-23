@@ -1,8 +1,9 @@
 $schema: ./workspace.schema.json
 version: 1
 
-# This registry is user-owned. Add an extension only after deciding its purpose,
-# path, lifecycle, and template/schema requirements.
+# This registry is user-owned. The agent designs semantic extensions; the user
+# approves their scoped purpose, path, lifecycle, and template/schema plan.
+# Ordinary organizational folders do not each need an entry. Schemas are optional.
 domains:
   - path: inbox
     kind: core

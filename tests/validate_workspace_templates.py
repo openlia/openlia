@@ -155,7 +155,9 @@ def validate_bundle() -> list[str]:
     expected_schemas: set[str] = set()
     for path in BUNDLE_ROOT.rglob("*-template.md"):
         try:
-            metadata, _ = validator.parse_frontmatter(path.read_text(encoding="utf-8"))
+            metadata, _ = validator.parse_optional_frontmatter(path.read_text(encoding="utf-8"))
+            if metadata is None:
+                continue
             schema_path = validator._resolve_template_schema(
                 metadata.get("$schema"), path, BUNDLE_ROOT
             )

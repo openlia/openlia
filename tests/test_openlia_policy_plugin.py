@@ -51,6 +51,115 @@ class PolicyPluginTests(unittest.TestCase):
             )
         )
 
+    def test_ordinary_nested_folder_does_not_need_registration(self):
+        self.assertIsNone(
+            self.policy.pre_tool_call(
+                "write_file", {"path": "projects/daily-menu/2026-10-23.md", "content": "# Menu"}
+            )
+        )
+
+    def test_structure_is_approved_as_one_exact_batch_not_delegated(self):
+        args = {
+            "mode": "patch",
+            "patch": (
+                "*** Update File: workspace.yaml\n@@\n+  # proposed menu extension\n"
+                "*** Add File: projects/daily-menu/menu-template.md\n+# Menu\n+## Lunch\n"
+                "*** Add File: projects/daily-menu/2026-10-23.md\n+# Friday\n+## Lunch\n"
+            ),
+        }
+        decision = self.policy.pre_tool_call("patch", args)
+        self.assertEqual(decision["action"], "approve")
+        self.assertTrue(decision["rule_key"].startswith("openlia.policy.workspace_structure."))
+        changed = {**args, "patch": args["patch"].replace("Friday", "Saturday")}
+        self.assertNotEqual(
+            decision["rule_key"], self.policy.pre_tool_call("patch", changed)["rule_key"]
+        )
+        # Model-supplied approval cannot bypass the trusted Hermes gate.
+        self.assertEqual(
+            self.policy.pre_tool_call("patch", {**args, "approved": True})["action"], "approve"
+        )
+        directory = self.workspace / "projects/daily-menu"
+        self.assertFalse(directory.exists())  # Proposing never applies changes.
+        directory.mkdir()
+        (directory / "2026-10-23.md").write_text("newer user work")
+        self.assertNotEqual(
+            decision["rule_key"], self.policy.pre_tool_call("patch", args)["rule_key"]
+        )
+
+    def test_template_and_schema_changes_require_approval(self):
+        for path in (
+            "projects/project-template.md", "projects/project-template.schema.json",
+            "projects/AGENTS.md", "workspace.yaml",
+        ):
+            decision = self.policy.pre_tool_call(
+                "patch", {
+                    "mode": "patch", "patch": f"*** Update File: {path}\n@@\n+reviewed change\n"
+                }
+            )
+            self.assertEqual(decision["action"], "approve", path)
+
+    def test_new_top_level_extension_needs_registry_batch(self):
+        path = "menus/2026-10-23.md"
+        decision = self.policy.pre_tool_call("write_file", {"path": path, "content": "# Menu"})
+        self.assertEqual(decision["action"], "block")
+        args = {
+            "mode": "patch",
+            "patch": (
+                "*** Update File: workspace.yaml\n@@\n+  # proposed extension\n"
+                f"*** Add File: {path}\n+# Menu\n"
+            ),
+        }
+        self.assertEqual(self.policy.pre_tool_call("patch", args)["action"], "approve")
+        # No follow-on capability was granted by requesting or approving a batch.
+        follow_on = self.policy.pre_tool_call(
+            "write_file", {"path": "menus/other.md", "content": "other"}
+        )
+        self.assertEqual(follow_on["action"], "block")
+
+    def test_structural_batch_preserves_safety_boundaries(self):
+        prefix = "*** Update File: workspace.yaml\n@@\n+  # extension\n"
+        (self.workspace / "projects/escape").symlink_to(self.workspace.parent, target_is_directory=True)
+        for path in (
+            "../outside.md", ".git/config", "assistant-policy.yaml", "projects/escape/outside.md"
+        ):
+            decision = self.policy.pre_tool_call(
+                "patch", {"mode": "patch", "patch": prefix + f"*** Add File: {path}\n+no\n"}
+            )
+            self.assertEqual(decision["action"], "block", path)
+        self.policy.on_session_start(session_id="scheduled", platform="cron")
+        decision = self.policy.pre_tool_call(
+            "patch", {"mode": "patch", "patch": prefix}, session_id="scheduled"
+        )
+        self.assertEqual(decision["action"], "block")
+
+    def test_structural_batch_cannot_override_destructive_deny(self):
+        path = self.workspace / "assistant-policy.yaml"
+        path.write_text(path.read_text().replace("delete_records: ask", "delete_records: deny"))
+        decision = self.policy.pre_tool_call(
+            "patch", {
+                "mode": "patch",
+                "patch": (
+                    "*** Update File: workspace.yaml\n@@\n+  # extension\n"
+                    "*** Delete File: projects/project-template.md\n"
+                ),
+            }
+        )
+        self.assertEqual(decision["action"], "block")
+        path.write_text(path.read_text().replace("overwrite_records: ask", "overwrite_records: deny"))
+        decision = self.policy.pre_tool_call(
+            "write_file", {"path": "projects/project-template.md", "content": "replacement"}
+        )
+        self.assertEqual(decision["action"], "block")
+
+    def test_move_cannot_bypass_structural_approval(self):
+        decision = self.policy.pre_tool_call(
+            "patch", {
+                "mode": "patch",
+                "patch": "*** Move File: projects/note.md -> projects/menu-template.md\n",
+            }
+        )
+        self.assertEqual(decision["action"], "block")
+
     def test_patch_update_is_allowed_but_direct_overwrite_requires_approval(self):
         policy = self.policy
         target = self.workspace / "travel" / "kyoto-trip.md"
@@ -144,6 +253,15 @@ class PolicyPluginTests(unittest.TestCase):
         decision = policy.pre_tool_call("terminal", {"command": "python3 build.py"})
         self.assertEqual(decision["action"], "approve")
         self.assertEqual(decision["rule_key"], "openlia.policy.terminal_write")
+
+    def test_protected_validation_is_read_only_without_extra_approval(self):
+        script = HELPER_PATH.parent / "validate_workspace.py"
+        command = f"/opt/hermes/.venv/bin/python {script} --workspace-root {self.workspace} --json"
+        self.assertIsNone(self.policy.pre_tool_call("terminal", {"command": command}))
+        for unsafe in (command + "; touch bad", command + " > output.json", command.replace(str(script), "other.py"), command + " --self-test"):
+            self.assertIsNotNone(self.policy.pre_tool_call("terminal", {"command": unsafe}), unsafe)
+        (self.workspace / "workspace.yaml").write_text("not: [valid")
+        self.assertIsNone(self.policy.pre_tool_call("terminal", {"command": command}))
 
     def test_unclassified_mutating_tool_requires_approval(self):
         decision = self.policy.pre_tool_call("skill_manage", {"action": "patch"})
