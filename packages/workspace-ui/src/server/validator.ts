@@ -137,8 +137,61 @@ export function isSimilarHeading(expected: string, actual: string): boolean {
 
 export interface DomainTemplateInfo {
   templateRelativePath: string;
-  schemaRelativePath: string;
-  schemaAbsolutePath: string;
+  schemaRelativePath?: string;
+  schemaAbsolutePath?: string;
+  error?: string;
+}
+
+function templateInfo(
+  root: string,
+  templateAbsolute: string,
+): DomainTemplateInfo {
+  const templateRelativePath = relative(root, templateAbsolute).replaceAll(
+    "\\",
+    "/",
+  );
+  const info: DomainTemplateInfo = { templateRelativePath };
+  const content = readFileSync(templateAbsolute, "utf-8");
+  const { hasFrontmatter, metadata } = parseRecordFrontmatter(content);
+  if (!hasFrontmatter) {
+    return /^---\r?\n/.test(content)
+      ? {
+          ...info,
+          error: `Malformed template frontmatter: ${templateRelativePath}`,
+        }
+      : info;
+  }
+  if (
+    !metadata ||
+    typeof metadata.$schema !== "string" ||
+    !metadata.$schema.trim()
+  ) {
+    return {
+      ...info,
+      error: `Invalid template frontmatter or missing $schema: ${templateRelativePath}`,
+    };
+  }
+  const schemaAbsolutePath = resolve(
+    dirname(templateAbsolute),
+    metadata.$schema,
+  );
+  if (
+    schemaAbsolutePath !== root &&
+    !schemaAbsolutePath.startsWith(root + sep)
+  ) {
+    return {
+      ...info,
+      error: `Template schema escapes workspace: ${templateRelativePath}`,
+    };
+  }
+  return {
+    ...info,
+    schemaAbsolutePath,
+    schemaRelativePath: relative(root, schemaAbsolutePath).replaceAll(
+      "\\",
+      "/",
+    ),
+  };
 }
 
 export function findDomainTemplate(
@@ -161,34 +214,9 @@ export function findDomainTemplate(
             !entry.name.startsWith(".")
           ) {
             const templateAbsolute = join(currentDir, entry.name);
-            const templateRelative = relative(
-              root,
-              templateAbsolute,
-            ).replaceAll("\\", "/");
-            const templateContent = readFileSync(templateAbsolute, "utf-8");
-            const { metadata } = parseRecordFrontmatter(templateContent);
-            const schemaRef =
-              metadata && typeof metadata.$schema === "string"
-                ? metadata.$schema.trim()
-                : null;
-            if (schemaRef) {
-              const schemaAbsolute = resolve(currentDir, schemaRef);
-              if (
-                existsSync(schemaAbsolute) &&
-                (schemaAbsolute === root ||
-                  schemaAbsolute.startsWith(root + sep))
-              ) {
-                const schemaRelative = relative(
-                  root,
-                  schemaAbsolute,
-                ).replaceAll("\\", "/");
-                return {
-                  schemaAbsolutePath: schemaAbsolute,
-                  schemaRelativePath: schemaRelative,
-                  templateRelativePath: templateRelative,
-                };
-              }
-            }
+            // A plain nested template is a boundary too; never inherit its
+            // parent's schema merely because this template has no schema.
+            return templateInfo(root, templateAbsolute);
           }
         }
       } catch {}
@@ -228,37 +256,11 @@ export function findDomainTemplate(
         }
         if (bestMatch?.template) {
           const templateAbsolute = resolve(root, bestMatch.template);
-          if (existsSync(templateAbsolute)) {
-            const templateRelative = relative(
-              root,
-              templateAbsolute,
-            ).replaceAll("\\", "/");
-            const templateContent = readFileSync(templateAbsolute, "utf-8");
-            const { metadata } = parseRecordFrontmatter(templateContent);
-            const schemaRef =
-              metadata && typeof metadata.$schema === "string"
-                ? metadata.$schema.trim()
-                : null;
-            if (schemaRef) {
-              const schemaAbsolute = resolve(
-                dirname(templateAbsolute),
-                schemaRef,
-              );
-              if (
-                existsSync(schemaAbsolute) &&
-                (schemaAbsolute === root ||
-                  schemaAbsolute.startsWith(root + sep))
-              ) {
-                return {
-                  schemaAbsolutePath: schemaAbsolute,
-                  schemaRelativePath: relative(root, schemaAbsolute).replaceAll(
-                    "\\",
-                    "/",
-                  ),
-                  templateRelativePath: templateRelative,
-                };
-              }
-            }
+          if (
+            templateAbsolute.startsWith(root + sep) &&
+            existsSync(templateAbsolute)
+          ) {
+            return templateInfo(root, templateAbsolute);
           }
         }
       }
@@ -464,44 +466,62 @@ export function validateRecordContent(
   }
 
   const { hasFrontmatter, metadata } = parseRecordFrontmatter(content);
-  if (!hasFrontmatter) {
+  if (domain.error) {
+    return {
+      errors: [domain.error],
+      template_path: domain.templateRelativePath,
+      valid: false,
+    };
+  }
+  if (domain.schemaAbsolutePath && !hasFrontmatter) {
     return {
       errors: [
         `File must begin with YAML frontmatter conforming to ${domain.templateRelativePath}`,
       ],
-      schema_path: domain.schemaRelativePath,
+      ...(domain.schemaRelativePath
+        ? { schema_path: domain.schemaRelativePath }
+        : {}),
       template_path: domain.templateRelativePath,
       valid: false,
     };
   }
 
-  if (metadata === null) {
+  if (
+    (hasFrontmatter && metadata === null) ||
+    (!hasFrontmatter && /^---\r?\n/.test(content))
+  ) {
     return {
       errors: ["YAML frontmatter is malformed or not a valid object"],
-      schema_path: domain.schemaRelativePath,
+      ...(domain.schemaRelativePath
+        ? { schema_path: domain.schemaRelativePath }
+        : {}),
       template_path: domain.templateRelativePath,
       valid: false,
     };
   }
 
-  const validator = getCompiledValidator(domain.schemaAbsolutePath);
-  if (!validator) {
+  const validator = domain.schemaAbsolutePath
+    ? getCompiledValidator(domain.schemaAbsolutePath)
+    : null;
+  if (domain.schemaAbsolutePath && !validator) {
     return {
       errors: [`Failed to load schema from ${domain.schemaRelativePath}`],
-      schema_path: domain.schemaRelativePath,
+      ...(domain.schemaRelativePath
+        ? { schema_path: domain.schemaRelativePath }
+        : {}),
       template_path: domain.templateRelativePath,
       valid: false,
     };
   }
 
   const dataWithoutSchema: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(metadata)) {
+  for (const [key, val] of Object.entries(metadata ?? {})) {
     if (key !== "$schema") dataWithoutSchema[key] = val;
   }
 
-  const isValid = validator(dataWithoutSchema);
+  const isValid = validator ? validator(dataWithoutSchema) : true;
   const errors: string[] = [];
-  if (!isValid && validator.errors) {
+  if (!isValid && validator?.errors) {
     for (const error of validator.errors) {
       const location = error.instancePath
         ? `frontmatter${error.instancePath}`
@@ -585,7 +605,9 @@ export function validateRecordContent(
 
   return {
     errors,
-    schema_path: domain.schemaRelativePath,
+    ...(domain.schemaRelativePath
+      ? { schema_path: domain.schemaRelativePath }
+      : {}),
     template_path: domain.templateRelativePath,
     valid: errors.length === 0,
   };

@@ -351,12 +351,19 @@ superseded records rather than being silently overwritten.
 ### Workspace Growth
 
 The starter workspace keeps a stable core of 15 top-level domains. Each copied
-workspace also contains a user-owned `workspace.yaml` registry for approved
-nested folders and new top-level domains. Hermes and bundled skills read this
-registry before routing records; they do not create a new category because one
-item appears to fit it. Unknown destinations remain in the inbox while the
-agent proposes a purpose, lifecycle, and template/schema plan. The protected
-`workspace-template-customization` skill validates approved registry changes.
+workspace also contains a user-owned `workspace.yaml` registry for semantic
+extensions and routing contracts. Ordinary nested folders need no registration.
+For a new recurring use case, the assistant inspects the workspace, designs a
+suitable location and template, and presents **Confirm, Adjust, or Cancel**.
+Schemas are optional. A scoped confirmation covers the proposed structure and
+original requested artifact; the agent applies, validates, and continues the
+task using the protected `workspace-template-customization` flow. It does not
+grant general permission to reorganize the workspace or change delegation.
+
+Existing workspace instructions remain user-owned and are preserved on update.
+If they still require registering every folder, include their scoped instruction
+update in an approved customization proposal rather than overwriting them with
+the bundled defaults.
 
 ## Cross-Domain Capabilities
 

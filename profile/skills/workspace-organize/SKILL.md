@@ -95,7 +95,8 @@ Read relevant sources across the workspace:
      line count, year coverage, and include structure; propose explicit yearly
      paths within the registered finance domain, such as `finance/2025.hledger`
      and `finance/2026.hledger`, included by the existing main entry point. Do
-     not invent a new folder without a registry proposal. Identify existing
+      not introduce a semantic extension without a proposal. Ordinary nested
+      folders within an authorized domain do not need registration. Identify existing
      target files or directive-order concerns that require review.
    - Include a handoff to [Personal Finance](openlia://skills/personal-finance)
      for authorized execution. Require preservation of whole transactions and

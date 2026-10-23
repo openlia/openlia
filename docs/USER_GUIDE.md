@@ -164,6 +164,7 @@ Lia is governed by `assistant-policy.yaml`, located at the root of your personal
 | **Reading & Analyzing Workspace** | Standing delegation | Lia reads notes, searches files, and synthesizes answers automatically. |
 | **Writing to Inbox & Daily Reports** | Standing delegation | Lia creates daily briefings and captures incoming thoughts to `inbox/`. |
 | **Updating Existing Workspace Files** | Standing delegation | Routine updates to tasks and project notes occur within registered domains. |
+| **New Recurring Workspace Structure** | Scoped approval required | Lia designs the folders, reusable template, and any necessary routing; you Confirm, Adjust, or Cancel. After confirmation, Lia applies, validates, and completes the original task. Ordinary nested folders need no registration; schemas are optional. |
 | **External Communications (Email/Chat)** | Explicit approval required | Lia prepares drafts and asks you to confirm before sending anything. |
 | **Financial Transactions / Purchases** | Explicit approval required | Lia never buys products or moves funds autonomously. |
 | **Destructive Actions / Deletions** | Explicit approval required | Lia never permanently deletes files or resets Git history without confirmation. |

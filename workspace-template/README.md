@@ -135,20 +135,32 @@ reusable personal statements in Markdown files with YAML front matter, and
 distinguish direct reports from observations and inferences. Move inactive
 material to `archive/` and retain it during routine reviews.
 
-Use only registered paths for automatic routing. If a proposed destination is
-not registered, keep the item in `inbox/` and propose the extension instead of
-creating a directory silently. A registered path alone does not authorize a
-write; check `assistant-policy.yaml` as well.
+Use registered semantic paths for automatic routing. Ordinary nested folders
+inside an authorized domain do not need registration; a scoped file request
+includes its necessary parent directories. Use `inbox/` when classification is
+genuinely unclear. A registered path alone does not authorize a write; check
+`assistant-policy.yaml` as well.
 
 ## Workspace Growth
 
-When a new nested folder or top-level domain is needed:
+The assistant is the workspace architect; the user approves the design rather
+than editing infrastructure. When a recurring use case needs reusable structure:
 
-1. Explain the recurring use case and why an existing domain is insufficient.
-2. Propose the path, purpose, lifecycle, and whether it needs a template/schema.
-3. After approval, add the entry to `workspace.yaml`; create only the approved
-   directory and starter files.
-4. Run the workspace validator and update any affected skill source lists.
+1. Inspect existing organization and recommend the smallest suitable location.
+2. Draft the folders, template, and necessary registry/routing changes. Prefer a
+   plain Markdown template; add a schema only when validation, querying, or
+   automation brings real value. Do not register every ordinary folder.
+3. Explain the proposed outcome, format, placement, and effects on existing
+   content. Offer **Confirm, Adjust, or Cancel**; keep exact file changes
+   reviewable. Include the user's original requested output in the proposal.
+4. Apply only the confirmed batch, validate it, and continue the original task
+   automatically. Approval does not authorize other restructuring, policy
+   changes, destructive actions, or external effects. Revise and reapprove if
+   the scope changes; do not rewrite existing records as an incidental migration.
+
+For example, propose `projects/daily-menu/` with a reusable menu template and
+the requested dated menu together. One confirmation creates the useful
+structure **and** the menu, not just scaffolding. A schema is not required.
 
 Registered extensions are user-owned and survive profile updates. The protected
 `workspace-template-customization` system skill validates registry changes but

@@ -904,7 +904,7 @@ export class MigrationService {
     }
 
     // Merge required schema fields or template defaults
-    if (existsSync(domain.schemaAbsolutePath)) {
+    if (domain.schemaAbsolutePath && existsSync(domain.schemaAbsolutePath)) {
       try {
         const schema = JSON.parse(
           readFileSync(domain.schemaAbsolutePath, "utf-8"),

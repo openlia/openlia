@@ -8,10 +8,13 @@ policy or pass through Hermes' existing approval gate.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
 import logging
 import os
 import re
+import shlex
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -245,6 +248,42 @@ def _registered_path(authority: Authority, relative_path: str) -> bool:
     return any(_within(relative_path, domain.get("path")) for domain in domains)
 
 
+_STRUCTURAL_ROOT_FILES = {"workspace.yaml", "workspace.schema.json", "AGENTS.md", "README.md"}
+
+
+def _structural_path(relative_path: str) -> bool:
+    """Structure is user-approved, never an ordinary delegated record write."""
+    return relative_path in _STRUCTURAL_ROOT_FILES or (
+        Path(relative_path).name == "AGENTS.md"
+        or relative_path.endswith("-template.md")
+        or relative_path.endswith(".schema.json")
+    )
+
+
+def _structure_approval(
+    args: dict[str, Any], workspace_root: Path, targets: list[tuple[str, bool] | None]
+) -> dict[str, str]:
+    # A remembered rule may only match this exact batch, never all structural
+    # writes. No model-provided approval or proposal ID confers authority.
+    # Bind remembered approvals to the workspace and pre-change state as well
+    # as the payload. Replaying a patch against newer user work needs review.
+    state = {}
+    paths = {target[0] for target in targets if target is not None}
+    paths.update({"workspace.yaml", "workspace.schema.json", "assistant-policy.yaml", "assistant-policy.schema.json"})
+    for path in sorted(paths):
+        file = workspace_root / path
+        state[path] = hashlib.sha256(file.read_bytes()).hexdigest() if file.is_file() else None
+    digest = hashlib.sha256(json.dumps({
+        "workspace": str(workspace_root), "args": args, "state": state
+    }, sort_keys=True).encode()).hexdigest()
+    return _approve(
+        "Approve only this workspace structure proposal and included files. "
+        "Review its purpose, paths, template/schema and routing effects; "
+        "then validate and continue the original task. Do not grant persistent rule approval.",
+        f"openlia.policy.workspace_structure.{digest}",
+    )
+
+
 def _safe_workspace_target(
     workspace_root: Path, raw_path: Any
 ) -> tuple[str, bool] | None:
@@ -445,15 +484,53 @@ class PolicyEnforcer:
             return _block(f"OpenLia policy could not determine the target path for {tool_name}.")
 
         pending: dict[str, str] | None = None
+        # One patch can contain a reviewed extension contract and its first record.
+        # This does not grant a session-wide capability: Hermes must approve the
+        # actual tool call, including every path and its content. Never trust an
+        # `approved` argument supplied by the model.
+        targets = [
+            _safe_workspace_target(self.workspace_root, path) for _, path, _ in operations
+        ]
+        registry_batch = any(
+            target is not None
+            and target[0] == "workspace.yaml"
+            and operation in {"add", "update", "replace"}
+            for (operation, _, _), target in zip(operations, targets)
+        )
         for operation, raw_path, second_path in operations:
             target = _safe_workspace_target(self.workspace_root, raw_path)
             if target is None:
                 return _block(f"OpenLia policy blocked unsafe workspace path: {raw_path}.")
             relative_path, exists = target
-            if not _registered_path(authority, relative_path):
+            structural = _structural_path(relative_path)
+            registered = _registered_path(authority, relative_path)
+            root_structure = relative_path in _STRUCTURAL_ROOT_FILES
+            extension_file = (
+                registry_batch
+                and not registered
+                and "/" in relative_path
+                and not relative_path.split("/", 1)[0].startswith(".")
+            )
+            # Delegation/policy files are not part of an organizational proposal.
+            if relative_path in {"assistant-policy.yaml", "assistant-policy.schema.json"}:
+                return _block("Workspace structure approval cannot change assistant delegation policy.")
+            if (structural or extension_file) and scheduled:
+                return _block("Scheduled work cannot apply workspace structural proposals.")
+            if not registered and not root_structure and not extension_file:
                 return _block(
                     f"OpenLia policy blocked workspace path outside registered domains: {relative_path}."
                 )
+
+            if structural or extension_file:
+                if operation == "move":
+                    return _block("Propose structural moves separately from additive workspace customization.")
+                if operation == "delete" or (operation in {"add", "replace"} and exists):
+                    destructive_key = "delete_records" if operation == "delete" else "overwrite_records"
+                    destructive = self._destructive_action(authority, destructive_key, relative_path)
+                    if destructive is not None and destructive.get("action") == "block":
+                        return destructive
+                pending = _structure_approval(args, self.workspace_root, targets)
+                continue
 
             if operation == "delete":
                 if authority.policy is not None and not _policy_path_allowed(authority, relative_path):
@@ -468,6 +545,8 @@ class PolicyEnforcer:
                 if destination is None:
                     return _block(f"OpenLia policy blocked unsafe move destination: {second_path}.")
                 destination_path, _ = destination
+                if _structural_path(destination_path):
+                    return _block("Propose structural moves separately from additive workspace customization.")
                 if not _registered_path(authority, destination_path):
                     return _block(
                         f"OpenLia policy blocked move destination outside registered domains: {destination_path}."
@@ -581,6 +660,32 @@ class PolicyEnforcer:
             "openlia.policy.terminal_unknown",
         )
 
+    def _workspace_validation_command(self, command: str) -> bool:
+        """Allow only the protected, read-only validator invocation, not Python generally."""
+        if re.search(r"[;&|<>`$\n\r]", command):
+            return False
+        try:
+            tokens = shlex.split(command)
+        except ValueError:
+            return False
+        script = str(self.store.helper_path.parent / "validate_workspace.py")
+        if (
+            len(tokens) < 2
+            or tokens[0] not in {"/opt/hermes/.venv/bin/python", "/opt/hermes/.venv/bin/python3"}
+            or tokens[1] != script
+        ):
+            return False
+        # Exact tokens exclude shell chaining, redirection, environment prefixes,
+        # Python options, self-tests and arbitrary extra script arguments.
+        if len(tokens) < 5 or tokens[2] != "--workspace-root":
+            return False
+        if Path(tokens[3]).expanduser().resolve() != self.workspace_root:
+            return False
+        return tokens[4:] in (
+            ["--json"],
+            ["--skill-templates-root", "/opt/data/skills", "--json"],
+        )
+
     @staticmethod
     def _read_only_command(segment: str) -> bool:
         tokens = segment.split()
@@ -616,6 +721,12 @@ class PolicyEnforcer:
                 )
         if tool_name in _READ_ONLY_TOOLS or tool_name in _BROWSER_READ_TOOLS:
             return None
+        # Validation must remain available even when a proposed registry change
+        # is invalid. It is diagnostic, not delegated workspace mutation.
+        if tool_name == "terminal":
+            command = args.get("command") or args.get("cmd")
+            if isinstance(command, str) and self._workspace_validation_command(command):
+                return None
         authority = self._load()
         scheduled = self._is_scheduled(session_id)
 

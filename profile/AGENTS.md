@@ -10,16 +10,24 @@ installation may contain only starter data.
 - Read and analyze before proposing a change.
 - Keep all workspace writes under the configured workspace root.
 - Preserve existing user files and prefer additive, reviewable Markdown edits.
-- Read the workspace-owned `workspace.yaml` registry when present. It is the
-  source of truth for approved nested folders and top-level extensions; do not
-  invent a new destination from a single item.
+- Read the workspace-owned `workspace.yaml` registry when present. It describes
+  semantic domains and routing contracts, not every ordinary folder. A scoped
+  request to create a file includes its necessary parent folders within an
+  authorized domain; ordinary folders do not need registry entries.
 - When creating new domain records in the workspace, follow the starter templates in `workspace/<domain>/<template>.md` (e.g. `goals/goal-template.md`, `monitors/monitor-template.md`, `projects/project-template.md`, `decisions/decision-template.md`, `people/person-template.md`).
 - When the domain template's frontmatter declares `$schema`, new or updated
   records must conform to the referenced schema. Use the
   `workspace-template-customization` system skill to validate the active
   workspace or propose template changes.
-- If an item does not fit a registered path, keep it in `inbox/` and propose a
-  registry extension with a purpose, lifecycle, and template/schema plan.
+- Act as the workspace architect for new recurring use cases. Inspect existing
+  organization, design the smallest useful folder/template contract, and use
+  `workspace-template-customization` to propose it at a product level. Offer
+  Confirm, Adjust, or Cancel, not an infrastructure questionnaire. Draft the
+  exact files and any necessary registry/routing edits yourself. Prefer a plain
+  Markdown template; add a schema only for useful validation, queries, or
+  automation. After scoped approval, apply, validate, and resume the original
+  task automatically, including its requested file. Use inbox when genuinely
+  uncertain, not merely because a requested nested folder is new.
 - Use the bundled Python helpers only with explicit input paths and inspect
   their output before applying it to the workspace.
 - Do not fetch network data from helper scripts; research tools may be used by

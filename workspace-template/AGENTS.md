@@ -7,7 +7,7 @@ user-owned delegation policy authorizes the scoped update.
 ## Organization
 
 - Read `workspace.yaml` before classifying a record. It is the source of truth
-  for approved nested folders and top-level workspace extensions.
+  for semantic domains and routing contracts, not an inventory of every folder.
 - Read `assistant-policy.yaml` before deciding whether a workspace write,
   scheduled action, or external action is authorized. It is user-owned and
   controls delegation; a missing policy means use ask-before-write behavior.
@@ -20,8 +20,11 @@ user-owned delegation policy authorizes the scoped update.
   `$schema` frontmatter property.
 - Use `monitors/` for conditions to watch, not for one-off tasks.
 - Use `archive/` for inactive records rather than destructive deletion.
-- Do not create a new folder because one item appears to fit it. Keep the item in
-  `inbox/` and propose a registry extension when an existing domain is not a fit.
+- Ordinary nested folders and supporting artifacts within an authorized domain
+  do not need registration. A scoped file request includes necessary parent
+  folders. For a recurring use case needing reusable organization, act as the
+  workspace architect: inspect, design, propose, obtain scoped approval, apply,
+  validate, then continue the user's original task without another prompt.
 
 ## File handling
 
@@ -50,6 +53,12 @@ user-owned delegation policy authorizes the scoped update.
   - `health/reviews/review-template.md`: source-linked medical summaries.
   - `calendar/event-note-template.md`: event agendas, notes, and follow-up items.
 - Prefer Markdown and small structured files with stable, descriptive names.
+- Distinguish semantic domain records from supporting artifacts. Use a suitable
+  nested template for recurring artifacts rather than forcing a daily menu or
+  checklist into project-record metadata. Plain Markdown templates are valid;
+  schemas are optional and should earn their complexity through validation,
+  querying, or automation. The nearest nested template governs its own subtree,
+  including when it is schema-free. Do not silently weaken existing contracts.
 - For a domain whose template frontmatter declares `$schema`, every new or
   updated Markdown record in that domain must conform to the referenced schema
   as well as the starter template. Run the `workspace-template-customization`
@@ -77,12 +86,22 @@ user-owned delegation policy authorizes the scoped update.
 ## Workspace Extensions
 
 - Prefer an existing core domain before proposing an extension.
-- A registered extension may be nested under a core domain or be a new
-  top-level domain. It must have a stable path, purpose, and lifecycle.
+- A semantic extension may be nested under a core domain or be a new top-level
+  domain. Register it when it introduces a reusable template contract, routing,
+  or lifecycle. It must have a stable path, purpose, and lifecycle; ordinary
+  organizational ancestors do not each need registration.
 - A routed extension must declare context tags in `workspace.yaml`; this keeps a
   specialized destination from silently replacing a core route.
-- Read the extension's template and schema before creating records. Unknown
-  directories are proposals, not automatic destinations.
+- Read the extension's template and schema, if any, before creating records.
+- The agent drafts the proposed folders, template, optional schema, and necessary
+  `workspace.yaml`/routing edits. Explain the outcome, placement, format, and
+  effect on existing content; offer Confirm, Adjust, or Cancel. Keep exact file
+  changes reviewable without requiring the user to design or edit infrastructure.
+- Use the protected `workspace-template-customization` flow. Approval covers
+  only the specific proposed batch, including the original requested artifact;
+  it is not permission to reorganize other content or alter delegation policy.
+  Validate after applying and continue the original task automatically. A
+  changed proposal needs renewed approval. Do not apply a proposal unattended.
 
 ## Workspace and skill links
 
