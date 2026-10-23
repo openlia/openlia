@@ -24,7 +24,7 @@ type RequestResult struct {
 // RequestRunner executes a migration request against a proposal workspace.
 type RequestRunner interface {
 	RunJob(ctx context.Context, job migration.Job, source migration.SourceEntry, proposalWorkspaceDir string) (*RequestResult, error)
-	RunRevision(ctx context.Context, revisionNum int, feedback []migration.FeedbackItem, priorDiff string, proposalWorkspaceDir string) (*RequestResult, error)
+	RunRevision(ctx context.Context, migrationID string, revisionNum int, feedback []migration.FeedbackItem, priorDiff string, proposalWorkspaceDir string) (*RequestResult, error)
 }
 
 // HermesRunnerConfig configures the Hermes execution environment.
@@ -246,11 +246,11 @@ func BuildRevisionPrompt(revisionNum int, feedback []migration.FeedbackItem, pri
 }
 
 // RunRevision executes a revision request addressing feedback comments.
-func (h *HermesRunner) RunRevision(ctx context.Context, revisionNum int, feedback []migration.FeedbackItem, priorDiff string, proposalWorkspaceDir string) (*RequestResult, error) {
+func (h *HermesRunner) RunRevision(ctx context.Context, migrationID string, revisionNum int, feedback []migration.FeedbackItem, priorDiff string, proposalWorkspaceDir string) (*RequestResult, error) {
 	prompt := BuildRevisionPrompt(revisionNum, feedback, priorDiff)
 	dummyJob := migration.Job{
 		ID:          fmt.Sprintf("rev-%d", revisionNum),
-		MigrationID: fmt.Sprintf("revision-%d", revisionNum),
+		MigrationID: migrationID,
 	}
 	if h.cfg.DockerImage != "" {
 		return h.runDocker(ctx, dummyJob, prompt, proposalWorkspaceDir)
@@ -372,7 +372,7 @@ func (m *MockRunner) RunJob(ctx context.Context, job migration.Job, source migra
 	}, nil
 }
 
-func (m *MockRunner) RunRevision(ctx context.Context, revisionNum int, feedback []migration.FeedbackItem, priorDiff string, proposalWorkspaceDir string) (*RequestResult, error) {
+func (m *MockRunner) RunRevision(ctx context.Context, migrationID string, revisionNum int, feedback []migration.FeedbackItem, priorDiff string, proposalWorkspaceDir string) (*RequestResult, error) {
 	if m.RevisionHandler != nil {
 		return m.RevisionHandler(revisionNum, feedback, priorDiff, proposalWorkspaceDir)
 	}

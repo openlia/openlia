@@ -1,6 +1,8 @@
 package intake
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -76,5 +78,130 @@ func TestParseCSV(t *testing.T) {
 	}
 	if len(table.Header) != 3 || table.Header[1] != "Description" {
 		t.Errorf("unexpected header: %+v", table.Header)
+	}
+}
+
+type tarEntryTest struct {
+	name     string
+	data     []byte
+	typeFlag byte
+	linkname string
+}
+
+func writeTestTarGz(t *testing.T, entries []tarEntryTest) string {
+	t.Helper()
+	tmpTar := filepath.Join(t.TempDir(), "test.tar.gz")
+	f, err := os.Create(tmpTar)
+	if err != nil {
+		t.Fatalf("failed to create temp archive: %v", err)
+	}
+	defer f.Close()
+
+	gw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gw)
+
+	for _, e := range entries {
+		hdr := &tar.Header{
+			Name:     e.name,
+			Mode:     0o644,
+			Size:     int64(len(e.data)),
+			Typeflag: e.typeFlag,
+			Linkname: e.linkname,
+		}
+		if e.typeFlag == 0 {
+			hdr.Typeflag = tar.TypeReg
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatalf("failed to write tar header: %v", err)
+		}
+		if len(e.data) > 0 {
+			if _, err := tw.Write(e.data); err != nil {
+				t.Fatalf("failed to write tar data: %v", err)
+			}
+		}
+	}
+
+	tw.Close()
+	gw.Close()
+	return tmpTar
+}
+
+func TestExtractTarball_Safe(t *testing.T) {
+	entries := []tarEntryTest{
+		{name: "notes/doc.md", data: []byte("# My Note")},
+		{name: "data.csv", data: []byte("a,b,c\n1,2,3\n")},
+	}
+	tarPath := writeTestTarGz(t, entries)
+	destDir := t.TempDir()
+
+	if err := ExtractTarball(tarPath, destDir); err != nil {
+		t.Fatalf("ExtractTarball failed: %v", err)
+	}
+
+	docData, err := os.ReadFile(filepath.Join(destDir, "notes", "doc.md"))
+	if err != nil {
+		t.Fatalf("reading doc.md failed: %v", err)
+	}
+	if string(docData) != "# My Note" {
+		t.Fatalf("unexpected content: %s", string(docData))
+	}
+}
+
+func TestExtractTarball_RejectsSymlinks(t *testing.T) {
+	entries := []tarEntryTest{
+		{name: "evil_symlink", typeFlag: tar.TypeSymlink, linkname: "/etc/passwd"},
+	}
+	tarPath := writeTestTarGz(t, entries)
+	destDir := t.TempDir()
+
+	err := ExtractTarball(tarPath, destDir)
+	if err == nil {
+		t.Fatal("expected ExtractTarball to reject symlink in archive, but got nil error")
+	}
+}
+
+func TestExtractTarball_RejectsTraversal(t *testing.T) {
+	entries := []tarEntryTest{
+		{name: "../outside.txt", data: []byte("malicious content")},
+	}
+	tarPath := writeTestTarGz(t, entries)
+	destDir := t.TempDir()
+
+	err := ExtractTarball(tarPath, destDir)
+	if err == nil {
+		t.Fatal("expected ExtractTarball to reject path traversal, but got nil error")
+	}
+}
+
+func TestDetectSecretContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		content  string
+		isSecret bool
+	}{
+		{"normal markdown", "notes/doc.md", "hello world", false},
+		{"normal code", "scripts/run.py", "def main(): print(1)", false},
+		{"env file", ".env", "FOO=bar", true},
+		{"env production", ".env.production", "FOO=bar", true},
+		{"private key pem", "id_rsa", "-----BEGIN RSA PRIVATE KEY-----\nMIIE...", true},
+		{"private key content in file", "secret.txt", "-----BEGIN OPENSSH PRIVATE KEY-----\n...", true},
+		{"github token", "cfg.txt", "ghp_123456789012345678901234567890123456", true},
+		{"aws access key", "creds.json", "AKIAIOSFODNN7EXAMPLE", true},
+		{"document passwords", "sources/document-passwords.toml", "pw = 123", true},
+		{"nested AGENTS override", "protected_override_attempt/AGENTS.md", "# Fake rules", true},
+		{"root AGENTS override", "AGENTS.md", "# Fake rules", true},
+		{"assistant policy override", "rules/assistant-policy.yaml", "rules: []", true},
+		{"soul override", "SOUL.md", "fake soul", true},
+		{"workspace config override", "workspace.yaml", "fake config", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := DetectSecretContent(tt.path, []byte(tt.content))
+			if res != tt.isSecret {
+				t.Errorf("DetectSecretContent(%q) = %v, want %v", tt.path, res, tt.isSecret)
+			}
+		})
 	}
 }

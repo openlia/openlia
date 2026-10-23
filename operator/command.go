@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"openlia/operator/migration"
 )
 
 // Run is the standalone Go operator entrypoint. The root CLI is intentionally
@@ -774,6 +776,84 @@ func runWorkspaceMigrate(ctx context.Context, config Config, args []string, outp
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
 		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "chunk_id": chunkID, "state": "applied"}, jsonOutput, fmt.Sprintf("openlia workspace-migrate: chunk %s applied", chunkID))
+
+	case "recover":
+		if migrationID == "" {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("recover requires --migration-id"))
+		}
+		recoverAction, _, _ := stringFlag(args, "--action")
+		if recoverAction == "" {
+			recoverAction = "inspect"
+		}
+		res, err := RecoverMigration(config, migrationID, recoverAction)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, res, jsonOutput, res.Message)
+
+	case "feedback":
+		if migrationID == "" {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("feedback requires --migration-id"))
+		}
+		comment, args, _ := stringFlag(args, "--comment")
+		if comment == "" {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("feedback requires --comment"))
+		}
+		targetPath, args, _ := stringFlag(args, "--target-path")
+		migDir := MigrationRoot(config, migrationID)
+		db, err := migration.OpenDB(migDir)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		defer db.Close()
+		mig, err := db.GetMigration(migrationID)
+		if err != nil || mig == nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, fmt.Errorf("migration %s not found", migrationID))
+		}
+		targetRev := revisionID
+		if targetRev == "" {
+			targetRev = mig.ActiveRevisionID
+		}
+		item := migration.FeedbackItem{
+			ID:          fmt.Sprintf("fb-%d", time.Now().UnixNano()),
+			MigrationID: migrationID,
+			RevisionID:  targetRev,
+			TargetPath:  targetPath,
+			Comment:     comment,
+			Status:      "submitted",
+			CreatedAt:   time.Now().UTC(),
+		}
+		if err := db.AddFeedback(item); err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		state := mig.State
+		if strings.HasPrefix(strings.TrimSpace(comment), "[CHANGES REQUESTED]") {
+			_ = db.UpdateMigrationState(migrationID, migration.StateRevising, "")
+			state = migration.StateRevising
+			go func() {
+				_ = RunMigrationSupervisor(context.Background(), config, migrationID)
+			}()
+		}
+		return emit(output, map[string]any{"ok": true, "feedback_id": item.ID, "status": "submitted", "state": state}, jsonOutput, "Feedback submitted.")
+
+	case "retry-jobs":
+		if migrationID == "" {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("retry-jobs requires --migration-id"))
+		}
+		migDir := MigrationRoot(config, migrationID)
+		db, err := migration.OpenDB(migDir)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		defer db.Close()
+		if err := db.ResetFailedJobs(migrationID); err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		_ = db.UpdateMigrationState(migrationID, migration.StateProcessing, "")
+		go func() {
+			_ = RunMigrationSupervisor(context.Background(), config, migrationID)
+		}()
+		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "status": "retrying"}, jsonOutput, "Failed jobs reset and worker restarted.")
 
 	case "list":
 		items, err := ListMigrations(config)

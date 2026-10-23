@@ -91,6 +91,12 @@ func TestMigrationLifecycleAndApply(t *testing.T) {
 		t.Fatalf("UpdateMigrationState failed: %v", err)
 	}
 
+	diff, err := repo.Diff(mig.BaselineManifest, commitHash)
+	if err != nil {
+		t.Fatalf("Diff failed: %v", err)
+	}
+	patchHash := propgit.ComputePatchHash(diff)
+
 	rev := migration.ReviewRevision{
 		ID:           "rev-1",
 		MigrationID:  migID,
@@ -98,7 +104,7 @@ func TestMigrationLifecycleAndApply(t *testing.T) {
 		BaselineHash: mig.BaselineManifest,
 		CommitHash:   commitHash,
 		TreeHash:     treeHash,
-		PatchHash:    "dummy_patch_hash",
+		PatchHash:    patchHash,
 		ChangedFiles: []migration.ChangedFileEntry{
 			{Path: "trip.md", Status: "added"},
 		},
@@ -108,7 +114,7 @@ func TestMigrationLifecycleAndApply(t *testing.T) {
 	}
 
 	// Apply revision
-	if err := ApplyRevision(config, migID, "rev-1", "dummy_patch_hash"); err != nil {
+	if err := ApplyRevision(config, migID, "rev-1", patchHash); err != nil {
 		t.Fatalf("ApplyRevision failed: %v", err)
 	}
 

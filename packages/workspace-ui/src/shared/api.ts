@@ -588,6 +588,11 @@ export interface MigrationSourceItem {
   reason?: string | undefined;
   dependencies?: string[] | undefined;
   order_index: number;
+  job_state?: string | undefined;
+  job_attempts?: number | undefined;
+  job_max_attempts?: number | undefined;
+  job_summary?: string | undefined;
+  job_error?: string | undefined;
 }
 
 export interface MigrationChangedFile {
@@ -619,6 +624,7 @@ export interface MigrationRevisionSummary {
   summary: string;
   changed_files: MigrationChangedFile[];
   findings?: MigrationValidationFinding[] | undefined;
+  unresolved_questions?: string[] | undefined;
   created_at: string;
 }
 
@@ -663,6 +669,13 @@ export interface MigrationSummary {
   updated_at: string;
 }
 
+export interface MigrationRecoveryInfo {
+  required: boolean;
+  journal_status?: string | undefined;
+  operations_count?: number | undefined;
+  error_message?: string | undefined;
+}
+
 export interface MigrationDetailResponse {
   schema: 2;
   migration: MigrationSummary;
@@ -671,6 +684,7 @@ export interface MigrationDetailResponse {
   active_diff?: string | undefined;
   feedback: MigrationFeedbackItem[];
   worker_status: "sleeping" | "starting" | "running" | "stopping" | "failed";
+  recovery?: MigrationRecoveryInfo | undefined;
 }
 
 export interface MigrationFeedbackRequest {
@@ -678,6 +692,7 @@ export interface MigrationFeedbackRequest {
   comment: string;
   target_path?: string | undefined;
   line_number?: number | undefined;
+  request_changes?: boolean | undefined;
 }
 export interface MigrationListResponse {
   schema: 2;
@@ -688,6 +703,7 @@ export interface MigrationActionResponse {
   ok: boolean;
   migration_id: string;
   state?: string;
+  recovery?: unknown;
   revision_id?: string;
   error?: string;
 }

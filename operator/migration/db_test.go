@@ -108,7 +108,7 @@ func TestMigrationDB_CRUDAndLeasing(t *testing.T) {
 	}
 
 	// Complete job
-	if err := db.CompleteJob(claimed.ID, "worker-1", claimed.LeaseGeneration, JobSucceeded, "Processed note", []string{"notes/sample.md"}, "", ""); err != nil {
+	if err := db.CompleteJob(claimed.ID, "worker-1", claimed.LeaseGeneration, JobSucceeded, "Processed note", []string{"notes/sample.md"}, nil, nil, "", ""); err != nil {
 		t.Fatalf("CompleteJob failed: %v", err)
 	}
 

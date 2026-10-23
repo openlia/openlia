@@ -233,11 +233,23 @@ export const startWorkspaceApi: WorkspaceApi = {
       method: "POST",
       path: `/api/workspace/migration/${encodeURIComponent(id)}/feedback`,
     }),
-  approveMigration: (id, revisionId) =>
+  approveMigration: (id, revisionId, patchHash) =>
     request<MigrationActionResponse>({
-      body: { revision_id: revisionId },
+      body: { revision_id: revisionId, patch_hash: patchHash },
       method: "POST",
       path: `/api/workspace/migration/${encodeURIComponent(id)}/approve`,
+    }),
+  recoverMigration: (id, action) =>
+    request<MigrationActionResponse>({
+      body: { action: action ?? "inspect" },
+      method: "POST",
+      path: `/api/workspace/migration/${encodeURIComponent(id)}/recover`,
+    }),
+  retryMigrationJobs: (id) =>
+    request<MigrationActionResponse>({
+      body: {},
+      method: "POST",
+      path: `/api/workspace/migration/${encodeURIComponent(id)}/retry-jobs`,
     }),
   discardMigration: (id) =>
     request<MigrationActionResponse>({

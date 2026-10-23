@@ -11,6 +11,7 @@ const (
 	StateReadyForReview   = "ready_for_review"
 	StateRevising         = "revising"
 	StateApplying         = "applying"
+	StateRollingBack      = "rolling_back"
 	StateApplied          = "applied"
 	StateStale            = "stale"
 	StateStopping         = "stopping"
@@ -92,28 +93,31 @@ type Job struct {
 	LeaseGeneration int64      `json:"lease_generation"`
 	LeaseExpiresAt  *time.Time `json:"lease_expires_at,omitempty"`
 	HeartbeatAt     *time.Time `json:"heartbeat_at,omitempty"`
-	ResultSummary   string     `json:"result_summary,omitempty"`
-	ChangedPaths    []string   `json:"changed_paths,omitempty"`
-	ErrorCode       string     `json:"error_code,omitempty"`
-	ErrorMessage    string     `json:"error_message,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ResultSummary       string              `json:"result_summary,omitempty"`
+	ChangedPaths        []string            `json:"changed_paths,omitempty"`
+	Findings            []ValidationFinding `json:"findings,omitempty"`
+	UnresolvedQuestions []string            `json:"unresolved_questions,omitempty"`
+	ErrorCode           string              `json:"error_code,omitempty"`
+	ErrorMessage        string              `json:"error_message,omitempty"`
+	CreatedAt           time.Time           `json:"created_at"`
+	UpdatedAt           time.Time           `json:"updated_at"`
 }
 
 // ReviewRevision is an immutable review checkpoint.
 type ReviewRevision struct {
-	ID           string              `json:"id"`
-	MigrationID  string              `json:"migration_id"`
-	RevisionNum  int                 `json:"revision_num"`
-	BaselineHash string              `json:"baseline_hash"`
-	CommitHash   string              `json:"commit_hash"`
-	TreeHash     string              `json:"tree_hash"`
-	PatchHash    string              `json:"patch_hash"`
-	ParentRevID  string              `json:"parent_rev_id,omitempty"`
-	Summary      string              `json:"summary,omitempty"`
-	ChangedFiles []ChangedFileEntry  `json:"changed_files"`
-	Findings     []ValidationFinding `json:"findings,omitempty"`
-	CreatedAt    time.Time           `json:"created_at"`
+	ID                  string              `json:"id"`
+	MigrationID         string              `json:"migration_id"`
+	RevisionNum         int                 `json:"revision_num"`
+	BaselineHash        string              `json:"baseline_hash"`
+	CommitHash          string              `json:"commit_hash"`
+	TreeHash            string              `json:"tree_hash"`
+	PatchHash           string              `json:"patch_hash"`
+	ParentRevID         string              `json:"parent_rev_id,omitempty"`
+	Summary             string              `json:"summary,omitempty"`
+	ChangedFiles        []ChangedFileEntry  `json:"changed_files"`
+	Findings            []ValidationFinding `json:"findings,omitempty"`
+	UnresolvedQuestions []string            `json:"unresolved_questions,omitempty"`
+	CreatedAt           time.Time           `json:"created_at"`
 }
 
 // ChangedFileEntry records file status in a review revision.

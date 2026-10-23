@@ -16,9 +16,11 @@ export interface MigrationSectionProps {
   onWakeWorker: () => void;
   onStop: () => void;
   onResume: () => void;
-  onApprove: (revisionId: string) => Promise<void>;
+  onApprove: (revisionId: string, patchHash?: string) => Promise<void>;
   onDiscard: () => Promise<void>;
   onSubmitFeedback: (req: MigrationFeedbackRequest) => Promise<void>;
+  onRecover?: (action: string) => Promise<void>;
+  onRetryJobs?: () => Promise<void>;
 }
 
 interface DiffLine {
@@ -136,15 +138,21 @@ export function MigrationSection({
   onApprove,
   onDiscard,
   onSubmitFeedback,
+  onRecover,
+  onRetryJobs,
 }: MigrationSectionProps) {
   const [activeSubTab, setActiveSubTab] = useState<
     "overview" | "changes" | "sources" | "discussion"
   >("overview");
+  const [selectedRevisionId, setSelectedRevisionId] = useState("");
   const [commentText, setCommentText] = useState("");
   const [targetPath, setTargetPath] = useState("");
+  const [requestChanges, setRequestChanges] = useState(false);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
   const [approving, setApproving] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [retryingJobs, setRetryingJobs] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -309,33 +317,45 @@ export function MigrationSection({
     active_diff,
     feedback,
     worker_status,
+    recovery,
   } = migrationDetail;
   const latestRev =
     revisions.length > 0 ? revisions[revisions.length - 1] : null;
+  const activeRev =
+    (selectedRevisionId
+      ? revisions.find((r) => r.id === selectedRevisionId || String(r.revision_num) === selectedRevisionId)
+      : null) ?? latestRev;
+
+  const hasFailedJobs = sources.some(
+    (s) => s.job_state === "failed" || (s.eligibility === "eligible" && s.reason?.toLowerCase().includes("failed")),
+  );
 
   const handleSendFeedback = async () => {
-    if (!commentText.trim() || !latestRev) return;
+    if (!commentText.trim() || !activeRev) return;
     setSubmittingFeedback(true);
     try {
       await onSubmitFeedback({
-        revision_id: latestRev.id,
+        revision_id: activeRev.id,
         target_path: targetPath.trim() || undefined,
         comment: commentText.trim(),
+        request_changes: requestChanges,
       });
       setCommentText("");
       setTargetPath("");
+      setRequestChanges(false);
     } finally {
       setSubmittingFeedback(false);
     }
   };
 
   const handleConfirmReject = async () => {
-    if (!rejectReason.trim() || !latestRev) return;
+    if (!rejectReason.trim() || !activeRev) return;
     setSubmittingFeedback(true);
     try {
       await onSubmitFeedback({
-        revision_id: latestRev.id,
+        revision_id: activeRev.id,
         comment: `[CHANGES REQUESTED]: ${rejectReason.trim()}`,
+        request_changes: true,
       });
       setRejectReason("");
       setIsRejectModalOpen(false);
@@ -348,6 +368,95 @@ export function MigrationSection({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {usageSummary}
+
+      {/* Recovery Required Alert Banner */}
+      {recovery?.required && (
+        <div className="bg-error/15 border border-error/30 rounded-xl p-3 sm:p-4 m-3 sm:m-4 space-y-2.5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h4 className="font-bold text-error text-sm flex items-center gap-2">
+                <span>⚠️</span> Recovery Required
+              </h4>
+              <p className="text-xs sm:text-sm text-base-content/80 mt-1">
+                An apply operation was interrupted or encountered an error before committing. Normal review actions are suspended until resolved.
+              </p>
+              {recovery.error_message && (
+                <p className="text-xs font-mono text-error/90 mt-1">
+                  {recovery.error_message}
+                </p>
+              )}
+            </div>
+            <span className="badge badge-error badge-sm uppercase font-mono">
+              {recovery.journal_status ?? "recovery_required"}
+            </span>
+          </div>
+          {onRecover && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                className="btn btn-xs sm:btn-sm btn-error text-white"
+                disabled={recovering}
+                onClick={async () => {
+                  setRecovering(true);
+                  try {
+                    await onRecover("rollback");
+                  } finally {
+                    setRecovering(false);
+                  }
+                }}
+              >
+                Rollback to Ready for Review
+              </button>
+              <button
+                type="button"
+                className="btn btn-xs sm:btn-sm btn-warning"
+                disabled={recovering}
+                onClick={async () => {
+                  setRecovering(true);
+                  try {
+                    await onRecover("retry");
+                  } finally {
+                    setRecovering(false);
+                  }
+                }}
+              >
+                Retry Apply
+              </button>
+              <button
+                type="button"
+                className="btn btn-xs sm:btn-sm btn-outline"
+                disabled={recovering}
+                onClick={async () => {
+                  setRecovering(true);
+                  try {
+                    await onRecover("inspect");
+                  } finally {
+                    setRecovering(false);
+                  }
+                }}
+              >
+                Inspect Journal
+              </button>
+              <button
+                type="button"
+                className="btn btn-xs sm:btn-sm btn-ghost"
+                disabled={recovering}
+                onClick={async () => {
+                  setRecovering(true);
+                  try {
+                    await onRecover("resolve");
+                  } finally {
+                    setRecovering(false);
+                  }
+                }}
+              >
+                Mark Resolved
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Top Header Bar */}
       <div className="flex flex-wrap items-center justify-between p-3 sm:p-4 border-b border-base-content/10 bg-base-100 gap-2">
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2.5 min-w-0">
@@ -393,7 +502,9 @@ export function MigrationSection({
                   ? "badge-neutral"
                   : migration.state === "discarded"
                     ? "badge-ghost"
-                    : "badge-primary"
+                    : migration.state === "recovery_required"
+                      ? "badge-error"
+                      : "badge-primary"
             }`}
           >
             {migration.state}
@@ -409,6 +520,24 @@ export function MigrationSection({
           >
             Worker: {worker_status}
           </span>
+
+          {revisions.length > 1 && (
+            <div className="flex items-center gap-1 ml-1 sm:ml-2">
+              <span className="text-xs text-base-content/60 font-medium">Rev:</span>
+              <select
+                aria-label="Select revision"
+                className="select select-bordered select-xs font-mono"
+                value={activeRev?.id ?? ""}
+                onChange={(e) => setSelectedRevisionId(e.target.value)}
+              >
+                {revisions.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    Rev {r.revision_num} ({r.id.slice(0, 10)})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
@@ -440,7 +569,7 @@ export function MigrationSection({
             </button>
           ) : null}
 
-          {latestRev && migration.state !== "applied" && (
+          {activeRev && migration.state !== "applied" && (
             <>
               <button
                 type="button"
@@ -494,7 +623,7 @@ export function MigrationSection({
           className={`tab whitespace-nowrap text-xs sm:text-sm ${activeSubTab === "changes" ? "tab-active" : ""}`}
           onClick={() => setActiveSubTab("changes")}
         >
-          Changes ({latestRev ? latestRev.changed_files.length : 0})
+          Changes ({activeRev ? activeRev.changed_files.length : 0})
         </button>
         <button
           type="button"
@@ -624,7 +753,7 @@ export function MigrationSection({
                   Proposed Changes
                 </div>
                 <div className="mt-1 text-3xl font-bold">
-                  {latestRev ? latestRev.changed_files.length : 0}
+                  {activeRev ? activeRev.changed_files.length : 0}
                 </div>
                 <div className="mt-1 text-xs text-base-content/60">
                   Files staged in proposal
@@ -632,22 +761,36 @@ export function MigrationSection({
               </div>
             </div>
 
-            {latestRev?.summary && (
+            {activeRev?.unresolved_questions &&
+              activeRev.unresolved_questions.length > 0 && (
+                <div className="p-4 rounded-xl bg-warning/10 border border-warning/30 space-y-2">
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-warning flex items-center gap-1.5">
+                    <span>❓</span> Unresolved Questions for Operator
+                  </h3>
+                  <ul className="list-disc list-inside text-sm space-y-1.5 text-base-content/85">
+                    {activeRev.unresolved_questions.map((q, idx) => (
+                      <li key={idx}>{q}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+            {activeRev?.summary && (
               <div className="p-4 rounded-xl bg-base-100 border border-base-content/10">
                 <h3 className="text-sm font-semibold uppercase tracking-wider text-base-content/60">
-                  Revision Summary
+                  <span>Revision Summary</span> (Rev {activeRev.revision_num})
                 </h3>
                 <p className="mt-2 text-sm whitespace-pre-wrap">
-                  {latestRev.summary}
+                  {activeRev.summary}
                 </p>
               </div>
             )}
 
-            {latestRev?.findings && latestRev.findings.length > 0 && (
+            {activeRev?.findings && activeRev.findings.length > 0 && (
               <div className="space-y-2">
                 <h3 className="text-base font-semibold">Validation Findings</h3>
                 <div className="space-y-2">
-                  {latestRev.findings.map((f) => (
+                  {activeRev.findings.map((f) => (
                     <div
                       key={`${f.domain}-${f.file ?? ""}-${f.line ?? ""}-${f.message}`}
                       className={`p-3 rounded-lg border text-sm ${
@@ -888,49 +1031,101 @@ export function MigrationSection({
         )}
 
         {activeSubTab === "sources" && (
-          <div className="overflow-x-auto bg-base-100 rounded-xl border border-base-content/10">
-            <table className="table table-zebra w-full">
-              <thead>
-                <tr>
-                  <th>Order</th>
-                  <th>Source File</th>
-                  <th>Type</th>
-                  <th>Eligibility</th>
-                  <th>Size</th>
-                  <th>Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sources.map((s) => (
-                  <tr key={s.id}>
-                    <td className="text-xs text-base-content/60">
-                      {s.order_index}
-                    </td>
-                    <td className="font-mono text-xs font-medium">
-                      {s.relative_path}
-                    </td>
-                    <td>{s.detected_type}</td>
-                    <td>
-                      <span
-                        className={`badge badge-xs ${
-                          s.eligibility === "eligible"
-                            ? "badge-success"
-                            : s.eligibility === "blocked"
-                              ? "badge-error"
-                              : "badge-ghost"
-                        }`}
-                      >
-                        {s.eligibility}
-                      </span>
-                    </td>
-                    <td className="text-xs">{s.byte_size} bytes</td>
-                    <td className="text-xs text-base-content/70">
-                      {s.reason || "—"}
-                    </td>
+          <div className="space-y-3">
+            {hasFailedJobs && onRetryJobs && (
+              <div className="flex items-center justify-between p-3 bg-error/10 border border-error/25 rounded-xl">
+                <div>
+                  <h4 className="text-xs font-bold text-error">Source Processing Issues</h4>
+                  <p className="text-xs text-base-content/70">One or more source files encountered errors during processing.</p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-xs btn-error text-white"
+                  disabled={retryingJobs}
+                  onClick={async () => {
+                    setRetryingJobs(true);
+                    try {
+                      await onRetryJobs();
+                    } finally {
+                      setRetryingJobs(false);
+                    }
+                  }}
+                >
+                  {retryingJobs ? "Retrying..." : "Retry Failed Jobs"}
+                </button>
+              </div>
+            )}
+            <div className="overflow-x-auto bg-base-100 rounded-xl border border-base-content/10">
+              <table className="table table-zebra w-full">
+                <thead>
+                  <tr>
+                    <th>Order</th>
+                    <th>Source File</th>
+                    <th>Type</th>
+                    <th>Eligibility</th>
+                    <th>Job Outcome</th>
+                    <th>Size</th>
+                    <th>Notes</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {sources.map((s) => (
+                    <tr key={s.id}>
+                      <td className="text-xs text-base-content/60">
+                        {s.order_index}
+                      </td>
+                      <td className="font-mono text-xs font-medium">
+                        {s.relative_path}
+                      </td>
+                      <td>{s.detected_type}</td>
+                      <td>
+                        <span
+                          className={`badge badge-xs ${
+                            s.eligibility === "eligible"
+                              ? "badge-success"
+                              : s.eligibility === "blocked"
+                                ? "badge-error"
+                                : "badge-ghost"
+                          }`}
+                        >
+                          {s.eligibility}
+                        </span>
+                      </td>
+                      <td>
+                        {s.job_state ? (
+                          <div className="space-y-0.5">
+                            <span
+                              className={`badge badge-xs ${
+                                s.job_state === "succeeded"
+                                  ? "badge-success"
+                                  : s.job_state === "failed"
+                                    ? "badge-error"
+                                    : s.job_state === "no_change"
+                                      ? "badge-ghost"
+                                      : "badge-primary"
+                              }`}
+                            >
+                              {s.job_state} {s.job_attempts ? `(${s.job_attempts}x)` : ""}
+                            </span>
+                            {s.job_error && (
+                              <p className="text-[11px] text-error font-mono truncate max-w-xs" title={s.job_error}>
+                                {s.job_error}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-base-content/40">—</span>
+                        )}
+                      </td>
+                      <td className="text-xs">{s.byte_size} bytes</td>
+                      <td className="text-xs text-base-content/70">
+                        {s.job_summary || s.reason || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -989,21 +1184,34 @@ export function MigrationSection({
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
               />
-              <button
-                type="button"
-                className="btn btn-sm btn-primary"
-                disabled={submittingFeedback || !commentText.trim()}
-                onClick={handleSendFeedback}
-              >
-                {submittingFeedback ? "Submitting..." : "Submit Feedback"}
-              </button>
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <label className="label cursor-pointer gap-2 py-0">
+                  <input
+                    type="checkbox"
+                    className="checkbox checkbox-xs checkbox-warning"
+                    checked={requestChanges}
+                    onChange={(e) => setRequestChanges(e.target.checked)}
+                  />
+                  <span className="label-text text-xs font-medium">
+                    Request changes (triggers Hermes revision run)
+                  </span>
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  disabled={submittingFeedback || !commentText.trim()}
+                  onClick={handleSendFeedback}
+                >
+                  {submittingFeedback ? "Submitting..." : "Submit Feedback"}
+                </button>
+              </div>
             </div>
           </div>
         )}
       </div>
 
       {/* Approve Modal */}
-      {isApproveModalOpen && latestRev && (
+      {isApproveModalOpen && activeRev && (
         <div className="modal modal-open">
           <div className="modal-box max-w-lg">
             <h3 className="font-bold text-lg text-success">
@@ -1011,20 +1219,23 @@ export function MigrationSection({
             </h3>
             <p className="py-3 text-sm text-base-content/80">
               You are about to apply revision{" "}
-              <code className="font-mono font-bold">{latestRev.id}</code> to
+              <code className="font-mono font-bold">{activeRev.id}</code> to
               your live workspace.
             </p>
             <div className="p-3 bg-base-200 rounded-lg text-xs space-y-1 mb-4">
               <div>
-                <strong>Changed Files:</strong> {latestRev.changed_files.length}
+                <strong>Revision:</strong> {activeRev.revision_num}
+              </div>
+              <div>
+                <strong>Changed Files:</strong> {activeRev.changed_files.length}
               </div>
               <div>
                 <strong>Commit Hash:</strong>{" "}
-                <span className="font-mono">{latestRev.commit_hash}</span>
+                <span className="font-mono">{activeRev.commit_hash}</span>
               </div>
               <div>
                 <strong>Patch Hash:</strong>{" "}
-                <span className="font-mono">{latestRev.patch_hash}</span>
+                <span className="font-mono">{activeRev.patch_hash}</span>
               </div>
             </div>
             <p className="text-xs text-base-content/60">
@@ -1056,7 +1267,7 @@ export function MigrationSection({
                   setActionError(null);
                   setApproving(true);
                   try {
-                    await onApprove(latestRev.id);
+                    await onApprove(activeRev.id, activeRev.patch_hash);
                     setIsApproveModalOpen(false);
                   } catch (err) {
                     setActionError(

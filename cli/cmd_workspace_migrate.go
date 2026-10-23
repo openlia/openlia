@@ -38,6 +38,8 @@ func commandWorkspaceMigrate(options Options, args []string) int {
 		return commandWorkspaceMigrateDiff(options, subArgs)
 	case "approve":
 		return commandWorkspaceMigrateApprove(options, subArgs)
+	case "recover":
+		return commandWorkspaceMigrateRecover(options, subArgs)
 	case "discard":
 		return commandWorkspaceMigrateDiscard(options, subArgs)
 	case "merge":
@@ -112,8 +114,8 @@ func commandWorkspaceMigrateUpload(options Options, args []string) int {
 	if blocked > 0 {
 		blockedNotice = fmt.Sprintf(" (%d secret files quarantined locally)", blocked)
 	}
-	msg := fmt.Sprintf("Migration %s uploaded: %d files packaged%s.\nWorker processing in background.\n\nNext steps:\n  openlia workspace migrate status %s\n  openlia workspace migrate merge %s",
-		migrationID, packaged, blockedNotice, migrationID, migrationID)
+	msg := fmt.Sprintf("Migration %s uploaded: %d files packaged%s.\nWorker processing in background.\n\nNext steps:\n  openlia workspace migrate status %s\n  openlia workspace migrate diff %s\n  openlia workspace migrate approve %s\n  Or review visually in the Workspace UI under the Migration tab.",
+		migrationID, packaged, blockedNotice, migrationID, migrationID, migrationID)
 	return writeResult(options, map[string]any{
 		"ok":           true,
 		"migration_id": migrationID,
@@ -636,6 +638,37 @@ func commandWorkspaceMigrateApprove(options Options, args []string) int {
 		return fail(options, ExitFailure, "apply revision: "+err.Error(), nil)
 	}
 	return writeResult(options, map[string]any{"ok": true, "migration_id": migrationID, "raw": string(raw)}, fmt.Sprintf("Migration %s revision applied successfully to workspace.", migrationID))
+}
+
+func commandWorkspaceMigrateRecover(options Options, args []string) int {
+	if len(args) == 0 {
+		return fail(options, ExitUsage, "workspace migrate recover requires a migration-id [--action inspect|retry|rollback|resolve]", nil)
+	}
+	migrationID := args[0]
+	action := "inspect"
+	for i := 1; i < len(args); i++ {
+		if args[i] == "--action" && i+1 < len(args) {
+			action = args[i+1]
+			break
+		} else if strings.HasPrefix(args[i], "--action=") {
+			action = strings.TrimPrefix(args[i], "--action=")
+			break
+		}
+	}
+
+	config, code := configOrError(options)
+	if code != ExitOK {
+		return code
+	}
+	ctx, cancel := remoteContext()
+	defer cancel()
+	deployment := newDeployment(config)
+
+	raw, err := deployment.operation(ctx, "workspace-migrate", nil, "recover", "--migration-id", migrationID, "--action", action, "--json")
+	if err != nil {
+		return fail(options, ExitFailure, "recover migration: "+err.Error(), nil)
+	}
+	return writeResult(options, map[string]any{"ok": true, "migration_id": migrationID, "raw": string(raw)}, fmt.Sprintf("Migration %s recovery action %q completed: %s", migrationID, action, string(raw)))
 }
 
 func commandWorkspaceMigrateDiscard(options Options, args []string) int {

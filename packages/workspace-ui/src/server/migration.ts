@@ -23,6 +23,7 @@ import type {
   MigrationFeedbackRequest,
   MigrationListResponse,
   MigrationProgress,
+  MigrationRecoveryInfo,
   MigrationRevisionSummary,
   MigrationSourceItem,
   MigrationSummary,
@@ -233,7 +234,7 @@ export class MigrationService {
       throw new Error(`Migration ${migrationId} not found`);
     }
 
-    const db = new Database(sqlitePath);
+    const db = new Database(sqlitePath, { readonly: true });
     let migrationRow: Record<string, unknown> | null = null;
     let sources: MigrationSourceItem[] = [];
     let revisions: MigrationRevisionSummary[] = [];
@@ -251,11 +252,38 @@ export class MigrationService {
         throw new Error(`Migration ${migrationId} record not found`);
       }
 
+      let hasJobsTable = false;
+      let summaryCol = "NULL";
+      let errorCol = "NULL";
+      try {
+        const tableCheck = db
+          .query(
+            `SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'`,
+          )
+          .get() as { name?: string } | null;
+        hasJobsTable = Boolean(tableCheck?.name);
+        if (hasJobsTable) {
+          const colCheck = db.query(`PRAGMA table_info(jobs)`).all() as {
+            name: string;
+          }[];
+          const colNames = new Set(colCheck.map((c) => c.name));
+          if (colNames.has("result_summary")) summaryCol = "j.result_summary";
+          if (colNames.has("error_message")) errorCol = "j.error_message";
+        }
+      } catch {}
+
+      const sourceQuery = hasJobsTable
+        ? `SELECT s.id, s.relative_path, s.byte_size, s.encoding, s.detected_type, s.eligibility, s.reason, s.dependencies, s.order_index,
+                  j.state as job_state, j.attempts as job_attempts, j.max_attempts as job_max_attempts, ${summaryCol} as job_summary, ${errorCol} as job_error
+           FROM sources s
+           LEFT JOIN jobs j ON j.source_id = s.id AND j.migration_id = s.migration_id
+           WHERE s.migration_id = ? ORDER BY s.order_index ASC`
+        : `SELECT s.id, s.relative_path, s.byte_size, s.encoding, s.detected_type, s.eligibility, s.reason, s.dependencies, s.order_index,
+                  NULL as job_state, NULL as job_attempts, NULL as job_max_attempts, NULL as job_summary, NULL as job_error
+           FROM sources s WHERE s.migration_id = ? ORDER BY s.order_index ASC`;
+
       const sourceRows = db
-        .query(
-          `SELECT id, relative_path, byte_size, encoding, detected_type, eligibility, reason, dependencies, order_index
-           FROM sources WHERE migration_id = ? ORDER BY order_index ASC`,
-        )
+        .query(sourceQuery)
         .all(migrationId) as Record<string, unknown>[];
 
       sources = sourceRows.map((r) => ({
@@ -270,11 +298,35 @@ export class MigrationService {
         order_index: Number(r.order_index) || 0,
         reason: (r.reason as string) || undefined,
         relative_path: r.relative_path as string,
+        job_state: (r.job_state as string) || undefined,
+        job_attempts:
+          r.job_attempts !== null && r.job_attempts !== undefined
+            ? Number(r.job_attempts)
+            : undefined,
+        job_max_attempts:
+          r.job_max_attempts !== null && r.job_max_attempts !== undefined
+            ? Number(r.job_max_attempts)
+            : undefined,
+        job_summary: (r.job_summary as string) || undefined,
+        job_error: (r.job_error as string) || undefined,
       }));
+
+      let hasUnresolvedQuestions = false;
+      try {
+        const revCols = db.query(`PRAGMA table_info(revisions)`).all() as {
+          name: string;
+        }[];
+        hasUnresolvedQuestions = revCols.some(
+          (c) => c.name === "unresolved_questions",
+        );
+      } catch {}
+      const unresCol = hasUnresolvedQuestions
+        ? "unresolved_questions"
+        : "NULL as unresolved_questions";
 
       const revRows = db
         .query(
-          `SELECT id, migration_id, revision_num, baseline_hash, commit_hash, tree_hash, patch_hash, summary, changed_files, findings, created_at
+          `SELECT id, migration_id, revision_num, baseline_hash, commit_hash, tree_hash, patch_hash, summary, changed_files, findings, ${unresCol}, created_at
            FROM revisions WHERE migration_id = ? ORDER BY revision_num ASC`,
         )
         .all(migrationId) as Record<string, unknown>[];
@@ -287,6 +339,9 @@ export class MigrationService {
         commit_hash: r.commit_hash as string,
         created_at: r.created_at as string,
         findings: r.findings ? JSON.parse(r.findings as string) : undefined,
+        unresolved_questions: r.unresolved_questions
+          ? JSON.parse(r.unresolved_questions as string)
+          : undefined,
         id: r.id as string,
         migration_id: r.migration_id as string,
         patch_hash: r.patch_hash as string,
@@ -338,6 +393,7 @@ export class MigrationService {
             "-c",
             "safe.directory=*",
             "diff",
+            "--no-renames",
             baselineCommit,
             latestRevision.commit_hash,
           ],
@@ -386,6 +442,31 @@ export class MigrationService {
       // ignore
     }
 
+    let recovery: MigrationRecoveryInfo | undefined = undefined;
+    const journalPath = join(migDir, "apply", "journal.json");
+    if (migrationRow.state === "recovery_required" || existsSync(journalPath)) {
+      try {
+        if (existsSync(journalPath)) {
+          const jData = JSON.parse(readFileSync(journalPath, "utf-8"));
+          recovery = {
+            required: migrationRow.state === "recovery_required",
+            journal_status: jData.status,
+            operations_count: Array.isArray(jData.operations)
+              ? jData.operations.length
+              : 0,
+            error_message: jData.error_message,
+          };
+        } else if (migrationRow.state === "recovery_required") {
+          recovery = {
+            required: true,
+            error_message: "Migration requires recovery",
+          };
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     return {
       active_diff: active_diff || undefined,
       feedback,
@@ -406,6 +487,7 @@ export class MigrationService {
         updated_at:
           (migrationRow.updated_at as string) || new Date().toISOString(),
       },
+      recovery,
       revisions,
       schema: 2,
       sources,
@@ -424,6 +506,48 @@ export class MigrationService {
       throw new Error(`Migration ${migrationId} not found`);
     }
 
+    let comment = req.comment;
+    if (req.request_changes && !comment.startsWith("[CHANGES REQUESTED]")) {
+      comment = `[CHANGES REQUESTED] ${comment}`;
+    }
+
+    const openliaBin = this.getOpenliaBin();
+    const args = [
+      openliaBin,
+      "workspace-migrate",
+      "feedback",
+      "--migration-id",
+      migrationId,
+      "--comment",
+      comment,
+      "--revision",
+      req.revision_id,
+      "--json",
+    ];
+    if (req.target_path) {
+      args.push("--target-path", req.target_path);
+    }
+
+    try {
+      const proc = Bun.spawnSync(args, { env: this.getExecEnv() });
+      if (proc.exitCode === 0) {
+        const stdout = proc.stdout.toString();
+        try {
+          const parsed = JSON.parse(stdout);
+          return {
+            migration_id: migrationId,
+            ok: true,
+            state: parsed.state,
+          };
+        } catch {
+          return { migration_id: migrationId, ok: true };
+        }
+      }
+    } catch {
+      // fallback
+    }
+
+    // Direct SQLite fallback for isolated unit-test environments without operator binary
     const db = new Database(sqlitePath);
     try {
       const id = `fb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -438,12 +562,12 @@ export class MigrationService {
         req.target_path ?? null,
         null,
         req.line_number ?? null,
-        req.comment,
+        comment,
         "submitted",
         now,
       );
 
-      const isChangesRequested = req.comment.startsWith("[CHANGES REQUESTED]");
+      const isChangesRequested = comment.startsWith("[CHANGES REQUESTED]");
       if (isChangesRequested) {
         db.query(
           `UPDATE migrations SET state = 'revising', updated_at = ? WHERE id = ?`,
@@ -453,23 +577,6 @@ export class MigrationService {
           now,
           migrationId,
         );
-      }
-
-      if (isChangesRequested) {
-        // Automatically wake worker to process revision
-        try {
-          const openliaBin = this.getOpenliaBin();
-          Bun.spawn([
-            openliaBin,
-            "workspace-migrate",
-            "worker",
-            "--migration-id",
-            migrationId,
-            "--json",
-          ]);
-        } catch {
-          // ignore background launch error
-        }
       }
 
       const res: MigrationActionResponse = {
@@ -485,7 +592,11 @@ export class MigrationService {
     }
   }
 
-  approve(migrationId: string, revisionId: string): MigrationActionResponse {
+  approve(
+    migrationId: string,
+    revisionId: string,
+    patchHash?: string,
+  ): MigrationActionResponse {
     const migDir = join(this.migrationsRoot, migrationId);
     const sqlitePath = join(migDir, "migration.sqlite");
 
@@ -493,64 +604,134 @@ export class MigrationService {
       throw new Error(`Migration ${migrationId} not found`);
     }
 
-    const db = new Database(sqlitePath);
-    try {
-      const now = new Date().toISOString();
-      const rev = db
-        .query(`SELECT * FROM revisions WHERE id = ? AND migration_id = ?`)
-        .get(revisionId, migrationId) as Record<string, unknown> | null;
+    let actualPatchHash = patchHash;
+    if (!actualPatchHash) {
+      const db = new Database(sqlitePath, { readonly: true });
+      try {
+        const rev = db
+          .query(
+            `SELECT patch_hash FROM revisions WHERE id = ? AND migration_id = ?`,
+          )
+          .get(revisionId, migrationId) as Record<string, unknown> | null;
 
-      if (!rev) {
-        throw new Error(`Revision ${revisionId} not found`);
-      }
-
-      const patchHash = (rev.patch_hash as string) || "";
-
-      // Find openlia / openlia-operator binary
-      const openliaBin = this.getOpenliaBin();
-
-      // Invoke operator apply through CLI binary
-      const proc = Bun.spawnSync(
-        [
-          openliaBin,
-          "workspace-migrate",
-          "apply",
-          "--migration-id",
-          migrationId,
-          "--revision",
-          revisionId,
-          "--patch-hash",
-          patchHash,
-          "--json",
-        ],
-        {
-          env: this.getExecEnv(),
-        },
-      );
-
-      if (proc.exitCode !== 0) {
-        const stderr = proc.stderr.toString();
-        const stdout = proc.stdout.toString();
-        let errMsg =
-          stderr || stdout || `Apply exited with code ${proc.exitCode}`;
-        try {
-          const parsed = JSON.parse(stdout);
-          if (parsed.error) errMsg = parsed.error;
-        } catch {
-          // ignore
+        if (!rev) {
+          throw new Error(`Revision ${revisionId} not found`);
         }
-        throw new Error(`Apply failed: ${errMsg}`);
+        actualPatchHash = (rev.patch_hash as string) || "";
+      } finally {
+        db.close();
       }
-
-      return {
-        migration_id: migrationId,
-        ok: true,
-        revision_id: revisionId,
-        state: "applied",
-      };
-    } finally {
-      db.close();
     }
+
+    // Find openlia / openlia-operator binary
+    const openliaBin = this.getOpenliaBin();
+
+    // Invoke operator apply through CLI binary
+    const proc = Bun.spawnSync(
+      [
+        openliaBin,
+        "workspace-migrate",
+        "apply",
+        "--migration-id",
+        migrationId,
+        "--revision",
+        revisionId,
+        "--patch-hash",
+        actualPatchHash || "",
+        "--json",
+      ],
+      {
+        env: this.getExecEnv(),
+      },
+    );
+
+    if (proc.exitCode !== 0) {
+      const stderr = proc.stderr.toString();
+      const stdout = proc.stdout.toString();
+      let errMsg =
+        stderr || stdout || `Apply exited with code ${proc.exitCode}`;
+      try {
+        const parsed = JSON.parse(stdout);
+        if (parsed.error) errMsg = parsed.error;
+      } catch {
+        // ignore
+      }
+      throw new Error(`Apply failed: ${errMsg}`);
+    }
+
+    return {
+      migration_id: migrationId,
+      ok: true,
+      revision_id: revisionId,
+      state: "applied",
+    };
+  }
+
+  recover(
+    migrationId: string,
+    action: string = "inspect",
+  ): MigrationActionResponse {
+    const openliaBin = this.getOpenliaBin();
+    const proc = Bun.spawnSync(
+      [
+        openliaBin,
+        "workspace-migrate",
+        "recover",
+        "--migration-id",
+        migrationId,
+        "--action",
+        action,
+        "--json",
+      ],
+      {
+        env: this.getExecEnv(),
+      },
+    );
+
+    if (proc.exitCode !== 0) {
+      const err =
+        proc.stderr.toString() ||
+        proc.stdout.toString() ||
+        `Recover failed with code ${proc.exitCode}`;
+      throw new Error(err);
+    }
+    const stdout = proc.stdout.toString();
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(stdout);
+    } catch {}
+    return {
+      migration_id: migrationId,
+      ok: true,
+      recovery: parsed,
+      state: parsed.status,
+    };
+  }
+
+  retryJobs(migrationId: string): MigrationActionResponse {
+    const openliaBin = this.getOpenliaBin();
+    const proc = Bun.spawnSync(
+      [
+        openliaBin,
+        "workspace-migrate",
+        "retry-jobs",
+        "--migration-id",
+        migrationId,
+        "--json",
+      ],
+      {
+        env: this.getExecEnv(),
+      },
+    );
+
+    if (proc.exitCode !== 0) {
+      const err =
+        proc.stderr.toString() ||
+        proc.stdout.toString() ||
+        `Retry jobs failed with code ${proc.exitCode}`;
+      throw new Error(err);
+    }
+    return { migration_id: migrationId, ok: true, state: "processing" };
   }
 
   private getExecEnv(): Record<string, string> {
@@ -574,6 +755,9 @@ export class MigrationService {
       "/usr/local/lib/openlia/openlia-operator-arm64",
       join(this.workspaceRoot, "..", "..", "openlia"),
       join(this.workspaceRoot, "..", "..", "openlia-operator"),
+      join(this.workspaceRoot, "..", "openlia"),
+      join(process.cwd(), "openlia"),
+      join(process.cwd(), "..", "..", "openlia"),
     ];
 
     for (const c of candidates) {

@@ -17,6 +17,16 @@ import (
 	"unicode/utf8"
 
 	"openlia/operator/migration"
+	"openlia/operator/migration/security"
+)
+
+const (
+	// MaxArchiveDecompressedBytes bounds the total decompressed data extracted from an archive (2 GB).
+	MaxArchiveDecompressedBytes = 2 * 1024 * 1024 * 1024
+	// MaxArchiveFileCount bounds the total number of files in an intake archive (50,000).
+	MaxArchiveFileCount = 50_000
+	// MaxArchiveSingleFileBytes bounds any single file extracted from an archive (250 MB).
+	MaxArchiveSingleFileBytes = 250 * 1024 * 1024
 )
 
 var (
@@ -47,13 +57,17 @@ var (
 	}
 )
 
-// DetectSecretContent returns true if a filename or content appears to be a secret.
+// DetectSecretContent returns true if a filename or content appears to be a secret
+// or attempts to override a protected system/policy file.
 func DetectSecretContent(relPath string, data []byte) bool {
 	base := filepath.Base(relPath)
 	if envFileNamePattern.MatchString(base) || secretFileNamePattern.MatchString(base) {
 		return true
 	}
 	if relPath == "sources/document-passwords.toml" {
+		return true
+	}
+	if security.IsProtectedWorkspacePath(relPath) || security.IsProtectedWorkspacePath(base) {
 		return true
 	}
 	for _, pattern := range secretContentPatterns {
@@ -194,7 +208,7 @@ func ScanSourceFolder(migrationID string, folderPath string) ([]migration.Source
 
 		if DetectSecretContent(slashRel, data) {
 			eligibility = migration.EligibilityBlocked
-			reason = "credentials or secret patterns detected"
+			reason = "credentials, secrets, or protected system override patterns detected"
 		} else if !isText {
 			eligibility = migration.EligibilityUnsupported
 			reason = fmt.Sprintf("unsupported non-text format (%s)", encoding)
@@ -275,7 +289,8 @@ func ScanSourceFolder(migrationID string, folderPath string) ([]migration.Source
 	return entries, nil
 }
 
-// ExtractTarball extracts a tar.gz into targetDir safely preventing directory traversal.
+// ExtractTarball extracts a tar.gz into targetDir safely preventing directory traversal,
+// symlink attacks, and zip bombs.
 func ExtractTarball(tarGzPath string, targetDir string) error {
 	f, err := os.Open(tarGzPath)
 	if err != nil {
@@ -289,8 +304,13 @@ func ExtractTarball(tarGzPath string, targetDir string) error {
 	}
 	defer gzr.Close()
 
-	tr := tar.NewReader(gzr)
+	// Bound total decompressed data read from the gzip stream
+	limitedGzr := io.LimitReader(gzr, MaxArchiveDecompressedBytes+1)
+	tr := tar.NewReader(limitedGzr)
 	cleanTarget := filepath.Clean(targetDir)
+
+	var totalExtractedBytes int64
+	var fileCount int
 
 	for {
 		header, err := tr.Next()
@@ -301,10 +321,22 @@ func ExtractTarball(tarGzPath string, targetDir string) error {
 			return err
 		}
 
-		dest := filepath.Join(cleanTarget, header.Name)
-		if !strings.HasPrefix(filepath.Clean(dest), cleanTarget+string(filepath.Separator)) {
-			return fmt.Errorf("illegal path traversal in tarball: %s", header.Name)
+		fileCount++
+		if fileCount > MaxArchiveFileCount {
+			return fmt.Errorf("archive exceeds maximum file count limit (%d files)", MaxArchiveFileCount)
 		}
+
+		// Reject symlinks and hardlinks explicitly to maintain archive safety boundary
+		if header.Typeflag == tar.TypeSymlink || header.Typeflag == tar.TypeLink {
+			return fmt.Errorf("tarball contains disallowed link entry: %s", header.Name)
+		}
+
+		// Validate path safety using security.ValidateSafeWorkspacePath
+		if err := security.ValidateSafeWorkspacePath(cleanTarget, header.Name); err != nil {
+			return fmt.Errorf("illegal path traversal in tarball: %s: %w", header.Name, err)
+		}
+
+		dest := filepath.Join(cleanTarget, header.Name)
 
 		switch header.Typeflag {
 		case tar.TypeDir:
@@ -312,6 +344,9 @@ func ExtractTarball(tarGzPath string, targetDir string) error {
 				return err
 			}
 		case tar.TypeReg:
+			if header.Size > MaxArchiveSingleFileBytes {
+				return fmt.Errorf("tarball entry %s exceeds maximum file size (%d bytes)", header.Name, MaxArchiveSingleFileBytes)
+			}
 			if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 				return err
 			}
@@ -319,11 +354,23 @@ func ExtractTarball(tarGzPath string, targetDir string) error {
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(out, tr); err != nil {
-				out.Close()
+
+			// Copy bounded bytes
+			written, err := io.Copy(out, io.LimitReader(tr, MaxArchiveSingleFileBytes+1))
+			out.Close()
+			if err != nil {
 				return err
 			}
-			out.Close()
+			if written > MaxArchiveSingleFileBytes {
+				os.Remove(dest)
+				return fmt.Errorf("tarball entry %s exceeded maximum file size during extraction", header.Name)
+			}
+
+			totalExtractedBytes += written
+			if totalExtractedBytes > MaxArchiveDecompressedBytes {
+				os.Remove(dest)
+				return fmt.Errorf("tarball exceeded maximum decompressed archive size (%d bytes)", MaxArchiveDecompressedBytes)
+			}
 		}
 	}
 	return nil

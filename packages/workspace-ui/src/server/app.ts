@@ -1511,7 +1511,8 @@ export function createWorkspaceHandler(
           );
         }
         try {
-          return json(migrationService.approve(migrationId, revisionId));
+          const patchHash = (bodyResult.value as any)?.patch_hash;
+          return json(migrationService.approve(migrationId, revisionId, patchHash));
         } catch (error) {
           return json(
             {
@@ -1642,6 +1643,70 @@ export function createWorkspaceHandler(
               schema: 2,
               ok: false,
               error: error instanceof Error ? error.message : "wake_error",
+            },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/workspace/migration/") &&
+        url.pathname.endsWith("/recover")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 2, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/workspace/migration/";
+        const suffix = "/recover";
+        const migrationId = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        const bodyResult = await readJson(request, 4096);
+        const action = (bodyResult.value as any)?.action ?? "inspect";
+        try {
+          return json(migrationService.recover(migrationId, action));
+        } catch (error) {
+          return json(
+            {
+              schema: 2,
+              ok: false,
+              error: error instanceof Error ? error.message : "recover_error",
+            },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/workspace/migration/") &&
+        url.pathname.endsWith("/retry-jobs")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 2, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/workspace/migration/";
+        const suffix = "/retry-jobs";
+        const migrationId = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        try {
+          return json(migrationService.retryJobs(migrationId));
+        } catch (error) {
+          return json(
+            {
+              schema: 2,
+              ok: false,
+              error: error instanceof Error ? error.message : "retry_jobs_error",
             },
             400,
           );
