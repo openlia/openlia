@@ -67,6 +67,8 @@ func Run(args []string, assets fs.FS) int {
 		return commandInstructions(options, remaining[1:])
 	case "workspace-ui":
 		return commandWorkspaceUI(options, remaining[1:])
+	case "open-webui":
+		return commandOpenWebUI(options, remaining[1:])
 	case "locho-host":
 		return commandLochoHost(options, remaining[1:])
 	case "browser":

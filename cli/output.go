@@ -30,6 +30,7 @@ var secretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Z0-9_]*\s*=\s*)[^\s,;]+`),
 	regexp.MustCompile(`(?i)(capabilit(?:y|ies)["']?\s*[:=]\s*["']?)[^\s,"']+`),
 	regexp.MustCompile(`(?i)(\$argon2(?:id|i|d)\$v=\d+\$)[^\s]+`),
+	regexp.MustCompile(`(\$2[aby]\$)[0-9]{2}\$[./A-Za-z0-9]{53}`),
 }
 
 func redact(value string) string {
@@ -110,6 +111,7 @@ Usage:
   openlia instructions status [NAME]
   openlia instructions diff|merge|keep|reset NAME
   openlia workspace-ui password
+  openlia open-webui password
   openlia locho-host share [--output PATH]
   openlia browser configure --local|--target user@host --root PATH --extension-token-file PATH [--ssh-port PORT]
   openlia browser install|start|stop|restart|status|logs|uninstall
@@ -123,6 +125,8 @@ bundled in this CLI before applying configuration.
 
 workspace-ui password prompts without echo and prints only an Argon2id hash.
 Copy it into [workspace-ui].password_hash in config.toml, then run openlia deploy.
+open-webui password prompts without echo and prints only a bcrypt hash (cost 12).
+Copy it into [open-webui].admin_password_hash and set admin_email, then deploy.
 
 Secrets are accepted only through protected files or Hermes' configured secret source.`)
 }

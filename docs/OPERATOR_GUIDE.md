@@ -81,6 +81,38 @@ base_url = "http://locho-laptop:11434/v1"
 key_env = "OPENAI_GATEWAY_API_KEY"
 ```
 
+### Open WebUI password-admin setup
+
+For automated login and chat tests, generate a bcrypt verifier interactively:
+
+```sh
+openlia open-webui password
+```
+
+The command prompts twice without echo and prints only the hash (bcrypt cost 12).
+Passwords must contain 1–72 bytes. Copy the full hash into your configuration:
+
+```toml
+[open-webui]
+host = "127.0.0.1"
+port = 8090
+auth = true
+admin_email = "e2e@example.com"
+admin_password_hash = "$2a$12$..." # Replace with the complete generated hash
+```
+
+Run `openlia deploy` to create or update this admin account. Both admin fields
+are required together; supported bcrypt costs are 10–14. Password login is
+enabled and public signup is disabled. This mode cannot be combined with Google
+OAuth; existing OAuth-only configurations are unchanged. Other users are not
+modified. Email addresses are normalized to lowercase.
+
+The configured hash is reapplied on deployment, so rotate the password by
+generating a new hash, updating the config, and deploying again. Protect the
+config file; password hashes are sensitive. Keep the plaintext password in the
+E2E runner's secret store so the browser can log in normally. The hash-generation
+command never edits configuration files or accepts plaintext command arguments.
+
 ### Protected Secrets (`secrets.env`)
 Secrets are **never** committed to Git or stored in `config.toml`. The operator maintains a protected file on the operator machine:
 

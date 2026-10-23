@@ -18,6 +18,7 @@ import (
 	"github.com/robfig/cron/v3"
 	"openlia/internal/releaseinfo"
 	"openlia/internal/toolcatalog"
+	"openlia/internal/webuiauth"
 )
 
 const (
@@ -107,6 +108,8 @@ type Config struct {
 	OpenWebUIPort                 int
 	OpenWebUIImage                string
 	OpenWebUIAuth                 bool
+	OpenWebUIAdminEmail           string
+	OpenWebUIAdminPasswordHash    string
 	OpenWebUIGoogleClientID       string
 	OpenWebUIGoogleClientSecret   string
 	OpenWebUIURL                  string
@@ -470,6 +473,10 @@ func parseConfigUnchecked(data string) (Config, error) {
 				config.OpenWebUIImage, err = parseString(value)
 			case "open-webui.auth":
 				config.OpenWebUIAuth, err = parseBool(value)
+			case "open-webui.admin_email":
+				config.OpenWebUIAdminEmail, err = parseString(value)
+			case "open-webui.admin_password_hash":
+				config.OpenWebUIAdminPasswordHash, err = parseString(value)
 			case "open-webui.google_client_id":
 				config.OpenWebUIGoogleClientID, err = parseString(value)
 			case "open-webui.google_client_secret":
@@ -790,6 +797,9 @@ func validateConfig(config Config) error {
 		return errors.New("API host must remain 127.0.0.1; use SSH or a private network for access")
 	}
 	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIPublicOrigin, config.WorkspaceUIPasswordHash, config.WorkspaceUIAllowedEmails, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain, config.LochoHostEnabled); err != nil {
+		return err
+	}
+	if err := webuiauth.ValidateAdmin(config.OpenWebUIAdminEmail, config.OpenWebUIAdminPasswordHash, config.OpenWebUIAuth, config.OpenWebUIGoogleClientID); err != nil {
 		return err
 	}
 	if config.OpenWebUIHost != "" {
@@ -1330,6 +1340,12 @@ func renderConfig(config Config) string {
 		}
 		if !config.OpenWebUIAuth {
 			builder.WriteString("auth = false\n")
+		}
+		if config.OpenWebUIAdminEmail != "" {
+			fmt.Fprintf(&builder, "admin_email = %q\n", config.OpenWebUIAdminEmail)
+		}
+		if config.OpenWebUIAdminPasswordHash != "" {
+			fmt.Fprintf(&builder, "admin_password_hash = %q\n", config.OpenWebUIAdminPasswordHash)
 		}
 		if config.OpenWebUIGoogleClientID != "" {
 			fmt.Fprintf(&builder, "google_client_id = %q\n", config.OpenWebUIGoogleClientID)
