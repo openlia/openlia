@@ -165,7 +165,7 @@ func (r *ProposalRepo) ReadFileAtCommit(commitHash, relPath string) ([]byte, err
 
 // Diff returns the unified Git diff between fromCommit and toCommit.
 func (r *ProposalRepo) Diff(fromCommit, toCommit string) (string, error) {
-	out, err := r.runGit("diff", fromCommit, toCommit)
+	out, err := r.runGit("diff", "--no-renames", fromCommit, toCommit)
 	if err != nil {
 		return "", fmt.Errorf("git diff %s %s: %s: %w", fromCommit, toCommit, string(out), err)
 	}
@@ -180,9 +180,10 @@ func ComputePatchHash(diff string) string {
 
 // GetChangedFiles inspects changed files between two commits using null-separated diff-tree.
 // It populates full OldHash (SHA-256 of pre-image) and NewHash (SHA-256 of post-image).
+// --no-renames is passed to guarantee deterministic decomposition into deleted + added files.
 func (r *ProposalRepo) GetChangedFiles(fromCommit, toCommit string) ([]migration.ChangedFileEntry, error) {
-	// Use git diff-tree -r -z --no-commit-id
-	out, err := r.runGit("diff-tree", "-r", "-z", "--no-commit-id", fromCommit, toCommit)
+	// Use git diff-tree -r -z --no-commit-id --no-renames
+	out, err := r.runGit("diff-tree", "-r", "-z", "--no-commit-id", "--no-renames", fromCommit, toCommit)
 	if err != nil {
 		return nil, fmt.Errorf("git diff-tree: %s: %w", string(out), err)
 	}

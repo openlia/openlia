@@ -200,7 +200,13 @@ export interface WorkspaceApi {
   approveMigration(
     id: string,
     revisionId: string,
+    patchHash?: string,
   ): Promise<MigrationActionResponse>;
+  recoverMigration(
+    id: string,
+    action?: string,
+  ): Promise<MigrationActionResponse>;
+  retryMigrationJobs(id: string): Promise<MigrationActionResponse>;
   discardMigration(id: string): Promise<MigrationActionResponse>;
   stopMigration(id: string): Promise<MigrationActionResponse>;
   resumeMigration(id: string): Promise<MigrationActionResponse>;
@@ -1008,13 +1014,38 @@ export const httpWorkspaceApi: WorkspaceApi = {
         method: "POST",
       },
     ),
-  approveMigration: (id, revisionId) =>
+  approveMigration: (id, revisionId, patchHash) =>
     requestJson<MigrationActionResponse>(
       `/api/workspace/migration/${encodeURIComponent(id)}/approve`,
       (val): val is MigrationActionResponse =>
         isObject(val) && typeof (val as any).ok === "boolean",
       {
-        body: JSON.stringify({ revision_id: revisionId }),
+        body: JSON.stringify({
+          revision_id: revisionId,
+          patch_hash: patchHash,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  recoverMigration: (id, action) =>
+    requestJson<MigrationActionResponse>(
+      `/api/workspace/migration/${encodeURIComponent(id)}/recover`,
+      (val): val is MigrationActionResponse =>
+        isObject(val) && typeof (val as any).ok === "boolean",
+      {
+        body: JSON.stringify({ action: action ?? "inspect" }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  retryMigrationJobs: (id) =>
+    requestJson<MigrationActionResponse>(
+      `/api/workspace/migration/${encodeURIComponent(id)}/retry-jobs`,
+      (val): val is MigrationActionResponse =>
+        isObject(val) && typeof (val as any).ok === "boolean",
+      {
+        body: JSON.stringify({}),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       },

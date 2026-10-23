@@ -91,6 +91,8 @@ func (d *DB) initSchema() error {
 		heartbeat_at TEXT,
 		result_summary TEXT,
 		changed_paths TEXT,
+		findings TEXT,
+		unresolved_questions TEXT,
 		error_code TEXT,
 		error_message TEXT,
 		created_at TEXT NOT NULL,
@@ -113,6 +115,7 @@ func (d *DB) initSchema() error {
 		summary TEXT,
 		changed_files TEXT,
 		findings TEXT,
+		unresolved_questions TEXT,
 		created_at TEXT NOT NULL,
 		FOREIGN KEY (migration_id) REFERENCES migrations(id) ON DELETE CASCADE
 	);
@@ -143,8 +146,52 @@ func (d *DB) initSchema() error {
 		FOREIGN KEY (migration_id) REFERENCES migrations(id) ON DELETE CASCADE
 	);
 	`
-	_, err := d.db.Exec(schema)
-	return err
+	if _, err := d.db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Backward-compatible schema evolution for existing databases
+	_, _ = d.db.Exec(`ALTER TABLE jobs ADD COLUMN findings TEXT`)
+	_, _ = d.db.Exec(`ALTER TABLE jobs ADD COLUMN unresolved_questions TEXT`)
+	_, _ = d.db.Exec(`ALTER TABLE revisions ADD COLUMN unresolved_questions TEXT`)
+
+	return nil
+}
+
+// ValidStateTransitions defines allowed migration state changes.
+var ValidStateTransitions = map[string][]string{
+	StateUploaded:         {StateQueued, StateProcessing, StateStopped, StateDiscarded, StateFailed},
+	StateQueued:           {StateProcessing, StateStopped, StateDiscarded, StateFailed},
+	StateProcessing:       {StateValidating, StateReadyForReview, StateStopping, StateStopped, StateFailed, StateDiscarded},
+	StateValidating:       {StateReadyForReview, StateProcessing, StateStopping, StateStopped, StateFailed, StateDiscarded},
+	StateReadyForReview:   {StateRevising, StateProcessing, StateApplying, StateStale, StateStopped, StateDiscarded, StateFailed},
+	StateRevising:         {StateProcessing, StateReadyForReview, StateStopping, StateStopped, StateFailed, StateDiscarded},
+	StateApplying:         {StateApplied, StateRollingBack, StateRecoveryRequired, StateFailed},
+	StateRollingBack:      {StateReadyForReview, StateRecoveryRequired, StateFailed},
+	StateRecoveryRequired: {StateApplying, StateReadyForReview, StateFailed},
+	StateStale:            {StateProcessing, StateReadyForReview, StateStopped, StateDiscarded, StateFailed},
+	StateStopping:         {StateStopped, StateFailed},
+	StateStopped:          {StateProcessing, StateQueued, StateReadyForReview, StateDiscarded, StateFailed},
+	StateFailed:           {StateProcessing, StateDiscarded},
+	StateApplied:          {}, // terminal
+	StateDiscarded:        {}, // terminal
+}
+
+// IsValidStateTransition checks whether a state transition is permitted.
+func IsValidStateTransition(from, to string) bool {
+	if from == to || from == "" {
+		return true
+	}
+	allowed, ok := ValidStateTransitions[from]
+	if !ok {
+		return false
+	}
+	for _, s := range allowed {
+		if s == to {
+			return true
+		}
+	}
+	return false
 }
 
 // CreateMigration inserts the initial migration record.
@@ -197,8 +244,13 @@ func (d *DB) GetMigration(id string) (*Migration, error) {
 
 // UpdateMigrationState updates state, optionally saving phase or setting stop intent.
 func (d *DB) UpdateMigrationState(id string, state string, savedPhase string) error {
+	var currState string
+	err := d.db.QueryRow(`SELECT state FROM migrations WHERE id = ?`, id).Scan(&currState)
+	if err == nil && !IsValidStateTransition(currState, state) {
+		return fmt.Errorf("invalid migration state transition from '%s' to '%s'", currState, state)
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := d.db.Exec(`
+	_, err = d.db.Exec(`
 		UPDATE migrations
 		SET state = ?, saved_phase = CASE WHEN ? != '' THEN ? ELSE saved_phase END, updated_at = ?
 		WHERE id = ?
@@ -384,25 +436,27 @@ func (d *DB) HeartbeatJob(jobID string, workerID string, leaseGen int64, leaseDu
 }
 
 // CompleteJob marks a job finished with its outcome, enforcing lease owner and generation fencing.
-func (d *DB) CompleteJob(jobID string, workerID string, leaseGen int64, state string, summary string, changedPaths []string, errCode, errMsg string) error {
+func (d *DB) CompleteJob(jobID string, workerID string, leaseGen int64, state string, summary string, changedPaths []string, findings []ValidationFinding, questions []string, errCode, errMsg string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	pathsJSON, _ := json.Marshal(changedPaths)
+	findingsJSON, _ := json.Marshal(findings)
+	questionsJSON, _ := json.Marshal(questions)
 
 	query := `
 		UPDATE jobs
-		SET state = ?, result_summary = ?, changed_paths = ?, error_code = ?, error_message = ?, lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
+		SET state = ?, result_summary = ?, changed_paths = ?, findings = ?, unresolved_questions = ?, error_code = ?, error_message = ?, lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
 		WHERE id = ?
 	`
-	args := []any{state, summary, string(pathsJSON), errCode, errMsg, now, jobID}
+	args := []any{state, summary, string(pathsJSON), string(findingsJSON), string(questionsJSON), errCode, errMsg, now, jobID}
 
 	// If workerID and leaseGen are provided, enforce lease fencing
 	if workerID != "" && leaseGen > 0 {
 		query = `
 			UPDATE jobs
-			SET state = ?, result_summary = ?, changed_paths = ?, error_code = ?, error_message = ?, lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
+			SET state = ?, result_summary = ?, changed_paths = ?, findings = ?, unresolved_questions = ?, error_code = ?, error_message = ?, lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
 			WHERE id = ? AND lease_owner = ? AND lease_generation = ?
 		`
-		args = []any{state, summary, string(pathsJSON), errCode, errMsg, now, jobID, workerID, leaseGen}
+		args = []any{state, summary, string(pathsJSON), string(findingsJSON), string(questionsJSON), errCode, errMsg, now, jobID, workerID, leaseGen}
 	}
 
 	res, err := d.db.Exec(query, args...)
@@ -416,6 +470,151 @@ func (d *DB) CompleteJob(jobID string, workerID string, leaseGen int64, state st
 		}
 	}
 	return nil
+}
+
+// FailOrRetryJob handles a job failure during execution.
+// If job.Attempts < job.MaxAttempts, it resets the job to pending for retry.
+// Otherwise, it marks the job as failed.
+// Returns retried (true if queued for retry, false if marked failed) and error.
+func (d *DB) FailOrRetryJob(jobID string, workerID string, leaseGen int64, summary string, errCode, errMsg string) (bool, error) {
+	var attempts, maxAttempts int
+	err := d.db.QueryRow(`SELECT attempts, max_attempts FROM jobs WHERE id = ?`, jobID).Scan(&attempts, &maxAttempts)
+	if err != nil {
+		return false, err
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	if attempts < maxAttempts {
+		// Retry: reset to pending so ClaimNextJob can pick it up again
+		query := `
+			UPDATE jobs
+			SET state = ?, result_summary = ?, error_code = ?, error_message = ?, lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
+			WHERE id = ?
+		`
+		args := []any{JobPending, summary, errCode, errMsg, now, jobID}
+		if workerID != "" && leaseGen > 0 {
+			query = `
+				UPDATE jobs
+				SET state = ?, result_summary = ?, error_code = ?, error_message = ?, lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
+				WHERE id = ? AND lease_owner = ? AND lease_generation = ?
+			`
+			args = []any{JobPending, summary, errCode, errMsg, now, jobID, workerID, leaseGen}
+		}
+		res, err := d.db.Exec(query, args...)
+		if err != nil {
+			return false, err
+		}
+		if workerID != "" && leaseGen > 0 {
+			affected, _ := res.RowsAffected()
+			if affected == 0 {
+				return false, fmt.Errorf("fail/retry job rejected: lease expired")
+			}
+		}
+		return true, nil
+	}
+
+	// Max attempts reached: mark failed
+	err = d.CompleteJob(jobID, workerID, leaseGen, JobFailed, summary, nil, nil, nil, errCode, errMsg)
+	return false, err
+}
+
+// SweepExpiredJobs cleans up jobs whose leases have expired.
+// If attempts >= max_attempts, they are marked failed; otherwise reset to pending.
+func (d *DB) SweepExpiredJobs(migrationID string) (int, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	rows, err := d.db.Query(`
+		SELECT id, attempts, max_attempts
+		FROM jobs
+		WHERE migration_id = ? AND state = ? AND lease_expires_at IS NOT NULL AND lease_expires_at < ?
+	`, migrationID, JobRunning, now)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	type expiredJob struct {
+		id          string
+		attempts    int
+		maxAttempts int
+	}
+	var expired []expiredJob
+	for rows.Next() {
+		var ej expiredJob
+		if err := rows.Scan(&ej.id, &ej.attempts, &ej.maxAttempts); err == nil {
+			expired = append(expired, ej)
+		}
+	}
+
+	swept := 0
+	for _, ej := range expired {
+		if ej.attempts >= ej.maxAttempts {
+			_, _ = d.db.Exec(`
+				UPDATE jobs
+				SET state = ?, lease_owner = NULL, lease_expires_at = NULL, error_code = 'lease_expired', error_message = 'Job lease expired and max attempts reached', updated_at = ?
+				WHERE id = ?
+			`, JobFailed, now, ej.id)
+		} else {
+			_, _ = d.db.Exec(`
+				UPDATE jobs
+				SET state = ?, lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
+				WHERE id = ?
+			`, JobPending, now, ej.id)
+		}
+		swept++
+	}
+	return swept, nil
+}
+
+// ListJobs retrieves all jobs for a migration ordered by created_at.
+func (d *DB) ListJobs(migrationID string) ([]Job, error) {
+	rows, err := d.db.Query(`
+		SELECT id, migration_id, source_id, idempotency_key, state, attempts, max_attempts, lease_owner, lease_generation, lease_expires_at, heartbeat_at, result_summary, changed_paths, findings, unresolved_questions, error_code, error_message, created_at, updated_at
+		FROM jobs WHERE migration_id = ? ORDER BY created_at ASC
+	`, migrationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []Job
+	for rows.Next() {
+		var j Job
+		var owner, expStr, hbStr, sumStr, pathsJSON, findingsJSON, qJSON, errCode, errMsg sql.NullString
+		var created, updated string
+		err := rows.Scan(
+			&j.ID, &j.MigrationID, &j.SourceID, &j.IdempotencyKey, &j.State, &j.Attempts, &j.MaxAttempts,
+			&owner, &j.LeaseGeneration, &expStr, &hbStr, &sumStr, &pathsJSON, &findingsJSON, &qJSON,
+			&errCode, &errMsg, &created, &updated,
+		)
+		if err != nil {
+			return nil, err
+		}
+		j.LeaseOwner = owner.String
+		if expStr.Valid && expStr.String != "" {
+			t, _ := time.Parse(time.RFC3339, expStr.String)
+			j.LeaseExpiresAt = &t
+		}
+		if hbStr.Valid && hbStr.String != "" {
+			t, _ := time.Parse(time.RFC3339, hbStr.String)
+			j.HeartbeatAt = &t
+		}
+		j.ResultSummary = sumStr.String
+		j.ErrorCode = errCode.String
+		j.ErrorMessage = errMsg.String
+		j.CreatedAt, _ = time.Parse(time.RFC3339, created)
+		j.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
+		if pathsJSON.Valid && pathsJSON.String != "" {
+			_ = json.Unmarshal([]byte(pathsJSON.String), &j.ChangedPaths)
+		}
+		if findingsJSON.Valid && findingsJSON.String != "" {
+			_ = json.Unmarshal([]byte(findingsJSON.String), &j.Findings)
+		}
+		if qJSON.Valid && qJSON.String != "" {
+			_ = json.Unmarshal([]byte(qJSON.String), &j.UnresolvedQuestions)
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, nil
 }
 
 // GetJobSummary returns count of jobs by state for a migration.
@@ -539,6 +738,7 @@ func (d *DB) GetMigrationProgress(migrationID string) (*MigrationProgressInfo, e
 func (d *DB) CreateRevision(rev ReviewRevision) error {
 	filesJSON, _ := json.Marshal(rev.ChangedFiles)
 	findingsJSON, _ := json.Marshal(rev.Findings)
+	questionsJSON, _ := json.Marshal(rev.UnresolvedQuestions)
 	now := rev.CreatedAt
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -552,9 +752,9 @@ func (d *DB) CreateRevision(rev ReviewRevision) error {
 	defer tx.Rollback()
 
 	_, err = tx.Exec(`
-		INSERT INTO revisions (id, migration_id, revision_num, baseline_hash, commit_hash, tree_hash, patch_hash, parent_rev_id, summary, changed_files, findings, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, rev.ID, rev.MigrationID, rev.RevisionNum, rev.BaselineHash, rev.CommitHash, rev.TreeHash, rev.PatchHash, rev.ParentRevID, rev.Summary, string(filesJSON), string(findingsJSON), nowStr)
+		INSERT INTO revisions (id, migration_id, revision_num, baseline_hash, commit_hash, tree_hash, patch_hash, parent_rev_id, summary, changed_files, findings, unresolved_questions, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, rev.ID, rev.MigrationID, rev.RevisionNum, rev.BaselineHash, rev.CommitHash, rev.TreeHash, rev.PatchHash, rev.ParentRevID, rev.Summary, string(filesJSON), string(findingsJSON), string(questionsJSON), nowStr)
 	if err != nil {
 		return err
 	}
@@ -572,14 +772,14 @@ func (d *DB) CreateRevision(rev ReviewRevision) error {
 // GetRevision fetches a revision by ID.
 func (d *DB) GetRevision(revID string) (*ReviewRevision, error) {
 	row := d.db.QueryRow(`
-		SELECT id, migration_id, revision_num, baseline_hash, commit_hash, tree_hash, patch_hash, parent_rev_id, summary, changed_files, findings, created_at
+		SELECT id, migration_id, revision_num, baseline_hash, commit_hash, tree_hash, patch_hash, parent_rev_id, summary, changed_files, findings, unresolved_questions, created_at
 		FROM revisions WHERE id = ? OR CAST(revision_num AS TEXT) = ?
 		ORDER BY revision_num DESC LIMIT 1
 	`, revID, revID)
 
 	var rev ReviewRevision
-	var parent, summary, filesJSON, findingsJSON, created string
-	err := row.Scan(&rev.ID, &rev.MigrationID, &rev.RevisionNum, &rev.BaselineHash, &rev.CommitHash, &rev.TreeHash, &rev.PatchHash, &parent, &summary, &filesJSON, &findingsJSON, &created)
+	var parent, summary, filesJSON, findingsJSON, questionsJSON, created string
+	err := row.Scan(&rev.ID, &rev.MigrationID, &rev.RevisionNum, &rev.BaselineHash, &rev.CommitHash, &rev.TreeHash, &rev.PatchHash, &parent, &summary, &filesJSON, &findingsJSON, &questionsJSON, &created)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -595,13 +795,16 @@ func (d *DB) GetRevision(revID string) (*ReviewRevision, error) {
 	if findingsJSON != "" {
 		_ = json.Unmarshal([]byte(findingsJSON), &rev.Findings)
 	}
+	if questionsJSON != "" {
+		_ = json.Unmarshal([]byte(questionsJSON), &rev.UnresolvedQuestions)
+	}
 	return &rev, nil
 }
 
 // ListRevisions lists all revisions for a migration.
 func (d *DB) ListRevisions(migrationID string) ([]ReviewRevision, error) {
 	rows, err := d.db.Query(`
-		SELECT id, migration_id, revision_num, baseline_hash, commit_hash, tree_hash, patch_hash, parent_rev_id, summary, changed_files, findings, created_at
+		SELECT id, migration_id, revision_num, baseline_hash, commit_hash, tree_hash, patch_hash, parent_rev_id, summary, changed_files, findings, unresolved_questions, created_at
 		FROM revisions WHERE migration_id = ? ORDER BY revision_num ASC
 	`, migrationID)
 	if err != nil {
@@ -612,8 +815,8 @@ func (d *DB) ListRevisions(migrationID string) ([]ReviewRevision, error) {
 	var list []ReviewRevision
 	for rows.Next() {
 		var rev ReviewRevision
-		var parent, summary, filesJSON, findingsJSON, created string
-		if err := rows.Scan(&rev.ID, &rev.MigrationID, &rev.RevisionNum, &rev.BaselineHash, &rev.CommitHash, &rev.TreeHash, &rev.PatchHash, &parent, &summary, &filesJSON, &findingsJSON, &created); err != nil {
+		var parent, summary, filesJSON, findingsJSON, questionsJSON, created string
+		if err := rows.Scan(&rev.ID, &rev.MigrationID, &rev.RevisionNum, &rev.BaselineHash, &rev.CommitHash, &rev.TreeHash, &rev.PatchHash, &parent, &summary, &filesJSON, &findingsJSON, &questionsJSON, &created); err != nil {
 			return nil, err
 		}
 		rev.ParentRevID = parent
@@ -624,6 +827,9 @@ func (d *DB) ListRevisions(migrationID string) ([]ReviewRevision, error) {
 		}
 		if findingsJSON != "" {
 			_ = json.Unmarshal([]byte(findingsJSON), &rev.Findings)
+		}
+		if questionsJSON != "" {
+			_ = json.Unmarshal([]byte(questionsJSON), &rev.UnresolvedQuestions)
 		}
 		list = append(list, rev)
 	}
@@ -687,4 +893,91 @@ func (d *DB) ResetFailedJobs(migrationID string) error {
 func (d *DB) MarkFeedbackAddressed(migrationID string) error {
 	_, err := d.db.Exec(`UPDATE feedback SET status = 'addressed' WHERE migration_id = ? AND status = 'submitted'`, migrationID)
 	return err
+}
+
+// MarkFeedbackAddressedByIDs updates specified feedback items to addressed.
+func (d *DB) MarkFeedbackAddressedByIDs(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	query := `UPDATE feedback SET status = 'addressed' WHERE id IN (`
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		if i > 0 {
+			query += ", "
+		}
+		query += "?"
+		args[i] = id
+	}
+	query += `) AND status = 'submitted'`
+	_, err := d.db.Exec(query, args...)
+	return err
+}
+
+// CreateApplyJournal inserts an initial apply journal entry.
+func (d *DB) CreateApplyJournal(aj ApplyJournal) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := d.db.Exec(`
+		INSERT INTO apply_journal (id, migration_id, revision_id, patch_hash, status, operations, error_message, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, aj.ID, aj.MigrationID, aj.RevisionID, aj.PatchHash, aj.Status, aj.Operations, aj.ErrorMessage, now, now)
+	return err
+}
+
+// UpdateApplyJournalStatus updates status, error message, and updated_at timestamp.
+func (d *DB) UpdateApplyJournalStatus(id, status, errorMsg string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := d.db.Exec(`
+		UPDATE apply_journal
+		SET status = ?, error_message = ?, updated_at = ?
+		WHERE id = ?
+	`, status, errorMsg, now, id)
+	return err
+}
+
+// GetApplyJournal fetches an apply journal by its ID.
+func (d *DB) GetApplyJournal(id string) (*ApplyJournal, error) {
+	row := d.db.QueryRow(`
+		SELECT id, migration_id, revision_id, patch_hash, status, operations, error_message, created_at, updated_at
+		FROM apply_journal WHERE id = ?
+	`, id)
+
+	var aj ApplyJournal
+	var errMsg sql.NullString
+	var created, updated string
+	err := row.Scan(&aj.ID, &aj.MigrationID, &aj.RevisionID, &aj.PatchHash, &aj.Status, &aj.Operations, &errMsg, &created, &updated)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	aj.ErrorMessage = errMsg.String
+	aj.CreatedAt, _ = time.Parse(time.RFC3339, created)
+	aj.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
+	return &aj, nil
+}
+
+// GetLatestApplyJournal fetches the most recent apply journal for a migration.
+func (d *DB) GetLatestApplyJournal(migrationID string) (*ApplyJournal, error) {
+	row := d.db.QueryRow(`
+		SELECT id, migration_id, revision_id, patch_hash, status, operations, error_message, created_at, updated_at
+		FROM apply_journal WHERE migration_id = ?
+		ORDER BY created_at DESC LIMIT 1
+	`, migrationID)
+
+	var aj ApplyJournal
+	var errMsg sql.NullString
+	var created, updated string
+	err := row.Scan(&aj.ID, &aj.MigrationID, &aj.RevisionID, &aj.PatchHash, &aj.Status, &aj.Operations, &errMsg, &created, &updated)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	aj.ErrorMessage = errMsg.String
+	aj.CreatedAt, _ = time.Parse(time.RFC3339, created)
+	aj.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
+	return &aj, nil
 }

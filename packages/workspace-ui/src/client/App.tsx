@@ -2991,14 +2991,36 @@ export function App({
                 console.error("Resume error", err);
               }
             }}
-            onApprove={async (revId) => {
+            onApprove={async (revId, patchHash) => {
               if (!selectedMigrationId) return;
               try {
-                await api.approveMigration(selectedMigrationId, revId);
+                await api.approveMigration(
+                  selectedMigrationId,
+                  revId,
+                  patchHash,
+                );
                 await refreshMigrations();
               } catch (err) {
                 console.error("Approve error", err);
                 throw err;
+              }
+            }}
+            onRecover={async (action) => {
+              if (!selectedMigrationId) return;
+              try {
+                await api.recoverMigration(selectedMigrationId, action);
+                await refreshMigrations(selectedMigrationId);
+              } catch (err) {
+                console.error("Recover error", err);
+              }
+            }}
+            onRetryJobs={async () => {
+              if (!selectedMigrationId) return;
+              try {
+                await api.retryMigrationJobs(selectedMigrationId);
+                await refreshMigrations(selectedMigrationId);
+              } catch (err) {
+                console.error("Retry jobs error", err);
               }
             }}
             onDiscard={async () => {

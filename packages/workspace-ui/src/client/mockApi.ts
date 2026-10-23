@@ -1695,13 +1695,28 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     async submitMigrationFeedback(id: string, req) {
       return { ok: true, migration_id: id };
     },
-    async approveMigration(id: string, revisionId: string) {
+    async approveMigration(
+      id: string,
+      revisionId: string,
+      _patchHash?: string,
+    ) {
       return {
         ok: true,
         migration_id: id,
         revision_id: revisionId,
         state: "applied",
       };
+    },
+    async recoverMigration(id: string, action?: string) {
+      return {
+        ok: true,
+        migration_id: id,
+        state: "ready_for_review",
+        recovery: { action },
+      };
+    },
+    async retryMigrationJobs(id: string) {
+      return { ok: true, migration_id: id, state: "processing" };
     },
     async discardMigration(id: string) {
       return { ok: true, migration_id: id, state: "discarded" };

@@ -8,19 +8,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"openlia/operator/migration"
 	"openlia/operator/migration/propgit"
+	"openlia/operator/migration/security"
 )
 
 // ApplyOperation describes a single file action in the atomic apply sequence.
 type ApplyOperation struct {
-	Type    string `json:"type"` // write, delete
-	Path    string `json:"path"` // relative path
-	OldHash string `json:"old_hash,omitempty"`
-	NewHash string `json:"new_hash,omitempty"`
+	Type          string `json:"type"` // write, delete
+	Path          string `json:"path"` // relative path
+	ExistedBefore bool   `json:"existed_before"`
+	OldHash       string `json:"old_hash,omitempty"`
+	NewHash       string `json:"new_hash,omitempty"`
+	BackupPath    string `json:"backup_path,omitempty"`
+	Status        string `json:"status"` // pending, applied, rolled_back, failed
 }
 
 // StoredApplyJournal is the persisted on-disk format for crash recovery.
@@ -31,32 +34,22 @@ type StoredApplyJournal struct {
 	CommitHash  string           `json:"commit_hash"`
 	TreeHash    string           `json:"tree_hash"`
 	PatchHash   string           `json:"patch_hash"`
-	Status      string           `json:"status"` // in_progress, applied, failed, rolled_back
+	Status      string           `json:"status"` // preparing, applying, rolling_back, rolled_back, applied, failed, resolved
 	Operations  []ApplyOperation `json:"operations"`
 	CreatedAt   time.Time        `json:"created_at"`
 	UpdatedAt   time.Time        `json:"updated_at"`
 }
 
-// isProtectedWorkspacePath returns true for system paths that must never be altered by migrations.
-func isProtectedWorkspacePath(relPath string) bool {
-	clean := filepath.ToSlash(filepath.Clean(relPath))
-	if clean == ".git" || strings.HasPrefix(clean, ".git/") {
-		return true
-	}
-	if clean == "sources/document-passwords.toml" {
-		return true
-	}
-	return false
+// RecoveryResult reports the outcome of a migration recovery action.
+type RecoveryResult struct {
+	Action      string              `json:"action"`
+	MigrationID string              `json:"migration_id"`
+	Status      string              `json:"status"`
+	Message     string              `json:"message"`
+	Journal     *StoredApplyJournal `json:"journal,omitempty"`
 }
 
 // ApplyRevision applies an approved review revision to the live workspace atomically.
-// It enforces:
-// 1. Shared OS flock on workspace mutation boundary.
-// 2. Migration state must be 'ready_for_review'.
-// 3. Stale checks: OldHash matches for modified/deleted, live file does not exist for added.
-// 4. Proposed contents are read strictly from immutable Git commit blobs, NOT disk.
-// 5. Pre-images are written to disk (<migDir>/apply/rollback/<path>) before writing live files.
-// 6. Recovery journal is persisted on disk before writes and updated after completion.
 func ApplyRevision(config Config, migrationID string, revisionID string, expectedPatchHash string) error {
 	migDir := MigrationRoot(config, migrationID)
 	db, err := migration.OpenDB(migDir)
@@ -95,9 +88,8 @@ func ApplyRevision(config Config, migrationID string, revisionID string, expecte
 	if err != nil || rev == nil {
 		return fmt.Errorf("revision %s not found: %w", revisionID, err)
 	}
-
-	if expectedPatchHash != "" && rev.PatchHash != expectedPatchHash {
-		return fmt.Errorf("patch hash mismatch: expected %s, got %s", expectedPatchHash, rev.PatchHash)
+	if rev.MigrationID != migrationID {
+		return fmt.Errorf("revision %s belongs to migration %s, not %s", revisionID, rev.MigrationID, migrationID)
 	}
 
 	liveWorkspace := filepath.Join(config.DataRoot, "workspace")
@@ -124,13 +116,33 @@ func ApplyRevision(config Config, migrationID string, revisionID string, expecte
 		return fmt.Errorf("tree hash mismatch: expected %s, got %s", rev.TreeHash, actualTree)
 	}
 
+	// Recompute diff and patch hash from proposal repo to guard integrity
+	diff, err := repo.Diff(mig.BaselineManifest, rev.CommitHash)
+	if err != nil {
+		return fmt.Errorf("recompute revision diff: %w", err)
+	}
+	actualPatchHash := propgit.ComputePatchHash(diff)
+	if rev.PatchHash != actualPatchHash {
+		return fmt.Errorf("patch hash mismatch: computed %s, revision has %s", actualPatchHash, rev.PatchHash)
+	}
+	if expectedPatchHash != "" && rev.PatchHash != expectedPatchHash {
+		return fmt.Errorf("expected patch hash mismatch: expected %s, got %s", expectedPatchHash, rev.PatchHash)
+	}
+
+	// Recompute changed files with deterministic --no-renames decomposition
+	changedFiles, err := repo.GetChangedFiles(mig.BaselineManifest, rev.CommitHash)
+	if err != nil {
+		return fmt.Errorf("recompute changed files: %w", err)
+	}
+
 	// 3. Stale live files check & security boundary verification
-	for _, f := range rev.ChangedFiles {
-		if isProtectedWorkspacePath(f.Path) {
+	for _, f := range changedFiles {
+		if err := security.ValidateSafeWorkspacePath(cleanLive, f.Path); err != nil {
 			_ = db.UpdateMigrationState(migrationID, migration.StateFailed, "")
-			return fmt.Errorf("security violation: cannot apply changes to protected workspace path: %s", f.Path)
+			return fmt.Errorf("security violation: %w", err)
 		}
-		livePath := filepath.Join(cleanLive, f.Path)
+
+		livePath := filepath.Join(cleanLive, filepath.FromSlash(f.Path))
 		if f.Status == "added" {
 			if _, err := os.Stat(livePath); err == nil {
 				_ = db.UpdateMigrationState(migrationID, migration.StateStale, "")
@@ -167,9 +179,6 @@ func ApplyRevision(config Config, migrationID string, revisionID string, expecte
 		}
 	}
 
-	// Update migration state to applying
-	_ = db.UpdateMigrationState(migrationID, migration.StateApplying, "")
-
 	// 4. Prepare operations and persist rollback pre-images to disk
 	rollbackDir := filepath.Join(migDir, "apply", "rollback")
 	_ = os.RemoveAll(rollbackDir)
@@ -178,66 +187,100 @@ func ApplyRevision(config Config, migrationID string, revisionID string, expecte
 	}
 
 	var operations []ApplyOperation
-	for _, f := range rev.ChangedFiles {
-		livePath := filepath.Join(cleanLive, f.Path)
-		rollbackPath := filepath.Join(rollbackDir, f.Path)
+	for _, f := range changedFiles {
+		livePath := filepath.Join(cleanLive, filepath.FromSlash(f.Path))
+		rollbackPath := filepath.Join(rollbackDir, filepath.FromSlash(f.Path))
 
 		op := ApplyOperation{
 			Path:    f.Path,
 			OldHash: f.OldHash,
 			NewHash: f.NewHash,
+			Status:  "pending",
 		}
 
 		if f.Status == "deleted" {
 			op.Type = "delete"
-			if existingData, err := os.ReadFile(livePath); err == nil {
-				_ = os.MkdirAll(filepath.Dir(rollbackPath), 0o700)
-				_ = os.WriteFile(rollbackPath, existingData, 0o600)
+			existingData, err := os.ReadFile(livePath)
+			if err != nil {
+				return fmt.Errorf("capture pre-image for delete %s: %w", f.Path, err)
 			}
+			if err := os.MkdirAll(filepath.Dir(rollbackPath), 0o700); err != nil {
+				return fmt.Errorf("mkdir rollback dir for %s: %w", f.Path, err)
+			}
+			if err := AtomicWriteFile(rollbackPath, existingData, 0o600); err != nil {
+				return fmt.Errorf("write rollback pre-image for %s: %w", f.Path, err)
+			}
+			op.ExistedBefore = true
+			op.BackupPath = rollbackPath
 		} else {
 			op.Type = "write"
 			if existingData, err := os.ReadFile(livePath); err == nil {
-				_ = os.MkdirAll(filepath.Dir(rollbackPath), 0o700)
-				_ = os.WriteFile(rollbackPath, existingData, 0o600)
+				if err := os.MkdirAll(filepath.Dir(rollbackPath), 0o700); err != nil {
+					return fmt.Errorf("mkdir rollback dir for %s: %w", f.Path, err)
+				}
+				if err := AtomicWriteFile(rollbackPath, existingData, 0o600); err != nil {
+					return fmt.Errorf("write rollback pre-image for %s: %w", f.Path, err)
+				}
+				op.ExistedBefore = true
+				op.BackupPath = rollbackPath
+			} else {
+				op.ExistedBefore = false
 			}
 		}
 		operations = append(operations, op)
 	}
 
-	// 5. Persist durable Apply Journal before touching live files
+	// 5. Persist durable Apply Journal (both disk and sqlite) before touching live files
+	journalID := fmt.Sprintf("app-%s-%d", migrationID, time.Now().Unix())
 	journal := StoredApplyJournal{
-		ID:          fmt.Sprintf("app-%s-%d", migrationID, time.Now().Unix()),
+		ID:          journalID,
 		MigrationID: migrationID,
 		RevisionID:  revisionID,
 		CommitHash:  rev.CommitHash,
 		TreeHash:    rev.TreeHash,
 		PatchHash:   rev.PatchHash,
-		Status:      "in_progress",
+		Status:      "applying",
 		Operations:  operations,
 		CreatedAt:   time.Now().UTC(),
 		UpdatedAt:   time.Now().UTC(),
 	}
+
 	journalPath := filepath.Join(migDir, "apply", "journal.json")
 	journalData, err := json.MarshalIndent(journal, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal apply journal: %w", err)
 	}
-	if err := os.WriteFile(journalPath, journalData, 0o600); err != nil {
+	if err := AtomicWriteFile(journalPath, journalData, 0o600); err != nil {
 		return fmt.Errorf("write apply journal: %w", err)
 	}
 
+	opsJSON, _ := json.Marshal(operations)
+	_ = db.CreateApplyJournal(migration.ApplyJournal{
+		ID:          journalID,
+		MigrationID: migrationID,
+		RevisionID:  revisionID,
+		PatchHash:   rev.PatchHash,
+		Status:      "applying",
+		Operations:  string(opsJSON),
+		CreatedAt:   journal.CreatedAt,
+		UpdatedAt:   journal.UpdatedAt,
+	})
+
+	// Transition migration state to applying
+	if err := db.UpdateMigrationState(migrationID, migration.StateApplying, ""); err != nil {
+		return fmt.Errorf("update migration state to applying: %w", err)
+	}
+
 	// 6. Execute atomic writes reading directly from Git commit blobs
-	var appliedOps []ApplyOperation
+	var appliedCount int
 	var applyErr error
 
-	for _, op := range operations {
-		if isProtectedWorkspacePath(op.Path) {
-			applyErr = fmt.Errorf("security violation: cannot write to protected workspace path: %s", op.Path)
-			break
-		}
-		livePath := filepath.Join(cleanLive, op.Path)
-		if !strings.HasPrefix(filepath.Clean(livePath), cleanLive+string(filepath.Separator)) {
-			applyErr = fmt.Errorf("illegal path outside live workspace: %s", op.Path)
+	for i := range operations {
+		op := &operations[i]
+		livePath := filepath.Join(cleanLive, filepath.FromSlash(op.Path))
+
+		if err := security.ValidateSafeWorkspacePath(cleanLive, op.Path); err != nil {
+			applyErr = fmt.Errorf("security check on %s: %w", op.Path, err)
 			break
 		}
 
@@ -247,7 +290,6 @@ func ApplyRevision(config Config, migrationID string, revisionID string, expecte
 				break
 			}
 		} else {
-			// Read proposed content directly from Git commit blob
 			propData, err := repo.ReadFileAtCommit(rev.CommitHash, op.Path)
 			if err != nil {
 				applyErr = fmt.Errorf("read blob %s from commit %s: %w", op.Path, rev.CommitHash, err)
@@ -265,42 +307,75 @@ func ApplyRevision(config Config, migrationID string, revisionID string, expecte
 				_ = os.Chown(livePath, config.RuntimeUID, config.RuntimeGID)
 			}
 		}
-		appliedOps = append(appliedOps, op)
+		op.Status = "applied"
+		appliedCount++
 	}
 
 	// 7. If failed mid-flight, rollback applied files using disk pre-images
 	if applyErr != nil {
-		for i := len(appliedOps) - 1; i >= 0; i-- {
-			op := appliedOps[i]
-			livePath := filepath.Join(cleanLive, op.Path)
-			rollbackPath := filepath.Join(rollbackDir, op.Path)
-			if preData, err := os.ReadFile(rollbackPath); err == nil {
-				_ = AtomicWriteFile(livePath, preData, 0o600)
+		_ = db.UpdateMigrationState(migrationID, migration.StateRollingBack, "")
+		_ = db.UpdateApplyJournalStatus(journalID, "rolling_back", applyErr.Error())
+
+		rollbackFailed := false
+		for i := appliedCount - 1; i >= 0; i-- {
+			op := &operations[i]
+			livePath := filepath.Join(cleanLive, filepath.FromSlash(op.Path))
+
+			if op.ExistedBefore {
+				if op.BackupPath != "" {
+					preData, err := os.ReadFile(op.BackupPath)
+					if err == nil {
+						_ = AtomicWriteFile(livePath, preData, 0o600)
+						op.Status = "rolled_back"
+					} else {
+						rollbackFailed = true
+						op.Status = "failed"
+					}
+				} else {
+					rollbackFailed = true
+					op.Status = "failed"
+				}
 			} else {
 				_ = os.Remove(livePath)
+				op.Status = "rolled_back"
 			}
 		}
-		journal.Status = "rolled_back"
+
+		journal.Operations = operations
 		journal.UpdatedAt = time.Now().UTC()
-		if updated, err := json.MarshalIndent(journal, "", "  "); err == nil {
-			_ = os.WriteFile(journalPath, updated, 0o600)
+
+		if rollbackFailed {
+			journal.Status = "failed"
+			if updated, err := json.MarshalIndent(journal, "", "  "); err == nil {
+				_ = AtomicWriteFile(journalPath, updated, 0o600)
+			}
+			_ = db.UpdateApplyJournalStatus(journalID, "failed", fmt.Sprintf("Apply failed: %v. Rollback incomplete.", applyErr))
+			_ = db.UpdateMigrationState(migrationID, migration.StateRecoveryRequired, "")
+			return fmt.Errorf("apply failed and rollback incomplete (entered recovery_required): %w", applyErr)
 		}
-		_ = db.UpdateMigrationState(migrationID, migration.StateRecoveryRequired, "")
-		return fmt.Errorf("apply failed and rolled back: %w", applyErr)
+
+		journal.Status = "rolled_back"
+		if updated, err := json.MarshalIndent(journal, "", "  "); err == nil {
+			_ = AtomicWriteFile(journalPath, updated, 0o600)
+		}
+		_ = db.UpdateApplyJournalStatus(journalID, "rolled_back", applyErr.Error())
+		_ = db.UpdateMigrationState(migrationID, migration.StateReadyForReview, "")
+		return fmt.Errorf("apply failed and rolled back cleanly: %w", applyErr)
 	}
 
 	// 8. Mark revision and migration applied
-	_ = db.UpdateMigrationState(migrationID, migration.StateApplied, "")
 	journal.Status = "applied"
 	journal.UpdatedAt = time.Now().UTC()
 	if updated, err := json.MarshalIndent(journal, "", "  "); err == nil {
-		_ = os.WriteFile(journalPath, updated, 0o600)
+		_ = AtomicWriteFile(journalPath, updated, 0o600)
 	}
+	_ = db.UpdateApplyJournalStatus(journalID, "applied", "")
+	_ = db.UpdateMigrationState(migrationID, migration.StateApplied, "")
 
 	return nil
 }
 
-// ReconcileInterruptedApply recovers a crashed apply operation if journal status is in_progress.
+// ReconcileInterruptedApply recovers a crashed apply operation if journal status is applying or rolling_back.
 func ReconcileInterruptedApply(config Config, migrationID string) error {
 	migDir := MigrationRoot(config, migrationID)
 	journalPath := filepath.Join(migDir, "apply", "journal.json")
@@ -317,41 +392,192 @@ func ReconcileInterruptedApply(config Config, migrationID string) error {
 		return fmt.Errorf("unmarshal apply journal: %w", err)
 	}
 
-	if journal.Status != "in_progress" {
-		return nil // Already completed or rolled back
+	if journal.Status != "applying" && journal.Status != "rolling_back" && journal.Status != "in_progress" {
+		return nil // Already completed or cleanly rolled back
 	}
 
-	// Revert all operations using rollback pre-images
+	// Rollback applied operations using disk pre-images
 	liveWorkspace := filepath.Join(config.DataRoot, "workspace")
 	if wsRoot := os.Getenv("OPENLIA_WORKSPACE_ROOT"); wsRoot != "" {
 		liveWorkspace = wsRoot
 	}
 	cleanLive := filepath.Clean(liveWorkspace)
-	rollbackDir := filepath.Join(migDir, "apply", "rollback")
 
+	rollbackFailed := false
 	for i := len(journal.Operations) - 1; i >= 0; i-- {
-		op := journal.Operations[i]
-		livePath := filepath.Join(cleanLive, op.Path)
-		rollbackPath := filepath.Join(rollbackDir, op.Path)
+		op := &journal.Operations[i]
+		livePath := filepath.Join(cleanLive, filepath.FromSlash(op.Path))
 
-		if preData, err := os.ReadFile(rollbackPath); err == nil {
-			_ = AtomicWriteFile(livePath, preData, 0o600)
+		if op.ExistedBefore {
+			if op.BackupPath != "" {
+				if preData, err := os.ReadFile(op.BackupPath); err == nil {
+					_ = AtomicWriteFile(livePath, preData, 0o600)
+					op.Status = "rolled_back"
+				} else {
+					rollbackFailed = true
+					op.Status = "failed"
+				}
+			} else {
+				rollbackFailed = true
+				op.Status = "failed"
+			}
 		} else {
 			_ = os.Remove(livePath)
+			op.Status = "rolled_back"
 		}
 	}
 
-	journal.Status = "rolled_back"
 	journal.UpdatedAt = time.Now().UTC()
-	if updated, err := json.MarshalIndent(journal, "", "  "); err == nil {
-		_ = os.WriteFile(journalPath, updated, 0o600)
+	db, _ := migration.OpenDB(migDir)
+	if db != nil {
+		defer db.Close()
 	}
 
-	db, err := migration.OpenDB(migDir)
-	if err == nil {
-		defer db.Close()
-		_ = db.UpdateMigrationState(migrationID, migration.StateRecoveryRequired, "")
+	if rollbackFailed {
+		journal.Status = "failed"
+		if updated, err := json.MarshalIndent(journal, "", "  "); err == nil {
+			_ = AtomicWriteFile(journalPath, updated, 0o600)
+		}
+		if db != nil {
+			_ = db.UpdateApplyJournalStatus(journal.ID, "failed", "Crash recovery rollback incomplete")
+			_ = db.UpdateMigrationState(migrationID, migration.StateRecoveryRequired, "")
+		}
+		return fmt.Errorf("crash recovery rollback failed: missing pre-images (entered recovery_required)")
+	}
+
+	journal.Status = "rolled_back"
+	if updated, err := json.MarshalIndent(journal, "", "  "); err == nil {
+		_ = AtomicWriteFile(journalPath, updated, 0o600)
+	}
+	if db != nil {
+		_ = db.UpdateApplyJournalStatus(journal.ID, "rolled_back", "Interrupted apply cleanly rolled back")
+		_ = db.UpdateMigrationState(migrationID, migration.StateReadyForReview, "")
 	}
 
 	return nil
+}
+
+// RecoverMigration provides manual inspection, retry, rollback, or resolution for recovery_required migrations.
+func RecoverMigration(config Config, migrationID string, action string) (*RecoveryResult, error) {
+	if action == "" {
+		action = "inspect"
+	}
+
+	migDir := MigrationRoot(config, migrationID)
+	db, err := migration.OpenDB(migDir)
+	if err != nil {
+		return nil, fmt.Errorf("open migration db: %w", err)
+	}
+	defer db.Close()
+
+	mig, err := db.GetMigration(migrationID)
+	if err != nil || mig == nil {
+		return nil, fmt.Errorf("migration %s not found: %w", migrationID, err)
+	}
+
+	journalPath := filepath.Join(migDir, "apply", "journal.json")
+	var journal StoredApplyJournal
+	journalFound := false
+	if data, err := os.ReadFile(journalPath); err == nil {
+		if err := json.Unmarshal(data, &journal); err == nil {
+			journalFound = true
+		}
+	}
+
+	switch action {
+	case "inspect":
+		msg := fmt.Sprintf("Migration %s is in state '%s'.", migrationID, mig.State)
+		if journalFound {
+			msg += fmt.Sprintf(" Journal status: '%s' with %d operations.", journal.Status, len(journal.Operations))
+		} else {
+			msg += " No on-disk apply journal found."
+		}
+		return &RecoveryResult{
+			Action:      action,
+			MigrationID: migrationID,
+			Status:      mig.State,
+			Message:     msg,
+			Journal:     &journal,
+		}, nil
+
+	case "rollback":
+		// Force rollback of any operations using available pre-images
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		unlock, err := AcquireWorkspaceLock(ctx, config)
+		if err != nil {
+			return nil, fmt.Errorf("acquire workspace lock: %w", err)
+		}
+		defer unlock()
+
+		liveWorkspace := filepath.Join(config.DataRoot, "workspace")
+		if wsRoot := os.Getenv("OPENLIA_WORKSPACE_ROOT"); wsRoot != "" {
+			liveWorkspace = wsRoot
+		}
+		cleanLive := filepath.Clean(liveWorkspace)
+
+		for i := len(journal.Operations) - 1; i >= 0; i-- {
+			op := &journal.Operations[i]
+			livePath := filepath.Join(cleanLive, filepath.FromSlash(op.Path))
+			if op.ExistedBefore && op.BackupPath != "" {
+				if preData, err := os.ReadFile(op.BackupPath); err == nil {
+					_ = AtomicWriteFile(livePath, preData, 0o600)
+					op.Status = "rolled_back"
+				}
+			} else if !op.ExistedBefore {
+				_ = os.Remove(livePath)
+				op.Status = "rolled_back"
+			}
+		}
+
+		journal.Status = "rolled_back"
+		journal.UpdatedAt = time.Now().UTC()
+		if updated, err := json.MarshalIndent(journal, "", "  "); err == nil {
+			_ = AtomicWriteFile(journalPath, updated, 0o600)
+		}
+		_ = db.UpdateApplyJournalStatus(journal.ID, "rolled_back", "Manual recovery rollback completed")
+		_ = db.UpdateMigrationState(migrationID, migration.StateReadyForReview, "")
+
+		return &RecoveryResult{
+			Action:      action,
+			MigrationID: migrationID,
+			Status:      migration.StateReadyForReview,
+			Message:     "Pre-images successfully restored. Migration reset to ready_for_review.",
+			Journal:     &journal,
+		}, nil
+
+	case "retry":
+		// Retry forward apply for the active revision
+		if err := ApplyRevision(config, migrationID, mig.ActiveRevisionID, ""); err != nil {
+			return nil, fmt.Errorf("retry apply: %w", err)
+		}
+		return &RecoveryResult{
+			Action:      action,
+			MigrationID: migrationID,
+			Status:      migration.StateApplied,
+			Message:     "Migration apply retried and succeeded.",
+			Journal:     &journal,
+		}, nil
+
+	case "resolve":
+		// Operator confirms workspace is resolved
+		journal.Status = "resolved"
+		journal.UpdatedAt = time.Now().UTC()
+		if updated, err := json.MarshalIndent(journal, "", "  "); err == nil {
+			_ = AtomicWriteFile(journalPath, updated, 0o600)
+		}
+		_ = db.UpdateApplyJournalStatus(journal.ID, "resolved", "Operator resolved recovery manually")
+		_ = db.UpdateMigrationState(migrationID, migration.StateReadyForReview, "")
+
+		return &RecoveryResult{
+			Action:      action,
+			MigrationID: migrationID,
+			Status:      migration.StateReadyForReview,
+			Message:     "Migration marked resolved. State reset to ready_for_review.",
+			Journal:     &journal,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown recovery action '%s': supported actions are inspect, rollback, retry, resolve", action)
+	}
 }
