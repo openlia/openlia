@@ -282,9 +282,10 @@ export class MigrationService {
                   NULL as job_state, NULL as job_attempts, NULL as job_max_attempts, NULL as job_summary, NULL as job_error
            FROM sources s WHERE s.migration_id = ? ORDER BY s.order_index ASC`;
 
-      const sourceRows = db
-        .query(sourceQuery)
-        .all(migrationId) as Record<string, unknown>[];
+      const sourceRows = db.query(sourceQuery).all(migrationId) as Record<
+        string,
+        unknown
+      >[];
 
       sources = sourceRows.map((r) => ({
         byte_size: Number(r.byte_size) || 0,

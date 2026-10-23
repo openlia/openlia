@@ -323,11 +323,18 @@ export function MigrationSection({
     revisions.length > 0 ? revisions[revisions.length - 1] : null;
   const activeRev =
     (selectedRevisionId
-      ? revisions.find((r) => r.id === selectedRevisionId || String(r.revision_num) === selectedRevisionId)
+      ? revisions.find(
+          (r) =>
+            r.id === selectedRevisionId ||
+            String(r.revision_num) === selectedRevisionId,
+        )
       : null) ?? latestRev;
 
   const hasFailedJobs = sources.some(
-    (s) => s.job_state === "failed" || (s.eligibility === "eligible" && s.reason?.toLowerCase().includes("failed")),
+    (s) =>
+      s.job_state === "failed" ||
+      (s.eligibility === "eligible" &&
+        s.reason?.toLowerCase().includes("failed")),
   );
 
   const handleSendFeedback = async () => {
@@ -378,7 +385,9 @@ export function MigrationSection({
                 <span>⚠️</span> Recovery Required
               </h4>
               <p className="text-xs sm:text-sm text-base-content/80 mt-1">
-                An apply operation was interrupted or encountered an error before committing. Normal review actions are suspended until resolved.
+                An apply operation was interrupted or encountered an error
+                before committing. Normal review actions are suspended until
+                resolved.
               </p>
               {recovery.error_message && (
                 <p className="text-xs font-mono text-error/90 mt-1">
@@ -523,7 +532,9 @@ export function MigrationSection({
 
           {revisions.length > 1 && (
             <div className="flex items-center gap-1 ml-1 sm:ml-2">
-              <span className="text-xs text-base-content/60 font-medium">Rev:</span>
+              <span className="text-xs text-base-content/60 font-medium">
+                Rev:
+              </span>
               <select
                 aria-label="Select revision"
                 className="select select-bordered select-xs font-mono"
@@ -768,8 +779,8 @@ export function MigrationSection({
                     <span>❓</span> Unresolved Questions for Operator
                   </h3>
                   <ul className="list-disc list-inside text-sm space-y-1.5 text-base-content/85">
-                    {activeRev.unresolved_questions.map((q, idx) => (
-                      <li key={idx}>{q}</li>
+                    {activeRev.unresolved_questions.map((q) => (
+                      <li key={q}>{q}</li>
                     ))}
                   </ul>
                 </div>
@@ -1035,8 +1046,13 @@ export function MigrationSection({
             {hasFailedJobs && onRetryJobs && (
               <div className="flex items-center justify-between p-3 bg-error/10 border border-error/25 rounded-xl">
                 <div>
-                  <h4 className="text-xs font-bold text-error">Source Processing Issues</h4>
-                  <p className="text-xs text-base-content/70">One or more source files encountered errors during processing.</p>
+                  <h4 className="text-xs font-bold text-error">
+                    Source Processing Issues
+                  </h4>
+                  <p className="text-xs text-base-content/70">
+                    One or more source files encountered errors during
+                    processing.
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -1105,16 +1121,22 @@ export function MigrationSection({
                                       : "badge-primary"
                               }`}
                             >
-                              {s.job_state} {s.job_attempts ? `(${s.job_attempts}x)` : ""}
+                              {s.job_state}{" "}
+                              {s.job_attempts ? `(${s.job_attempts}x)` : ""}
                             </span>
                             {s.job_error && (
-                              <p className="text-[11px] text-error font-mono truncate max-w-xs" title={s.job_error}>
+                              <p
+                                className="text-[11px] text-error font-mono truncate max-w-xs"
+                                title={s.job_error}
+                              >
                                 {s.job_error}
                               </p>
                             )}
                           </div>
                         ) : (
-                          <span className="text-xs text-base-content/40">—</span>
+                          <span className="text-xs text-base-content/40">
+                            —
+                          </span>
                         )}
                       </td>
                       <td className="text-xs">{s.byte_size} bytes</td>

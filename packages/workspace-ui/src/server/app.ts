@@ -1512,7 +1512,9 @@ export function createWorkspaceHandler(
         }
         try {
           const patchHash = (bodyResult.value as any)?.patch_hash;
-          return json(migrationService.approve(migrationId, revisionId, patchHash));
+          return json(
+            migrationService.approve(migrationId, revisionId, patchHash),
+          );
         } catch (error) {
           return json(
             {
@@ -1706,7 +1708,8 @@ export function createWorkspaceHandler(
             {
               schema: 2,
               ok: false,
-              error: error instanceof Error ? error.message : "retry_jobs_error",
+              error:
+                error instanceof Error ? error.message : "retry_jobs_error",
             },
             400,
           );

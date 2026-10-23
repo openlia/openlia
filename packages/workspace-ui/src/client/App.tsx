@@ -2994,7 +2994,11 @@ export function App({
             onApprove={async (revId, patchHash) => {
               if (!selectedMigrationId) return;
               try {
-                await api.approveMigration(selectedMigrationId, revId, patchHash);
+                await api.approveMigration(
+                  selectedMigrationId,
+                  revId,
+                  patchHash,
+                );
                 await refreshMigrations();
               } catch (err) {
                 console.error("Approve error", err);

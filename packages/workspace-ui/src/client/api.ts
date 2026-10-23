@@ -1020,7 +1020,10 @@ export const httpWorkspaceApi: WorkspaceApi = {
       (val): val is MigrationActionResponse =>
         isObject(val) && typeof (val as any).ok === "boolean",
       {
-        body: JSON.stringify({ revision_id: revisionId, patch_hash: patchHash }),
+        body: JSON.stringify({
+          revision_id: revisionId,
+          patch_hash: patchHash,
+        }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       },
