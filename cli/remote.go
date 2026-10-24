@@ -375,6 +375,8 @@ func operatorArguments(operation string, args []string) ([]string, bool) {
 		command = "workspace-export"
 	case "instructions":
 		command = "instructions"
+	case "features":
+		command = "features"
 	case "ops/bootstrap.sh":
 		command = "bootstrap"
 	case "ops/profile.sh":
@@ -403,7 +405,7 @@ func operatorArguments(operation string, args []string) ([]string, bool) {
 
 func operatorOnlyOperation(operation string) bool {
 	switch filepath.ToSlash(operation) {
-	case "workspace-git", "ops/workspace-git.sh", "workspace-migrate", "workspace-export", "instructions":
+	case "workspace-git", "ops/workspace-git.sh", "workspace-migrate", "workspace-export", "instructions", "features":
 		return true
 	default:
 		return false

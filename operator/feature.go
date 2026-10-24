@@ -952,6 +952,11 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 	if err := AtomicWriteFile(filepath.Join(featuresMetaDir, manifest.ID+".json"), append(recBytes, '\n'), 0o600); err != nil {
 		return FeatureInstallResult{}, err
 	}
+	if config.RuntimeUID > 0 && config.RuntimeGID > 0 && os.Geteuid() == 0 {
+		_ = ensureRuntimeTreeOwner(workspaceDir, config.RuntimeUID, config.RuntimeGID)
+		_ = ensureRuntimeTreeOwner(filepath.Join(config.DataRoot, "skills"), config.RuntimeUID, config.RuntimeGID)
+		_ = ensureRuntimeTreeOwner(config.MetaRoot, config.RuntimeUID, config.RuntimeGID)
+	}
 
 	_ = RecordChange(config, "feature-install", "ok", manifest.ID, fmt.Sprintf("installed feature %s", manifest.ID), now)
 	return FeatureInstallResult{
