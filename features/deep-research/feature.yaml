@@ -20,6 +20,7 @@ domains:
     route: research
     tags:
       - research
+    template: knowledge/research/research-template.md
     skills:
       - deep-research
     feature: deep-research

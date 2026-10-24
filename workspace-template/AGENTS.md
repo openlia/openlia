@@ -45,6 +45,7 @@ user-owned delegation policy authorizes the scoped update.
   - **Optional À La Carte Feature Templates** (present when the corresponding feature package is installed and registered in `workspace.yaml`):
     - `areas/area-template.md`: enduring life domains, standards, and active projects (`areas` feature).
     - `decisions/decision-template.md`: questions, options, trade-offs, and outcomes (`decision-analysis` feature).
+    - `knowledge/research/research-template.md`: bounded, source-backed research briefs (`deep-research` feature).
     - `monitors/monitor-template.md`: standing checks, watch URLs, and triggers (`monitors` feature).
     - `people/person-template.md`: relationships, important dates, and open loops (`people` feature).
     - `ideas/idea-template.md`: seeds, opportunities, and exploration questions (`ideas` feature).
