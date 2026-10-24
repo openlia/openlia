@@ -315,7 +315,7 @@ describe("Hermes chat boundary", () => {
     expect(((await response.json()) as { run: ChatRun }).run.session_id).toBe(
       "compacted-tip",
     );
-    sessions.push({ id: "compacted-tip", source: "hermes_browser" });
+    sessions.push({ id: "compacted-tip", source: "api_server" });
     const tip = (await (
       await service.handle(request("/sessions/compacted-tip"))
     ).json()) as { session: ChatSession };

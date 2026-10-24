@@ -173,7 +173,7 @@ export class ChatService {
           data: ChatSession[];
           has_more: boolean;
         }>(
-          `/api/sessions?limit=50&offset=${offset}${other ? "" : "&source=hermes_browser"}`,
+          `/api/sessions?limit=50&offset=${offset}${other ? "" : "&source=api_server"}`,
         );
         const data = result.data.map((s) => ({
           ...s,
@@ -195,7 +195,7 @@ export class ChatService {
           "/api/sessions",
           {
             method: "POST",
-            body: JSON.stringify({ id, source: "hermes_browser" }),
+            body: JSON.stringify({ id, source: "api_server" }),
           },
         );
         this.register(id);
@@ -364,7 +364,7 @@ export class ChatService {
             // and 5xx remain uncertain and must reuse the original identity.
             if (
               error instanceof ChatError &&
-              [400, 401, 403, 404, 422, 429].includes(error.status)
+              [400, 401, 403, 404, 409, 422, 429].includes(error.status)
             ) {
               this.store()
                 .query(
