@@ -10,11 +10,9 @@ import subprocess
 import sys
 import time
 
-SKILLS_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "profile",
-    "skills",
-)
+REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SKILLS_DIR = os.path.join(REPO_DIR, "profile", "skills")
+FEATURES_DIR = os.path.join(REPO_DIR, "features")
 
 
 def run_command(cmd: list[str], timeout: float = 120.0) -> tuple[int, str, str, float]:
@@ -42,7 +40,10 @@ def run_offline_tests(selected_skill: str = "") -> bool:
     print("=" * 65)
 
     pattern = os.path.join(SKILLS_DIR, selected_skill or "*", "scripts", "*.py")
-    scripts = sorted(glob.glob(pattern))
+    feat_pattern = os.path.join(
+        FEATURES_DIR, "*", "skills", selected_skill or "*", "scripts", "*.py"
+    )
+    scripts = sorted(glob.glob(pattern) + glob.glob(feat_pattern))
     if not scripts:
         print(f"No skill scripts found matching pattern: {pattern}")
         return False

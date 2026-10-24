@@ -20,7 +20,7 @@ of outcomes for the next period.
 
 ## Procedure
 
-1. Gather current project, task, decision, claim, health, and registered finance records as read-only
+1. Gather current project, task, and claim records—plus decision, health, and finance records when those feature domains are registered in `workspace.yaml`—as read-only
    inputs. Read research briefs linked from active projects, open decisions, and
    unresolved tasks; research briefs are supporting records, not a replacement
    for those domain records.

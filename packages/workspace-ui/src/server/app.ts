@@ -3,6 +3,8 @@ import { existsSync, lstatSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import type {
   AuthLoginResponse,
+  FeatureInstallRequest,
+  FeaturePackageRequest,
   ShareCreateRequest,
   ShareExpirationPreset,
   ShareUpdateRequest,
@@ -24,6 +26,7 @@ import type {
 import { Authenticator } from "./auth";
 import { ChatService, type ChatOptions } from "./chat";
 import { exportArchive } from "./export";
+import { FeatureService } from "./features";
 import { IngestionService } from "./ingestion";
 import { MemoryFileService } from "./memory";
 import { MigrationService } from "./migration";
@@ -41,6 +44,7 @@ export interface WorkspaceHandlerOptions {
   migrationsRoot?: string;
   usageRoot?: string;
   skillsRoot?: string;
+  featuresRoot?: string;
   cronRoot?: string;
   backupSchedule?: string;
   backupScheduleEnabled?: boolean;
@@ -319,9 +323,15 @@ export function createWorkspaceHandler(
     maxEditableBytes: options.maxEditableBytes,
     skillsRoot,
   });
+  const featureService = new FeatureService({
+    featuresRoot: options.featuresRoot,
+    skillsRoot,
+    workspaceRoot: options.workspaceRoot,
+  });
   const shareService = new ShareService({
     databasePath: options.sharesDatabasePath,
     failedLookupWindowMs: options.failedShareLookupWindowMs,
+    featureService,
     maxDownloadBytes: options.maxDownloadBytes,
     maxEditableBytes: options.maxEditableBytes,
     maxFailedLookups: options.maxFailedShareLookups,
@@ -2029,6 +2039,65 @@ export function createWorkspaceHandler(
         );
         return json({ id: createdId, ok: true, schema: 1 }, 201);
       }
+      if (request.method === "GET" && url.pathname === "/api/features") {
+        return json(featureService.list());
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/features/install"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 8192);
+        if (!isObject(bodyResult.value))
+          return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
+        const req = bodyResult.value as Partial<FeatureInstallRequest>;
+        return json(
+          featureService.install(req.id, req.approve_policy ?? true),
+          200,
+        );
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/features/remove"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 8192);
+        if (!isObject(bodyResult.value))
+          return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
+        return json(featureService.remove(bodyResult.value.id), 200);
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/features/package"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 16384);
+        if (!isObject(bodyResult.value))
+          return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
+        const { filename, zipBytes } = featureService.packageZip(
+          bodyResult.value as Partial<FeaturePackageRequest>,
+        );
+        return new Response(new Uint8Array(zipBytes), {
+          headers: {
+            ...securityHeaders(),
+            "Content-Disposition": `attachment; filename="${filename}"`,
+            "Content-Length": String(zipBytes.byteLength),
+            "Content-Type": "application/zip",
+          },
+        });
+      }
       if (request.method === "GET" && url.pathname === "/api/cron/jobs") {
         return json(cronService.getOverview());
       }
@@ -2215,6 +2284,31 @@ export function createWorkspaceHandler(
               shareId,
               clientKey,
             );
+            return new Response(new Uint8Array(zipBytes), {
+              headers: {
+                ...securityHeaders(),
+                ...publicShareHeaders,
+                "Content-Disposition": `attachment; filename="${filename}"`,
+                "Content-Length": String(zipBytes.byteLength),
+                "Content-Type": "application/zip",
+              },
+            });
+          }
+
+          if (
+            url.pathname.startsWith("/api/public/share/feature/") &&
+            url.pathname.endsWith("/download")
+          ) {
+            const prefix = "/api/public/share/feature/";
+            const suffix = "/download";
+            const shareId = decodeURIComponent(
+              url.pathname.slice(
+                prefix.length,
+                url.pathname.length - suffix.length,
+              ),
+            );
+            const { filename, zipBytes } =
+              shareService.downloadPublicFeatureZip(shareId, clientKey);
             return new Response(new Uint8Array(zipBytes), {
               headers: {
                 ...securityHeaders(),

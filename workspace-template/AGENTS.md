@@ -32,29 +32,25 @@ user-owned delegation policy authorizes the scoped update.
 - Use a targeted `patch` update for an existing record, not `write_file` to
   replace the entire file. Removing optional frontmatter is an ordinary content
   edit, not file deletion. Preserve all unrelated content and validate afterward.
-  - `goals/goal-template.md`: high-level outcomes, rationale, and linked projects.
-  - `areas/area-template.md`: enduring life domains, standards, and active projects.
-  - `projects/project-template.md`: bounded initiatives with milestones and tasks.
-  - `decisions/decision-template.md`: questions, options, trade-offs, and outcomes.
-  - `monitors/monitor-template.md`: standing checks, watch URLs, and triggers.
-  - `tasks/task-template.md`: concrete physical actions with priorities and context tags.
-  - `people/person-template.md`: relationships, important dates, and open loops.
-  - `knowledge/claims/claim-template.md`: starter format for durable
-    personal claims; create actual records in the same directory.
-  - `ideas/idea-template.md`: seeds, opportunities, and exploration questions.
-  - `travel/trip-template.md`: itineraries, reservations, and packing lists.
-  - `shopping/item-template.md`: product research, price targets, and evaluations.
-  - `finance/finance-template.md`: period reviews, spending targets, and budgets.
-  - `finance/intake/intake-template.md`: source batches, extraction, posting, and reconciliation.
-  - `finance/accounts/accounts-template.md`: non-secret account mappings and reconciliation cadence.
-  - `finance/portfolios/portfolios-template.md`: holdings, dated prices, cost basis, and valuation gaps.
-  - `finance/reviews/reviews-template.md`: periodic financial reports and follow-up actions.
-  - `health/profiles/profile-template.md`: stable family-member identity boundaries.
-  - `health/history/history-template.md`: significant medical events and reported findings.
-  - `health/conditions/condition-template.md`: diagnoses, allergies, risks, and status.
-  - `health/treatments/treatment-template.md`: medication and other care courses.
-  - `health/reviews/review-template.md`: source-linked medical summaries.
-  - `calendar/event-note-template.md`: event agendas, notes, and follow-up items.
+  - **Base Starter Templates**:
+    - `goals/goal-template.md`: high-level outcomes, rationale, and linked projects.
+    - `projects/project-template.md`: bounded initiatives with milestones and tasks.
+    - `tasks/task-template.md`: concrete physical actions with priorities and context tags.
+    - `calendar/event-note-template.md`: event agendas, notes, and follow-up items.
+    - `knowledge/claims/claim-template.md`: starter format for durable
+      personal claims; create actual records in the same directory.
+    - `inbox/ingestion/ingestion-template.md`: durable capture and processing records.
+    - `sources/records/source-template.md`: retained source provenance and extraction metadata.
+  - **Optional À La Carte Feature Templates** (present when the corresponding feature package is installed and registered in `workspace.yaml`):
+    - `areas/area-template.md`: enduring life domains, standards, and active projects (`areas` feature).
+    - `decisions/decision-template.md`: questions, options, trade-offs, and outcomes (`decision-analysis` feature).
+    - `monitors/monitor-template.md`: standing checks, watch URLs, and triggers (`monitors` feature).
+    - `people/person-template.md`: relationships, important dates, and open loops (`people` feature).
+    - `ideas/idea-template.md`: seeds, opportunities, and exploration questions (`ideas` feature).
+    - `travel/trip-template.md`: itineraries, reservations, and packing lists (`travel` feature).
+    - `shopping/item-template.md`: product research, price targets, and evaluations (`shopping` feature).
+    - `finance/finance-template.md`, `finance/intake/intake-template.md`, `finance/accounts/accounts-template.md`, `finance/portfolios/portfolios-template.md`, `finance/reviews/reviews-template.md`: double-entry accounting and financial reviews (`personal-finance` feature).
+    - `health/profiles/profile-template.md`, `health/history/history-template.md`, `health/conditions/condition-template.md`, `health/treatments/treatment-template.md`, `health/reviews/review-template.md`: family medical history and clinical records (`personal-health` feature).
 - Prefer Markdown and small structured files with stable, descriptive names.
 - Distinguish semantic domain records from supporting artifacts. Use a suitable
   local template for recurring artifacts rather than forcing a daily menu or

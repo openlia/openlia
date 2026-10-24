@@ -5,6 +5,13 @@ version: 0.1.0
 platforms: [macos, linux]
 required_environment_variables: []
 required_credential_files: []
+workspace_domains:
+  - health
+  - health/profiles
+  - health/history
+  - health/conditions
+  - health/treatments
+  - health/reviews
 metadata:
   hermes:
     tags: [personal-os, health, medical-history, family]

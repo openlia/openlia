@@ -736,7 +736,7 @@ export interface WorkspaceFixTemplateResponse {
   migration_id: string;
 }
 
-export type ShareKind = "workspace" | "skill";
+export type ShareKind = "workspace" | "skill" | "feature";
 export type ShareExpirationPreset = "1d" | "7d" | "30d" | "90d" | "never";
 export type ShareSyncStatus = "up_to_date" | "stale" | "source_missing";
 
@@ -750,6 +750,60 @@ export interface ShareSkillMetadata {
   tags: string[];
   platforms: string[];
   prerequisites?: SkillPrerequisites | undefined;
+}
+
+export interface ShareFeatureMetadata {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author?: string | undefined;
+  license?: string | undefined;
+  domains: string[];
+  skills: string[];
+}
+
+export interface FeatureSummary {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author?: string | undefined;
+  license?: string | undefined;
+  source: "builtin" | "imported" | "custom";
+  state: "installed" | "partial" | "available";
+  domains: string[];
+  skills: string[];
+}
+
+export interface FeaturesListResponse {
+  schema: 1;
+  ok: true;
+  features: FeatureSummary[];
+}
+
+export interface FeatureInstallRequest {
+  id: string;
+  approve_policy?: boolean | undefined;
+}
+
+export interface FeatureInstallResponse {
+  schema: 1;
+  ok: true;
+  feature_id: string;
+  installed_domains: string[];
+  installed_skills: string[];
+  policy_updated: boolean;
+}
+
+export interface FeaturePackageRequest {
+  id: string;
+  name?: string | undefined;
+  version?: string | undefined;
+  description?: string | undefined;
+  domains?: string[] | undefined;
+  skills?: string[] | undefined;
+  include_records?: boolean | undefined;
 }
 
 export interface ShareSummary {
@@ -768,6 +822,7 @@ export interface ShareSummary {
   total_bytes: number;
   media_type: string;
   skill_metadata?: ShareSkillMetadata | undefined;
+  feature_metadata?: ShareFeatureMetadata | undefined;
 }
 
 export interface ShareListResponse {
@@ -827,6 +882,7 @@ export interface PublicShareResponse {
     editable: boolean;
     content?: string | undefined;
     skill_metadata?: ShareSkillMetadata | undefined;
+    feature_metadata?: ShareFeatureMetadata | undefined;
     files: PublicShareFileEntry[];
   };
 }

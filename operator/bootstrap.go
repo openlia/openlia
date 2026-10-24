@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -169,29 +170,16 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 	if err := copyOnce(filepath.Join(config.RepositoryRoot, "workspace-template", ".gitignore"), filepath.Join(workspace, ".gitignore"), 0o600); err != nil {
 		return BootstrapResult{}, err
 	}
-	for _, category := range []string{
-		"inbox",
-		"goals",
-		"areas",
-		"projects",
-		"knowledge",
-		"knowledge/claims",
-		"ideas",
-		"decisions",
-		"monitors",
-		"tasks",
-		"calendar",
-		"people",
-		"shopping",
-		"travel",
-		"finance",
-		"health",
-		"sources",
-		"inbox/ingestion",
-		"archive",
-	} {
+	for _, category := range LeanBaseAllDirs {
 		if err := EnsureDir(filepath.Join(workspace, category), 0o700); err != nil {
 			return BootstrapResult{}, err
+		}
+	}
+	if registered, err := RegisteredDomainPaths(workspace); err == nil && len(registered) > 0 {
+		for domainPath := range registered {
+			if err := EnsureDir(filepath.Join(workspace, filepath.FromSlash(domainPath)), 0o700); err != nil {
+				return BootstrapResult{}, err
+			}
 		}
 	}
 	if _, err := os.Stat(config.StateFile); errors.Is(err, os.ErrNotExist) {
@@ -261,6 +249,7 @@ func directoryEmpty(path string) (bool, error) {
 // starter template files that do not yet exist in workspaceDir. Existing user files
 // and customizations are strictly preserved.
 func seedMissingWorkspaceTemplates(templateDir, workspaceDir string) error {
+	registered, _ := RegisteredDomainPaths(workspaceDir)
 	return filepath.Walk(templateDir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -276,6 +265,14 @@ func seedMissingWorkspaceTemplates(templateDir, workspaceDir string) error {
 		// .gitkeep files are empty directory markers.
 		if rel == "AGENTS.md" || filepath.Base(rel) == ".gitkeep" {
 			return nil
+		}
+		relSlash := filepath.ToSlash(rel)
+		if len(registered) > 0 && strings.Contains(relSlash, "/") {
+			dirSlash := filepath.ToSlash(filepath.Dir(rel))
+			rootDomain := strings.Split(relSlash, "/")[0]
+			if !registered[dirSlash] && !registered[rootDomain] {
+				return nil
+			}
 		}
 		dest := filepath.Join(workspaceDir, rel)
 		if _, statErr := os.Lstat(dest); statErr == nil {

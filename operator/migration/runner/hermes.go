@@ -32,6 +32,7 @@ type HermesRunnerConfig struct {
 	HermesPath       string
 	DockerImage      string
 	DataRoot         string
+	SkillsDir        string
 	SecretDir        string
 	SecretFile       string
 	SystemSkillsRoot string
@@ -147,7 +148,10 @@ func (h *HermesRunner) runDocker(ctx context.Context, job migration.Job, prompt 
 		"-v", fmt.Sprintf("%s:/opt/data/workspace:rw", proposalWorkspaceDir),
 		"-v", fmt.Sprintf("%s:/source:ro", h.cfg.SourceDir),
 	)
-	skillsDir := filepath.Join(h.cfg.DataRoot, "skills")
+	skillsDir := h.cfg.SkillsDir
+	if skillsDir == "" {
+		skillsDir = filepath.Join(h.cfg.DataRoot, "skills")
+	}
 	if info, err := os.Stat(skillsDir); err == nil && info.IsDir() {
 		args = append(args, "-v", fmt.Sprintf("%s:/opt/data/skills:ro", skillsDir))
 	}

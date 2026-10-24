@@ -136,6 +136,9 @@ func IsIgnoredPath(relPath string) bool {
 	ext := strings.ToLower(filepath.Ext(base))
 
 	// 1. Standard ignored directories and metadata
+	if base == ".gitkeep" || strings.HasSuffix(strings.ToLower(base), ".schema.json") {
+		return true
+	}
 	for _, part := range parts {
 		if part == ".obsidian" || part == ".git" || part == "node_modules" ||
 			part == "__pycache__" || part == ".venv" || part == ".trash" ||

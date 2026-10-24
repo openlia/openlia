@@ -427,4 +427,72 @@ describe("ShareService & public share HTTP endpoints", () => {
     const listPayload = (await listRes.json()) as ShareListResponse;
     expect(listPayload.shares.map((s) => s.id)).toEqual([binShareId]);
   });
+
+  test("lists, installs, packages, and shares unified feature packages", async () => {
+    writeFileSync(
+      join(workspaceRoot, "workspace.yaml"),
+      "schema: 1\ndomains:\n  - path: inbox\n    kind: core\n    label: Inbox\n    purpose: Capture\n    lifecycle: inbox -> archived\n",
+    );
+
+    const handler = createWorkspaceHandler({
+      authRequired: false,
+      sharesDatabasePath: sharesDbPath,
+      skillsRoot,
+      workspaceRoot,
+    });
+
+    const listFeaturesRes = await handler(
+      new Request("http://localhost/api/features"),
+    );
+    expect(listFeaturesRes.status).toBe(200);
+    const listBody = (await listFeaturesRes.json()) as {
+      ok: boolean;
+      features: Array<{ id: string; state: string }>;
+    };
+    expect(listBody.ok).toBe(true);
+    expect(listBody.features.some((f) => f.id === "travel")).toBe(true);
+
+    const installRes = await handler(
+      new Request("http://localhost/api/features/install", {
+        body: JSON.stringify({ id: "travel", approve_policy: true }),
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        method: "POST",
+      }),
+    );
+    expect(installRes.status).toBe(200);
+
+    const createFeatureShareRes = await handler(
+      new Request("http://localhost/api/shares", {
+        body: JSON.stringify({
+          expires_in: "7d",
+          kind: "feature",
+          target_path: "travel",
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        method: "POST",
+      }),
+    );
+    expect(createFeatureShareRes.status).toBe(201);
+    const featureShare = (
+      (await createFeatureShareRes.json()) as ShareMutationResponse
+    ).share;
+    expect(featureShare.kind).toBe("feature");
+    expect(featureShare.feature_metadata?.id).toBe("travel");
+
+    const zipRes = await handler(
+      new Request(
+        `http://localhost/api/public/share/feature/${featureShare.id}/download`,
+      ),
+    );
+    expect(zipRes.status).toBe(200);
+    expect(zipRes.headers.get("content-type")).toBe("application/zip");
+    const zipBytes = new Uint8Array(await zipRes.arrayBuffer());
+    expect(zipBytes.byteLength).toBeGreaterThan(100);
+  });
 });

@@ -1,0 +1,27 @@
+schema: 1
+id: ideas
+name: Ideas & Someday/Maybe
+version: 0.3.0
+description: Possible future work, experiments, and observations.
+author: OpenLia maintainers
+license: MIT
+requires:
+  core_domains:
+    - inbox
+    - archive
+  features: []
+domains:
+  - path: ideas
+    kind: extension
+    label: Ideas
+    purpose: Possible future work and observations.
+    lifecycle: captured -> active or archived
+    route: idea
+    tags:
+      - idea
+    template: ideas/idea-template.md
+    feature: ideas
+skills: []
+policy:
+  allowed_domains:
+    - ideas

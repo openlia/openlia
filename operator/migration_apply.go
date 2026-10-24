@@ -135,6 +135,19 @@ func ApplyRevision(config Config, migrationID string, revisionID string, expecte
 		return fmt.Errorf("recompute changed files: %w", err)
 	}
 
+	// 2b. Auto-install any built-in features whose domains are touched by changedFiles
+	if config.RepositoryRoot != "" && len(changedFiles) > 0 {
+		var changedPaths []string
+		for _, f := range changedFiles {
+			changedPaths = append(changedPaths, f.Path)
+		}
+		if detectedFeatures, detectErr := DetectFeaturesForPaths(config.RepositoryRoot, changedPaths); detectErr == nil {
+			for _, featureID := range detectedFeatures {
+				_, _ = FeatureInstall(config, featureID, true, time.Now().UTC())
+			}
+		}
+	}
+
 	// 3. Stale live files check & security boundary verification
 	for _, f := range changedFiles {
 		if err := security.ValidateSafeWorkspacePath(cleanLive, f.Path); err != nil {

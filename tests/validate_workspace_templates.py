@@ -11,9 +11,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_ROOT = ROOT / "workspace-template"
+FEATURES_ROOT = ROOT / "features"
 SKILLS_ROOT = ROOT / "profile" / "skills"
 CLAIM_TEMPLATE = BUNDLE_ROOT / "knowledge" / "claims" / "claim-template.md"
-MONITOR_TEMPLATE = BUNDLE_ROOT / "monitors" / "monitor-template.md"
+MONITOR_WS_ROOT = FEATURES_ROOT / "monitors" / "workspace"
+MONITOR_TEMPLATE = MONITOR_WS_ROOT / "monitors" / "monitor-template.md"
 RUNTIME_VALIDATOR = (
     ROOT
     / "profile"
@@ -68,7 +70,7 @@ def _monitor_schema_errors() -> list[str]:
     try:
         metadata, _ = validator.parse_frontmatter(MONITOR_TEMPLATE.read_text(encoding="utf-8"))
         schema_path = validator._resolve_template_schema(
-            metadata.get("$schema"), MONITOR_TEMPLATE, BUNDLE_ROOT
+            metadata.get("$schema"), MONITOR_TEMPLATE, MONITOR_WS_ROOT
         )
         schema = validator.load_schema(schema_path)
     except (OSError, ValueError) as exc:
@@ -110,10 +112,16 @@ def _policy_errors() -> list[str]:
             errors.append("assistant policy rejected its configured scheduled report path")
         if not validator.policy_allows(
             policy,
+            "create_records",
+            "tasks/2026-10-08-review.md",
+        ):
+            errors.append("assistant policy rejected delegated tasks record writes")
+        if validator.policy_allows(
+            policy,
             "record_financial_data",
             "finance/intake/2026-10-08-statement.md",
         ):
-            errors.append("assistant policy rejected delegated finance record writes")
+            errors.append("lean base assistant policy allowed uninstalled finance record writes")
         if validator.policy_allows(
             policy,
             "generate_reports",
@@ -168,7 +176,12 @@ def validate_bundle() -> list[str]:
     discovered_schemas = {
         path.relative_to(BUNDLE_ROOT).as_posix()
         for path in BUNDLE_ROOT.rglob("*.schema.json")
-        if path.name not in {"workspace.schema.json", "assistant-policy.schema.json"}
+        if path.name
+        not in {
+            "workspace.schema.json",
+            "assistant-policy.schema.json",
+            "feature.schema.json",
+        }
     }
     if discovered_schemas != expected_schemas:
         missing = sorted(expected_schemas - discovered_schemas)
@@ -177,6 +190,41 @@ def validate_bundle() -> list[str]:
             errors.append(f"missing referenced template schemas: {', '.join(missing)}")
         if unregistered:
             errors.append(f"unregistered template schemas: {', '.join(unregistered)}")
+
+    if FEATURES_ROOT.is_dir():
+        feature_schema = validator.load_schema(BUNDLE_ROOT / "feature.schema.json")
+        for feature_dir in sorted(p for p in FEATURES_ROOT.iterdir() if p.is_dir()):
+            manifest_path = feature_dir / "feature.yaml"
+            if not manifest_path.is_file():
+                errors.append(f"features/{feature_dir.name}: missing feature.yaml")
+            else:
+                try:
+                    manifest_data = validator.yaml.safe_load(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    if not isinstance(manifest_data, dict):
+                        errors.append(
+                            f"features/{feature_dir.name}/feature.yaml: must be a YAML mapping"
+                        )
+                    else:
+                        for err in validator.validate_frontmatter(
+                            manifest_data, feature_schema
+                        ):
+                            errors.append(
+                                f"features/{feature_dir.name}/feature.yaml: {err}"
+                            )
+                except Exception as exc:
+                    errors.append(f"features/{feature_dir.name}/feature.yaml: {exc}")
+            feat_skills_root = feature_dir / "skills"
+            if feat_skills_root.is_dir() and any(feat_skills_root.glob("*/templates/*.md")):
+                errors.extend(validator.validate_skill_templates(feat_skills_root))
+            feat_ws_root = feature_dir / "workspace"
+            if feat_ws_root.is_dir():
+                for tpl_path in sorted(feat_ws_root.rglob("*-template.md")):
+                    tpl_errors, _, _ = validator._validate_template(
+                        tpl_path, feat_ws_root, require_frontmatter=False
+                    )
+                    errors.extend(tpl_errors)
 
     discovered_skill_templates = {
         path.relative_to(SKILLS_ROOT).as_posix()

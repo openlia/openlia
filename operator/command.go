@@ -109,6 +109,8 @@ func RunContext(ctx context.Context, args []string, input io.Reader, output, err
 		return runWorkspaceExport(ctx, config, args, output, errorOutput, jsonOutput)
 	case "instructions":
 		return runInstructions(config, args, input, output, errorOutput, jsonOutput, now)
+	case "features":
+		return runFeatures(config, args, output, errorOutput, jsonOutput, now)
 	case "uninstall":
 		if len(args) != 0 {
 			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("uninstall accepts no arguments"))
@@ -902,5 +904,103 @@ func runSkillMigration(config Config, args []string, output, errorOutput io.Writ
 		return emit(output, result, jsonOutput, "openlia skill-migration: proposal rejected")
 	default:
 		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("unknown skill-migration action %s", action))
+	}
+}
+
+func runFeatures(config Config, args []string, output, errorOutput io.Writer, jsonOutput bool, now time.Time) int {
+	if len(args) == 0 {
+		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features requires list, show, install, import, package, or remove"))
+	}
+	action := args[0]
+	args = args[1:]
+
+	switch action {
+	case "list":
+		res, err := FeatureList(config)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: %d feature(s)", len(res.Features)))
+
+	case "show":
+		if len(args) != 1 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features show requires FEATURE_ID"))
+		}
+		res, err := FeatureShow(config, args[0])
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, res, jsonOutput, fmt.Sprintf("feature %s (%s): %s", res.Status.ID, res.Status.State, res.Status.Description))
+
+	case "install":
+		withPolicy, args := removeFlag(args, "--with-policy")
+		if len(args) != 1 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features install requires FEATURE_ID"))
+		}
+		res, err := FeatureInstall(config, args[0], withPolicy, now)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: installed %s", res.FeatureID))
+
+	case "import":
+		withPolicy, args := removeFlag(args, "--with-policy")
+		if len(args) != 1 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features import requires ARCHIVE_OR_DIR"))
+		}
+		res, err := FeatureImport(config, args[0], withPolicy, now)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: imported %s", res.FeatureID))
+
+	case "package":
+		includeRecords, args := removeFlag(args, "--include-records")
+		domainsCSV, args, _ := stringFlag(args, "--domains")
+		skillsCSV, args, _ := stringFlag(args, "--skills")
+		outPath, args, _ := stringFlag(args, "--output")
+		nameStr, args, _ := stringFlag(args, "--name")
+		descStr, args, _ := stringFlag(args, "--description")
+		if len(args) != 1 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features package requires FEATURE_ID"))
+		}
+		var domains []string
+		for _, p := range strings.Split(domainsCSV, ",") {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				domains = append(domains, trimmed)
+			}
+		}
+		var skills []string
+		for _, s := range strings.Split(skillsCSV, ",") {
+			if trimmed := strings.TrimSpace(s); trimmed != "" {
+				skills = append(skills, trimmed)
+			}
+		}
+		res, err := FeaturePackage(config, FeaturePackageOptions{
+			FeatureID:      args[0],
+			Name:           nameStr,
+			Description:    descStr,
+			Domains:        domains,
+			Skills:         skills,
+			OutputPath:     outPath,
+			IncludeRecords: includeRecords,
+		})
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: packaged %s -> %s", res.FeatureID, res.OutputPath))
+
+	case "remove":
+		if len(args) != 1 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features remove requires FEATURE_ID"))
+		}
+		res, err := FeatureRemove(config, args[0], now)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: removed %s", res.FeatureID))
+
+	default:
+		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("unknown features action %s", action))
 	}
 }

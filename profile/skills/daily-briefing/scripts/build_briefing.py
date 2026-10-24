@@ -42,8 +42,6 @@ SOURCE_DIRECTORIES = (
     ("tasks", "Tasks", "tasks"),
     ("projects", "Projects", "projects"),
     ("goals", "Goals", "goals"),
-    ("decisions", "Decisions", "decisions"),
-    ("monitors", "Monitors", "monitors"),
     ("knowledge/claims", "Claims", "claims"),
     ("inbox", "Inbox", "inbox"),
 )
@@ -730,7 +728,6 @@ def self_test() -> None:
         assert "event date is missing or unrecognized" in packet
         assert "Prepare agenda" in packet
         assert "Website refresh" in packet
-        assert "Service status" in packet
         assert "Preferred focus" in packet
         assert "Follow up on the launch notes" in packet
         assert "Far event" not in packet
@@ -770,7 +767,7 @@ def self_test() -> None:
                     "properties": {
                         "$schema": {"const": "./workspace.schema.json"},
                         "version": {"const": 1},
-                        "domains": {"type": "array", "minItems": 15},
+                        "domains": {"type": "array", "minItems": 7},
                     },
                     "required": ["$schema", "version", "domains"],
                     "additionalProperties": False,
@@ -782,18 +779,10 @@ def self_test() -> None:
         for root_name in (
             "inbox",
             "goals",
-            "areas",
             "projects",
             "knowledge",
-            "ideas",
-            "decisions",
-            "monitors",
             "tasks",
             "calendar",
-            "people",
-            "shopping",
-            "travel",
-            "finance",
             "archive",
         ):
             registry_lines.extend(
@@ -806,6 +795,18 @@ def self_test() -> None:
             )
         registry_lines.extend(
             [
+                "  - path: monitors",
+                "    kind: extension",
+                "    label: Monitors",
+                "    purpose: Watch conditions",
+                "    lifecycle: watching -> archived",
+                "    include_in_briefing: true",
+                "    briefing_category: monitors",
+                "  - path: finance",
+                "    kind: extension",
+                "    label: Finance",
+                "    purpose: Financial records",
+                "    lifecycle: active -> archive",
                 "  - path: learning",
                 "    kind: extension",
                 "    label: Learning",
@@ -836,6 +837,7 @@ def self_test() -> None:
             modified=date(2026, 1, 2),
         )
         registered_packet = collect_sources(workspace, date(2026, 1, 2), max_chars=30000)
+        assert "Service status" in registered_packet
         assert "## Learning Topics" in registered_packet
         assert "learning/topics/workflow.md" in registered_packet
         assert "Workflow experiment" in registered_packet

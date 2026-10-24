@@ -209,6 +209,9 @@ func ScanSourceFolder(migrationID string, folderPath string) ([]migration.Source
 		if DetectSecretContent(slashRel, data) {
 			eligibility = migration.EligibilityBlocked
 			reason = "credentials, secrets, or protected system override patterns detected"
+		} else if filepath.Base(slashRel) == ".gitkeep" || strings.HasSuffix(strings.ToLower(slashRel), ".schema.json") {
+			eligibility = migration.EligibilitySkipped
+			reason = "unmodified openlia starter template or schema boilerplate"
 		} else if !isText {
 			eligibility = migration.EligibilityUnsupported
 			reason = fmt.Sprintf("unsupported non-text format (%s)", encoding)

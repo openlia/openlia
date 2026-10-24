@@ -49,6 +49,9 @@ func InitMigrationV2(config Config, migrationID string) (*migration.Migration, e
 	if lockErr != nil {
 		return nil, fmt.Errorf("acquire workspace lock for baseline: %w", lockErr)
 	}
+	if config.RepositoryRoot != "" {
+		_ = SeedAllFeatureTemplatesIntoDir(config.RepositoryRoot, propRepoDir)
+	}
 	baseCommit, err := repo.CaptureBaseline(liveWorkspace)
 	unlock()
 	if err != nil {
@@ -59,6 +62,19 @@ func InitMigrationV2(config Config, migrationID string) (*migration.Migration, e
 	sources, err := intake.ScanSourceFolder(migrationID, sourceDir)
 	if err != nil {
 		return nil, fmt.Errorf("scan source files: %w", err)
+	}
+	for i := range sources {
+		if sources[i].Eligibility != migration.EligibilityEligible {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Join(sourceDir, filepath.FromSlash(sources[i].RelativePath)))
+		if readErr == nil {
+			if isBoilerplate, reason := IsKnownBoilerplateTemplate(config.RepositoryRoot, sources[i].RelativePath, data); isBoilerplate {
+				sources[i].Eligibility = migration.EligibilitySkipped
+				sources[i].Reason = reason
+				sources[i].Dependencies = nil
+			}
+		}
 	}
 
 	mig := migration.Migration{
@@ -225,8 +241,10 @@ func RunMigrationSupervisor(ctx context.Context, config Config, migrationID stri
 
 	runnerRuntimeDir := filepath.Join(migDir, "runner-runtime")
 	sourceDir := filepath.Join(migDir, "source")
+	mergedSkillsDir := filepath.Join(runnerRuntimeDir, "merged-skills")
 	_ = os.MkdirAll(filepath.Join(runnerRuntimeDir, "logs"), 0o777)
 	_ = os.MkdirAll(filepath.Join(runnerRuntimeDir, ".local"), 0o777)
+	_ = MergeCatalogSkillsIntoDir(config.RepositoryRoot, filepath.Join(config.DataRoot, "skills"), mergedSkillsDir)
 	if config.RuntimeUID > 0 && config.RuntimeGID > 0 && os.Geteuid() == 0 {
 		migrationsBaseDir := filepath.Dir(migDir)
 		openliaHiddenDir := filepath.Dir(migrationsBaseDir)
@@ -238,6 +256,7 @@ func RunMigrationSupervisor(ctx context.Context, config Config, migrationID stri
 	hermesRunner := runner.NewHermesRunner(runner.HermesRunnerConfig{
 		DockerImage:      config.HermesImage,
 		DataRoot:         config.DataRoot,
+		SkillsDir:        mergedSkillsDir,
 		SecretDir:        config.SecretDir,
 		SecretFile:       config.SecretFile,
 		SystemSkillsRoot: config.SystemSkillsRoot,
