@@ -39,6 +39,7 @@ user-owned delegation policy authorizes the scoped update.
     - `calendar/event-note-template.md`: event agendas, notes, and follow-up items.
     - `knowledge/claims/claim-template.md`: starter format for durable
       personal claims; create actual records in the same directory.
+    - `inbox/daily-briefing/briefing-template.md`: dated morning briefing reports.
     - `inbox/ingestion/ingestion-template.md`: durable capture and processing records.
     - `sources/records/source-template.md`: retained source provenance and extraction metadata.
   - **Optional À La Carte Feature Templates** (present when the corresponding feature package is installed and registered in `workspace.yaml`):

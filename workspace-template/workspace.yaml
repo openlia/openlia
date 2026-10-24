@@ -74,6 +74,7 @@ domains:
     label: Daily Briefings
     purpose: Dated briefing reports generated from registered workspace sources.
     lifecycle: generated report -> archive
+    template: inbox/daily-briefing/briefing-template.md
     skills:
       - daily-briefing
   - path: inbox/ingestion

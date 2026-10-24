@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Daily Briefing template frontmatter",
+  "type": "object",
+  "properties": {
+    "date": {
+      "description": "The briefing date in YYYY-MM-DD format.",
+      "oneOf": [
+        { "const": "YYYY-MM-DD" },
+        { "type": "string", "format": "date" }
+      ]
+    }
+  },
+  "required": ["date"],
+  "additionalProperties": false
+}
