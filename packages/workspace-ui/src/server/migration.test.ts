@@ -441,4 +441,62 @@ describe("MigrationService & endpoints", () => {
     expect(detail.active_diff).toContain("+## What Changed");
     expect(detail.active_diff).toContain("+## Important-Urgent Matrix");
   });
+
+  test("createTemplateFixMigration reconciles knowledge/research records with stray leading dashes, infers status and date, and preserves headings", () => {
+    const researchDir = join(workspaceDir, "knowledge", "research");
+    mkdirSync(researchDir, { recursive: true });
+    writeFileSync(
+      join(researchDir, "research-template.md"),
+      "---\n$schema: ./research-template.schema.json\nstatus: provisional\ndate: YYYY-MM-DD\n---\n\n# <Research Brief Title>\n\n## Question\n\n## Scope And Decision Relevance\n\n## Executive Summary\n\n## Claims And Evidence\n\n## Evidence Gaps\n\n## Next Checks\n\n## Sources\n",
+    );
+    writeFileSync(
+      join(researchDir, "research-template.schema.json"),
+      JSON.stringify({
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        type: "object",
+        required: ["status", "date"],
+        additionalProperties: false,
+        properties: {
+          status: {
+            type: ["string", "null"],
+            enum: [
+              null,
+              "established",
+              "provisional",
+              "unresolved",
+              "archived",
+            ],
+          },
+          date: {
+            oneOf: [
+              { const: "YYYY-MM-DD" },
+              { type: "string", format: "date" },
+            ],
+          },
+        },
+      }),
+    );
+
+    writeFileSync(
+      join(researchDir, "makeup-co-ban.md"),
+      "---\n# Research Brief\n\n## Question\n- Research question: Which lipstick?\n- Research status: provisional\n\n## Scope And Decision Relevance\nScope\n\n## Executive Summary\nSummary\n\n## Custom Section Notes\nCustom\n\n## Evidence Gaps\nGaps\n\n## Next Checks\nChecks\n\n## Sources\nSources\n",
+    );
+
+    const service = new MigrationService({
+      workspaceRoot: workspaceDir,
+      migrationsRoot: migrationsDir,
+    });
+
+    const result = service.createTemplateFixMigration(
+      "knowledge/research/makeup-co-ban.md",
+    );
+    const detail = service.detail(result.migration_id);
+    expect(detail.active_diff).toContain(
+      "+$schema: ./research-template.schema.json",
+    );
+    expect(detail.active_diff).toContain("+status: provisional");
+    expect(detail.active_diff).toContain("+## Claims And Evidence");
+    // Ensure no orphan '---' inside diff
+    expect(detail.active_diff).not.toMatch(/\+---\s*\n\s*\+---/);
+  });
 });

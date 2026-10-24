@@ -957,6 +957,29 @@ export class MigrationService {
                 fixedMetadata[reqKey] = dateMatch[1];
                 continue;
               }
+              const inBodyMatch = contentToFix.match(
+                /(?:Date prepared|Date):\s*(\d{4}-\d{2}-\d{2})/i,
+              );
+              if (inBodyMatch?.[1]) {
+                fixedMetadata[reqKey] = inBodyMatch[1];
+                continue;
+              }
+            }
+            if (reqKey === "status") {
+              const statusMatch = contentToFix.match(
+                /(?:Research status|Status):\s*(established|provisional|unresolved|active|archived)/i,
+              );
+              if (statusMatch?.[1]) {
+                const inferredStatus = statusMatch[1].toLowerCase();
+                const allowed = properties[reqKey]?.enum as unknown[];
+                if (
+                  Array.isArray(allowed) &&
+                  allowed.includes(inferredStatus)
+                ) {
+                  fixedMetadata[reqKey] = inferredStatus;
+                  continue;
+                }
+              }
             }
             if (templateParsed.metadata && reqKey in templateParsed.metadata) {
               fixedMetadata[reqKey] = templateParsed.metadata[reqKey];
@@ -984,6 +1007,9 @@ export class MigrationService {
 
     let body = fileParsed.body;
     const bodyLines = body.split(/\r?\n/);
+    while (bodyLines.length > 0 && bodyLines[0]?.trim() === "---") {
+      bodyLines.shift();
+    }
 
     // Ensure level-1 title exists
     const fileHeadings = extractHeadings(body);

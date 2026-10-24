@@ -47,7 +47,7 @@ via `openlia features install <id>` or the Workspace UI:
 - `personal-health`: `health/`, `health/profiles/`, `health/history/`,
   `health/conditions/`, `health/treatments/`, `health/reviews/` + `personal-health` skill.
 - `decision-analysis`: `decisions/` (`decision-template.md`) + `decision-analysis` skill.
-- `deep-research`: `knowledge/research/` + `deep-research` skill.
+- `deep-research`: `knowledge/research/` (`research-template.md`) + `deep-research` skill.
 - `travel`: `travel/` (`trip-template.md`).
 - `shopping`: `shopping/` (`item-template.md`).
 - `areas`: `areas/` (`area-template.md`).

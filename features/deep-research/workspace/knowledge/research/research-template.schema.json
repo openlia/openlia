@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:openlia:workspace-template:research",
+  "title": "Research brief frontmatter schema",
+  "type": "object",
+  "properties": {
+    "status": {
+      "description": "Lifecycle status of the research investigation",
+      "type": ["string", "null"],
+      "enum": [null, "established", "provisional", "unresolved", "archived"]
+    },
+    "date": {
+      "description": "Date prepared in YYYY-MM-DD format",
+      "oneOf": [
+        { "const": "YYYY-MM-DD" },
+        { "type": "string", "format": "date" }
+      ]
+    }
+  },
+  "required": ["status", "date"],
+  "additionalProperties": false
+}
