@@ -351,4 +351,49 @@ describe("MigrationService & endpoints", () => {
     expect(httpJson.ok).toBe(true);
     expect(httpJson.migration_id).toMatch(/^mig-/);
   });
+
+  test("createTemplateFixMigration strips unrecognized frontmatter when additionalProperties is false and coerces invalid enum values", () => {
+    const projectsDir = join(workspaceDir, "projects");
+    mkdirSync(projectsDir, { recursive: true });
+    writeFileSync(
+      join(projectsDir, "project-template.md"),
+      "---\n$schema: ./project-template.schema.json\nstatus: null\ntarget_completion: null\n---\n# <Project Title>\n\n## Objective\nOutcome\n",
+    );
+    writeFileSync(
+      join(projectsDir, "project-template.schema.json"),
+      JSON.stringify({
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        type: "object",
+        required: ["status", "target_completion"],
+        additionalProperties: false,
+        properties: {
+          status: {
+            type: ["string", "null"],
+            enum: [null, "active", "paused", "completed", "archived"],
+          },
+          target_completion: { type: ["string", "null"] },
+        },
+      }),
+    );
+
+    writeFileSync(
+      join(projectsDir, "menu-note.md"),
+      "---\nmenu_date: 2026-10-24\nstatus: draft\n---\n# Family Menu\n\nMenu details\n",
+    );
+
+    const service = new MigrationService({
+      workspaceRoot: workspaceDir,
+      migrationsRoot: migrationsDir,
+    });
+
+    const result = service.createTemplateFixMigration("projects/menu-note.md");
+    const detail = service.detail(result.migration_id);
+    expect(detail.active_diff).toContain("-menu_date: 2026-10-24");
+    expect(detail.active_diff).toContain("-status: draft");
+    expect(detail.active_diff).toContain("+status: null");
+    expect(detail.active_diff).toContain("+target_completion: null");
+    expect(detail.active_diff).toContain("+### Preserved Metadata");
+    expect(detail.active_diff).toContain("+- `menu_date`: 2026-10-24");
+    expect(detail.active_diff).toContain("+## Objective");
+  });
 });

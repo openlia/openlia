@@ -96,6 +96,10 @@ func InitMigrationV2(config Config, migrationID string) (*migration.Migration, e
 	}
 
 	if config.RuntimeUID > 0 && config.RuntimeGID > 0 && os.Geteuid() == 0 {
+		migrationsBaseDir := filepath.Dir(migDir)
+		openliaHiddenDir := filepath.Dir(migrationsBaseDir)
+		_ = ensureRuntimeOwner(openliaHiddenDir, config.RuntimeUID, config.RuntimeGID, 0o700)
+		_ = ensureRuntimeOwner(migrationsBaseDir, config.RuntimeUID, config.RuntimeGID, 0o700)
 		_ = ensureRuntimeTreeOwner(migDir, config.RuntimeUID, config.RuntimeGID)
 	}
 
@@ -224,6 +228,10 @@ func RunMigrationSupervisor(ctx context.Context, config Config, migrationID stri
 	_ = os.MkdirAll(filepath.Join(runnerRuntimeDir, "logs"), 0o777)
 	_ = os.MkdirAll(filepath.Join(runnerRuntimeDir, ".local"), 0o777)
 	if config.RuntimeUID > 0 && config.RuntimeGID > 0 && os.Geteuid() == 0 {
+		migrationsBaseDir := filepath.Dir(migDir)
+		openliaHiddenDir := filepath.Dir(migrationsBaseDir)
+		_ = ensureRuntimeOwner(openliaHiddenDir, config.RuntimeUID, config.RuntimeGID, 0o700)
+		_ = ensureRuntimeOwner(migrationsBaseDir, config.RuntimeUID, config.RuntimeGID, 0o700)
 		_ = ensureRuntimeTreeOwner(migDir, config.RuntimeUID, config.RuntimeGID)
 	}
 

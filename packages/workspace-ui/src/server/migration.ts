@@ -902,6 +902,7 @@ export class MigrationService {
     if (fileParsed.metadata) {
       fixedMetadata = { ...fileParsed.metadata };
     }
+    const preservedFrontmatterNotes: string[] = [];
 
     // Merge required schema fields or template defaults
     if (domain.schemaAbsolutePath && existsSync(domain.schemaAbsolutePath)) {
@@ -909,8 +910,41 @@ export class MigrationService {
         const schema = JSON.parse(
           readFileSync(domain.schemaAbsolutePath, "utf-8"),
         );
-        const properties = schema?.properties || {};
+        const properties = (schema?.properties || {}) as Record<
+          string,
+          Record<string, unknown>
+        >;
         const required = Array.isArray(schema?.required) ? schema.required : [];
+
+        if (schema?.additionalProperties === false) {
+          for (const [key, val] of Object.entries(fixedMetadata)) {
+            if (key === "$schema") continue;
+            if (!(key in properties)) {
+              preservedFrontmatterNotes.push(
+                `- \`${key}\`: ${typeof val === "object" ? JSON.stringify(val) : String(val)}`,
+              );
+              delete fixedMetadata[key];
+            }
+          }
+        }
+
+        for (const [key, propSchema] of Object.entries(properties)) {
+          if (key in fixedMetadata && Array.isArray(propSchema?.enum)) {
+            const allowed = propSchema.enum as unknown[];
+            if (!allowed.includes(fixedMetadata[key])) {
+              preservedFrontmatterNotes.push(
+                `- \`${key}\` (original): ${String(fixedMetadata[key])}`,
+              );
+              if (templateParsed.metadata && key in templateParsed.metadata) {
+                fixedMetadata[key] = templateParsed.metadata[key];
+              } else if (allowed.includes(null)) {
+                fixedMetadata[key] = null;
+              } else if (allowed.length > 0) {
+                fixedMetadata[key] = allowed[0];
+              }
+            }
+          }
+        }
 
         for (const reqKey of required) {
           if (reqKey === "$schema") continue;
@@ -952,6 +986,14 @@ export class MigrationService {
       bodyLines.unshift(`# ${titleName}`, "");
     }
 
+    if (preservedFrontmatterNotes.length > 0) {
+      bodyLines.push(
+        "",
+        "### Preserved Metadata",
+        ...preservedFrontmatterNotes,
+      );
+    }
+
     // Fix misspelled headings in lines
     for (const expected of expectedSections) {
       const exactMatch = fileHeadings.some(
@@ -982,8 +1024,15 @@ export class MigrationService {
       .join("\n")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
+    const shouldIncludeFrontmatter =
+      Boolean(domain.schemaAbsolutePath) ||
+      templateParsed.hasFrontmatter ||
+      fileParsed.hasFrontmatter ||
+      Object.keys(fixedMetadata).length > 0;
     const yamlStr = YAML.stringify(fixedMetadata).trim();
-    const fixedContent = `---\n${yamlStr}\n---\n\n${fixedBody}\n`;
+    const fixedContent = shouldIncludeFrontmatter
+      ? `---\n${yamlStr}\n---\n\n${fixedBody}\n`
+      : `${fixedBody}\n`;
 
     // 3. Create Migration
     const now = new Date().toISOString();

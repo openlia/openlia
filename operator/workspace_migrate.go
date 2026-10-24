@@ -932,7 +932,10 @@ func ApplyMigrationChunk(config Config, migrationID string, chunkID string, over
 
 // ListMigrations returns summaries of all migrations stored on the host.
 func ListMigrations(config Config) ([]MigrationSummary, error) {
-	baseDir := filepath.Join(config.DataRoot, ".openlia", "workspace-migrations")
+	baseDir := os.Getenv("OPENLIA_MIGRATIONS_ROOT")
+	if baseDir == "" {
+		baseDir = filepath.Join(config.DataRoot, ".openlia", "workspace-migrations")
+	}
 	entries, err := os.ReadDir(baseDir)
 	if os.IsNotExist(err) {
 		return []MigrationSummary{}, nil
