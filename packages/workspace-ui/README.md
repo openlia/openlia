@@ -66,6 +66,17 @@ the other Workspace UI features remain usable. The mock development server has
 stateful sample chats and simulated runs. The pinned Hermes release must advertise
 session resources, run status, and run SSE support; unsupported controls are hidden.
 
+Approval-required actions pause the original run and display its reason and
+Hermes-provided choices. Responses address the exact pending request; stale or
+unadvertised choices are rejected. If Hermes cannot provide an actionable
+approval, Chat shows an upgrade/configuration message instead of bypassing it.
+Compose explicitly enables `HERMES_EXEC_ASK=1` so API runs with a registered
+approval notifier reach the shared human gate. API calls without that notifier
+and scheduled work still follow the deny-by-default unattended/cron policy.
+After upgrading an existing QA install, regenerate Compose and recreate both
+Hermes and Workspace UI; an already completed blocked turn must be retried
+explicitly after checking whether any earlier actions succeeded.
+
 ## LLM usage monitoring
 
 The **Usage** page combines Hermes, ingestion, and migration estimates. Automatic
@@ -126,6 +137,14 @@ highlighted code editor. The editor detects the language from the file
 extension; unsupported extensions use plain text. Files under
 `knowledge/chatgpt/` follow the same ordinary YAML behavior as every other
 workspace file.
+
+Templates and their schemas govern Markdown records directly in the same folder
+only, never descendants. A folder without a local template is free-form; no
+template or schema is needed for supporting files such as daily menus. A plain
+local template requires its title/sections but not frontmatter. Without a local
+template, a record's explicit local `$schema` is honored. Validation is advisory:
+the document editor saves first and reports diagnostics rather than blocking
+ordinary saves. Permission to write and document validity are separate checks.
 
 ### User profile and assistant memory
 

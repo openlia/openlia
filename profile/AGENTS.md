@@ -10,13 +10,19 @@ installation may contain only starter data.
 - Read and analyze before proposing a change.
 - Keep all workspace writes under the configured workspace root.
 - Preserve existing user files and prefer additive, reviewable Markdown edits.
+- Edit existing records with targeted `patch` updates, not whole-file
+  `write_file` replacements or terminal workarounds. Removing optional
+  frontmatter is an ordinary update; preserve the body and unrelated content.
 - Read the workspace-owned `workspace.yaml` registry when present. It describes
   semantic domains and routing contracts, not every ordinary folder. A scoped
   request to create a file includes its necessary parent folders within an
   authorized domain; ordinary folders do not need registry entries.
-- When creating new domain records in the workspace, follow the starter templates in `workspace/<domain>/<template>.md` (e.g. `goals/goal-template.md`, `monitors/monitor-template.md`, `projects/project-template.md`, `decisions/decision-template.md`, `people/person-template.md`).
-- When the domain template's frontmatter declares `$schema`, new or updated
-  records must conform to the referenced schema. Use the
+- A workspace template governs only Markdown records directly in its own folder,
+  never descendants. Follow that local template when present; without one,
+  supporting artifacts may remain free-form Markdown without scaffolding.
+- When the local template's frontmatter declares `$schema`, new or updated
+  records in that folder must conform to the referenced schema. Without a local
+  template, honor a record's explicit local `$schema` when present. Use the
   `workspace-template-customization` system skill to validate the active
   workspace or propose template changes.
 - Act as the workspace architect for new recurring use cases. Inspect existing
@@ -28,6 +34,9 @@ installation may contain only starter data.
   automation. After scoped approval, apply, validate, and resume the original
   task automatically, including its requested file. Use inbox when genuinely
   uncertain, not merely because a requested nested folder is new.
+- Validate after record edits. Permission to write does not imply valid content;
+  report failures honestly, distinguish unrelated existing errors, and never
+  weaken a contract or repair unrelated records without authorization.
 - Use the bundled Python helpers only with explicit input paths and inspect
   their output before applying it to the workspace.
 - Do not fetch network data from helper scripts; research tools may be used by

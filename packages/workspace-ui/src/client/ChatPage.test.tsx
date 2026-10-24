@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -9,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatPage } from "./ChatPage";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { createChatMock } from "./chatMock";
-import type { ChatApi, ChatRun } from "../shared/chat";
+import type { ChatApi, ChatEvent, ChatRun } from "../shared/chat";
 
 afterEach(() => {
   cleanup();
@@ -133,6 +134,146 @@ describe("Workspace chat", () => {
     expect(remove).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
     await waitFor(() => expect(remove).toHaveBeenCalledWith("demo-chat"));
+  });
+  it("shows an actionable message when approval is unsupported", async () => {
+    const api = createChatMock();
+    const capabilities = await api.capabilities();
+    api.capabilities = async () => ({
+      ...capabilities,
+      features: { ...capabilities.features, run_approval_response: false },
+    });
+    const run: ChatRun = {
+      run_id: "unsupported",
+      status: "waiting_for_approval",
+      approval: {
+        description: "Delete projects/old.md",
+        request_id: "request-1",
+        choices: ["once", "deny"],
+      },
+    };
+    api.activeRun = async () => ({ run });
+    api.run = async () => run;
+    api.events = async () => {};
+    await open(api);
+    await screen.findByText(/Update and recreate both Hermes and Workspace UI/);
+    expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
+    expect(screen.getByText("Delete projects/old.md")).toBeInTheDocument();
+  });
+  it("does not invent choices or submit approvals without exact request identity", async () => {
+    const api = createChatMock();
+    let run: ChatRun = {
+      run_id: "incomplete",
+      status: "waiting_for_approval",
+      approval: { choices: ["once", "deny"] },
+    };
+    api.activeRun = async () => ({ run });
+    api.run = async () => run;
+    api.events = async () => {};
+    const control = vi.spyOn(api, "control");
+    await open(api);
+    await screen.findByText(/cannot provide an actionable approval/);
+    expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
+    cleanup();
+    run = { ...run, approval: { request_id: "request-1" } };
+    render(<ChatPage api={api} />);
+    await screen.findByText(/cannot provide an actionable approval/);
+    expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
+    expect(control).not.toHaveBeenCalled();
+  });
+  it("reconciles approval events without clearing a newer request", async () => {
+    const api = createChatMock();
+    const run: ChatRun = { run_id: "event-run", status: "running" };
+    api.activeRun = async () => ({ run });
+    api.run = async () => run;
+    let receive!: (event: ChatEvent) => void;
+    api.events = async (_id, _seq, _signal, onEvent) => {
+      receive = onEvent;
+    };
+    const control = vi.spyOn(api, "control").mockResolvedValue({});
+    await open(api);
+    await waitFor(() => expect(receive).toBeTypeOf("function"));
+    act(() => {
+      receive({
+        event: "approval.request",
+        seq: 0,
+        request_id: "new-request",
+        description: "Review the new action",
+        choices: ["once", "deny"],
+      });
+      receive({
+        event: "approval.responded",
+        seq: 1,
+        request_id: "old-request",
+      });
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Allow once" }));
+    await waitFor(() =>
+      expect(control).toHaveBeenCalledWith("event-run", "approval", {
+        choice: "once",
+        request_id: "new-request",
+      }),
+    );
+  });
+  it("restores pending approval on reopen and resumes the same run without resending", async () => {
+    const api = createChatMock();
+    let run: ChatRun = {
+      run_id: "resume-run",
+      status: "waiting_for_approval",
+      approval: {
+        request_id: "request-1",
+        description: "Overwrite projects/note.md",
+        choices: ["once", "deny"],
+      },
+    };
+    api.activeRun = async () => ({ run });
+    api.run = async () => run;
+    api.events = async () => {};
+    const send = vi.spyOn(api, "send");
+    const control = vi.spyOn(api, "control").mockImplementation(async () => {
+      run = { ...run, status: "running" };
+      delete run.approval;
+      return {};
+    });
+    await open(api);
+    await screen.findByRole("button", { name: "Allow once" });
+    cleanup();
+    render(<ChatPage api={api} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Deny" }));
+    await waitFor(() =>
+      expect(control).toHaveBeenCalledWith("resume-run", "approval", {
+        choice: "deny",
+        request_id: "request-1",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("Approval requested")).toBeNull(),
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
+  it("prevents duplicate approval submissions while a response is pending", async () => {
+    const api = createChatMock();
+    const run: ChatRun = {
+      run_id: "dedupe-run",
+      status: "waiting_for_approval",
+      approval: { request_id: "request-1", choices: ["once", "deny"] },
+    };
+    api.activeRun = async () => ({ run });
+    api.run = async () => run;
+    api.events = async () => {};
+    let finish!: (value: unknown) => void;
+    const control = vi.spyOn(api, "control").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await open(api);
+    const button = await screen.findByRole("button", { name: "Allow once" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(control).toHaveBeenCalledTimes(1);
+    finish({});
+    await waitFor(() => expect(button).not.toBeDisabled());
   });
   it("does not execute raw HTML, render tracking images, or allow script links", async () => {
     const { container } = render(

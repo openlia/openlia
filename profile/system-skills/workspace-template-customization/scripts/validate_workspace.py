@@ -323,6 +323,7 @@ def _validate_document(
     schema: dict[str, Any] | None,
     root: Path,
     template_path: Path | None = None,
+    referenced_schemas: set[Path] | None = None,
 ) -> list[str]:
     relative = _relative(path, root)
     if path.is_symlink():
@@ -336,6 +337,14 @@ def _validate_document(
     except (OSError, UnicodeError, ValueError) as exc:
         return [f"{relative}: {exc}"]
     errors = []
+    if schema is None and template_path is None and metadata and "$schema" in metadata:
+        try:
+            schema_path = _resolve_template_schema(metadata["$schema"], path, root)
+            schema = load_schema(schema_path)
+            if referenced_schemas is not None:
+                referenced_schemas.add(schema_path)
+        except ValueError as exc:
+            return [f"{relative}: {exc}"]
     if schema is not None:
         errors.extend(
             f"{relative}: {error}"
@@ -383,7 +392,9 @@ def _validate_unreferenced_schemas(
             continue
         resolved = schema_path.resolve()
         if resolved not in referenced:
-            errors.append(f"{relative}: schema is not referenced by a template $schema field")
+            errors.append(
+                f"{relative}: schema is not referenced by a template or record $schema field"
+            )
     return errors
 
 
@@ -436,8 +447,6 @@ def validate_workspace(workspace_root: Path) -> list[str]:
     policy_errors, referenced_policy_schemas = validate_workspace_policy(root)
     errors.extend(policy_errors)
     templates = sorted(root.rglob(f"*{TEMPLATE_SUFFIX}"))
-    if not templates:
-        return errors + ["no ordinary *-template.md files found; no schemas or records were validated"]
     templates_by_domain: dict[Path, list[Path]] = {}
     schemas_by_template: dict[Path, dict[str, Any]] = {}
     invalid_templates: set[Path] = set()
@@ -466,8 +475,7 @@ def validate_workspace(workspace_root: Path) -> list[str]:
         if schema is not None:
             schemas_by_template[template] = schema
 
-    # A template owns its containing directory and descendants. If a nested
-    # directory has its own template, that more-specific pair owns its subtree.
+    # Contracts are folder-local, independent of semantic registry ancestry.
     for domain, domain_templates in sorted(templates_by_domain.items()):
         if len(domain_templates) != 1:
             names = ", ".join(_relative(path, root) for path in domain_templates)
@@ -482,20 +490,20 @@ def validate_workspace(workspace_root: Path) -> list[str]:
         if template in invalid_templates:
             # An invalid schema is not permission to fall back or skip its errors.
             continue
-        for record in sorted(domain.rglob("*.md")):
+        for record in sorted(domain.glob("*.md")):
             if record.name.endswith(TEMPLATE_SUFFIX):
-                continue
-            if any(
-                nested_domain != domain
-                and domain in nested_domain.parents
-                and record.is_relative_to(nested_domain)
-                for nested_domain in templates_by_domain
-            ):
                 continue
             if record.is_symlink():
                 errors.append(f"{_relative(record, root)}: symbolic links are not validated")
                 continue
             errors.extend(_validate_document(record, schema, root, template_path=template))
+
+    for record in sorted(root.rglob("*.md")):
+        if record.name.endswith(TEMPLATE_SUFFIX) or record.parent in templates_by_domain:
+            continue
+        errors.extend(
+            _validate_document(record, None, root, referenced_schemas=referenced_schemas)
+        )
 
     schema_paths = sorted(root.rglob("*.schema.json"))
     errors.extend(_validate_unreferenced_schemas(schema_paths, referenced_schemas, root))

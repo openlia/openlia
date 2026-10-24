@@ -1,8 +1,10 @@
 import {
   type Dirent,
   existsSync,
+  lstatSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   statSync,
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -30,7 +32,9 @@ export function parseRecordFrontmatter(content: string): {
     return { body: content, hasFrontmatter: false, metadata: null };
   }
 
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  const match = content.match(
+    /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/,
+  );
   if (!match || match[1] === undefined) {
     return { body: content, hasFrontmatter: false, metadata: null };
   }
@@ -142,6 +146,31 @@ export interface DomainTemplateInfo {
   error?: string;
 }
 
+function resolveLocalSchema(
+  root: string,
+  document: string,
+  reference: unknown,
+): string {
+  if (
+    typeof reference !== "string" ||
+    !reference.trim() ||
+    reference !== reference.trim() ||
+    /^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(reference) ||
+    /[\\?#]/.test(reference)
+  ) {
+    throw new Error("frontmatter $schema must be a local relative path");
+  }
+  const path = resolve(dirname(document), reference);
+  if (!path.startsWith(root + sep))
+    throw new Error("frontmatter $schema resolves outside the template root");
+  if (lstatSync(path).isSymbolicLink())
+    throw new Error("frontmatter $schema must not reference a symbolic link");
+  const actual = realpathSync(path);
+  if (!actual.startsWith(realpathSync(root) + sep))
+    throw new Error("frontmatter $schema resolves outside the template root");
+  return path;
+}
+
 function templateInfo(
   root: string,
   templateAbsolute: string,
@@ -152,9 +181,16 @@ function templateInfo(
   );
   const info: DomainTemplateInfo = { templateRelativePath };
   const content = readFileSync(templateAbsolute, "utf-8");
-  const { hasFrontmatter, metadata } = parseRecordFrontmatter(content);
+  const { hasFrontmatter, metadata, body } = parseRecordFrontmatter(content);
+  const titles = extractHeadings(body).filter((heading) => heading.level === 1);
+  if (titles.length !== 1 || !titles[0]?.text.trim()) {
+    return {
+      ...info,
+      error: `Template body must contain exactly one non-empty level-one title: ${templateRelativePath}`,
+    };
+  }
   if (!hasFrontmatter) {
-    return /^---\r?\n/.test(content)
+    return content.startsWith("---")
       ? {
           ...info,
           error: `Malformed template frontmatter: ${templateRelativePath}`,
@@ -171,26 +207,45 @@ function templateInfo(
       error: `Invalid template frontmatter or missing $schema: ${templateRelativePath}`,
     };
   }
-  const schemaAbsolutePath = resolve(
-    dirname(templateAbsolute),
-    metadata.$schema,
+  let schemaAbsolutePath: string;
+  try {
+    schemaAbsolutePath = resolveLocalSchema(
+      root,
+      templateAbsolute,
+      metadata.$schema,
+    );
+  } catch {
+    return {
+      ...info,
+      error: `Invalid or missing local template schema: ${templateRelativePath}`,
+    };
+  }
+  const schemaRelativePath = relative(root, schemaAbsolutePath).replaceAll(
+    "\\",
+    "/",
   );
+  const validator = getCompiledValidator(schemaAbsolutePath);
+  if (!validator)
+    return {
+      ...info,
+      error: `Failed to load schema from ${schemaRelativePath}`,
+    };
   if (
-    schemaAbsolutePath !== root &&
-    !schemaAbsolutePath.startsWith(root + sep)
+    !validator(
+      Object.fromEntries(
+        Object.entries(metadata).filter(([key]) => key !== "$schema"),
+      ),
+    )
   ) {
     return {
       ...info,
-      error: `Template schema escapes workspace: ${templateRelativePath}`,
+      error: `Invalid template frontmatter: ${templateRelativePath}`,
     };
   }
   return {
     ...info,
     schemaAbsolutePath,
-    schemaRelativePath: relative(root, schemaAbsolutePath).replaceAll(
-      "\\",
-      "/",
-    ),
+    schemaRelativePath,
   };
 }
 
@@ -201,73 +256,31 @@ export function findDomainTemplate(
   const root = resolve(workspaceRoot);
   const normalized = recordRelativePath.replaceAll("\\", "/");
   const recordAbsolute = resolve(root, normalized);
-  let currentDir = dirname(recordAbsolute);
-
-  while (currentDir === root || currentDir.startsWith(root + sep)) {
-    if (existsSync(currentDir)) {
-      try {
-        const entries = readdirSync(currentDir, { withFileTypes: true });
-        for (const entry of entries) {
-          if (
-            entry.isFile() &&
-            entry.name.endsWith("-template.md") &&
-            !entry.name.startsWith(".")
-          ) {
-            const templateAbsolute = join(currentDir, entry.name);
-            // A plain nested template is a boundary too; never inherit its
-            // parent's schema merely because this template has no schema.
-            return templateInfo(root, templateAbsolute);
-          }
-        }
-      } catch {}
-    }
-
-    if (currentDir === root) break;
-    currentDir = dirname(currentDir);
-  }
-
-  // If not found in directory ancestry, consult workspace.yaml registry
-  const workspaceYamlPath = join(root, "workspace.yaml");
-  if (existsSync(workspaceYamlPath)) {
-    try {
-      const parsed = YAML.parse(readFileSync(workspaceYamlPath, "utf-8"));
-      if (
-        parsed &&
-        typeof parsed === "object" &&
-        Array.isArray(parsed.domains)
-      ) {
-        let bestMatch: { path: string; template?: string } | null = null;
-        for (const item of parsed.domains) {
-          if (
-            item &&
-            typeof item.path === "string" &&
-            typeof item.template === "string"
-          ) {
-            const domainPath = item.path.replace(/^\/+|\/+$/g, "");
-            if (
-              normalized === domainPath ||
-              normalized.startsWith(domainPath + "/")
-            ) {
-              if (!bestMatch || domainPath.length > bestMatch.path.length) {
-                bestMatch = item;
-              }
-            }
-          }
-        }
-        if (bestMatch?.template) {
-          const templateAbsolute = resolve(root, bestMatch.template);
-          if (
-            templateAbsolute.startsWith(root + sep) &&
-            existsSync(templateAbsolute)
-          ) {
-            return templateInfo(root, templateAbsolute);
-          }
-        }
-      }
-    } catch {}
-  }
-
-  return null;
+  const directory = dirname(recordAbsolute);
+  if (!directory.startsWith(root + sep) || !existsSync(directory)) return null;
+  const templates = readdirSync(directory, { withFileTypes: true }).filter(
+    (entry) =>
+      (entry.isFile() || entry.isSymbolicLink()) &&
+      entry.name.endsWith("-template.md") &&
+      !entry.name.startsWith("."),
+  );
+  const first = templates[0];
+  if (!first) return null;
+  const templateRelativePath = relative(
+    root,
+    join(directory, first.name),
+  ).replaceAll("\\", "/");
+  if (templates.length !== 1)
+    return {
+      templateRelativePath,
+      error: "Expected one workspace template per directory",
+    };
+  if (first.isSymbolicLink())
+    return {
+      templateRelativePath,
+      error: "Symbolic link templates are not validated",
+    };
+  return templateInfo(root, join(directory, first.name));
 }
 
 function getCompiledValidator(schemaPath: string): ValidateFunction | null {
@@ -281,6 +294,22 @@ function getCompiledValidator(schemaPath: string): ValidateFunction | null {
     const ajv = new Ajv2020({ allErrors: true, strict: false });
     addFormats(ajv);
     const jsonSchema = JSON.parse(raw);
+    if (
+      !jsonSchema ||
+      typeof jsonSchema !== "object" ||
+      Array.isArray(jsonSchema)
+    )
+      return null;
+    const localRefs = (value: unknown): boolean => {
+      if (!value || typeof value !== "object") return true;
+      return Object.entries(value).every(
+        ([key, item]) =>
+          (key !== "$ref" ||
+            (typeof item === "string" && item.startsWith("#"))) &&
+          localRefs(item),
+      );
+    };
+    if (!localRefs(jsonSchema)) return null;
     const validate = ajv.compile(jsonSchema);
     compiledValidators.set(absolutePath, { content: raw, validate });
     return validate;
@@ -416,15 +445,23 @@ export function validateRecordContent(
   const domain = findDomainTemplate(workspaceRoot, normalized);
   if (!domain) {
     const { hasFrontmatter, metadata } = parseRecordFrontmatter(content);
-    if (hasFrontmatter && metadata && typeof metadata.$schema === "string") {
-      const schemaRef = metadata.$schema.trim();
+    if (
+      (hasFrontmatter && !metadata) ||
+      (!hasFrontmatter && content.startsWith("---"))
+    ) {
+      return {
+        errors: ["YAML frontmatter is malformed or not a valid object"],
+        valid: false,
+      };
+    }
+    if (hasFrontmatter && metadata && "$schema" in metadata) {
       const recordAbsolute = resolve(workspaceRoot, normalized);
-      const schemaAbsolute = resolve(dirname(recordAbsolute), schemaRef);
-      if (
-        existsSync(schemaAbsolute) &&
-        (schemaAbsolute === resolve(workspaceRoot) ||
-          schemaAbsolute.startsWith(resolve(workspaceRoot) + sep))
-      ) {
+      try {
+        const schemaAbsolute = resolveLocalSchema(
+          resolve(workspaceRoot),
+          recordAbsolute,
+          metadata.$schema,
+        );
         const schemaRelative = relative(
           resolve(workspaceRoot),
           schemaAbsolute,
@@ -458,6 +495,11 @@ export function validateRecordContent(
           errors:
             errors.length > 0 ? errors : ["Frontmatter does not match schema"],
           schema_path: schemaRelative,
+          valid: false,
+        };
+      } catch {
+        return {
+          errors: ["Invalid or missing local record $schema"],
           valid: false,
         };
       }
@@ -548,18 +590,12 @@ export function validateRecordContent(
     }
   }
 
-  const fileHeadings = extractHeadings(content);
+  const fileHeadings = extractHeadings(parseRecordFrontmatter(content).body);
   if (normalized.endsWith("-template.md")) {
     const titles = fileHeadings.filter((h) => h.level === 1);
     if (titles.length !== 1 || !titles[0]?.text.trim()) {
       errors.push(
         "template body must contain exactly one non-empty level-one title",
-      );
-    }
-    const sections = fileHeadings.filter((h) => h.level === 2);
-    if (sections.length === 0) {
-      errors.push(
-        "template body should define at least one section heading ('## ...')",
       );
     }
   } else {
@@ -570,7 +606,9 @@ export function validateRecordContent(
     if (existsSync(templateAbsolute)) {
       try {
         const templateContent = readFileSync(templateAbsolute, "utf-8");
-        const templateHeadings = extractHeadings(templateContent);
+        const templateHeadings = extractHeadings(
+          parseRecordFrontmatter(templateContent).body,
+        );
         const expectedSections = templateHeadings
           .filter((h) => h.level === 2)
           .map((h) => h.text.trim())

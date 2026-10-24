@@ -4,6 +4,8 @@ import { dirname } from "node:path";
 import { createHash } from "node:crypto";
 import {
   terminalChatStatuses,
+  chatApprovalChoices,
+  type ChatCapabilities,
   type ChatRun,
   type ChatSession,
 } from "../shared/chat";
@@ -422,6 +424,10 @@ export class ChatService {
               throw new ChatError(400, "invalid_chat_guidance");
             value = { input: body.input };
           } else if (action === "approval") {
+            const capabilities =
+              await this.get<ChatCapabilities>("/v1/capabilities");
+            if (!capabilities.features.run_approval_response)
+              throw new ChatError(409, "chat_approval_unsupported");
             if (
               !["once", "session", "always", "deny"].includes(
                 String(body.choice),
@@ -429,12 +435,17 @@ export class ChatService {
             )
               throw new ChatError(400, "invalid_chat_approval");
             if (
-              body.request_id !== undefined &&
-              (typeof body.request_id !== "string" ||
-                !body.request_id ||
-                body.request_id.length > 256)
+              typeof body.request_id !== "string" ||
+              !body.request_id ||
+              body.request_id.length > 256
             )
               throw new ChatError(400, "invalid_chat_approval");
+            if (
+              run.status !== "waiting_for_approval" ||
+              run.approval?.request_id !== body.request_id ||
+              !chatApprovalChoices(run.approval).includes(String(body.choice))
+            )
+              throw new ChatError(409, "chat_approval_stale");
             value = {
               choice: body.choice,
               ...(body.request_id ? { request_id: body.request_id } : {}),

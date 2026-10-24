@@ -29,6 +29,9 @@ user-owned delegation policy authorizes the scoped update.
 ## File handling
 
 - Read the relevant file and nearby context before proposing an edit.
+- Use a targeted `patch` update for an existing record, not `write_file` to
+  replace the entire file. Removing optional frontmatter is an ordinary content
+  edit, not file deletion. Preserve all unrelated content and validate afterward.
   - `goals/goal-template.md`: high-level outcomes, rationale, and linked projects.
   - `areas/area-template.md`: enduring life domains, standards, and active projects.
   - `projects/project-template.md`: bounded initiatives with milestones and tasks.
@@ -54,15 +57,22 @@ user-owned delegation policy authorizes the scoped update.
   - `calendar/event-note-template.md`: event agendas, notes, and follow-up items.
 - Prefer Markdown and small structured files with stable, descriptive names.
 - Distinguish semantic domain records from supporting artifacts. Use a suitable
-  nested template for recurring artifacts rather than forcing a daily menu or
+  local template for recurring artifacts rather than forcing a daily menu or
   checklist into project-record metadata. Plain Markdown templates are valid;
   schemas are optional and should earn their complexity through validation,
-  querying, or automation. The nearest nested template governs its own subtree,
-  including when it is schema-free. Do not silently weaken existing contracts.
-- For a domain whose template frontmatter declares `$schema`, every new or
-  updated Markdown record in that domain must conform to the referenced schema
+  querying, or automation. A template governs only records directly in its own
+  folder, never subfolders. Without a local template, supporting Markdown is
+  free-form; do not add a template or schema merely to edit it. Do not silently
+  weaken existing local contracts.
+- For a folder whose template frontmatter declares `$schema`, every new or
+  updated Markdown record directly in that folder must conform to the referenced schema
   as well as the starter template. Run the `workspace-template-customization`
   validator on demand after template, schema, or record changes.
+- Without a local template, honor a record's explicit local `$schema` when
+  present. A record directive cannot override a local template's contract.
+- Authorization and validation are separate: report invalid content accurately,
+  distinguish pre-existing failures, and do not repair unrelated files or remove
+  contracts merely to make validation pass.
 - Treat a claim as a statement to be supported, not as truth merely because an
   assistant generated it. Keep inferred claims as candidates until approved.
 - Compare `valid_from`, `valid_until`, and `review_after` dates with the current
