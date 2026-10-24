@@ -207,6 +207,12 @@ func PrepareSkillMigration(config Config, name string, now time.Time) (SkillMigr
 	if err := EnsureDir(filepath.Dir(contextRoot), 0o700); err != nil {
 		return SkillMigrationContextResult{}, err
 	}
+	if err := ensureRuntimeOwner(filepath.Join(config.DataRoot, ".openlia"), config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
+		return SkillMigrationContextResult{}, err
+	}
+	if err := ensureRuntimeOwner(filepath.Dir(contextRoot), config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
+		return SkillMigrationContextResult{}, err
+	}
 	if err := CopyDir(basePath, filepath.Join(contextRoot, "old-base")); err != nil {
 		return SkillMigrationContextResult{}, err
 	}

@@ -131,7 +131,13 @@ func GenerateAttachmentsContext(ctx context.Context, config Config, composers ..
 		}
 	}
 	ingestionDir := filepath.Join(config.DataRoot, "ingestion")
-	for _, path := range []string{filepath.Join(config.DataRoot, "usage"), filepath.Join(config.DataRoot, "usage", "reports"), filepath.Join(config.DataRoot, "cron")} {
+	for _, path := range []string{
+		filepath.Join(config.DataRoot, "usage"),
+		filepath.Join(config.DataRoot, "usage", "reports"),
+		filepath.Join(config.DataRoot, "cron"),
+		filepath.Join(config.DataRoot, ".openlia"),
+		filepath.Join(config.DataRoot, ".openlia", "workspace-migrations"),
+	} {
 		if err := EnsureDir(path, 0o700); err != nil {
 			return err
 		}

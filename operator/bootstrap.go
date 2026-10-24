@@ -72,7 +72,12 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 		return BootstrapResult{}, err
 	}
 	isFirebase := config.WorkspaceUIFirebaseProjectID != ""
-	for _, path := range []string{filepath.Join(config.DataRoot, "usage"), filepath.Join(config.DataRoot, "usage", "reports")} {
+	for _, path := range []string{
+		filepath.Join(config.DataRoot, "usage"),
+		filepath.Join(config.DataRoot, "usage", "reports"),
+		filepath.Join(config.DataRoot, ".openlia"),
+		filepath.Join(config.DataRoot, ".openlia", "workspace-migrations"),
+	} {
 		if err := EnsureDir(path, 0o700); err != nil {
 			return BootstrapResult{}, err
 		}
