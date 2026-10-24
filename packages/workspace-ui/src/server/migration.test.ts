@@ -396,4 +396,46 @@ describe("MigrationService & endpoints", () => {
     expect(detail.active_diff).toContain("+- `menu_date`: 2026-10-24");
     expect(detail.active_diff).toContain("+## Objective");
   });
+
+  test("createTemplateFixMigration reconciles inbox/daily-briefing records with briefing-template.md and infers date from filename", () => {
+    const briefingDir = join(workspaceDir, "inbox", "daily-briefing");
+    mkdirSync(briefingDir, { recursive: true });
+    writeFileSync(
+      join(briefingDir, "briefing-template.md"),
+      "---\n$schema: ./briefing.schema.json\ndate: YYYY-MM-DD\n---\n\n# Daily Briefing\n\n## Today\n\n## What Changed\n\n## Important-Urgent Matrix\n",
+    );
+    writeFileSync(
+      join(briefingDir, "briefing.schema.json"),
+      JSON.stringify({
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        type: "object",
+        required: ["date"],
+        additionalProperties: false,
+        properties: {
+          date: {
+            oneOf: [{ const: "YYYY-MM-DD" }, { type: "string", format: "date" }],
+          },
+        },
+      }),
+    );
+
+    writeFileSync(
+      join(briefingDir, "2026-10-24.md"),
+      "# Daily Briefing\n\n## Today\n\n- Focus item\n",
+    );
+
+    const service = new MigrationService({
+      workspaceRoot: workspaceDir,
+      migrationsRoot: migrationsDir,
+    });
+
+    const result = service.createTemplateFixMigration(
+      "inbox/daily-briefing/2026-10-24.md",
+    );
+    const detail = service.detail(result.migration_id);
+    expect(detail.active_diff).toContain("+$schema: ./briefing.schema.json");
+    expect(detail.active_diff).toContain("+date: 2026-10-24");
+    expect(detail.active_diff).toContain("+## What Changed");
+    expect(detail.active_diff).toContain("+## Important-Urgent Matrix");
+  });
 });

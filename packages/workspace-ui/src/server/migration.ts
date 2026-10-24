@@ -949,6 +949,15 @@ export class MigrationService {
         for (const reqKey of required) {
           if (reqKey === "$schema") continue;
           if (!(reqKey in fixedMetadata)) {
+            if (reqKey === "date") {
+              const dateMatch = basename(relPath, ".md").match(
+                /^(\d{4}-\d{2}-\d{2})/,
+              );
+              if (dateMatch?.[1]) {
+                fixedMetadata[reqKey] = dateMatch[1];
+                continue;
+              }
+            }
             if (templateParsed.metadata && reqKey in templateParsed.metadata) {
               fixedMetadata[reqKey] = templateParsed.metadata[reqKey];
             } else if (properties[reqKey]?.default !== undefined) {
