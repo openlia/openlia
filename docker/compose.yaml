@@ -55,6 +55,9 @@ services:
       GIT_TERMINAL_PROMPT: "0"
       GIT_EDITOR: "true"
       HERMES_WRITE_SAFE_ROOT: /opt/data
+      # API runs register an approval notifier. Ask mode lets the shared gate
+      # reach it; API calls without a notifier and cron still fail closed.
+      HERMES_EXEC_ASK: "1"
       OPENLIA_WORKSPACE_ROOT: /opt/data/workspace
       HERMES_CONTAINER: "1"
       HERMES_DISABLE_LAZY_INSTALLS: "1"

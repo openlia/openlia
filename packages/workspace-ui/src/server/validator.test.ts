@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -22,7 +28,7 @@ function writeDomain(directory: string, status: string) {
   mkdirSync(join(root, directory), { recursive: true });
   writeFileSync(
     join(root, directory, "record-template.md"),
-    "---\n$schema: ./record-template.schema.json\nstatus: posted\n---\n# <Template Title>\n\n## Context\nSome context\n",
+    `---\n$schema: ./record-template.schema.json\nstatus: ${status}\n---\n# <Template Title>\n\n## Context\nSome context\n`,
   );
   writeFileSync(
     join(root, directory, "record-template.schema.json"),
@@ -88,7 +94,7 @@ test("isolates schemas with the same ID at different paths", () => {
   );
 });
 
-test("plain nested menu template stops project schema inheritance", () => {
+test("plain menu template governs only its own folder", () => {
   writeDomain("projects", "active");
   mkdirSync(join(root, "projects/daily-menu"));
   writeFileSync(
@@ -106,7 +112,7 @@ test("plain nested menu template stops project schema inheritance", () => {
   expect(
     validateRecordContent(root, "projects/ordinary/note.md", "# No metadata")
       .valid,
-  ).toBe(false);
+  ).toBe(true);
   expect(
     validateRecordContent(
       root,
@@ -130,7 +136,7 @@ test("missing or invalid nested schema does not fall back to parent", () => {
   );
   expect(result.valid).toBe(false);
   expect(result.errors).toContain(
-    "Failed to load schema from projects/daily-menu/missing.schema.json",
+    "Invalid or missing local template schema: projects/daily-menu/menu-template.md",
   );
   writeFileSync(
     join(root, "projects/daily-menu/menu-template.md"),
@@ -139,6 +145,118 @@ test("missing or invalid nested schema does not fall back to parent", () => {
   expect(
     validateRecordContent(root, "projects/daily-menu/day.md", content).valid,
   ).toBe(false);
+});
+
+test("removing optional menu frontmatter needs no scaffolding or registry change", () => {
+  writeDomain("projects", "active");
+  mkdirSync(join(root, "projects/daily-menu"));
+  writeFileSync(
+    join(root, "workspace.yaml"),
+    "domains:\n  - path: projects/daily-menu\n    template: projects/record-template.md\n",
+  );
+  const body = "# Menu\n\n## Lunch\nRice\n";
+  for (const text of [
+    `---\nstatus: draft\nmenu_date: 2026-10-24\n---\n${body}`,
+    body,
+  ]) {
+    expect(
+      validateRecordContent(root, "projects/daily-menu/day.md", text),
+    ).toEqual({ errors: [], valid: true });
+  }
+  expect(validateRecordContent(root, "projects/record.md", body).valid).toBe(
+    false,
+  );
+});
+
+test("grandchildren do not inherit a plain local template", () => {
+  mkdirSync(join(root, "menus/drafts"), { recursive: true });
+  writeFileSync(join(root, "menus/menu-template.md"), "# Menu\n\n## Lunch\n");
+  expect(
+    validateRecordContent(root, "menus/day.md", "# Missing sections").valid,
+  ).toBe(false);
+  expect(
+    validateRecordContent(root, "menus/drafts/day.md", "Free-form").valid,
+  ).toBe(true);
+});
+
+test("multiple templates and malformed local contracts are errors", () => {
+  writeDomain("projects", "posted");
+  writeFileSync(join(root, "projects/other-template.md"), "# Other\n");
+  expect(
+    validateRecordContent(root, "projects/day.md", content).errors,
+  ).toContain("Expected one workspace template per directory");
+});
+
+test("explicit record schemas are checked without a local template and cannot escape", () => {
+  mkdirSync(join(root, "notes"));
+  writeFileSync(
+    join(root, "notes/note.schema.json"),
+    JSON.stringify({ type: "object", required: ["date"] }),
+  );
+  const validate = (metadata: string) =>
+    validateRecordContent(
+      root,
+      "notes/note.md",
+      `---\n${metadata}\n---\n# Note\n`,
+    );
+  expect(validate("$schema: ./note.schema.json\ndate: 2026-10-24").valid).toBe(
+    true,
+  );
+  expect(validate("$schema: ./note.schema.json").valid).toBe(false);
+  for (const ref of [
+    "../missing.json",
+    "../../outside.json",
+    "https://example.invalid/schema.json",
+    "/etc/passwd",
+  ]) {
+    expect(validate(`$schema: ${ref}`).valid).toBe(false);
+  }
+});
+
+test("a record directive cannot override its local plain template", () => {
+  mkdirSync(join(root, "menus"));
+  writeFileSync(join(root, "menus/menu-template.md"), "# Menu\n\n## Lunch\n");
+  const metadata = "---\n$schema: ./missing.schema.json\n---\n";
+  expect(
+    validateRecordContent(
+      root,
+      "menus/day.md",
+      `${metadata}# Menu\n\n## Lunch\n`,
+    ).valid,
+  ).toBe(true);
+  expect(
+    validateRecordContent(
+      root,
+      "menus/day.md",
+      `${metadata}# Missing sections\n`,
+    ).valid,
+  ).toBe(false);
+});
+
+test("explicit record schemas reject symlinks and remote refs", () => {
+  mkdirSync(join(root, "notes"));
+  writeFileSync(join(root, "notes/schema.json"), '{"type":"object"}');
+  symlinkSync(join(root, "notes/schema.json"), join(root, "notes/linked.json"));
+  const validate = (ref: string) =>
+    validateRecordContent(
+      root,
+      "notes/note.md",
+      `---\n$schema: ${ref}\n---\n# Note\n`,
+    );
+  expect(validate("./linked.json").valid).toBe(false);
+  writeFileSync(
+    join(root, "notes/schema.json"),
+    '{"$ref":"https://example.invalid/schema"}',
+  );
+  expect(validate("./schema.json").valid).toBe(false);
+});
+
+test("invalid local template structure never becomes a freeform contract", () => {
+  mkdirSync(join(root, "menus"));
+  writeFileSync(join(root, "menus/menu-template.md"), "## No title\n");
+  expect(validateRecordContent(root, "menus/day.md", "# Menu\n").valid).toBe(
+    false,
+  );
 });
 
 test("detects misspelled template section headings in records", () => {

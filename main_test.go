@@ -56,3 +56,29 @@ func TestEmbeddedBunRuntimeAssets(t *testing.T) {
 		t.Fatalf("embedded workspace-ui client assets are missing: %v", err)
 	}
 }
+
+func TestEmbeddedRuntimeEnablesApprovalBridgeWithoutUnattendedBypass(t *testing.T) {
+	compose, err := fs.ReadFile(releaseAssets, "docker/compose.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(compose), `HERMES_EXEC_ASK: "1"`) {
+		t.Fatal("API approval bridge must be explicitly enabled")
+	}
+	config, err := fs.ReadFile(releaseAssets, "profile/config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"mode: manual", "cron_mode: deny", "single_query_mode: deny", "unattended_mode: deny"} {
+		if !strings.Contains(string(config), required) {
+			t.Fatalf("missing approval safeguard: %s", required)
+		}
+	}
+	helper, err := fs.ReadFile(releaseAssets, "docker/secret-source.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(helper), "HERMES_EXEC_ASK) exit 1") {
+		t.Fatal("secret source must not override approval routing")
+	}
+}

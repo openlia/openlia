@@ -8,6 +8,7 @@ import { ChatComposer } from "./ChatComposer";
 import "./chat.css";
 import {
   terminalChatStatuses,
+  chatApprovalChoices,
   type ChatApi,
   type ChatCapabilities,
   type ChatEvent,
@@ -41,6 +42,10 @@ function errorText(error: unknown) {
     return "Hermes must have durable run idempotency enabled before this UI can safely send messages.";
   if (value === "chat_retry_window_expired_inspect_hermes")
     return "The retry safety window has expired. Inspect the saved Hermes conversation before starting a new chat; this message will not be resubmitted automatically.";
+  if (value === "chat_approval_unsupported")
+    return "This Hermes API cannot accept approvals. Update and recreate both Hermes and Workspace UI; do not disable approval safeguards.";
+  if (value === "chat_approval_stale")
+    return "This approval is no longer pending. Refresh the conversation and review the current request.";
   return value.replaceAll("_", " ");
 }
 
@@ -70,6 +75,7 @@ export function ChatPage({ api }: { api: ChatApi }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const pane = useRef<HTMLElement>(null);
   const generation = useRef(0);
+  const controlPending = useRef(false);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const runRef = useRef(run);
@@ -226,6 +232,14 @@ export function ChatPage({ api }: { api: ChatApi }) {
               approval: event,
             },
         );
+      else if (event.event === "approval.responded")
+        setRun((current) => {
+          if (!current || current.approval?.request_id !== event.request_id)
+            return current;
+          const next = { ...current, status: "running" };
+          delete next.approval;
+          return next;
+        });
       else if (event.event === "replay.truncated")
         setError(
           "Some live events expired. The saved conversation will be restored when the run finishes.",
@@ -350,16 +364,26 @@ export function ChatPage({ api }: { api: ChatApi }) {
   const control = (
     action: "stop" | "steer" | "approval",
     body: Record<string, unknown>,
-  ) =>
-    act(async () => {
+  ) => {
+    if (controlPending.current) return;
+    return act(async () => {
       if (!run) return;
-      await api.control(run.run_id, action, body);
-      setRun(await api.run(run.run_id));
-      if (action === "steer") {
-        setDraft("");
-        if (selected) storageSet(`chat-draft:${selected.id}`, "");
+      controlPending.current = true;
+      const version = generation.current;
+      try {
+        await api.control(run.run_id, action, body);
+        const status = await api.run(run.run_id);
+        if (version !== generation.current) return;
+        setRun(status);
+        if (action === "steer") {
+          setDraft("");
+          if (selected) storageSet(`chat-draft:${selected.id}`, "");
+        }
+      } finally {
+        controlPending.current = false;
       }
     });
+  };
   const visible = [...sessions]
     .filter((s) =>
       (s.title ?? "New conversation")
@@ -367,9 +391,13 @@ export function ChatPage({ api }: { api: ChatApi }) {
         .includes(filter.toLowerCase()),
     )
     .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
-  const approvalChoices = Array.isArray(run?.approval?.choices)
-    ? run.approval.choices.filter((c): c is string => typeof c === "string")
-    : ["once", "deny"];
+  const approvalChoices = chatApprovalChoices(run?.approval);
+  const canApprove = Boolean(
+    features.run_approval_response &&
+      typeof run?.approval?.request_id === "string" &&
+      run.approval.request_id &&
+      approvalChoices.length,
+  );
 
   return (
     <section aria-label="Chat" className="chat-layout">
@@ -618,17 +646,29 @@ export function ChatPage({ api }: { api: ChatApi }) {
                 Jump to latest
               </button>
             )}
-            {active && run.approval && (
+            {active && run.status === "waiting_for_approval" && (
               <div role="alert" className="p-3 bg-warning/10 text-sm">
                 <strong>Approval requested</strong>
                 <pre className="whitespace-pre-wrap">
                   {String(
-                    run.approval.command ??
-                      run.approval.description ??
+                    run.approval?.description ??
+                      run.approval?.command ??
                       "Review this action before allowing it.",
                   )}
                 </pre>
-                {features.run_approval_response &&
+                {run.approval?.description && run.approval.command ? (
+                  <pre className="whitespace-pre-wrap">
+                    {String(run.approval.command)}
+                  </pre>
+                ) : null}
+                {!canApprove && (
+                  <p>
+                    This Hermes API cannot provide an actionable approval.
+                    Update and recreate both Hermes and Workspace UI, then
+                    reopen the conversation. Do not disable approval safeguards.
+                  </p>
+                )}
+                {canApprove &&
                   approvalChoices.map((choice) => (
                     <button
                       key={choice}

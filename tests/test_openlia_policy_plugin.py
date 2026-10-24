@@ -195,6 +195,16 @@ class PolicyPluginTests(unittest.TestCase):
         self.assertEqual(decision["action"], "approve")
         self.assertEqual(decision["rule_key"], "openlia.policy.delete_records")
 
+    def test_removing_optional_menu_frontmatter_is_a_delegated_update(self):
+        directory = self.workspace / "projects/daily-menu"
+        directory.mkdir()
+        (directory / "2026-10-24.md").write_text("---\nstatus: draft\n---\n# Menu\n")
+        decision = self.policy.pre_tool_call("patch", {
+            "mode": "patch",
+            "patch": "*** Update File: projects/daily-menu/2026-10-24.md\n@@\n----\n-status: draft\n----\n # Menu\n",
+        })
+        self.assertIsNone(decision)
+
     def test_path_escape_is_blocked(self):
         policy = self.policy
 

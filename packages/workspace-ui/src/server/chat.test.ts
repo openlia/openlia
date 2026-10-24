@@ -20,6 +20,7 @@ let runs: Map<string, ChatRun>;
 let admissions: Map<string, ChatRun>;
 let lostAcceptance = false;
 let upstreamError = false;
+let approvalSupported = true;
 let root: string;
 
 beforeEach(() => {
@@ -32,6 +33,7 @@ beforeEach(() => {
   admissions = new Map();
   lostAcceptance = false;
   upstreamError = false;
+  approvalSupported = true;
   options = {
     url: "http://hermes:8642",
     key: "test-server-secret",
@@ -54,6 +56,7 @@ beforeEach(() => {
             session_resources: true,
             run_status: true,
             run_events_sse: true,
+            run_approval_response: approvalSupported,
             runs_idempotency: {
               supported: true,
               durable: true,
@@ -104,6 +107,15 @@ beforeEach(() => {
             { headers: { "Content-Type": "text/event-stream" } },
           );
         if (runMatch[2] === "stop") run.status = "stopping";
+        if (runMatch[2] === "approval") {
+          if (
+            run.approval?.request_id !== body.request_id ||
+            run.status !== "waiting_for_approval"
+          )
+            return Response.json({}, { status: 409 });
+          run.status = "running";
+          delete run.approval;
+        }
         return Response.json(run);
       }
       if (url.pathname.endsWith("/messages"))
@@ -332,6 +344,10 @@ describe("Hermes chat boundary", () => {
   test("forwards exact approval request IDs and only allowlisted control fields", async () => {
     const id = await create();
     const run = (await (await send(id)).json()) as ChatRun;
+    Object.assign(runs.get(run.run_id)!, {
+      status: "waiting_for_approval",
+      approval: { request_id: "approval-123", choices: ["once", "deny"] },
+    });
     await service.handle(
       request(`/runs/${run.run_id}/approval`, "POST", {
         choice: "once",
@@ -344,6 +360,7 @@ describe("Hermes chat boundary", () => {
       choice: "once",
       request_id: "approval-123",
     });
+    expect(runs.get(run.run_id)?.status).toBe("running");
     expect(
       (
         await service.handle(
@@ -353,6 +370,64 @@ describe("Hermes chat boundary", () => {
         )
       ).status,
     ).toBe(400);
+  });
+  test("rejects stale, missing, unsupported, and unadvertised approval responses", async () => {
+    const id = await create();
+    const run = (await (await send(id)).json()) as ChatRun;
+    const pending = runs.get(run.run_id)!;
+    pending.status = "waiting_for_approval";
+    pending.approval = { request_id: "current", choices: ["once", "deny"] };
+    for (const [body, status] of [
+      [{ choice: "once" }, 400],
+      [{ choice: "once", request_id: "stale" }, 409],
+      [{ choice: "always", request_id: "current" }, 409],
+    ] as const) {
+      expect(
+        (
+          await service.handle(
+            request(`/runs/${run.run_id}/approval`, "POST", body),
+          )
+        ).status,
+      ).toBe(status);
+    }
+    approvalSupported = false;
+    expect(
+      (
+        await service.handle(
+          request(`/runs/${run.run_id}/approval`, "POST", {
+            choice: "once",
+            request_id: "current",
+          }),
+        )
+      ).status,
+    ).toBe(409);
+    expect(
+      calls.filter((call) => call.path.endsWith("/approval")),
+    ).toHaveLength(0);
+    approvalSupported = true;
+    expect(
+      (
+        await service.handle(
+          request(`/runs/${run.run_id}/approval`, "POST", {
+            choice: "deny",
+            request_id: "current",
+          }),
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await service.handle(
+          request(`/runs/${run.run_id}/approval`, "POST", {
+            choice: "once",
+            request_id: "current",
+          }),
+        )
+      ).status,
+    ).toBe(409);
+    expect(
+      calls.filter((call) => call.path.endsWith("/approval")),
+    ).toHaveLength(1);
   });
   test("redacts upstream failures and limits body size", async () => {
     const id = await create();

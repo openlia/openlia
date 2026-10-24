@@ -35,12 +35,14 @@ other skills, or existing records without explicit approval.
   referenced file must remain inside the workspace root or the owning skill
   directory. For example, `goals/goal-template.md` may use
   `$schema: ./goal-template.schema.json`.
-- Workspace templates govern their folder and subfolders. A more-specific
-  nested template, including a plain schema-free template, governs its own
-  subtree instead of inheriting the parent schema. Supporting artifacts need
-  not pretend to be parent-domain records. Never silently remove or weaken an
-  existing contract. The `$schema` property is a validator directive, not record
-  metadata.
+- Workspace templates govern only Markdown records directly in the same folder,
+  never subfolders. One `*-template.md` is allowed per folder. A folder without
+  a local template is free-form, even when its parent has a template or the
+  registry points to an ancestor's template. No scaffolding is needed to edit
+  supporting artifacts. Without a local template, honor a record's explicit
+   local `$schema`; it cannot override a local template. Never silently remove or
+   weaken an existing contract. The `$schema` property is a validator directive,
+   not record metadata.
 - Skill templates without frontmatter are checked for Markdown template
   structure. Skill templates with frontmatter must declare `$schema` and have
   their metadata validated against the referenced schema.
@@ -71,7 +73,9 @@ instructions.
 
 1. Read `AGENTS.md`, `README.md`, `workspace.yaml`, and `assistant-policy.yaml`
    when present, plus the selected template and schema and relevant existing
-   records.
+   records. For ordinary record edits, use targeted `patch` updates rather than
+   replacing existing files with `write_file`. Removing optional frontmatter is
+   an ordinary update, not deletion; preserve the body and validate afterward.
 2. Act as the workspace architect. Infer a sensible design from the user's use
    case and existing conventions; ask only for missing product decisions, not
    for YAML, schema types, or a directory-design exercise. Do not invent personal

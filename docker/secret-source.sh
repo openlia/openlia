@@ -32,7 +32,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -n "$value" ]] || continue
     case "$key" in
         BASH_ENV|ENV|LD_PRELOAD|LD_LIBRARY_PATH|PATH|PYTHONPATH|NODE_OPTIONS|SHELL|\
-        HERMES_HOME|HERMES_ENV|HERMES_CONFIG|HERMES_TIMEZONE|HERMES_YOLO_MODE|HERMES_INTERACTIVE) exit 1 ;;
+        HERMES_HOME|HERMES_ENV|HERMES_CONFIG|HERMES_TIMEZONE|HERMES_YOLO_MODE|HERMES_INTERACTIVE|HERMES_EXEC_ASK) exit 1 ;;
     esac
     if [[ "$key" == COPILOT_GITHUB_TOKEN ]]; then
         case "$value" in

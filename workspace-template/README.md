@@ -66,9 +66,14 @@ Starter files use YAML frontmatter for structured record metadata. Every
 frontmatter template declares its JSON Schema in `$schema`, as a local relative
 path from that template (for example, `goals/goal-template.md` can use
 `$schema: ./goal-template.schema.json`). The referenced schema must remain
-inside the workspace root. That schema applies to every non-template Markdown
-file in the template directory and its subdirectories. A more-specific nested
-template governs its own subtree.
+inside the workspace root. That schema applies only to non-template Markdown
+files directly in the same directory, never subdirectories. Without a local
+template, Markdown is free-form: a daily menu under `projects/daily-menu/`
+does not inherit the project contract or require its own template. A plain
+Markdown template makes frontmatter optional but requires its section headings.
+A record's explicit local `$schema` is honored when there is no local template.
+Only one `*-template.md` is allowed per folder; invalid contracts are errors,
+not permission to silently skip validation.
 
 In ordinary starters, a `null` value is an unfilled field to complete when
 creating a record; inline comments show allowed values or expected formats.

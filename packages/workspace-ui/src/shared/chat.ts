@@ -34,6 +34,22 @@ export interface ChatRun {
   runtime?: { provider?: string; model?: string };
 }
 
+export function chatApprovalChoices(
+  approval?: Record<string, unknown>,
+): string[] {
+  return Array.isArray(approval?.choices)
+    ? [
+        ...new Set(
+          approval.choices.filter(
+            (choice): choice is string =>
+              typeof choice === "string" &&
+              ["once", "session", "always", "deny"].includes(choice),
+          ),
+        ),
+      ]
+    : [];
+}
+
 export interface ChatEvent {
   event: string;
   seq?: number;
