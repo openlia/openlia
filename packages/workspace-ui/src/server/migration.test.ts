@@ -413,7 +413,10 @@ describe("MigrationService & endpoints", () => {
         additionalProperties: false,
         properties: {
           date: {
-            oneOf: [{ const: "YYYY-MM-DD" }, { type: "string", format: "date" }],
+            oneOf: [
+              { const: "YYYY-MM-DD" },
+              { type: "string", format: "date" },
+            ],
           },
         },
       }),
