@@ -258,6 +258,9 @@ func (p *ProfileOperator) Sync() (ProfileSyncResult, error) {
 				}
 			}
 		}
+		if err := upgradeLegacyWorkspaceRegistry(p.Config.RepositoryRoot, workspace); err != nil {
+			return ProfileSyncResult{}, fmt.Errorf("upgrade workspace registry: %w", err)
+		}
 	}
 	result := ProfileSyncResult{OK: true, Action: "profile-sync", Workspace: "preserved", Instructions: instructions, Skills: ProfileSkillStats{
 		CustomizedNames: []string{}, UnmanagedNames: []string{}, Results: []SkillResult{},

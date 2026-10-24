@@ -350,3 +350,183 @@ func TestMigrationAutoInstallsFeaturesAndSkipsBoilerplate(t *testing.T) {
 		t.Errorf("expected starter template travel/trip-template.md in live workspace after feature auto-install: %v", err)
 	}
 }
+
+func TestUpgradeLegacyPrePR161WorkspaceAndInstallAllFeatures(t *testing.T) {
+	cfg, wsDir := setupLeanWorkspaceForTest(t)
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+
+	// Simulate an older pre-PR-#161 workspace.schema.json (without skills/feature) and legacy workspace.yaml
+	oldSchema := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["$schema","version","domains"]}`
+	if err := os.WriteFile(filepath.Join(wsDir, "workspace.schema.json"), []byte(oldSchema), 0o600); err != nil {
+		t.Fatalf("write old workspace.schema.json: %v", err)
+	}
+	_ = os.Remove(filepath.Join(wsDir, "feature.schema.json"))
+
+	legacyRegistry := `$schema: ./workspace.schema.json
+version: 1
+domains:
+  - path: inbox
+    kind: core
+    label: Inbox
+    purpose: Uncategorized captures waiting for review.
+    route: review
+    include_in_briefing: true
+    briefing_category: inbox
+  - path: goals
+    kind: core
+    label: Goals
+    purpose: Outcomes and the reasons they matter.
+    template: goals/goal-template.md
+    include_in_briefing: true
+    briefing_category: goals
+  - path: areas
+    kind: core
+    label: Areas
+    purpose: Ongoing responsibilities without a fixed end date.
+    template: areas/area-template.md
+  - path: projects
+    kind: core
+    label: Projects
+    purpose: Bounded outcomes with milestones, tasks, risks, and decisions.
+    template: projects/project-template.md
+    include_in_briefing: true
+    briefing_category: projects
+  - path: knowledge
+    kind: core
+    label: Knowledge
+    purpose: Durable notes, references, and research.
+  - path: knowledge/research
+    kind: core
+    label: Research
+    purpose: Durable research notes and source-backed investigations.
+    route: research
+  - path: knowledge/claims
+    kind: core
+    label: Claims
+    purpose: Reusable personal claims with provenance and lifecycle metadata.
+    route: claim
+    template: knowledge/claims/claim-template.md
+    include_in_briefing: true
+    briefing_category: claims
+  - path: ideas
+    kind: core
+    label: Ideas
+    purpose: Early concepts and possibilities before commitment.
+    route: idea
+    template: ideas/idea-template.md
+  - path: decisions
+    kind: core
+    label: Decisions
+    purpose: Options, tradeoffs, assumptions, and chosen direction.
+    route: decision
+    template: decisions/decision-template.md
+    include_in_briefing: true
+    briefing_category: decisions
+  - path: monitors
+    kind: core
+    label: Monitors
+    purpose: Ongoing watch topics, check cadences, and signal logs.
+    template: monitors/monitor-template.md
+    include_in_briefing: true
+    briefing_category: monitors
+  - path: tasks
+    kind: core
+    label: Tasks
+    purpose: Concrete actions that can be completed.
+    route: task
+    template: tasks/task-template.md
+    include_in_briefing: true
+    briefing_category: tasks
+  - path: calendar
+    kind: core
+    label: Calendar
+    purpose: Planning notes, meeting agendas, and event context.
+    route: event
+    template: calendar/event-note-template.md
+    include_in_briefing: true
+    briefing_category: calendar
+  - path: people
+    kind: core
+    label: People
+    purpose: Contact context, relationships, and follow-ups.
+    template: people/person-template.md
+  - path: shopping
+    kind: core
+    label: Shopping
+    purpose: Product research and purchase candidates.
+    template: shopping/item-template.md
+  - path: travel
+    kind: core
+    label: Travel
+    purpose: Trips, itineraries, and travel research.
+    template: travel/trip-template.md
+  - path: finance
+    kind: core
+    label: Finance
+    purpose: Budgets, spending notes, and financial reviews.
+    template: finance/finance-template.md
+  - path: archive
+    kind: core
+    label: Archive
+    purpose: Completed or inactive material retained for reference.
+    route: archive
+`
+	if err := os.WriteFile(filepath.Join(wsDir, "workspace.yaml"), []byte(legacyRegistry), 0o600); err != nil {
+		t.Fatalf("write legacy workspace.yaml: %v", err)
+	}
+
+	allFeatures := []string{
+		"personal-finance",
+		"personal-health",
+		"decision-analysis",
+		"deep-research",
+		"travel",
+		"shopping",
+		"areas",
+		"ideas",
+		"monitors",
+		"people",
+	}
+	for _, featID := range allFeatures {
+		if _, err := FeatureInstall(cfg, featID, true, now); err != nil {
+			t.Fatalf("FeatureInstall %s on legacy workspace: %v", featID, err)
+		}
+	}
+
+	// Verify workspace.schema.json was updated to match workspace-template/workspace.schema.json
+	expectedSchema, _ := os.ReadFile(filepath.Join(cfg.RepositoryRoot, "workspace-template", "workspace.schema.json"))
+	actualSchema, _ := os.ReadFile(filepath.Join(wsDir, "workspace.schema.json"))
+	if string(expectedSchema) != string(actualSchema) {
+		t.Errorf("expected workspace.schema.json to be updated from workspace-template")
+	}
+	if _, err := os.Stat(filepath.Join(wsDir, "feature.schema.json")); err != nil {
+		t.Errorf("expected feature.schema.json to be seeded: %v", err)
+	}
+
+	// Verify all non-core domains in workspace.yaml were upgraded to kind: extension with lifecycle
+	regBytes, err := os.ReadFile(filepath.Join(wsDir, "workspace.yaml"))
+	if err != nil {
+		t.Fatalf("read upgraded workspace.yaml: %v", err)
+	}
+	upgradedDomains, err := ParseWorkspaceDomains(regBytes)
+	if err != nil {
+		t.Fatalf("ParseWorkspaceDomains: %v", err)
+	}
+	for _, d := range upgradedDomains {
+		if isCanonicalCoreDomain(d.Path) {
+			if d.Kind != "core" {
+				t.Errorf("expected core domain %s to remain kind=core, got %s", d.Path, d.Kind)
+			}
+		} else {
+			if d.Kind != "extension" {
+				t.Errorf("expected non-core domain %s to be upgraded to kind=extension, got %s", d.Path, d.Kind)
+			}
+			if d.Lifecycle == "" {
+				t.Errorf("expected extension domain %s to have non-empty lifecycle", d.Path)
+			}
+			if d.Route != "" && len(d.Tags) == 0 {
+				t.Errorf("expected routed extension domain %s to have tags", d.Path)
+			}
+		}
+	}
+}

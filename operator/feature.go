@@ -860,6 +860,12 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 	if err := EnsureDir(workspaceDir, 0o700); err != nil {
 		return FeatureInstallResult{}, err
 	}
+	_ = ensureHermesReadable(workspaceDir)
+
+	templateDir := filepath.Join(config.RepositoryRoot, "workspace-template")
+	if tInfo, tErr := os.Stat(templateDir); tErr == nil && tInfo.IsDir() {
+		_ = seedMissingWorkspaceTemplates(templateDir, workspaceDir)
+	}
 
 	// 1. Copy workspace templates/schemas from pkgDir/workspace
 	featureWorkspaceDir := filepath.Join(pkgDir, "workspace")
@@ -872,9 +878,11 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 	// Ensure all domain directories exist
 	var installedDomains []string
 	for _, d := range manifest.Domains {
-		if err := EnsureDir(filepath.Join(workspaceDir, filepath.FromSlash(d.Path)), 0o700); err != nil {
+		domainFsPath := filepath.Join(workspaceDir, filepath.FromSlash(d.Path))
+		if err := EnsureDir(domainFsPath, 0o700); err != nil {
 			return FeatureInstallResult{}, err
 		}
+		_ = ensureHermesReadable(domainFsPath)
 		installedDomains = append(installedDomains, d.Path)
 	}
 
@@ -882,6 +890,7 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 	if err := mergeFeatureDomainsIntoRegistry(workspaceDir, manifest.Domains); err != nil {
 		return FeatureInstallResult{}, fmt.Errorf("update workspace.yaml: %w", err)
 	}
+	_ = upgradeLegacyWorkspaceRegistry(config.RepositoryRoot, workspaceDir)
 
 	// 3. Merge policy rules if approvePolicy is true
 	policyUpdated := false
@@ -1506,14 +1515,121 @@ func seedFeatureWorkspaceFiles(featureWorkspaceDir, workspaceDir string) error {
 			return err
 		}
 		if filepath.Base(rel) == ".gitkeep" {
-			return EnsureDir(filepath.Join(workspaceDir, filepath.Dir(rel)), 0o700)
+			dirPath := filepath.Join(workspaceDir, filepath.Dir(rel))
+			if err := EnsureDir(dirPath, 0o700); err != nil {
+				return err
+			}
+			_ = ensureHermesReadable(dirPath)
+			return nil
 		}
 		dest := filepath.Join(workspaceDir, rel)
 		if err := EnsureDir(filepath.Dir(dest), 0o700); err != nil {
 			return err
 		}
-		return copyOnce(path, dest, 0o600)
+		_ = ensureHermesReadable(filepath.Dir(dest))
+		if err := copyOnce(path, dest, 0o600); err != nil {
+			return err
+		}
+		_ = ensureHermesReadable(dest)
+		return nil
 	})
+}
+
+func isCanonicalCoreDomain(path string) bool {
+	for _, core := range LeanBaseCoreDomains {
+		if path == core {
+			return true
+		}
+	}
+	return false
+}
+
+func upgradeDomainEntry(existing *WorkspaceDomain, canonical WorkspaceDomain) bool {
+	changed := false
+	if existing.Kind == "core" && !isCanonicalCoreDomain(existing.Path) && canonical.Kind == "extension" {
+		existing.Kind = "extension"
+		changed = true
+	}
+	if existing.Lifecycle == "" && canonical.Lifecycle != "" {
+		existing.Lifecycle = canonical.Lifecycle
+		changed = true
+	} else if existing.Kind == "extension" && existing.Lifecycle == "" {
+		existing.Lifecycle = "active -> archived"
+		changed = true
+	}
+	if len(existing.Tags) == 0 && len(canonical.Tags) > 0 {
+		existing.Tags = append([]string(nil), canonical.Tags...)
+		changed = true
+	} else if existing.Kind == "extension" && existing.Route != "" && len(existing.Tags) == 0 {
+		existing.Tags = []string{strings.Split(existing.Path, "/")[0]}
+		changed = true
+	}
+	if existing.Feature == "" && canonical.Feature != "" {
+		existing.Feature = canonical.Feature
+		changed = true
+	}
+	if len(existing.Skills) == 0 && len(canonical.Skills) > 0 {
+		existing.Skills = append([]string(nil), canonical.Skills...)
+		changed = true
+	}
+	return changed
+}
+
+func upgradeLegacyWorkspaceRegistry(repoRoot, workspaceDir string) error {
+	regPath := filepath.Join(workspaceDir, "workspace.yaml")
+	data, err := os.ReadFile(regPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	existing, err := ParseWorkspaceDomains(data)
+	if err != nil || len(existing) == 0 {
+		return nil
+	}
+
+	canonicalByPath := make(map[string]WorkspaceDomain)
+	if baseBytes, err := os.ReadFile(filepath.Join(repoRoot, "workspace-template", "workspace.yaml")); err == nil {
+		if baseDomains, err := ParseWorkspaceDomains(baseBytes); err == nil {
+			for _, d := range baseDomains {
+				canonicalByPath[d.Path] = d
+			}
+		}
+	}
+	if catalog, _, err := LoadCatalogFeatures(repoRoot); err == nil {
+		for _, m := range catalog {
+			for _, d := range m.Domains {
+				canonicalByPath[d.Path] = d
+			}
+		}
+	}
+
+	changed := false
+	for i := range existing {
+		if canon, ok := canonicalByPath[existing[i].Path]; ok {
+			if upgradeDomainEntry(&existing[i], canon) {
+				changed = true
+			}
+		} else if existing[i].Kind == "core" && !isCanonicalCoreDomain(existing[i].Path) {
+			existing[i].Kind = "extension"
+			if existing[i].Lifecycle == "" {
+				existing[i].Lifecycle = "active -> archived"
+			}
+			if existing[i].Route != "" && len(existing[i].Tags) == 0 {
+				existing[i].Tags = []string{strings.Split(existing[i].Path, "/")[0]}
+			}
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	if err := AtomicWriteFile(regPath, RenderWorkspaceRegistry(existing), 0o600); err != nil {
+		return err
+	}
+	_ = ensureHermesReadable(regPath)
+	return nil
 }
 
 func mergeFeatureDomainsIntoRegistry(workspaceDir string, newDomains []WorkspaceDomain) error {
@@ -1529,12 +1645,7 @@ func mergeFeatureDomainsIntoRegistry(workspaceDir string, newDomains []Workspace
 	changed := false
 	for _, nd := range newDomains {
 		if idx, ok := seen[nd.Path]; ok {
-			if existing[idx].Feature == "" && nd.Feature != "" {
-				existing[idx].Feature = nd.Feature
-				changed = true
-			}
-			if len(existing[idx].Skills) == 0 && len(nd.Skills) > 0 {
-				existing[idx].Skills = nd.Skills
+			if upgradeDomainEntry(&existing[idx], nd) {
 				changed = true
 			}
 			continue
@@ -1546,7 +1657,11 @@ func mergeFeatureDomainsIntoRegistry(workspaceDir string, newDomains []Workspace
 	if !changed && len(existing) > 0 {
 		return nil
 	}
-	return AtomicWriteFile(regPath, RenderWorkspaceRegistry(existing), 0o600)
+	if err := AtomicWriteFile(regPath, RenderWorkspaceRegistry(existing), 0o600); err != nil {
+		return err
+	}
+	_ = ensureHermesReadable(regPath)
+	return nil
 }
 
 func mergeFeaturePolicy(workspaceDir string, policySpec FeaturePolicySpec) (bool, error) {
@@ -1565,6 +1680,7 @@ func mergeFeaturePolicy(workspaceDir string, policySpec FeaturePolicySpec) (bool
 	if err := AtomicWriteFile(policyFile, []byte(updated), 0o600); err != nil {
 		return false, err
 	}
+	_ = ensureHermesReadable(policyFile)
 	return true, nil
 }
 

@@ -267,6 +267,7 @@ func seedMissingWorkspaceTemplates(templateDir, workspaceDir string) error {
 			return nil
 		}
 		relSlash := filepath.ToSlash(rel)
+		isSystemRootSchema := !strings.Contains(relSlash, "/") && strings.HasSuffix(relSlash, ".schema.json")
 		if len(registered) > 0 && strings.Contains(relSlash, "/") {
 			dirSlash := filepath.ToSlash(filepath.Dir(rel))
 			rootDomain := strings.Split(relSlash, "/")[0]
@@ -276,6 +277,16 @@ func seedMissingWorkspaceTemplates(templateDir, workspaceDir string) error {
 		}
 		dest := filepath.Join(workspaceDir, rel)
 		if _, statErr := os.Lstat(dest); statErr == nil {
+			if isSystemRootSchema {
+				srcBytes, rErr1 := os.ReadFile(path)
+				dstBytes, rErr2 := os.ReadFile(dest)
+				if rErr1 == nil && rErr2 == nil && string(srcBytes) != string(dstBytes) {
+					if err := AtomicCopyFile(path, dest, 0o600); err != nil {
+						return err
+					}
+					_ = ensureHermesReadable(dest)
+				}
+			}
 			return nil
 		} else if !errors.Is(statErr, os.ErrNotExist) {
 			return statErr
@@ -283,6 +294,10 @@ func seedMissingWorkspaceTemplates(templateDir, workspaceDir string) error {
 		if err := EnsureDir(filepath.Dir(dest), 0o700); err != nil {
 			return err
 		}
-		return copyOnce(path, dest, 0o600)
+		if err := copyOnce(path, dest, 0o600); err != nil {
+			return err
+		}
+		_ = ensureHermesReadable(dest)
+		return nil
 	})
 }
