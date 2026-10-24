@@ -64,6 +64,19 @@ export function createConfiguredWorkspaceHandler() {
       : undefined;
 
   return createWorkspaceHandler({
+    ...(process.env.OPENLIA_HERMES_API_URL && process.env.API_SERVER_KEY
+      ? {
+          chat: {
+            url: process.env.OPENLIA_HERMES_API_URL,
+            key: process.env.API_SERVER_KEY,
+            databasePath: join(
+              process.env.OPENLIA_RUNTIME_ROOT ??
+                homedir() + "/.openlia/cache/workspace-ui",
+              "chat.sqlite",
+            ),
+          },
+        }
+      : {}),
     allowedEmails,
     authProvider,
     authRequired: authRequired || isFirebase,

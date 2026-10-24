@@ -2,6 +2,11 @@ import { describe, expect, test } from "vitest";
 import { buildRouteUrl, parseRoute } from "./route";
 
 describe("route helpers", () => {
+  test("supports native chat navigation", () => {
+    expect(parseRoute("/chat?conversation=session-1").tab).toBe("chat");
+    expect(parseRoute("openlia://chat").tab).toBe("chat");
+    expect(buildRouteUrl({ tab: "chat" })).toBe("/chat");
+  });
   test("parses root overview route", () => {
     expect(parseRoute("/")).toEqual({
       filter: undefined,

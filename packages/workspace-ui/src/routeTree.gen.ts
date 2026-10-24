@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SplatRouteImport } from './routes/$'
+import { Route as ChatRouteImport } from './routes/chat'
 import { Route as ConfigurationRouteImport } from './routes/configuration'
 import { Route as GitActivityRouteImport } from './routes/git-activity'
 import { Route as ScheduleRouteImport } from './routes/schedule'
@@ -36,6 +37,11 @@ const IndexRoute = IndexRouteImport.update({
 const SplatRoute = SplatRouteImport.update({
   id: '/$',
   path: '/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChatRoute = ChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ConfigurationRoute = ConfigurationRouteImport.update({
@@ -122,6 +128,7 @@ const SkillsSplatRoute = SkillsSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
+  '/chat': typeof ChatRoute
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
   '/schedule': typeof ScheduleRoute
@@ -142,6 +149,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
+  '/chat': typeof ChatRoute
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
   '/schedule': typeof ScheduleRoute
@@ -163,6 +171,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
+  '/chat': typeof ChatRoute
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
   '/schedule': typeof ScheduleRoute
@@ -185,6 +194,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/$'
+    | '/chat'
     | '/configuration'
     | '/git-activity'
     | '/schedule'
@@ -205,6 +215,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/$'
+    | '/chat'
     | '/configuration'
     | '/git-activity'
     | '/schedule'
@@ -225,6 +236,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/$'
+    | '/chat'
     | '/configuration'
     | '/git-activity'
     | '/schedule'
@@ -246,6 +258,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SplatRoute: typeof SplatRoute
+  ChatRoute: typeof ChatRoute
   ConfigurationRoute: typeof ConfigurationRoute
   GitActivityRoute: typeof GitActivityRoute
   ScheduleRoute: typeof ScheduleRoute
@@ -278,6 +291,13 @@ declare module '@tanstack/react-router' {
       path: '/$'
       fullPath: '/$'
       preLoaderRoute: typeof SplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/configuration': {
@@ -398,6 +418,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SplatRoute: SplatRoute,
+  ChatRoute: ChatRoute,
   ConfigurationRoute: ConfigurationRoute,
   GitActivityRoute: GitActivityRoute,
   ScheduleRoute: ScheduleRoute,

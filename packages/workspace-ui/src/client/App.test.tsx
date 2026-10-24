@@ -1201,6 +1201,7 @@ messages:
         .getAllByRole("button")
         .map((btn) => btn.textContent?.trim()),
     ).toEqual([
+      "Chat",
       "Documents",
       "Calendar",
       "Ingestion",

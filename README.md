@@ -686,6 +686,12 @@ session; it is not a security boundary for clients that bypass the relay.
 
 ### Open WebUI Chat Interface
 
+**For everyday chat, use the built-in Chat page in Workspace UI (`/chat`).** It
+uses Hermes' persistent sessions and private API, with no extra container or login.
+See [native chat](packages/workspace-ui/README.md#native-chat) for supported
+features, shared-history access, and upgrade instructions. Open WebUI remains an
+optional alternative for deployments that need its broader feature set.
+
 OpenLia supports [Open WebUI](https://openwebui.com/) as an integrated web chat interface for communicating with your Hermes Agent.
 
 Add an `[open-webui]` section to `config.toml`:

@@ -22,6 +22,7 @@ export function WorkspaceHeader({
   onTabChange,
 }: {
   activeTab?:
+    | "chat"
     | "documents"
     | "skills"
     | "shares"
@@ -45,6 +46,7 @@ export function WorkspaceHeader({
   onTabChange?:
     | ((
         tab:
+          | "chat"
           | "documents"
           | "skills"
           | "shares"
@@ -99,6 +101,16 @@ export function WorkspaceHeader({
           aria-label="Workspace navigation"
           className="workspace-nav join order-3 flex w-full max-w-full shrink-0 flex-nowrap overflow-x-auto border border-base-content/15 rounded-lg bg-base-200/60 p-0.5 xl:order-none xl:w-auto xl:mr-2"
         >
+          {onTabChange && (
+            <button
+              aria-current={activeTab === "chat" ? "page" : undefined}
+              className={`btn btn-xs join-item shrink-0 ${activeTab === "chat" ? "btn-primary shadow-xs" : "btn-ghost text-base-content/70"}`}
+              onClick={() => onTabChange("chat")}
+              type="button"
+            >
+              Chat
+            </button>
+          )}
           {(onOpenDocuments || onTabChange) && (
             <button
               aria-current={
@@ -236,48 +248,52 @@ export function WorkspaceHeader({
       <div className="min-w-0 flex-1">
         <p className="workspace-eyebrow">
           OPENLIA /{" "}
-          {activeTab === "usage"
-            ? "USAGE"
-            : activeTab === "schedule"
-              ? "SCHEDULE"
-              : activeTab === "skills"
-                ? "SKILLS"
-                : activeTab === "shares"
-                  ? "SHARED LINKS"
-                  : activeTab === "git-activity"
-                    ? "GIT ACTIVITY"
-                    : activeTab === "ingestion"
-                      ? "INGESTION RUNTIME"
-                      : activeTab === "migration"
-                        ? "MIGRATION"
-                        : activeTab === "configuration"
-                          ? "CONFIGURATION"
-                          : file
-                            ? file.source === "memory"
-                              ? "ASSISTANT MEMORY"
-                              : "WORKSPACE"
-                            : "ACTIVITY"}
+          {activeTab === "chat"
+            ? "CHAT"
+            : activeTab === "usage"
+              ? "USAGE"
+              : activeTab === "schedule"
+                ? "SCHEDULE"
+                : activeTab === "skills"
+                  ? "SKILLS"
+                  : activeTab === "shares"
+                    ? "SHARED LINKS"
+                    : activeTab === "git-activity"
+                      ? "GIT ACTIVITY"
+                      : activeTab === "ingestion"
+                        ? "INGESTION RUNTIME"
+                        : activeTab === "migration"
+                          ? "MIGRATION"
+                          : activeTab === "configuration"
+                            ? "CONFIGURATION"
+                            : file
+                              ? file.source === "memory"
+                                ? "ASSISTANT MEMORY"
+                                : "WORKSPACE"
+                              : "ACTIVITY"}
         </p>
         <div className="flex items-center gap-1 min-w-0">
           <h1 className="workspace-title" title={file?.path}>
             {file?.path.split("/").at(-1) ??
-              (activeTab === "usage"
-                ? "Usage"
-                : activeTab === "schedule"
-                  ? "Schedule"
-                  : activeTab === "skills"
-                    ? "Skills"
-                    : activeTab === "shares"
-                      ? "Shared Links"
-                      : activeTab === "git-activity"
-                        ? "Git Activity"
-                        : activeTab === "ingestion"
-                          ? "Ingestion"
-                          : activeTab === "migration"
-                            ? "Migrations"
-                            : activeTab === "configuration"
-                              ? "Configuration"
-                              : "Activity")}
+              (activeTab === "chat"
+                ? "Chat"
+                : activeTab === "usage"
+                  ? "Usage"
+                  : activeTab === "schedule"
+                    ? "Schedule"
+                    : activeTab === "skills"
+                      ? "Skills"
+                      : activeTab === "shares"
+                        ? "Shared Links"
+                        : activeTab === "git-activity"
+                          ? "Git Activity"
+                          : activeTab === "ingestion"
+                            ? "Ingestion"
+                            : activeTab === "migration"
+                              ? "Migrations"
+                              : activeTab === "configuration"
+                                ? "Configuration"
+                                : "Activity")}
           </h1>
           {currentLink && (
             <CopyLinkButton

@@ -58,6 +58,8 @@ import type {
   HermesCronJob,
   UpdateCronJobInput,
 } from "../shared/cron";
+import type { ChatApi } from "../shared/chat";
+import { httpChatApi } from "./chatApi";
 import { isMemoryDocument, memoryFilename } from "../shared/memory";
 import type { UsageRates, UsageResponse } from "../shared/usage";
 
@@ -74,6 +76,7 @@ export class ApiError extends Error {
 }
 
 export interface WorkspaceApi {
+  chat: ChatApi;
   loadUsage(reference?: string): Promise<UsageResponse>;
   saveUsageOverride(
     provider: string,
@@ -642,6 +645,7 @@ function isSkillSuccessResponse(value: unknown): value is SkillSuccessResponse {
 }
 
 export const httpWorkspaceApi: WorkspaceApi = {
+  chat: httpChatApi,
   loadUsage: (reference) =>
     requestJson<UsageResponse>(
       `/api/workspace/usage${reference ? `?reference=${encodeURIComponent(reference)}` : ""}`,

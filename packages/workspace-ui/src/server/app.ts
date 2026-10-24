@@ -22,6 +22,7 @@ import type {
   WorkspaceWriteRequest,
 } from "../shared/api";
 import { Authenticator } from "./auth";
+import { ChatService, type ChatOptions } from "./chat";
 import { exportArchive } from "./export";
 import { IngestionService } from "./ingestion";
 import { MemoryFileService } from "./memory";
@@ -33,6 +34,7 @@ import { UsageService } from "./usage";
 import { CronService, CronError } from "./cron";
 
 export interface WorkspaceHandlerOptions {
+  chat?: ChatOptions;
   workspaceRoot: string;
   memoriesRoot?: string;
   ingestionRoot?: string;
@@ -312,6 +314,7 @@ export function createWorkspaceHandler(
     options.skillsRoot ??
     process.env.OPENLIA_SKILLS_ROOT ??
     join(options.workspaceRoot, "..", "skills");
+  const chatService = new ChatService(options.chat);
   const skillService = new SkillService({
     maxEditableBytes: options.maxEditableBytes,
     skillsRoot,
@@ -411,6 +414,7 @@ export function createWorkspaceHandler(
           url.pathname === "/configuration" ||
           url.pathname.startsWith("/schedule/") ||
           url.pathname === "/schedule" ||
+          url.pathname.startsWith("/chat") ||
           url.pathname === "/usage")
       ) {
         const isPublicShareHtml =
@@ -531,6 +535,7 @@ export function createWorkspaceHandler(
       }
       if (
         (url.pathname.startsWith("/api/workspace/") ||
+          url.pathname.startsWith("/api/chat/") ||
           url.pathname.startsWith("/api/memory/") ||
           url.pathname.startsWith("/api/skills/") ||
           url.pathname === "/api/shares" ||
@@ -543,6 +548,18 @@ export function createWorkspaceHandler(
           { schema: 1, ok: false, error: "authentication_required" },
           401,
         );
+      }
+      if (url.pathname.startsWith("/api/chat/")) {
+        if (
+          request.method !== "GET" &&
+          !sameOrigin(request, url, publicOrigin)
+        ) {
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        }
+        return chatService.handle(request);
       }
       if (
         request.method === "GET" &&
@@ -2350,7 +2367,10 @@ function secureRequest(
   publicOrigin: string | undefined,
 ): boolean {
   if (url.protocol === "https:") return true;
-  if (publicOrigin && request.headers.get("origin") === publicOrigin)
+  if (
+    publicOrigin?.startsWith("https://") &&
+    request.headers.get("origin") === publicOrigin
+  )
     return true;
   return forwardedOrigin(request, url)?.startsWith("https://") ?? false;
 }

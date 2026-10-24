@@ -15,6 +15,11 @@ const port = portFromEnvironment(process.env.OPENLIA_WORKSPACE_UI_PORT);
 const handler = createConfiguredWorkspaceHandler();
 const server = Bun.serve({
   fetch(request, instance) {
+    if (
+      request.method === "GET" &&
+      /^\/api\/chat\/runs\/[^/]+\/events$/.test(new URL(request.url).pathname)
+    )
+      instance.timeout(request, 0);
     return handler(request, instance.requestIP(request)?.address ?? "global");
   },
   hostname: bind,
