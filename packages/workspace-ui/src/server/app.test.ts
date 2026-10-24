@@ -901,6 +901,52 @@ describe("workspace HTTP handler", () => {
     expect(login.headers.get("set-cookie")).toContain("Secure");
   });
 
+  test("keeps configured HTTP localhost sessions usable without weakening HTTPS cookies", async () => {
+    const passwordHash = await Bun.password.hash("local-test-password", {
+      algorithm: "argon2id",
+      memoryCost: 32 * 1024,
+      timeCost: 2,
+    });
+    const configuredHandler = createWorkspaceHandler({
+      authRequired: true,
+      passwordHash,
+      publicOrigin: "http://127.0.0.1:8089",
+      sessionDatabasePath: ":memory:",
+      workspaceRoot: root,
+    });
+    const login = await configuredHandler(
+      new Request("http://workspace-ui:8089/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://127.0.0.1:8089",
+        },
+        body: JSON.stringify({ password: "local-test-password" }),
+      }),
+    );
+    expect(login.status).toBe(200);
+    const cookie = login.headers.get("set-cookie") ?? "";
+    expect(cookie).not.toContain("Secure");
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("SameSite=Strict");
+    const session = await configuredHandler(
+      new Request("http://workspace-ui:8089/api/auth/session", {
+        headers: { Cookie: cookie.split(";", 1)[0] ?? "" },
+      }),
+    );
+    expect(await session.json()).toMatchObject({ authenticated: true });
+    const logout = await configuredHandler(
+      new Request("http://workspace-ui:8089/api/auth/logout", {
+        method: "POST",
+        headers: {
+          Cookie: cookie.split(";", 1)[0] ?? "",
+          Origin: "http://127.0.0.1:8089",
+        },
+      }),
+    );
+    expect(logout.headers.get("set-cookie")).not.toContain("Secure");
+  });
+
   test("rejects oversized chunked login requests before password verification", async () => {
     const passwordHash = await Bun.password.hash(
       "correct horse battery staple",

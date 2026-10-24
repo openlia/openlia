@@ -2367,7 +2367,10 @@ function secureRequest(
   publicOrigin: string | undefined,
 ): boolean {
   if (url.protocol === "https:") return true;
-  if (publicOrigin && request.headers.get("origin") === publicOrigin)
+  if (
+    publicOrigin?.startsWith("https://") &&
+    request.headers.get("origin") === publicOrigin
+  )
     return true;
   return forwardedOrigin(request, url)?.startsWith("https://") ?? false;
 }
