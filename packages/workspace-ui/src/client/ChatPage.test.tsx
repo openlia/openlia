@@ -128,6 +128,7 @@ describe("Workspace chat", () => {
     const api = createChatMock();
     const remove = vi.spyOn(api, "delete");
     await open(api);
+    fireEvent.click(screen.getByLabelText("Conversation options"));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     expect(remove).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Confirm delete" }));

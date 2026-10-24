@@ -18,6 +18,11 @@ share its chat history**; this is not a multi-tenant, per-user chat service.
 - Create, rename, pin, archive (with immediate undo), and delete Workspace chats.
 - Stream replies, inspect tool activity/results, respond to approvals, stop runs,
   or explicitly send guidance to an agent that is still running.
+- Tool calls/results are grouped beneath each assistant turn and collapsed by
+  default; empty assistant rows are omitted from the view, not deleted from Hermes.
+  On mobile, **Open conversations** opens a keyboard-accessible history drawer.
+  The compact composer grows with multiline drafts; conversation actions and usage
+  are available under the **Conversation options** (•••) menu.
 - Select a model route advertised by Hermes, or leave **Hermes default** selected.
   The run's reported model is displayed when available. This is not a separate
   provider/credential configuration or a session model-lock editor.

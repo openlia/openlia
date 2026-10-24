@@ -53,7 +53,7 @@ function HighlightedCode({
 
 export function ChatMarkdown({ content }: { content: string }) {
   return (
-    <div className="workspace-markdown">
+    <div className="workspace-markdown chat-markdown">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -71,21 +71,23 @@ export function ChatMarkdown({ content }: { content: string }) {
               <code>{children}</code>
             ),
           pre: ({ children }) => (
-            <div>
-              <button
-                type="button"
-                className="btn btn-ghost btn-xs float-right"
-                onClick={(event) => {
-                  const code =
-                    event.currentTarget.parentElement?.querySelector(
-                      "pre",
-                    )?.textContent;
-                  if (code)
-                    void navigator.clipboard?.writeText(code).catch(() => {});
-                }}
-              >
-                Copy code
-              </button>
+            <div className="chat-code-block">
+              <div className="chat-code-toolbar">
+                <span>Code</span>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs"
+                  onClick={(event) => {
+                    const code = event.currentTarget
+                      .closest(".chat-code-block")
+                      ?.querySelector("pre")?.textContent;
+                    if (code)
+                      void navigator.clipboard?.writeText(code).catch(() => {});
+                  }}
+                >
+                  Copy code
+                </button>
+              </div>
               <pre>{children}</pre>
             </div>
           ),

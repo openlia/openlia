@@ -2650,7 +2650,9 @@ export function App({
     );
 
   return (
-    <main className="workspace-app">
+    <main
+      className={`workspace-app${activeTab === "chat" ? " workspace-app--chat" : ""}`}
+    >
       <WorkspaceHeader
         activeTab={activeTab}
         authRequired={authRequired}

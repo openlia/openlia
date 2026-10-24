@@ -14,6 +14,12 @@ export function createChatMock(): ChatApi {
       writable: true,
       pinned: true,
     },
+    {
+      id: "demo-tools",
+      title: "Research with workspace context",
+      source: "hermes_browser",
+      writable: true,
+    },
   ];
   const messages = new Map<string, ChatMessage[]>([
     [
@@ -29,6 +35,64 @@ export function createChatMock(): ChatApi {
     ],
   ]);
   const runs = new Map<string, ChatRun>();
+  messages.set("demo-tools", [
+    {
+      id: "question",
+      role: "user",
+      content: "Review the project notes and suggest the next steps.",
+    },
+    { id: "empty", role: "assistant", content: "" },
+    {
+      id: "calls",
+      role: "assistant",
+      content: "",
+      tool_calls: [
+        {
+          id: "read-1",
+          function: {
+            name: "read_file",
+            arguments: "projects/example/overview.md",
+          },
+        },
+        {
+          id: "read-2",
+          function: {
+            name: "read_file",
+            arguments: "projects/example/tasks.md",
+          },
+        },
+        {
+          id: "search-1",
+          function: { name: "search_files", arguments: "next steps" },
+        },
+      ],
+    },
+    {
+      id: "result-1",
+      role: "tool",
+      tool_name: "read_file",
+      content: "Project overview: prepare a small, testable first release.",
+    },
+    {
+      id: "result-2",
+      role: "tool",
+      tool_name: "read_file",
+      content:
+        "Tasks: review scope, verify the prototype, and collect feedback.",
+    },
+    {
+      id: "result-3",
+      role: "tool",
+      tool_name: "search_files",
+      content: "Found the planning checklist.",
+    },
+    {
+      id: "answer",
+      role: "assistant",
+      content:
+        'Here are the next steps:\n\n1. Confirm the scope of the first release.\n2. Test the prototype on desktop and mobile.\n3. Record feedback in the project notes.\n\n```javascript\nconst nextStep = "Review the prototype";\n```',
+    },
+  ]);
   const keys = new Map<string, string>();
   const session = (id: string) => {
     const s = sessions.find((s) => s.id === id);

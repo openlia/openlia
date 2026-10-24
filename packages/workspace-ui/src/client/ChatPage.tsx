@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatApiError } from "./chatApi";
+import { ChatTranscript } from "./ChatTranscript";
+import { ChatNavigation } from "./ChatNavigation";
+import { ChatHeader } from "./ChatHeader";
+import { ChatComposer } from "./ChatComposer";
+import "./chat.css";
 import {
   terminalChatStatuses,
   type ChatApi,
@@ -25,18 +30,6 @@ function storageSet(key: string, value: string) {
   } catch {
     /* Private browsing / storage quota. */
   }
-}
-function messageText(message: ChatMessage): string {
-  if (typeof message.content === "string") return message.content;
-  return Array.isArray(message.content)
-    ? message.content
-        .map((part) =>
-          typeof part === "object" && part && "text" in part
-            ? String(part.text)
-            : "",
-        )
-        .join("\n")
-    : "";
 }
 function errorText(error: unknown) {
   const value = error instanceof Error ? error.message : "Chat request failed";
@@ -74,7 +67,8 @@ export function ChatPage({ api }: { api: ChatApi }) {
   const [archived, setArchived] = useState<ChatSession | null>(null);
   const [rename, setRename] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const pane = useRef<HTMLDivElement>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const pane = useRef<HTMLElement>(null);
   const generation = useRef(0);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -89,6 +83,22 @@ export function ChatPage({ api }: { api: ChatApi }) {
       features.run_status &&
       features.run_events_sse,
   );
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const resize = () =>
+      document.documentElement.style.setProperty(
+        "--chat-viewport-height",
+        `${viewport.height}px`,
+      );
+    resize();
+    viewport.addEventListener("resize", resize);
+    return () => {
+      viewport.removeEventListener("resize", resize);
+      document.documentElement.style.removeProperty("--chat-viewport-height");
+    };
+  }, []);
 
   const list = useCallback(
     async (nextOffset = 0, readOther = other) => {
@@ -362,90 +372,68 @@ export function ChatPage({ api }: { api: ChatApi }) {
     : ["once", "deny"];
 
   return (
-    <section
-      aria-label="Chat"
-      className="flex min-h-0 flex-1 flex-col md:flex-row overflow-hidden"
-    >
-      <aside className="w-full md:w-64 shrink-0 border-b md:border-b-0 md:border-r border-base-content/10 p-3 space-y-3 overflow-auto max-h-56 md:max-h-none">
-        <div className="flex gap-2">
-          <h1 className="text-lg font-semibold flex-1">Chat</h1>
-          <button
-            className="btn btn-primary btn-sm"
-            type="button"
-            disabled={busy || !ready}
-            onClick={() =>
+    <section aria-label="Chat" className="chat-layout">
+      <ChatNavigation
+        sessions={visible}
+        selectedId={selectedId}
+        other={other}
+        filter={filter}
+        hasMore={hasMore}
+        loading={loading}
+        busy={busy}
+        ready={ready}
+        drawerOpen={drawerOpen}
+        onClose={closeDrawer}
+        onSelect={(session) => void select(session)}
+        onNew={() =>
+          void act(async () => {
+            const result = await api.create();
+            if (other) setOther(false);
+            await select(result.session);
+            await list(0, false);
+          })
+        }
+        onSource={(readOther) => {
+          setSelected(null);
+          setRun(null);
+          setMessages([]);
+          const url = new URL(window.location.href);
+          url.searchParams.delete("conversation");
+          window.history.replaceState(null, "", url);
+          setOther(readOther);
+        }}
+        onFilter={setFilter}
+        onMore={() =>
+          void act(async () => {
+            await list(offset);
+          })
+        }
+      />
+      <div className="chat-main">
+        <ChatHeader
+          session={selected}
+          busy={busy}
+          active={active}
+          onOpenConversations={() => setDrawerOpen(true)}
+          onAction={(action) => {
+            if (!selected?.writable) return;
+            if (action === "rename") setRename(selected.title ?? "");
+            else if (action === "delete") setConfirmDelete(true);
+            else if (action === "pin")
               void act(async () => {
-                const result = await api.create();
-                if (other) setOther(false);
-                await select(result.session);
-                await list(0, false);
-              })
-            }
-          >
-            New chat
-          </button>
-        </div>
-        <select
-          aria-label="Conversation source"
-          className="select select-sm w-full"
-          value={other ? "other" : "browser"}
-          onChange={(event) => {
-            setSelected(null);
-            setRun(null);
-            setMessages([]);
-            const url = new URL(window.location.href);
-            url.searchParams.delete("conversation");
-            window.history.replaceState(null, "", url);
-            setOther(event.target.value === "other");
+                await api.update(selected.id, { pinned: !selected.pinned });
+                setSelected({ ...selected, pinned: !selected.pinned });
+                await list();
+              });
+            else
+              void act(async () => {
+                await api.update(selected.id, { archived: true });
+                setArchived(selected);
+                setSelected(null);
+                await list();
+              });
           }}
-        >
-          <option value="browser">Workspace chats</option>
-          <option value="other">Other Hermes sessions · read-only</option>
-        </select>
-        <input
-          aria-label="Filter loaded chat titles"
-          className="input input-sm w-full"
-          placeholder="Filter loaded titles…"
-          value={filter}
-          onChange={(event) => setFilter(event.target.value)}
         />
-        {visible.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            className={`block w-full text-left rounded-lg p-2 ${selected?.id === s.id ? "bg-primary/15" : "hover:bg-base-200"}`}
-            onClick={() => void select(s)}
-          >
-            <span className="block truncate text-sm">
-              {s.pinned ? "★ " : ""}
-              {s.title || s.preview || "New conversation"}
-            </span>
-            <span className="text-xs opacity-50">{s.source ?? "browser"}</span>
-          </button>
-        ))}
-        {!loading && !visible.length && (
-          <p className="text-sm opacity-60">No conversations in this page.</p>
-        )}
-        {hasMore && (
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            disabled={busy}
-            onClick={() =>
-              void act(async () => {
-                await list(offset);
-              })
-            }
-          >
-            Load more conversations
-          </button>
-        )}
-        <p className="text-xs opacity-50">
-          Chats are shared with everyone who can access this workspace. History
-          is stored by Hermes.
-        </p>
-      </aside>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {error && (
           <div role="alert" className="m-3 rounded-lg bg-error/10 p-3 text-sm">
             {error}
@@ -493,71 +481,6 @@ export function ChatPage({ api }: { api: ChatApi }) {
         )}
         {selected ? (
           <>
-            <header className="p-3 border-b border-base-content/10 flex flex-wrap items-center gap-2">
-              <h2 className="font-semibold flex-1 truncate">
-                {selected.title || "New conversation"}
-              </h2>
-              <a className="text-xs opacity-60 underline" href="/usage">
-                Usage
-                {selected.input_tokens !== undefined
-                  ? ` · ${selected.input_tokens.toLocaleString()} input / ${selected.output_tokens?.toLocaleString() ?? "unknown"} output tokens`
-                  : ""}
-                {typeof selected.estimated_cost_usd === "number"
-                  ? ` · ~$${selected.estimated_cost_usd.toFixed(4)}`
-                  : ""}
-              </a>
-              {selected.writable && (
-                <>
-                  <button
-                    className="btn btn-ghost btn-xs"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setRename(selected.title ?? "")}
-                  >
-                    Rename
-                  </button>
-                  <button
-                    className="btn btn-ghost btn-xs"
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      void act(async () => {
-                        await api.update(selected.id, {
-                          pinned: !selected.pinned,
-                        });
-                        setSelected({ ...selected, pinned: !selected.pinned });
-                        await list();
-                      })
-                    }
-                  >
-                    {selected.pinned ? "Unpin" : "Pin"}
-                  </button>
-                  <button
-                    className="btn btn-ghost btn-xs"
-                    type="button"
-                    disabled={busy || active}
-                    onClick={() =>
-                      void act(async () => {
-                        await api.update(selected.id, { archived: true });
-                        setArchived(selected);
-                        setSelected(null);
-                        await list();
-                      })
-                    }
-                  >
-                    Archive
-                  </button>
-                  <button
-                    className="btn btn-ghost btn-xs text-error"
-                    type="button"
-                    disabled={busy || active}
-                    onClick={() => setConfirmDelete(true)}
-                  >
-                    Delete
-                  </button>
-                </>
-              )}
-            </header>
             {rename !== null && (
               <form
                 className="p-3 flex gap-2"
@@ -621,9 +544,10 @@ export function ChatPage({ api }: { api: ChatApi }) {
                 </button>
               </div>
             )}
-            <div
+            <section
               ref={pane}
-              className="flex-1 min-h-0 overflow-auto p-4 md:p-6 space-y-5"
+              className="chat-transcript"
+              aria-label="Conversation messages"
               onScroll={() => {
                 const p = pane.current;
                 if (p)
@@ -653,63 +577,9 @@ export function ChatPage({ api }: { api: ChatApi }) {
                 </button>
               )}
               {loading && <p role="status">Loading conversation…</p>}
-              {messages
-                .filter(
-                  (m) => m.display_kind !== "hidden" && m.role !== "system",
-                )
-                .map((m) => (
-                  <article
-                    key={m.id}
-                    className={`max-w-4xl mx-auto p-4 rounded-xl ${m.role === "user" ? "bg-base-200" : ""}`}
-                  >
-                    <div className="text-xs font-semibold opacity-50 mb-2">
-                      {m.role === "user"
-                        ? "You"
-                        : m.role === "tool"
-                          ? m.tool_name || "Tool"
-                          : "Lia"}
-                    </div>
-                    {m.role === "tool" ? (
-                      <details>
-                        <summary>Tool result</summary>
-                        <pre className="whitespace-pre-wrap text-xs overflow-auto">
-                          {messageText(m)}
-                        </pre>
-                      </details>
-                    ) : (
-                      <ChatMarkdown content={messageText(m)} />
-                    )}
-                    {m.reasoning && (
-                      <details>
-                        <summary>Model reasoning</summary>
-                        <pre className="whitespace-pre-wrap text-sm">
-                          {m.reasoning}
-                        </pre>
-                      </details>
-                    )}
-                    {m.tool_calls?.length ? (
-                      <details>
-                        <summary>Tool calls ({m.tool_calls.length})</summary>
-                        <pre className="whitespace-pre-wrap text-xs overflow-auto">
-                          {JSON.stringify(m.tool_calls, null, 2)}
-                        </pre>
-                      </details>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-xs mt-2"
-                      onClick={() =>
-                        void navigator.clipboard
-                          ?.writeText(messageText(m))
-                          .catch(() => {})
-                      }
-                    >
-                      Copy
-                    </button>
-                  </article>
-                ))}
-              {activity.length > 0 && (
-                <details className="max-w-4xl mx-auto text-sm" open={active}>
+              <ChatTranscript messages={messages} />
+              {activity.length > 0 && active && (
+                <details className="chat-live-activity chat-tool-group">
                   <summary>Agent activity ({activity.length})</summary>
                   {activity.map((event, i) => (
                     <div key={event.seq ?? i} className="p-2">
@@ -720,15 +590,16 @@ export function ChatPage({ api }: { api: ChatApi }) {
                 </details>
               )}
               {stream && (
-                <article className="max-w-4xl mx-auto p-4">
+                <article
+                  className="chat-turn chat-turn--assistant"
+                  aria-label="Lia streaming response"
+                >
+                  <div className="chat-speaker">Lia</div>
                   <ChatMarkdown content={stream} />
                 </article>
               )}
               {active && (
-                <p
-                  role="status"
-                  className="max-w-4xl mx-auto text-sm opacity-60"
-                >
+                <p role="status" className="chat-run-status">
                   {run.status.replaceAll("_", " ")}…
                 </p>
               )}
@@ -737,11 +608,11 @@ export function ChatPage({ api }: { api: ChatApi }) {
                   Start a conversation with Lia.
                 </p>
               )}
-            </div>
+            </section>
             {!following && (
               <button
                 type="button"
-                className="btn btn-xs self-center"
+                className="chat-jump btn btn-sm"
                 onClick={() => setFollowing(true)}
               >
                 Jump to latest
@@ -783,104 +654,28 @@ export function ChatPage({ api }: { api: ChatApi }) {
               </div>
             )}
             {selected.writable ? (
-              <form
-                className="p-3 border-t border-base-content/10 space-y-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void send();
+              <ChatComposer
+                draft={draft}
+                model={model}
+                models={models}
+                run={run}
+                active={active}
+                busy={busy}
+                disabled={loading || !ready || unresolved}
+                canSteer={Boolean(features.run_steer)}
+                canStop={Boolean(features.run_stop)}
+                onDraft={(value) => {
+                  setDraft(value);
+                  storageSet(`chat-draft:${selected.id}`, value);
                 }}
-              >
-                <textarea
-                  aria-label="Message Lia"
-                  className="textarea w-full min-h-24"
-                  maxLength={32000}
-                  placeholder={
-                    active
-                      ? "Write guidance for the running agent…"
-                      : "Message Lia…"
-                  }
-                  value={draft}
-                  onChange={(event) => {
-                    setDraft(event.target.value);
-                    storageSet(`chat-draft:${selected.id}`, event.target.value);
-                  }}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === "Enter" &&
-                      !event.shiftKey &&
-                      !event.nativeEvent.isComposing
-                    ) {
-                      event.preventDefault();
-                      if (!active && !busy) void send();
-                    }
-                  }}
-                />
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    aria-label="Hermes model route"
-                    className="select select-sm max-w-64"
-                    value={model}
-                    disabled={active}
-                    onChange={(event) => {
-                      setModel(event.target.value);
-                      storageSet(
-                        `chat-model:${selected.id}`,
-                        event.target.value,
-                      );
-                    }}
-                  >
-                    <option value="">Hermes default</option>
-                    {models.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.id}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="text-xs opacity-50 flex-1">
-                    {run?.runtime?.model
-                      ? `Used: ${run.runtime.model}`
-                      : "Enter to send · Shift+Enter for a new line"}
-                  </span>
-                  {active ? (
-                    <>
-                      {features.run_steer && (
-                        <button
-                          className="btn btn-sm"
-                          type="button"
-                          disabled={
-                            busy || !draft.trim() || run.status !== "running"
-                          }
-                          onClick={() =>
-                            void control("steer", { input: draft })
-                          }
-                        >
-                          Send guidance
-                        </button>
-                      )}
-                      {features.run_stop && (
-                        <button
-                          className="btn btn-error btn-sm"
-                          type="button"
-                          disabled={busy || run.status === "stopping"}
-                          onClick={() => void control("stop", {})}
-                        >
-                          Stop
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <button
-                      className="btn btn-primary btn-sm"
-                      type="submit"
-                      disabled={
-                        busy || loading || !draft.trim() || !ready || unresolved
-                      }
-                    >
-                      Send
-                    </button>
-                  )}
-                </div>
-              </form>
+                onModel={(value) => {
+                  setModel(value);
+                  storageSet(`chat-model:${selected.id}`, value);
+                }}
+                onSend={() => void send()}
+                onSteer={() => void control("steer", { input: draft })}
+                onStop={() => void control("stop", {})}
+              />
             ) : (
               <p className="p-4 text-sm opacity-60">
                 Read-only history from another Hermes interface.
@@ -894,6 +689,13 @@ export function ChatPage({ api }: { api: ChatApi }) {
               Your workspace, tools, and memories—with conversations saved by
               Hermes. Start a new chat or select one from the sidebar.
             </p>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm mt-4 chat-empty-conversations"
+              onClick={() => setDrawerOpen(true)}
+            >
+              Browse conversations
+            </button>
             {!loading && !ready && !error && (
               <p className="mt-3 text-warning">
                 This Hermes server does not advertise the session and run APIs
