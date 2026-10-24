@@ -9,6 +9,7 @@ import type {
   ShareCreateRequest,
   ShareDeleteResponse,
   ShareExpirationPreset,
+  ShareFeatureMetadata,
   ShareKind,
   ShareListResponse,
   ShareMutationResponse,
@@ -19,6 +20,7 @@ import type {
 } from "../shared/api";
 import { isMemoryDocument } from "../shared/memory";
 import { createZipArchive, type ZipArchiveEntry } from "./export";
+import { FeatureService } from "./features";
 import type { SkillService } from "./skills";
 import { validateSkillId } from "./skills";
 import {
@@ -154,6 +156,7 @@ export interface ShareServiceOptions {
   databasePath?: string | undefined;
   workspaceService: WorkspaceService;
   skillService: SkillService;
+  featureService?: FeatureService | undefined;
   maxEditableBytes?: number | undefined;
   maxDownloadBytes?: number | undefined;
   failedLookupWindowMs?: number | undefined;
@@ -288,6 +291,7 @@ export class ShareService {
   private readonly db: Database;
   private readonly workspaceService: WorkspaceService;
   private readonly skillService: SkillService;
+  private readonly featureService: FeatureService;
   private readonly maxEditableBytes: number;
   private readonly maxDownloadBytes: number;
   private readonly failedLookupWindowMs: number;
@@ -297,6 +301,12 @@ export class ShareService {
   constructor(options: ShareServiceOptions) {
     this.workspaceService = options.workspaceService;
     this.skillService = options.skillService;
+    this.featureService =
+      options.featureService ??
+      new FeatureService({
+        workspaceRoot: options.workspaceService.workspaceRoot,
+        skillsRoot: options.skillService.skillsRoot,
+      });
     this.maxEditableBytes =
       options.maxEditableBytes ?? DEFAULT_MAX_EDITABLE_BYTES;
     this.maxDownloadBytes =
@@ -699,11 +709,88 @@ export class ShareService {
     };
   }
 
+  private captureFeatureSnapshot(rawFeatureId: string): CapturedSnapshot {
+    const captured = this.featureService.captureFeatureFiles(rawFeatureId);
+    const hash = createHash("sha256");
+    const capturedFiles: CapturedShareFile[] = [];
+    let totalBytes = 0;
+
+    for (const entry of captured.files) {
+      const fileRev = revision(entry.data);
+      hash.update(`${entry.path}\0${fileRev}\n`);
+      totalBytes += entry.data.byteLength;
+      if (totalBytes > this.maxDownloadBytes) {
+        throw new WorkspaceError(
+          "feature snapshot exceeds maximum allowed size",
+          413,
+          "download_too_large",
+        );
+      }
+
+      let contentText: string | null = null;
+      let contentBlob: Uint8Array | null = null;
+      let isEditable = false;
+      if (
+        entry.data.byteLength <= this.maxEditableBytes &&
+        !entry.data.includes(0)
+      ) {
+        try {
+          contentText = new TextDecoder("utf-8", { fatal: true }).decode(
+            entry.data,
+          );
+          isEditable = true;
+        } catch {
+          contentBlob = entry.data;
+        }
+      } else {
+        contentBlob = entry.data;
+      }
+
+      capturedFiles.push({
+        path: entry.path,
+        contentText,
+        contentBlob,
+        mediaType: inferMediaType(entry.path, isEditable),
+        sizeBytes: entry.data.byteLength,
+        modifiedAt: entry.modifiedAt,
+        editable: isEditable,
+      });
+    }
+
+    const compositeRevision = `sha256:${hash.digest("hex")}`;
+    return {
+      kind: "feature",
+      targetPath: captured.metadata.id,
+      title: captured.metadata.name || captured.metadata.id,
+      snapshotRevision: compositeRevision,
+      mediaType: "application/x-openlia-feature",
+      metadataJson: JSON.stringify(captured.metadata),
+      files: capturedFiles,
+      totalBytes,
+    };
+  }
+
+  private computeLiveFeatureRevision(featureId: string): string | null {
+    try {
+      const captured = this.featureService.captureFeatureFiles(featureId);
+      const hash = createHash("sha256");
+      for (const entry of captured.files) {
+        const fileRev = revision(entry.data);
+        hash.update(`${entry.path}\0${fileRev}\n`);
+      }
+      return `sha256:${hash.digest("hex")}`;
+    } catch {
+      return null;
+    }
+  }
+
   private toShareSummary(row: ShareRow): ShareSummary {
     const currentRevision =
       row.kind === "workspace"
         ? this.computeLiveWorkspaceRevision(row.target_path)
-        : this.computeLiveSkillRevision(row.target_path);
+        : row.kind === "skill"
+          ? this.computeLiveSkillRevision(row.target_path)
+          : this.computeLiveFeatureRevision(row.target_path);
 
     let status: ShareSyncStatus;
     if (currentRevision === null) {
@@ -715,9 +802,16 @@ export class ShareService {
     }
 
     let skillMetadata: ShareSkillMetadata | undefined;
+    let featureMetadata: ShareFeatureMetadata | undefined;
     if (row.metadata_json) {
       try {
-        skillMetadata = JSON.parse(row.metadata_json) as ShareSkillMetadata;
+        if (row.kind === "feature") {
+          featureMetadata = JSON.parse(
+            row.metadata_json,
+          ) as ShareFeatureMetadata;
+        } else {
+          skillMetadata = JSON.parse(row.metadata_json) as ShareSkillMetadata;
+        }
       } catch {}
     }
 
@@ -737,6 +831,7 @@ export class ShareService {
       total_bytes: row.total_bytes,
       media_type: row.media_type,
       ...(skillMetadata ? { skill_metadata: skillMetadata } : {}),
+      ...(featureMetadata ? { feature_metadata: featureMetadata } : {}),
     };
   }
 
@@ -785,9 +880,9 @@ export class ShareService {
     this.pruneExpired();
 
     const kind = request.kind;
-    if (kind !== "workspace" && kind !== "skill") {
+    if (kind !== "workspace" && kind !== "skill" && kind !== "feature") {
       throw new WorkspaceError(
-        "share kind must be 'workspace' or 'skill'",
+        "share kind must be 'workspace', 'skill', or 'feature'",
         400,
         "invalid_share_request",
       );
@@ -815,7 +910,9 @@ export class ShareService {
     const snapshot =
       kind === "workspace"
         ? this.captureWorkspaceSnapshot(request.target_path)
-        : this.captureSkillSnapshot(request.target_path);
+        : kind === "skill"
+          ? this.captureSkillSnapshot(request.target_path)
+          : this.captureFeatureSnapshot(request.target_path);
 
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
@@ -906,7 +1003,9 @@ export class ShareService {
     const snapshot =
       existing.kind === "workspace"
         ? this.captureWorkspaceSnapshot(existing.target_path)
-        : this.captureSkillSnapshot(existing.target_path);
+        : existing.kind === "skill"
+          ? this.captureSkillSnapshot(existing.target_path)
+          : this.captureFeatureSnapshot(existing.target_path);
 
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
@@ -1107,12 +1206,21 @@ export class ShareService {
     const primaryFile =
       row.kind === "workspace"
         ? (fileRows.find((f) => f.path === row.target_path) ?? fileRows[0])
-        : (fileRows.find((f) => f.path === "SKILL.md") ?? fileRows[0]);
+        : row.kind === "feature"
+          ? (fileRows.find((f) => f.path === "feature.yaml") ?? fileRows[0])
+          : (fileRows.find((f) => f.path === "SKILL.md") ?? fileRows[0]);
 
     let skillMetadata: ShareSkillMetadata | undefined;
+    let featureMetadata: ShareFeatureMetadata | undefined;
     if (row.metadata_json) {
       try {
-        skillMetadata = JSON.parse(row.metadata_json) as ShareSkillMetadata;
+        if (row.kind === "feature") {
+          featureMetadata = JSON.parse(
+            row.metadata_json,
+          ) as ShareFeatureMetadata;
+        } else {
+          skillMetadata = JSON.parse(row.metadata_json) as ShareSkillMetadata;
+        }
       } catch {}
     }
 
@@ -1138,6 +1246,7 @@ export class ShareService {
           ? { content: primaryFile.content_text }
           : {}),
         ...(skillMetadata ? { skill_metadata: skillMetadata } : {}),
+        ...(featureMetadata ? { feature_metadata: featureMetadata } : {}),
         files,
       },
     };
@@ -1231,6 +1340,51 @@ export class ShareService {
 
     return {
       filename: `${folderSlug}.zip`,
+      zipBytes: createZipArchive(entries),
+    };
+  }
+
+  downloadPublicFeatureZip(
+    shareId: string,
+    clientKey = "global",
+  ): {
+    filename: string;
+    zipBytes: Uint8Array;
+  } {
+    const row = this.lookupActivePublicShareRow(shareId, clientKey);
+    if (row.kind !== "feature") {
+      throw new WorkspaceError(
+        "share is not a feature package",
+        400,
+        "invalid_share_request",
+      );
+    }
+
+    const fileRows = this.db
+      .query<ShareFileRow, [string]>(
+        "SELECT * FROM share_files WHERE share_id = ? ORDER BY path ASC",
+      )
+      .all(row.id);
+
+    const folderSlug =
+      (row.target_path.split("/").at(-1) || row.title || "feature")
+        .replace(/[^a-zA-Z0-9._-]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "feature";
+
+    const entries: ZipArchiveEntry[] = fileRows.map((fileRow) => {
+      const data =
+        fileRow.content_blob !== null
+          ? new Uint8Array(fileRow.content_blob)
+          : new TextEncoder().encode(fileRow.content_text ?? "");
+      return {
+        path: `${folderSlug}/${fileRow.path}`,
+        data,
+        mtime: new Date(fileRow.modified_at),
+      };
+    });
+
+    return {
+      filename: `${folderSlug}-feature.zip`,
       zipBytes: createZipArchive(entries),
     };
   }

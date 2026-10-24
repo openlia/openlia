@@ -15,7 +15,7 @@
       "items": {
         "$ref": "#/$defs/domain"
       },
-      "minItems": 15
+      "minItems": 7
     }
   },
   "$defs": {
@@ -63,6 +63,18 @@
         },
         "briefing_category": {
           "enum": ["calendar", "tasks", "projects", "goals", "decisions", "monitors", "claims", "finance", "inbox", "extension", null]
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "uniqueItems": true
+        },
+        "feature": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
         }
       },
       "allOf": [

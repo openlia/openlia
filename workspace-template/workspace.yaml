@@ -3,7 +3,9 @@ version: 1
 
 # This registry is user-owned. The agent designs semantic extensions; the user
 # approves their scoped purpose, path, lifecycle, and template/schema plan.
-# Ordinary organizational folders do not each need an entry. Schemas are optional.
+# Optional vertical features (personal-finance, personal-health, decision-analysis,
+# deep-research, travel, shopping, areas, ideas, monitors, people) can be installed
+# via `openlia features install <id>` or imported from feature packages.
 domains:
   - path: inbox
     kind: core
@@ -12,6 +14,8 @@ domains:
     route: review
     include_in_briefing: true
     briefing_category: inbox
+    skills:
+      - inbox-triage
   - path: goals
     kind: core
     label: Goals
@@ -19,11 +23,6 @@ domains:
     template: goals/goal-template.md
     include_in_briefing: true
     briefing_category: goals
-  - path: areas
-    kind: core
-    label: Areas
-    purpose: Ongoing responsibilities without a fixed end date.
-    template: areas/area-template.md
   - path: projects
     kind: core
     label: Projects
@@ -31,44 +30,22 @@ domains:
     template: projects/project-template.md
     include_in_briefing: true
     briefing_category: projects
+    skills:
+      - project-review
   - path: knowledge
     kind: core
     label: Knowledge
     purpose: Durable notes, references, and research.
-  - path: knowledge/research
-    kind: core
-    label: Research
-    purpose: Durable research notes and source-backed investigations.
-    route: research
   - path: knowledge/claims
-    kind: core
+    kind: extension
     label: Claims
     purpose: Reusable personal claims with provenance and lifecycle metadata.
+    lifecycle: candidate -> verified -> superseded or archived
     route: claim
+    tags: [claim, knowledge]
     template: knowledge/claims/claim-template.md
     include_in_briefing: true
     briefing_category: claims
-  - path: ideas
-    kind: core
-    label: Ideas
-    purpose: Possible future work and observations.
-    route: idea
-    template: ideas/idea-template.md
-  - path: decisions
-    kind: core
-    label: Decisions
-    purpose: Questions, options, evidence, trade-offs, and outcomes.
-    route: decision
-    template: decisions/decision-template.md
-    include_in_briefing: true
-    briefing_category: decisions
-  - path: monitors
-    kind: core
-    label: Monitors
-    purpose: Conditions to watch for change over time.
-    template: monitors/monitor-template.md
-    include_in_briefing: true
-    briefing_category: monitors
   - path: tasks
     kind: core
     label: Tasks
@@ -85,100 +62,8 @@ domains:
     template: calendar/event-note-template.md
     include_in_briefing: true
     briefing_category: calendar
-  - path: people
-    kind: core
-    label: People
-    purpose: Relationship context and person records.
-    template: people/person-template.md
-  - path: shopping
-    kind: core
-    label: Shopping
-    purpose: Product research and purchase candidates.
-    template: shopping/item-template.md
-  - path: travel
-    kind: core
-    label: Travel
-    purpose: Trips, itineraries, and travel research.
-    template: travel/trip-template.md
-  - path: finance
-    kind: core
-    label: Finance
-    purpose: Budgets, spending notes, and financial reviews.
-    template: finance/finance-template.md
-  - path: finance/intake
-    kind: extension
-    label: Finance Intake
-    purpose: Financial source batches awaiting extraction, posting, or reconciliation.
-    lifecycle: received -> posted -> reconciled or archived
-    route: finance
-    tags: [finance, intake]
-    template: finance/intake/intake-template.md
-    include_in_briefing: true
-    briefing_category: finance
-  - path: finance/accounts
-    kind: extension
-    label: Finance Accounts
-    purpose: Non-secret account mappings and reconciliation configuration.
-    lifecycle: active -> closed -> archived
-    tags: [finance, account]
-    template: finance/accounts/accounts-template.md
-  - path: finance/portfolios
-    kind: extension
-    label: Finance Portfolios
-    purpose: Investment holdings, valuation scopes, prices, and allocation reviews.
-    lifecycle: active -> closed -> archived
-    tags: [finance, portfolio]
-    template: finance/portfolios/portfolios-template.md
-  - path: finance/reviews
-    kind: extension
-    label: Finance Reviews
-    purpose: Periodic cash flow, spending, net worth, and portfolio review records.
-    lifecycle: draft -> final -> archived
-    tags: [finance, review]
-    template: finance/reviews/reviews-template.md
-    include_in_briefing: true
-    briefing_category: finance
-  - path: health
-    kind: extension
-    label: Health
-    purpose: Family medical history and clinically significant care records.
-    lifecycle: active -> archived
-    tags: [health, medical-history]
-  - path: health/profiles
-    kind: extension
-    label: Health Profiles
-    purpose: Stable identities and family-member boundaries for health records.
-    lifecycle: active -> archived
-    tags: [health, profile]
-    template: health/profiles/profile-template.md
-  - path: health/history
-    kind: extension
-    label: Health History
-    purpose: Significant symptoms, encounters, tests, procedures, and immunizations.
-    lifecycle: reported -> confirmed -> amended or archived
-    tags: [health, history]
-    template: health/history/history-template.md
-  - path: health/conditions
-    kind: extension
-    label: Health Conditions
-    purpose: Diagnoses, allergies, intolerances, risks, and family-history entries.
-    lifecycle: unconfirmed -> confirmed, resolved, or archived
-    tags: [health, condition]
-    template: health/conditions/condition-template.md
-  - path: health/treatments
-    kind: extension
-    label: Health Treatments
-    purpose: Medication and other care courses with prescribed or reported status.
-    lifecycle: planned -> active -> completed, stopped, or archived
-    tags: [health, treatment]
-    template: health/treatments/treatment-template.md
-  - path: health/reviews
-    kind: extension
-    label: Health Reviews
-    purpose: Source-linked medical summaries and clinician handoff reports.
-    lifecycle: draft -> final -> archived
-    tags: [health, review]
-    template: health/reviews/review-template.md
+    skills:
+      - calendar
   - path: archive
     kind: core
     label: Archive
@@ -189,6 +74,8 @@ domains:
     label: Daily Briefings
     purpose: Dated briefing reports generated from registered workspace sources.
     lifecycle: generated report -> archive
+    skills:
+      - daily-briefing
   - path: inbox/ingestion
     kind: extension
     label: Ingestion Intake
@@ -197,6 +84,8 @@ domains:
     route: review
     tags: [ingestion, review]
     template: inbox/ingestion/ingestion-template.md
+    skills:
+      - document-intelligence
   - path: sources
     kind: extension
     label: Source Library
@@ -204,15 +93,8 @@ domains:
     lifecycle: captured -> processing -> complete, partial, failed, or archived
     tags: [source, ingestion]
     template: sources/records/source-template.md
+    skills:
+      - document-intelligence
 
-# Add approved nested folders or top-level domains below. A routed extension
-# must include tags and a lifecycle so it cannot silently replace a core
-# destination or become an unmanaged permanent category.
-# - path: travel/ideas
-#   kind: extension
-#   label: Travel Ideas
-#   purpose: Early travel possibilities before a trip plan exists.
-#   lifecycle: idea -> trip or archive
-#   route: idea
-#   tags: [travel]
-#   include_in_briefing: false
+# Add approved nested folders or top-level feature domains below, or install
+# built-in features with `openlia features install <feature-id>`.

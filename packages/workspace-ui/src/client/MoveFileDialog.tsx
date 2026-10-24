@@ -3,6 +3,9 @@ import { useMemo, useState } from "react";
 export interface MoveFileDialogProps {
   filePath: string;
   directories: string[];
+  domains?:
+    | Array<{ path: string; template_path?: string | undefined }>
+    | undefined;
   onCancel: () => void;
   onMove: (destinationPath: string) => void;
   moving: boolean;
@@ -27,6 +30,7 @@ const knownSchemaDomains = new Set([
 
 export function MoveFileDialog({
   directories,
+  domains,
   error,
   filePath,
   moving,
@@ -56,9 +60,19 @@ export function MoveFileDialog({
 
   // Check if target domain has a schema
   const targetTopDomain = targetDir.split("/")[0] ?? "";
+  const dynamicSchemaDomains = useMemo(() => {
+    if (!domains || domains.length === 0) return knownSchemaDomains;
+    const set = new Set<string>(knownSchemaDomains);
+    for (const d of domains) {
+      if (d.template_path) {
+        set.add(d.path);
+      }
+    }
+    return set;
+  }, [domains]);
   const isTargetSchemaDomain =
-    knownSchemaDomains.has(targetDir) ||
-    knownSchemaDomains.has(targetTopDomain);
+    dynamicSchemaDomains.has(targetDir) ||
+    dynamicSchemaDomains.has(targetTopDomain);
   const sourceTopDomain = currentDir.split("/")[0] ?? "";
   const isCrossDomainMove =
     isTargetSchemaDomain && targetTopDomain !== sourceTopDomain;

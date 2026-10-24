@@ -28,20 +28,12 @@ from workspace_registry import allowed_root_domains, load_policy, load_registry
 CANONICAL_DOMAINS = {
     "inbox",
     "goals",
-    "areas",
     "projects",
     "knowledge",
-    "ideas",
-    "decisions",
-    "monitors",
     "tasks",
     "calendar",
-    "people",
-    "shopping",
-    "travel",
-    "finance",
-    "health",
     "archive",
+    "sources",
 }
 
 ALLOWED_ROOT_FILES = {
@@ -54,6 +46,7 @@ ALLOWED_ROOT_FILES = {
     "workspace.schema.json",
     "assistant-policy.yaml",
     "assistant-policy.schema.json",
+    "feature.schema.json",
 }
 
 MD_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\((?!https?://|mailto:|/files/)([^)#]+)(?:#[^)]+)?\)")
@@ -507,24 +500,16 @@ def self_test() -> None:
         core_roots = (
             "inbox",
             "goals",
-            "areas",
             "projects",
             "knowledge",
-            "ideas",
-            "decisions",
-            "monitors",
             "tasks",
             "calendar",
-            "people",
-            "shopping",
-            "travel",
-            "finance",
             "archive",
         )
         (tmp / "workspace.schema.json").write_text(
             '{"$schema":"https://json-schema.org/draft/2020-12/schema",'
             '"type":"object","properties":{"$schema":{"const":"./workspace.schema.json"},'
-            '"version":{"const":1},"domains":{"type":"array","minItems":15}},'
+            '"version":{"const":1},"domains":{"type":"array","minItems":7}},'
             '"required":["$schema","version","domains"],"additionalProperties":false}\n',
             encoding="utf-8",
         )

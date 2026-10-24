@@ -16,22 +16,15 @@ REGISTRY_FILENAME = "workspace.yaml"
 REGISTRY_SCHEMA_FILENAME = "workspace.schema.json"
 POLICY_FILENAME = "assistant-policy.yaml"
 POLICY_SCHEMA_FILENAME = "assistant-policy.schema.json"
+FEATURE_SCHEMA_FILENAME = "feature.schema.json"
 REGISTRY_VERSION = 1
 CORE_ROOTS = {
     "inbox",
     "goals",
-    "areas",
     "projects",
     "knowledge",
-    "ideas",
-    "decisions",
-    "monitors",
     "tasks",
     "calendar",
-    "people",
-    "shopping",
-    "travel",
-    "finance",
     "archive",
 }
 ROUTES = {"task", "event", "decision", "idea", "research", "claim", "finance", "archive", "review"}
@@ -123,6 +116,10 @@ def policy_path(workspace: Path) -> Path:
 
 def policy_schema_path(workspace: Path) -> Path:
     return workspace / POLICY_SCHEMA_FILENAME
+
+
+def feature_schema_path(workspace: Path) -> Path:
+    return workspace / FEATURE_SCHEMA_FILENAME
 
 
 def _path_is_within(path: Any, parent: Any) -> bool:
@@ -240,6 +237,16 @@ def load_registry(workspace: str | Path, *, required: bool = False) -> dict[str,
             raise ValueError(
                 f"extension domain {path_value} needs tags when it declares a route"
             )
+        skills = domain.get("skills", [])
+        if not isinstance(skills, list) or any(
+            not isinstance(skill, str) or not skill.strip() for skill in skills
+        ):
+            raise ValueError(f"domain {path_value} skills must be a list of non-empty strings")
+        if len(set(skills)) != len(skills):
+            raise ValueError(f"domain {path_value} skills must be unique")
+        feature = domain.get("feature")
+        if feature is not None and (not isinstance(feature, str) or not feature.strip()):
+            raise ValueError(f"domain {path_value} feature must be a non-empty string")
     missing_core = sorted(CORE_ROOTS - {path for path in seen if "/" not in path})
     if missing_core:
         raise ValueError(f"workspace registry is missing core domains: {', '.join(missing_core)}")
@@ -254,6 +261,15 @@ def load_registry(workspace: str | Path, *, required: bool = False) -> dict[str,
     if non_core_roots:
         raise ValueError(
             f"workspace registry core domains must remain kind core: {', '.join(non_core_roots)}"
+        )
+    extra_core = sorted(
+        domain["path"]
+        for domain in domains
+        if domain["kind"] == "core" and domain["path"] not in CORE_ROOTS
+    )
+    if extra_core:
+        raise ValueError(
+            f"non-core domains must use kind extension: {', '.join(extra_core)}"
         )
     # Organizational ancestors need not be semantic domains. Register the
     # extension contract, not every intermediate folder.

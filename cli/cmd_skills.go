@@ -39,11 +39,14 @@ func commandSkills(options Options, args []string, assets fs.FS) int {
 		}
 		return writeResult(options, map[string]any{"schema": 1, "ok": true, "skills": entries}, skillListHuman(config))
 	case "show":
-		if len(args) != 1 || !safeComponent(args[0]) || !contains(defaultSkills, args[0]) {
+		if len(args) != 1 || !safeComponent(args[0]) {
 			return fail(options, ExitUsage, "skills show requires a bundled skill name", nil)
 		}
-		content, err := fs.ReadFile(assets, filepath.ToSlash(filepath.Join("profile", "skills", args[0], "SKILL.md")))
+		content, err := readBundledOrFeatureSkillFile(assets, args[0], "SKILL.md")
 		if err != nil {
+			if !contains(defaultSkills, args[0]) {
+				return fail(options, ExitUsage, "skills show requires a bundled skill name", nil)
+			}
 			return fail(options, ExitInternal, err.Error(), nil)
 		}
 		if options.JSON {
@@ -91,7 +94,10 @@ func commandSkills(options Options, args []string, assets fs.FS) int {
 	case "migrate":
 		return commandSkillMigration(options, args)
 	case "test":
-		if len(args) != 1 || !safeComponent(args[0]) || !contains(defaultSkills, args[0]) {
+		if len(args) != 1 || !safeComponent(args[0]) {
+			return fail(options, ExitUsage, "skills test requires a bundled skill name", nil)
+		}
+		if _, err := resolveBundledOrFeatureSkillDir(assets, args[0]); err != nil {
 			return fail(options, ExitUsage, "skills test requires a bundled skill name", nil)
 		}
 		return testSkill(options, assets, args[0])
@@ -166,12 +172,36 @@ func skillListHuman(config Config) string {
 	return strings.Join(lines, "\n")
 }
 
+func resolveBundledOrFeatureSkillDir(assets fs.FS, name string) (string, error) {
+	basePath := filepath.ToSlash(filepath.Join("profile", "skills", name))
+	if _, err := fs.ReadFile(assets, filepath.ToSlash(filepath.Join(basePath, "SKILL.md"))); err == nil {
+		return basePath, nil
+	}
+	featPath := filepath.ToSlash(filepath.Join("features", name, "skills", name))
+	if _, err := fs.ReadFile(assets, filepath.ToSlash(filepath.Join(featPath, "SKILL.md"))); err == nil {
+		return featPath, nil
+	}
+	return "", fs.ErrNotExist
+}
+
+func readBundledOrFeatureSkillFile(assets fs.FS, name, relFile string) ([]byte, error) {
+	dir, err := resolveBundledOrFeatureSkillDir(assets, name)
+	if err != nil {
+		return nil, err
+	}
+	return fs.ReadFile(assets, filepath.ToSlash(filepath.Join(dir, relFile)))
+}
+
 func testSkill(options Options, assets fs.FS, name string) int {
-	directory := filepath.ToSlash(filepath.Join("profile", "skills", name, "scripts"))
+	skillBaseDir, dirErr := resolveBundledOrFeatureSkillDir(assets, name)
+	if dirErr != nil {
+		skillBaseDir = filepath.ToSlash(filepath.Join("profile", "skills", name))
+	}
+	directory := filepath.ToSlash(filepath.Join(skillBaseDir, "scripts"))
 	entries, err := fs.ReadDir(assets, directory)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			skillPath := filepath.ToSlash(filepath.Join("profile", "skills", name, "SKILL.md"))
+			skillPath := filepath.ToSlash(filepath.Join(skillBaseDir, "SKILL.md"))
 			if skillData, readErr := fs.ReadFile(assets, skillPath); readErr == nil && len(skillData) > 0 {
 				return writeResult(options, map[string]any{"schema": 1, "ok": true, "skill": name, "output": "prompt skill verified: no deterministic helper script required"}, name+": self-test passed")
 			}

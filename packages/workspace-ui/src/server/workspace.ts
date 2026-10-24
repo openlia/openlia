@@ -101,6 +101,7 @@ const templatePaths = new Set([
 const configurationBasenames = new Set([
   "assistant-policy.schema.json",
   "assistant-policy.yaml",
+  "feature.schema.json",
   "workspace.schema.json",
   "workspace.yaml",
   WORKSPACE_SETTINGS_FILE,
@@ -134,58 +135,10 @@ export const DEFAULT_CREATABLE_DOMAINS: WorkspaceDomainInfo[] = [
     purpose: "Bounded outcomes with milestones, tasks, risks, and decisions.",
   },
   {
-    path: "ideas",
-    label: "Ideas",
-    template_path: "ideas/idea-template.md",
-    purpose: "Possible future work and observations.",
-  },
-  {
-    path: "decisions",
-    label: "Decisions",
-    template_path: "decisions/decision-template.md",
-    purpose: "Questions, options, evidence, trade-offs, and outcomes.",
-  },
-  {
-    path: "monitors",
-    label: "Monitors",
-    template_path: "monitors/monitor-template.md",
-    purpose: "Conditions to watch for change over time.",
-  },
-  {
-    path: "areas",
-    label: "Areas",
-    template_path: "areas/area-template.md",
-    purpose: "Ongoing responsibilities without a fixed end date.",
-  },
-  {
     path: "calendar",
     label: "Calendar",
     template_path: "calendar/event-note-template.md",
     purpose: "Planning notes, meeting agendas, and event context.",
-  },
-  {
-    path: "people",
-    label: "People",
-    template_path: "people/person-template.md",
-    purpose: "Relationship context and person records.",
-  },
-  {
-    path: "shopping",
-    label: "Shopping",
-    template_path: "shopping/item-template.md",
-    purpose: "Product research and purchase candidates.",
-  },
-  {
-    path: "travel",
-    label: "Travel",
-    template_path: "travel/trip-template.md",
-    purpose: "Trips, itineraries, and travel research.",
-  },
-  {
-    path: "finance",
-    label: "Finance",
-    template_path: "finance/finance-template.md",
-    purpose: "Budgets, spending notes, and financial reviews.",
   },
   {
     path: "knowledge/claims",

@@ -248,6 +248,16 @@ func (p *ProfileOperator) Sync() (ProfileSyncResult, error) {
 				return ProfileSyncResult{}, fmt.Errorf("seed missing workspace templates: %w", err)
 			}
 		}
+		if _, catPaths, catErr := LoadCatalogFeatures(p.Config.RepositoryRoot); catErr == nil {
+			for _, pkgDir := range catPaths {
+				fws := filepath.Join(pkgDir, "workspace")
+				if fInfo, fErr := os.Stat(fws); fErr == nil && fInfo.IsDir() {
+					if err := seedMissingWorkspaceTemplates(fws, workspace); err != nil {
+						return ProfileSyncResult{}, fmt.Errorf("seed missing feature templates: %w", err)
+					}
+				}
+			}
+		}
 	}
 	result := ProfileSyncResult{OK: true, Action: "profile-sync", Workspace: "preserved", Instructions: instructions, Skills: ProfileSkillStats{
 		CustomizedNames: []string{}, UnmanagedNames: []string{}, Results: []SkillResult{},
@@ -257,7 +267,8 @@ func (p *ProfileOperator) Sync() (ProfileSyncResult, error) {
 	if err != nil {
 		return ProfileSyncResult{}, fmt.Errorf("read bundled skills: %w", err)
 	}
-	enabled := p.enabledSkills()
+	availableSkillSources := make(map[string]string)
+	var orderedSkillNames []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -265,7 +276,18 @@ func (p *ProfileOperator) Sync() (ProfileSyncResult, error) {
 		if err := ValidateSafeComponent(entry.Name(), "skill"); err != nil {
 			return ProfileSyncResult{}, err
 		}
-		name := entry.Name()
+		availableSkillSources[entry.Name()] = filepath.Join(sourceRoot, entry.Name())
+		orderedSkillNames = append(orderedSkillNames, entry.Name())
+	}
+	for name, srcPath := range p.installedFeatureSkillSources() {
+		if _, exists := availableSkillSources[name]; !exists {
+			availableSkillSources[name] = srcPath
+			orderedSkillNames = append(orderedSkillNames, name)
+		}
+	}
+	enabled := p.enabledSkills()
+	for _, name := range orderedSkillNames {
+		skillSrc := availableSkillSources[name]
 		destination := filepath.Join(p.Config.DataRoot, "skills", name)
 		disabledDestination := filepath.Join(p.Config.DataRoot, "skills", ".openlia-disabled", name)
 		if !enabled[name] && !enabled["*"] {
@@ -291,7 +313,7 @@ func (p *ProfileOperator) Sync() (ProfileSyncResult, error) {
 				}
 			}
 		}
-		skillResult, err := p.syncSkill(filepath.Join(sourceRoot, name), destination, filepath.Join(managedRoot, "skills", name+".json"), name, distributionVersion, distributionSource)
+		skillResult, err := p.syncSkill(skillSrc, destination, filepath.Join(managedRoot, "skills", name+".json"), name, distributionVersion, distributionSource)
 		if err != nil {
 			return ProfileSyncResult{}, err
 		}
@@ -312,7 +334,7 @@ func (p *ProfileOperator) Sync() (ProfileSyncResult, error) {
 		if entry.Name() == ".openlia-disabled" || isProtectedSystemSkill(entry.Name()) || (!entry.IsDir() && entry.Type()&os.ModeSymlink == 0) {
 			continue
 		}
-		if _, statErr := os.Stat(filepath.Join(sourceRoot, entry.Name())); statErr == nil {
+		if _, exists := availableSkillSources[entry.Name()]; exists {
 			continue
 		}
 		name := entry.Name()
@@ -717,7 +739,11 @@ func (p *ProfileOperator) Status(selected string) (SkillStatusResult, error) {
 	if selected != "" {
 		source := filepath.Join(p.Config.RepositoryRoot, "profile", "skills", selected)
 		if info, err := os.Stat(source); err != nil || !info.IsDir() {
-			source = ""
+			if featSrc, ok := p.installedFeatureSkillSources()[selected]; ok {
+				source = featSrc
+			} else {
+				source = ""
+			}
 		}
 		skillResult, err := p.statusSkill(selected, source, distributionVersion, distributionSource)
 		if err != nil {
@@ -734,6 +760,7 @@ func (p *ProfileOperator) Status(selected string) (SkillStatusResult, error) {
 	if err != nil {
 		return SkillStatusResult{}, fmt.Errorf("read bundled skills: %w", err)
 	}
+	seenBundled := make(map[string]bool)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -741,7 +768,21 @@ func (p *ProfileOperator) Status(selected string) (SkillStatusResult, error) {
 		if err := ValidateSafeComponent(entry.Name(), "skill"); err != nil {
 			return SkillStatusResult{}, err
 		}
+		seenBundled[entry.Name()] = true
 		skillResult, err := p.statusSkill(entry.Name(), filepath.Join(sourceRoot, entry.Name()), distributionVersion, distributionSource)
+		if err != nil {
+			return SkillStatusResult{}, err
+		}
+		skillResult.includeAvailable = true
+		result.Skills.Results = append(result.Skills.Results, skillResult)
+		p.countStatusResult(&result.Summary, skillResult)
+	}
+	for skillName, featSrc := range p.installedFeatureSkillSources() {
+		if seenBundled[skillName] {
+			continue
+		}
+		seenBundled[skillName] = true
+		skillResult, err := p.statusSkill(skillName, featSrc, distributionVersion, distributionSource)
 		if err != nil {
 			return SkillStatusResult{}, err
 		}
@@ -757,7 +798,7 @@ func (p *ProfileOperator) Status(selected string) (SkillStatusResult, error) {
 		if entry.Name() == ".openlia-disabled" || isProtectedSystemSkill(entry.Name()) || (!entry.IsDir() && entry.Type()&os.ModeSymlink == 0) {
 			continue
 		}
-		if _, err := os.Stat(filepath.Join(sourceRoot, entry.Name())); err == nil {
+		if seenBundled[entry.Name()] {
 			continue
 		}
 		if err := ValidateSafeComponent(entry.Name(), "skill"); err != nil {
@@ -772,6 +813,50 @@ func (p *ProfileOperator) Status(selected string) (SkillStatusResult, error) {
 		p.countStatusResult(&result.Summary, skillResult)
 	}
 	return result, nil
+}
+
+func (p *ProfileOperator) installedFeatureSkillSources() map[string]string {
+	out := make(map[string]string)
+	workspaceDir := filepath.Join(p.Config.DataRoot, "workspace")
+	registered, _ := RegisteredDomainPaths(workspaceDir)
+	installedRecords, _ := loadInstalledFeatureRecords(p.Config.MetaRoot)
+	catalog, catPaths, err := LoadCatalogFeatures(p.Config.RepositoryRoot)
+	if err == nil {
+		for _, m := range catalog {
+			_, isInstalled := installedRecords[m.ID]
+			if !isInstalled && len(registered) > 0 {
+				for _, d := range m.Domains {
+					if registered[d.Path] {
+						isInstalled = true
+						break
+					}
+				}
+			}
+			if !isInstalled {
+				continue
+			}
+			pkgDir := catPaths[m.ID]
+			for _, sk := range m.Skills {
+				src := filepath.Join(pkgDir, filepath.FromSlash(sk.Path))
+				if info, err := os.Stat(src); err == nil && info.IsDir() {
+					out[sk.ID] = src
+				}
+			}
+		}
+	}
+	for id, rec := range installedRecords {
+		pkgDir := filepath.Join(p.Config.MetaRoot, "managed", "features", id, "package")
+		for _, sk := range rec.Manifest.Skills {
+			if _, exists := out[sk.ID]; exists {
+				continue
+			}
+			src := filepath.Join(pkgDir, filepath.FromSlash(sk.Path))
+			if info, err := os.Stat(src); err == nil && info.IsDir() {
+				out[sk.ID] = src
+			}
+		}
+	}
+	return out
 }
 
 func (p *ProfileOperator) syncFile(source, destination, marker string, mode fs.FileMode) error {

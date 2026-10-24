@@ -248,7 +248,13 @@ def _registered_path(authority: Authority, relative_path: str) -> bool:
     return any(_within(relative_path, domain.get("path")) for domain in domains)
 
 
-_STRUCTURAL_ROOT_FILES = {"workspace.yaml", "workspace.schema.json", "AGENTS.md", "README.md"}
+_STRUCTURAL_ROOT_FILES = {
+    "workspace.yaml",
+    "workspace.schema.json",
+    "feature.schema.json",
+    "AGENTS.md",
+    "README.md",
+}
 
 
 def _structural_path(relative_path: str) -> bool:

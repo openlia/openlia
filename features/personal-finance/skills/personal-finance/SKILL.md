@@ -5,6 +5,12 @@ version: 0.3.0
 platforms: [macos, linux]
 required_environment_variables: []
 required_credential_files: []
+workspace_domains:
+  - finance
+  - finance/intake
+  - finance/accounts
+  - finance/portfolios
+  - finance/reviews
 metadata:
   hermes:
     tags: [personal-os, finance, hledger, accounting, investing]

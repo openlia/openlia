@@ -5,6 +5,9 @@ version: 0.2.0
 platforms: [macos, linux]
 required_environment_variables: []
 required_credential_files: []
+workspace_domains:
+  - inbox/ingestion
+  - sources
 metadata:
   hermes:
     tags: [personal-os, documents, ingestion, ocr, vault, youtube, transcript, video]

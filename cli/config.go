@@ -47,13 +47,9 @@ var defaultSkills = []string{
 	"daily-briefing",
 	"weekly-review",
 	"project-review",
-	"decision-analysis",
-	"deep-research",
-	"personal-finance",
 	"calendar",
 	"workspace-git",
 	"workspace-organize",
-	"personal-health",
 }
 
 const (

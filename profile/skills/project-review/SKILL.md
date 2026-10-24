@@ -5,6 +5,8 @@ version: 0.1.0
 platforms: [macos, linux]
 required_environment_variables: []
 required_credential_files: []
+workspace_domains:
+  - projects
 metadata:
   hermes:
     tags: [personal-os, projects, review]

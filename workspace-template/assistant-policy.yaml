@@ -13,26 +13,14 @@ delegation:
       - archive_records
       - generate_reports
       - local_git_commits
-      # Allows unambiguous local journal postings under the finance workflow.
-      # External transfers, purchases, and trades remain separately gated below.
-      - record_financial_data
     allowed_domains:
       - inbox
       - sources
       - goals
-      - areas
       - projects
       - knowledge
-      - ideas
-      - decisions
-      - monitors
       - tasks
       - calendar
-      - people
-      - shopping
-      - travel
-      - finance
-      - health
       - archive
   memory:
     direct_reports: record

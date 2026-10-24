@@ -20,6 +20,8 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from workspace_registry import (
+    domains,
+    feature_schema_path,
     load_policy,
     load_registry,
     policy_allows,
@@ -452,6 +454,13 @@ def validate_workspace(workspace_root: Path) -> list[str]:
     invalid_templates: set[Path] = set()
     referenced_schemas: set[Path] = set(referenced_registry_schemas)
     referenced_schemas.update(referenced_policy_schemas)
+    feature_schema = feature_schema_path(root)
+    if feature_schema.exists():
+        try:
+            load_schema(feature_schema)
+        except ValueError as exc:
+            errors.append(f"{_relative(feature_schema, root)}: {exc}")
+        referenced_schemas.add(feature_schema.resolve())
 
     for template in templates:
         relative = _relative(template, root)
@@ -540,6 +549,84 @@ def validate_skill_templates(skill_root: Path) -> list[str]:
         for schema_path in templates_dir.rglob("*.schema.json")
     )
     errors.extend(_validate_unreferenced_schemas(schema_paths, referenced_schemas, root))
+    return sorted(set(errors))
+
+
+def validate_domain_skill_dependencies(
+    workspace_root: Path, skill_root: Path | None
+) -> list[str]:
+    """Validate bidirectional dependencies between workspace.yaml domains and installed skills."""
+    if skill_root is None:
+        return []
+    ws_root = workspace_root.expanduser().resolve()
+    sk_root = skill_root.expanduser().resolve()
+    if not ws_root.is_dir() or not sk_root.is_dir():
+        return []
+    try:
+        registry = load_registry(ws_root)
+    except ValueError:
+        return []
+    if registry is None:
+        return []
+
+    errors: list[str] = []
+    registered_by_path: dict[str, dict[str, Any]] = {
+        domain["path"]: domain for domain in domains(registry)
+    }
+
+    # 1. Domain -> Skill check
+    for domain in domains(registry):
+        domain_path = domain["path"]
+        for skill_id in domain.get("skills", []):
+            skill_md = sk_root / skill_id / "SKILL.md"
+            if skill_md.is_symlink() or not skill_md.is_file():
+                errors.append(
+                    f"workspace.yaml: domain '{domain_path}' depends on missing skill '{skill_id}'"
+                )
+
+    # 2. Skill -> Domain check
+    for skill_md in sorted(sk_root.glob("*/SKILL.md")):
+        if skill_md.parent.name.startswith("."):
+            continue
+        if skill_md.is_symlink():
+            errors.append(f"{skill_md.parent.name}/SKILL.md: symbolic links are not validated")
+            continue
+        try:
+            metadata, _ = parse_optional_frontmatter(skill_md.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError) as exc:
+            errors.append(f"{skill_md.parent.name}/SKILL.md: {exc}")
+            continue
+        if not metadata:
+            continue
+        req_domains = metadata.get("workspace_domains")
+        if req_domains is None and isinstance(metadata.get("metadata"), dict):
+            openlia_meta = metadata["metadata"].get("openlia")
+            if isinstance(openlia_meta, dict):
+                req_domains = openlia_meta.get("workspace_domains")
+        if req_domains is None:
+            continue
+        if not isinstance(req_domains, list) or any(
+            not isinstance(d, str) or not d.strip() for d in req_domains
+        ):
+            errors.append(
+                f"{skill_md.parent.name}/SKILL.md: workspace_domains must be a list of non-empty domain paths"
+            )
+            continue
+        for req_domain in req_domains:
+            spec = registered_by_path.get(req_domain)
+            if spec is None:
+                errors.append(
+                    f"{skill_md.parent.name}/SKILL.md: skill requires unregistered workspace domain '{req_domain}'"
+                )
+                continue
+            template_rel = spec.get("template")
+            if template_rel:
+                template_file = ws_root / template_rel
+                if template_file.is_symlink() or not template_file.is_file():
+                    errors.append(
+                        f"{skill_md.parent.name}/SKILL.md: required domain '{req_domain}' is missing template '{template_rel}'"
+                    )
+
     return sorted(set(errors))
 
 
@@ -635,18 +722,10 @@ def self_test() -> None:
         core_roots = (
             "inbox",
             "goals",
-            "areas",
             "projects",
             "knowledge",
-            "ideas",
-            "decisions",
-            "monitors",
             "tasks",
             "calendar",
-            "people",
-            "shopping",
-            "travel",
-            "finance",
             "archive",
         )
         registry_lines = ["$schema: ./workspace.schema.json", "version: 1", "domains:"]
@@ -664,6 +743,28 @@ def self_test() -> None:
         )
         assert load_registry(root) is not None
         assert validate_workspace(root) == []
+
+        # Verify bidirectional domain <-> skill dependency checks
+        skills_dir = root / "test-skills"
+        (skills_dir / "goal-coach").mkdir(parents=True)
+        (skills_dir / "goal-coach" / "SKILL.md").write_text(
+            "---\nname: goal-coach\nworkspace_domains:\n  - goals\n---\n# Goal Coach\n",
+            encoding="utf-8",
+        )
+        assert validate_domain_skill_dependencies(root, skills_dir) == []
+
+        (skills_dir / "broken-skill").mkdir(parents=True)
+        (skills_dir / "broken-skill" / "SKILL.md").write_text(
+            "---\nname: broken-skill\nworkspace_domains:\n  - finance\n---\n# Broken Skill\n",
+            encoding="utf-8",
+        )
+        dep_errors = validate_domain_skill_dependencies(root, skills_dir)
+        assert any(
+            "broken-skill/SKILL.md" in err and "unregistered workspace domain 'finance'" in err
+            for err in dep_errors
+        ), f"Expected unregistered domain error, got {dep_errors}"
+        (skills_dir / "broken-skill" / "SKILL.md").unlink()
+        (skills_dir / "broken-skill").rmdir()
 
         record.write_text("---\nstatus: unknown\nextra: true\n---\n# Career\n\n## Outcome\n", encoding="utf-8")
         errors = validate_workspace(root)
@@ -814,6 +915,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.skill_templates_root is not None:
         errors.extend(validate_skill_templates(args.skill_templates_root))
         validated.append(f"skill templates under {args.skill_templates_root}")
+    if args.workspace_root is not None and args.skill_templates_root is not None:
+        errors.extend(
+            validate_domain_skill_dependencies(args.workspace_root, args.skill_templates_root)
+        )
+        validated.append("domain-skill dependencies")
     errors = sorted(set(errors))
     if args.json:
         print(json.dumps({"valid": not errors, "errors": errors}, indent=2))
