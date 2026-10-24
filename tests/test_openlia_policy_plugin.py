@@ -42,14 +42,22 @@ class PolicyPluginTests(unittest.TestCase):
         self.assertIsNone(policy.pre_tool_call("web_search", {"query": "Kyoto itinerary"}))
         self.assertIsNone(policy.pre_tool_call("read_file", {"path": "travel/trip.md"}))
 
-    def test_delegated_travel_create_is_allowed(self):
+    def test_delegated_tasks_create_is_allowed(self):
         policy = self.policy
 
         self.assertIsNone(
             policy.pre_tool_call(
-                "write_file", {"path": "travel/kyoto-trip.md", "content": "draft"}
+                "write_file", {"path": "tasks/kyoto-trip.md", "content": "draft"}
             )
         )
+
+    def test_uninstalled_feature_domain_is_blocked_without_registry_batch(self):
+        policy = self.policy
+        decision = policy.pre_tool_call(
+            "write_file", {"path": "travel/kyoto-trip.md", "content": "draft"}
+        )
+        self.assertEqual(decision["action"], "block")
+        self.assertIn("outside registered domains", decision["message"])
 
     def test_ordinary_nested_folder_does_not_need_registration(self):
         self.assertIsNone(
@@ -162,11 +170,11 @@ class PolicyPluginTests(unittest.TestCase):
 
     def test_patch_update_is_allowed_but_direct_overwrite_requires_approval(self):
         policy = self.policy
-        target = self.workspace / "travel" / "kyoto-trip.md"
+        target = self.workspace / "tasks" / "kyoto-trip.md"
         target.write_text("existing\n", encoding="utf-8")
 
         overwrite = policy.pre_tool_call(
-            "write_file", {"path": "travel/kyoto-trip.md", "content": "replacement"}
+            "write_file", {"path": "tasks/kyoto-trip.md", "content": "replacement"}
         )
         self.assertEqual(overwrite["action"], "approve")
         self.assertIn("overwrite_records", overwrite["message"])
@@ -175,21 +183,21 @@ class PolicyPluginTests(unittest.TestCase):
             "patch",
             {
                 "mode": "patch",
-                "patch": "*** Update File: travel/kyoto-trip.md\n@@\n-existing\n+updated\n",
+                "patch": "*** Update File: tasks/kyoto-trip.md\n@@\n-existing\n+updated\n",
             },
         )
         self.assertIsNone(patch)
 
     def test_delete_requires_approval(self):
         policy = self.policy
-        target = self.workspace / "travel" / "old-trip.md"
+        target = self.workspace / "tasks" / "old-trip.md"
         target.write_text("old\n", encoding="utf-8")
 
         decision = policy.pre_tool_call(
             "patch",
             {
                 "mode": "patch",
-                "patch": "*** Delete File: travel/old-trip.md\n",
+                "patch": "*** Delete File: tasks/old-trip.md\n",
             },
         )
         self.assertEqual(decision["action"], "approve")
@@ -241,7 +249,7 @@ class PolicyPluginTests(unittest.TestCase):
         (self.workspace / "assistant-policy.yaml").unlink()
 
         decision = policy.pre_tool_call(
-            "write_file", {"path": "travel/new-trip.md", "content": "draft"}
+            "write_file", {"path": "tasks/new-trip.md", "content": "draft"}
         )
         self.assertEqual(decision["action"], "approve")
         self.assertEqual(decision["rule_key"], "openlia.policy.missing")
@@ -251,7 +259,7 @@ class PolicyPluginTests(unittest.TestCase):
         (self.workspace / "assistant-policy.yaml").write_text("not: [valid", encoding="utf-8")
 
         decision = policy.pre_tool_call(
-            "write_file", {"path": "travel/new-trip.md", "content": "draft"}
+            "write_file", {"path": "tasks/new-trip.md", "content": "draft"}
         )
         self.assertEqual(decision["action"], "block")
         self.assertIn("failed closed", decision["message"])
