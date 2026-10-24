@@ -317,6 +317,7 @@ func ApplyRevision(config Config, migrationID string, revisionID string, expecte
 				break
 			}
 			if config.RuntimeUID > 0 && config.RuntimeGID > 0 && os.Geteuid() == 0 {
+				_ = ensureRuntimeTreeOwner(filepath.Dir(livePath), config.RuntimeUID, config.RuntimeGID)
 				_ = os.Chown(livePath, config.RuntimeUID, config.RuntimeGID)
 			}
 		}

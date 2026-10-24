@@ -279,13 +279,17 @@ func (p *ProfileOperator) Sync() (ProfileSyncResult, error) {
 		availableSkillSources[entry.Name()] = filepath.Join(sourceRoot, entry.Name())
 		orderedSkillNames = append(orderedSkillNames, entry.Name())
 	}
-	for name, srcPath := range p.installedFeatureSkillSources() {
+	installedFeatSkills := p.installedFeatureSkillSources()
+	for name, srcPath := range installedFeatSkills {
 		if _, exists := availableSkillSources[name]; !exists {
 			availableSkillSources[name] = srcPath
 			orderedSkillNames = append(orderedSkillNames, name)
 		}
 	}
 	enabled := p.enabledSkills()
+	for name := range installedFeatSkills {
+		enabled[name] = true
+	}
 	for _, name := range orderedSkillNames {
 		skillSrc := availableSkillSources[name]
 		destination := filepath.Join(p.Config.DataRoot, "skills", name)
@@ -347,6 +351,10 @@ func (p *ProfileOperator) Sync() (ProfileSyncResult, error) {
 		}
 		result.Skills.Results = append(result.Skills.Results, skillResult)
 		p.countSyncResult(&result.Skills, skillResult)
+	}
+	if p.Config.RuntimeUID > 0 && p.Config.RuntimeGID > 0 && os.Geteuid() == 0 {
+		_ = ensureRuntimeTreeOwner(runtimeSkills, p.Config.RuntimeUID, p.Config.RuntimeGID)
+		_ = ensureRuntimeTreeOwner(p.Config.MetaRoot, p.Config.RuntimeUID, p.Config.RuntimeGID)
 	}
 	detail := fmt.Sprintf("profile assets synchronized without workspace replacement; updated=%d; forked=%d; updates_available=%d; customized=%d; unmanaged=%d", result.Skills.Updated, result.Skills.Forked, result.Skills.UpdatesAvailable, result.Skills.Customized, result.Skills.Unmanaged)
 	if err := RecordChange(p.Config, "profile-sync", "ok", "", detail, p.now()); err != nil {

@@ -73,6 +73,16 @@ func (s *Supervisor) ResetWorkingTree(targetCommit string) {
 	_ = cmdReset.Run()
 	cmdClean := exec.Command("git", "-C", s.Repo.RepoDir, "clean", "-fd")
 	_ = cmdClean.Run()
+	if s.Runner != nil {
+		if hr, ok := s.Runner.(*HermesRunner); ok && hr.cfg.UID > 0 && hr.cfg.GID > 0 && os.Geteuid() == 0 {
+			_ = filepath.WalkDir(s.Repo.RepoDir, func(p string, _ os.DirEntry, walkErr error) error {
+				if walkErr == nil {
+					_ = os.Lchown(p, hr.cfg.UID, hr.cfg.GID)
+				}
+				return nil
+			})
+		}
+	}
 }
 
 // RunUntilIdle processes queued jobs until none remain or stop intent is flagged.
@@ -220,6 +230,16 @@ func (s *Supervisor) RunUntilIdle(ctx context.Context) error {
 		status := migration.JobSucceeded
 		if len(changedPaths) == 0 {
 			status = migration.JobNoChange
+		}
+		if s.Runner != nil {
+			if hr, ok := s.Runner.(*HermesRunner); ok && hr.cfg.UID > 0 && hr.cfg.GID > 0 && os.Geteuid() == 0 {
+				_ = filepath.WalkDir(s.Repo.RepoDir, func(p string, _ os.DirEntry, walkErr error) error {
+					if walkErr == nil {
+						_ = os.Lchown(p, hr.cfg.UID, hr.cfg.GID)
+					}
+					return nil
+				})
+			}
 		}
 		_ = s.DB.CompleteJob(job.ID, s.WorkerID, job.LeaseGeneration, status, res.Rationale, changedPaths, res.Findings, res.Questions, "", "")
 	}

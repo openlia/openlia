@@ -31,6 +31,7 @@ type RequestRunner interface {
 type HermesRunnerConfig struct {
 	HermesPath       string
 	DockerImage      string
+	NetworkName      string
 	DataRoot         string
 	SkillsDir        string
 	SecretDir        string
@@ -128,10 +129,16 @@ func (h *HermesRunner) runDocker(ctx context.Context, job migration.Job, prompt 
 
 	containerName := fmt.Sprintf("openlia-mig-runner-%s", job.MigrationID)
 	defer RecordRuntimeUsage(runtimeDir, h.cfg.DataRoot, filepath.Base(filepath.Dir(runtimeDir)), h.cfg.UID, h.cfg.GID)
-	// Remove any stale container with same name before starting
+	// Remove any stale container with same name and stale gateway locks before starting
 	_ = exec.Command("docker", "rm", "-f", containerName).Run()
+	for _, lockFile := range []string{"gateway.lock", "gateway.pid", "gateway.sock", "gateway.sock.path"} {
+		_ = os.Remove(filepath.Join(runtimeDir, lockFile))
+	}
 
-	args := []string{"run", "--rm", "--name", containerName}
+	args := []string{"run", "--rm", "--init", "--name", containerName}
+	if h.cfg.NetworkName != "" {
+		args = append(args, "--network", h.cfg.NetworkName)
+	}
 	if h.cfg.UID > 0 && h.cfg.GID > 0 {
 		args = append(args, "--user", fmt.Sprintf("%d:%d", h.cfg.UID, h.cfg.GID))
 	}
@@ -176,12 +183,15 @@ func (h *HermesRunner) runDocker(ctx context.Context, job migration.Job, prompt 
 		h.cfg.DockerImage,
 		"chat", "--oneshot", "--query-file", "/opt/data/prompt.txt", "-Q",
 		"-t", "file,search,skills",
-		"--max-turns", "6",
+		"--max-turns", "20",
 	)
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if parsed, parseErr := ParseResponse(string(out)); parseErr == nil {
+			return parsed, nil
+		}
 		return nil, fmt.Errorf("hermes docker execution failed (%s): %w", string(out), err)
 	}
 
@@ -208,6 +218,9 @@ func (h *HermesRunner) runHost(ctx context.Context, prompt string, proposalWorks
 	cmd.Dir = proposalWorkspaceDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if parsed, parseErr := ParseResponse(string(out)); parseErr == nil {
+			return parsed, nil
+		}
 		return nil, fmt.Errorf("hermes execution failed (%s): %w", string(out), err)
 	}
 

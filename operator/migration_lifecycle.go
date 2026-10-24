@@ -255,6 +255,7 @@ func RunMigrationSupervisor(ctx context.Context, config Config, migrationID stri
 
 	hermesRunner := runner.NewHermesRunner(runner.HermesRunnerConfig{
 		DockerImage:      config.HermesImage,
+		NetworkName:      config.NetworkName,
 		DataRoot:         config.DataRoot,
 		SkillsDir:        mergedSkillsDir,
 		SecretDir:        config.SecretDir,
