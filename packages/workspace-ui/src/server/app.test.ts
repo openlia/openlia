@@ -14,6 +14,7 @@ import type {
   WorkspaceDiagnosticsResponse,
   WorkspaceDomainsResponse,
   WorkspaceFile,
+  WorkspaceTreeResponse,
 } from "../shared/api";
 import { createWorkspaceHandler } from "./app";
 import { revision } from "./workspace";
@@ -415,6 +416,49 @@ describe("workspace HTTP handler", () => {
       ok: false,
       schema: 1,
     });
+  });
+
+  test("hidden OpenUI layouts remain explicitly editable without exposing protected paths", async () => {
+    mkdirSync(join(root, "travel"));
+    const path = "travel/trip-record.openui";
+    writeFileSync(join(root, path), "root = RecordHeaderCard()");
+    writeFileSync(
+      join(root, "travel/._private.openui"),
+      "root = RecordHeaderCard()",
+    );
+    const tree = (await (
+      await request("/api/workspace/tree")
+    ).json()) as WorkspaceTreeResponse;
+    expect(
+      tree.entries.some((entry: { path: string }) => entry.path === path),
+    ).toBe(false);
+    const loaded = await request(`/api/workspace/file?path=${path}`);
+    expect(loaded.status).toBe(200);
+    const document = (await loaded.json()) as WorkspaceFile;
+    const body = JSON.stringify({
+      path,
+      content: 'root = RecordProfile("travel")',
+      expected_revision: document.revision,
+    });
+    const response = await request("/api/workspace/file", {
+      method: "PUT",
+      body,
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": String(Buffer.byteLength(body)),
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(readFileSync(join(root, path), "utf8")).toBe(
+      'root = RecordProfile("travel")',
+    );
+    expect(
+      (await request("/api/workspace/file?path=travel/._private.openui"))
+        .status,
+    ).toBe(403);
+    expect(
+      (await request("/api/workspace/file?path=.git/secret.openui")).status,
+    ).toBe(403);
   });
 
   test("deletes a file, updates the tree, and rejects stale deletes", async () => {

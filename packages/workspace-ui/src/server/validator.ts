@@ -9,9 +9,12 @@ import {
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { createParser } from "@openuidev/lang-core";
+import { openuiLibrary } from "@openuidev/react-ui";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import YAML from "yaml";
+import { z } from "zod";
+import { domainOpenUIProps } from "../shared/domainOpenUI";
 import type {
   WorkspaceDiagnosticIssue,
   WorkspaceDiagnosticsResponse,
@@ -135,6 +138,10 @@ const OPENUI_KNOWN_FUNCTIONS = new Set([
 const openuiSchemaDefs = Object.fromEntries(
   [...OPENUI_KNOWN_COMPONENTS].map((name) => [name, { type: "object" }]),
 );
+Object.assign(openuiSchemaDefs, openuiLibrary.toJSONSchema().$defs);
+for (const [name, props] of Object.entries(domainOpenUIProps)) {
+  openuiSchemaDefs[name] = z.toJSONSchema(props) as { type: string };
+}
 const openuiParser = createParser({ $defs: openuiSchemaDefs });
 
 export function validateOpenUIContent(
@@ -203,6 +210,14 @@ export function validateOpenUIContent(
   }
 
   if (schemaProps && schemaProps.size > 0) {
+    for (const match of content.matchAll(/RecordKanban\s*\(\s*"([^"]+)"/g)) {
+      const field = match[1];
+      if (field && !schemaProps.has(field)) {
+        errors.push(
+          `contract(schema): RecordKanban group field '${field}' is not defined in ${domain?.schemaRelativePath ?? "domain schema"}`,
+        );
+      }
+    }
     // Check $record.frontmatter.<key> references
     for (const match of content.matchAll(
       /\$[A-Za-z0-9_]+\.frontmatter\.([A-Za-z0-9_-]+)/g,
@@ -267,6 +282,16 @@ export function validateOpenUIContent(
   }
 
   if (templateSections && templateSections.size > 0) {
+    for (const match of content.matchAll(
+      /(?:RecordSectionView|ChecklistSection|MarkdownSectionCard)\s*\(\s*"([^"]+)"/g,
+    )) {
+      const heading = match[1]?.trim();
+      if (heading && !templateSections.has(heading.toLowerCase())) {
+        errors.push(
+          `contract(template): section '## ${heading}' is not defined in ${domain?.templateRelativePath ?? "domain template"}`,
+        );
+      }
+    }
     // Check @Section(..., "Heading") and @Checklist(..., "Heading")
     for (const match of content.matchAll(
       /@(?:Section|Checklist)\s*\([^,]+,\s*(?:"([^"]+)"|'([^']+)')/g,

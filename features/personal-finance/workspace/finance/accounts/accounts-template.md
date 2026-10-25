@@ -9,6 +9,7 @@ currencies: [] # ISO or user-defined currency symbols used by this account.
 opening_balance_date: null # YYYY-MM-DD
 reconciliation_frequency: null # weekly | monthly | quarterly | none
 last_reconciled: null # YYYY-MM-DD
+journal_path: null # Optional workspace-relative journal path for balances.
 ---
 
 # <Finance Account>

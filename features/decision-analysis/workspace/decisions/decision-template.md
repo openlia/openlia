@@ -1,6 +1,6 @@
 ---
 $schema: ./decision-template.schema.json
-status: null # proposed | decided | superseded | abandoned
+status: null # proposed | under-review | accepted | decided (legacy) | superseded | abandoned
 decision_date: null # YYYY-MM-DD
 review_date: null # YYYY-MM-DD
 ---

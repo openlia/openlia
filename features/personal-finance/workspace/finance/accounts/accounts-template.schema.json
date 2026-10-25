@@ -16,6 +16,7 @@
     "last_reconciled"
   ],
   "properties": {
+    "journal_path": { "type": ["string", "null"], "minLength": 1 },
     "id": {"type": ["string", "null"], "minLength": 1},
     "status": {"enum": ["active", "closed", "archived"]},
     "account_type": {

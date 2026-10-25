@@ -3,6 +3,7 @@ $schema: ./trip-template.schema.json
 start_date: null # YYYY-MM-DD
 end_date: null # YYYY-MM-DD
 destination: null
+alerts: [] # Optional travel advisories or preparation reminders.
 purpose: null # vacation | work / conference | family | relocation
 status: null # planning | booked | in-progress | completed
 ---

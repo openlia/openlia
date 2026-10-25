@@ -1,10 +1,12 @@
 import { createContext, useContext } from "react";
+import type { WorkspaceApi } from "../api";
 import type {
   WorkspaceDomainInfo,
   WorkspaceDomainRecordSummary,
 } from "../../shared/api";
 
 export interface OpenLiaOpenUIContextValue {
+  loadFile?: WorkspaceApi["loadFile"] | undefined;
   domainPath?: string | undefined;
   domainInfo?: WorkspaceDomainInfo | undefined;
   schemaJson?: Record<string, unknown> | undefined;

@@ -270,7 +270,13 @@ function validateRelativePath(
       "protected_path",
     );
   }
-  if (hiddenFromNavigator(normalized, settings)) {
+  // Layouts stay hidden in the navigator by default, but dashboard rendering
+  // and the explicit Edit UI action must still be able to read/write them.
+  // Other hidden/protected paths retain their existing restrictions.
+  const accessSettings = normalized.toLowerCase().endsWith(".openui")
+    ? { ...settings, hide_template_schema_files: false }
+    : settings;
+  if (hiddenFromNavigator(normalized, accessSettings)) {
     throw new WorkspaceError(
       "workspace path is not available in the navigator",
       403,

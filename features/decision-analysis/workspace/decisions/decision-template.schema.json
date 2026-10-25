@@ -6,7 +6,7 @@
   "properties": {
     "status": {
       "type": ["string", "null"],
-      "enum": [null, "proposed", "decided", "superseded", "abandoned"]
+      "enum": [null, "proposed", "under-review", "accepted", "decided", "superseded", "abandoned"]
     },
     "decision_date": {"type": ["string", "null"], "format": "date"},
     "review_date": {"type": ["string", "null"], "format": "date"}

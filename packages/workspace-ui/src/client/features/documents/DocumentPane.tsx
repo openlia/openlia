@@ -21,6 +21,7 @@ import { MarkdownPreview } from "../../components/editor/MarkdownPreview";
 import { CopyLinkButton } from "../../components/common/CopyLinkButton";
 import { DomainDashboardPane } from "../../openui/DomainDashboardPane";
 import { RecordOpenUIPane } from "../../openui/RecordOpenUIPane";
+import { OpenUIDiagnostics } from "../../openui/OpenUIDiagnostics";
 import { openliaLibrary } from "../../openui/library";
 import { Renderer } from "@openuidev/react-lang";
 import { DocumentInspector } from "./DocumentInspector";
@@ -805,6 +806,9 @@ export function DocumentPane({
                 <p className="text-sm">{conflict}</p>
               </div>
             </div>
+          )}
+          {file.path.toLowerCase().endsWith(".openui") && (
+            <OpenUIDiagnostics content={draft} />
           )}
           {file.validation && !file.validation.valid && (
             <div

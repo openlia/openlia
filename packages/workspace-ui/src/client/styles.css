@@ -604,3 +604,43 @@ textarea {
 .workspace-activity {
   min-height: 100%;
 }
+/* Domain record views accept both structured Markdown and legacy prose. */
+.domain-schedule > ul,
+.domain-timeline > ul {
+  border-left: 2px solid var(--color-primary);
+  padding-left: 1.5rem;
+}
+
+.domain-bookings > ul {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  list-style: none;
+  padding-left: 0;
+}
+
+.domain-bookings > ul > li {
+  border: 1px solid
+    color-mix(in srgb, var(--color-base-content) 15%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+.domain-comparison table,
+.domain-schedule table,
+.domain-bookings table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.domain-comparison th,
+.domain-comparison td,
+.domain-schedule th,
+.domain-schedule td,
+.domain-bookings th,
+.domain-bookings td {
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--color-base-content) 15%, transparent);
+  padding: 0.5rem;
+  text-align: left;
+}

@@ -61,7 +61,8 @@ export function parseMarkdownRecord(content: string): ParsedRecordDocument {
         fenceMatch &&
         fenceMatch[1] &&
         fenceMatch[1][0] === codeFenceChar &&
-        fenceMatch[1].length >= codeFenceLen
+        fenceMatch[1].length >= codeFenceLen &&
+        line.trim() === fenceMatch[1]
       ) {
         inCodeBlock = false;
         codeFenceChar = "";
@@ -167,30 +168,34 @@ export function mutateRecordFrontmatter(
     /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/,
   );
 
-  let currentMeta: Record<string, unknown> = {};
-  let body = content;
-
-  if (match && match[1] !== undefined) {
-    body = match[2] ?? "";
-    try {
-      const parsed = YAML.parse(match[1].trim());
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        currentMeta = { ...(parsed as Record<string, unknown>) };
-      }
-    } catch {}
+  const document = YAML.parseDocument(match?.[1] ?? "");
+  if (
+    document.errors.length ||
+    (document.contents && !YAML.isMap(document.contents))
+  ) {
+    throw new Error("Cannot edit invalid or non-mapping YAML frontmatter");
   }
-
   for (const [key, value] of Object.entries(updates)) {
     if (value === undefined) {
-      delete currentMeta[key];
+      document.delete(key);
     } else {
-      currentMeta[key] = value;
+      document.set(key, value);
     }
   }
-
-  const serializedYaml = YAML.stringify(currentMeta).trim();
-  const cleanBody = body.replace(/^\r?\n+/, "");
-  return `---\n${serializedYaml}\n---\n\n${cleanBody}`;
+  const newline = content.includes("\r\n") ? "\r\n" : "\n";
+  const yaml = document.toString().trimEnd().replace(/\r?\n/g, newline);
+  if (match) {
+    // Only replace YAML; the delimiters, body, and spacing remain byte-for-byte.
+    const yamlStart = content.indexOf("\n") + 1;
+    return (
+      content.slice(0, yamlStart) +
+      yaml +
+      content.slice(yamlStart + (match[1]?.length ?? 0))
+    );
+  }
+  if (content.startsWith("---"))
+    throw new Error("Cannot edit malformed frontmatter");
+  return `---${newline}${yaml}${newline}---${newline}${newline}${content}`;
 }
 
 export function toggleRecordChecklistItem(
@@ -213,39 +218,51 @@ export function toggleRecordChecklistItem(
     }
   }
 
-  const lines = body.split(/\r?\n/);
-  const targetHeading = heading?.trim().toLowerCase();
-  let currentHeading: string | null = null;
-  let currentTaskIndex = 0;
+  const newline = body.includes("\r\n") ? "\r\n" : "\n";
+  const lines = body.split(newline);
+  const item = extractMarkdownChecklist(body, heading)[itemIndex];
+  if (!item) return content;
+  const line = lines[item.lineIndex];
+  if (line === undefined) return content;
+  lines[item.lineIndex] = line.replace(
+    /^(\s*[-*+]\s+\[)[ xX](\])/,
+    `$1${(checked ?? !item.checked) ? "x" : " "}$2`,
+  );
+  return `${prefix}${lines.join(newline)}`;
+}
 
+// Locate structural headings only, never headings inside code examples.
+function sectionBounds(lines: string[], heading: string): [number, number] {
+  let start = -1;
+  let fence = "";
+  let fenceLength = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
-    const h2Match = line.match(/^[ \t]{0,3}##[ \t]+(.+?)[ \t]*#*[ \t]*$/);
-    if (h2Match && h2Match[1]) {
-      currentHeading = h2Match[1].trim().toLowerCase();
-      if (targetHeading) {
-        currentTaskIndex = 0;
-      }
+    const marker = line.match(/^[ \t]{0,3}(`{3,}|~{3,})/);
+    if (fence) {
+      if (
+        marker?.[1]?.[0] === fence &&
+        marker[1].length >= fenceLength &&
+        line.trim() === marker[1]
+      )
+        fence = "";
       continue;
     }
-
-    const inMatchingSection =
-      !targetHeading || currentHeading === targetHeading;
-    if (!inMatchingSection) continue;
-
-    const taskMatch = line.match(/^([ \t]*[-*+][ \t]+\[)([ xX])(\][ \t]+.*)$/);
-    if (taskMatch) {
-      if (currentTaskIndex === itemIndex) {
-        const currentlyChecked = (taskMatch[2] ?? "").toLowerCase() === "x";
-        const nextChecked = checked !== undefined ? checked : !currentlyChecked;
-        lines[i] = `${taskMatch[1]}${nextChecked ? "x" : " "}${taskMatch[3]}`;
-        break;
-      }
-      currentTaskIndex++;
+    if (marker?.[1]) {
+      fence = marker[1][0]!;
+      fenceLength = marker[1].length;
+      continue;
     }
+    const match = line.match(/^[ \t]{0,3}(#{1,2})[ \t]+(.+?)[ \t]*#*[ \t]*$/);
+    if (!match) continue;
+    if (start !== -1) return [start, i];
+    if (
+      match[1] === "##" &&
+      match[2]?.trim().toLowerCase() === heading.trim().toLowerCase()
+    )
+      start = i;
   }
-
-  return `${prefix}${lines.join("\n")}`;
+  return [start, lines.length];
 }
 
 export function addRecordChecklistItem(
@@ -253,7 +270,7 @@ export function addRecordChecklistItem(
   heading: string,
   itemText: string,
 ): string {
-  const cleanText = itemText.trim();
+  const cleanText = itemText.trim().replace(/[\r\n]+/g, " ");
   if (!cleanText) return content;
 
   const hasFrontmatter = content.startsWith("---");
@@ -270,28 +287,14 @@ export function addRecordChecklistItem(
     }
   }
 
-  const lines = body.split(/\r?\n/);
-  const targetHeading = heading.trim().toLowerCase();
-  let sectionStart = -1;
-  let sectionEnd = lines.length;
-
-  for (let i = 0; i < lines.length; i++) {
-    const h2Match = lines[i]!.match(/^[ \t]{0,3}##[ \t]+(.+?)[ \t]*#*[ \t]*$/);
-    if (h2Match && h2Match[1]) {
-      const hText = h2Match[1].trim().toLowerCase();
-      if (sectionStart === -1 && hText === targetHeading) {
-        sectionStart = i;
-      } else if (sectionStart !== -1) {
-        sectionEnd = i;
-        break;
-      }
-    }
-  }
+  const newline = body.includes("\r\n") ? "\r\n" : "\n";
+  const lines = body.split(newline);
+  const [sectionStart, sectionEnd] = sectionBounds(lines, heading);
 
   if (sectionStart === -1) {
     // Section does not exist yet -> append section and checklist item
     const trimmed = body.trimEnd();
-    return `${prefix}${trimmed}\n\n## ${heading.trim()}\n- [ ] ${cleanText}\n`;
+    return `${prefix}${trimmed}${newline}${newline}## ${heading.trim()}${newline}- [ ] ${cleanText}${newline}`;
   }
 
   // Insert before blank lines preceding next section
@@ -300,7 +303,7 @@ export function addRecordChecklistItem(
     insertAt--;
   }
   lines.splice(insertAt, 0, `- [ ] ${cleanText}`);
-  return `${prefix}${lines.join("\n")}`;
+  return `${prefix}${lines.join(newline)}`;
 }
 
 export function updateRecordSectionContent(
@@ -322,31 +325,17 @@ export function updateRecordSectionContent(
     }
   }
 
-  const lines = body.split(/\r?\n/);
-  const targetHeading = heading.trim().toLowerCase();
-  let sectionStart = -1;
-  let sectionEnd = lines.length;
-
-  for (let i = 0; i < lines.length; i++) {
-    const h2Match = lines[i]!.match(/^[ \t]{0,3}##[ \t]+(.+?)[ \t]*#*[ \t]*$/);
-    if (h2Match && h2Match[1]) {
-      const hText = h2Match[1].trim().toLowerCase();
-      if (sectionStart === -1 && hText === targetHeading) {
-        sectionStart = i;
-      } else if (sectionStart !== -1) {
-        sectionEnd = i;
-        break;
-      }
-    }
-  }
+  const newline = body.includes("\r\n") ? "\r\n" : "\n";
+  const lines = body.split(newline);
+  const [sectionStart, sectionEnd] = sectionBounds(lines, heading);
 
   const replacementLines = newSectionMarkdown.trim()
-    ? [newSectionMarkdown.trim(), ""]
+    ? [newSectionMarkdown.trim().replace(/\r?\n/g, newline), ""]
     : [""];
 
   if (sectionStart === -1) {
     const trimmed = body.trimEnd();
-    return `${prefix}${trimmed}\n\n## ${heading.trim()}\n${replacementLines.join("\n")}`;
+    return `${prefix}${trimmed}${newline}${newline}## ${heading.trim()}${newline}${replacementLines.join(newline)}`;
   }
 
   lines.splice(
@@ -354,5 +343,5 @@ export function updateRecordSectionContent(
     sectionEnd - (sectionStart + 1),
     ...replacementLines,
   );
-  return `${prefix}${lines.join("\n")}`;
+  return `${prefix}${lines.join(newline)}`;
 }

@@ -146,11 +146,7 @@ export function DomainDashboardPane({
       void loadData();
     } catch (err: unknown) {
       console.error("Failed to update frontmatter:", err);
-      alert(
-        err instanceof Error
-          ? err.message
-          : "Failed to update record frontmatter",
-      );
+      throw err;
     }
   };
 
@@ -193,6 +189,7 @@ export function DomainDashboardPane({
     <OpenLiaOpenUIProvider
       value={{
         domainInfo: overview.domain,
+        loadFile: api.loadFile,
         domainPath,
         onCreateRecord: (targetDomain) =>
           onCreateFile?.(targetDomain ?? domainPath),

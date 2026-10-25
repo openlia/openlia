@@ -106,6 +106,52 @@ Mission critical hardware maintenance.
     }
   });
 
+  test("surfaces rejected checklist saves without an unhandled rejection", async () => {
+    render(
+      <RecordOpenUIPane
+        api={createMockWorkspaceApi()}
+        content={markdownContent}
+        path="tasks/upgrade-servers.md"
+        onOpenFile={vi.fn()}
+        onSaveContent={async () => {
+          throw new Error("Revision conflict");
+        }}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Backup configuration")).toBeDefined(),
+    );
+    fireEvent.click(screen.getAllByRole("checkbox")[0]!);
+    await waitFor(() =>
+      expect(
+        screen.getByText("Could not save record: Revision conflict"),
+      ).toBeDefined(),
+    );
+  });
+
+  test("serializes rapid edits against the latest successfully saved content", async () => {
+    const saved: string[] = [];
+    render(
+      <RecordOpenUIPane
+        api={createMockWorkspaceApi()}
+        content={markdownContent}
+        path="tasks/upgrade-servers.md"
+        onOpenFile={vi.fn()}
+        onSaveContent={async (next) => {
+          saved.push(next);
+        }}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Backup configuration")).toBeDefined(),
+    );
+    fireEvent.click(screen.getAllByRole("checkbox")[0]!);
+    // Save a property while the checklist edit is queued.
+    fireEvent.click(screen.getByRole("button", { name: "Save Properties" }));
+    await waitFor(() => expect(saved).toHaveLength(2));
+    expect(saved[1]).toContain("- [x] Backup configuration");
+  });
+
   test("handles broken custom .openui with fallback toggle", async () => {
     const baseApi = createMockWorkspaceApi();
     const api: WorkspaceApi = {

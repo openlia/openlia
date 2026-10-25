@@ -12,6 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 import type {
   FeatureInstallResponse,
@@ -95,7 +96,7 @@ export class FeatureService {
     this.skillsRoot = resolve(options.skillsRoot);
     this.featuresRoot = options.featuresRoot
       ? resolve(options.featuresRoot)
-      : resolve(import.meta.dir, "../../../../features");
+      : fileURLToPath(new URL("../../../../features", import.meta.url));
   }
 
   private readRegisteredDomains(): Map<string, RawFeatureDomain> {

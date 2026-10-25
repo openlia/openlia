@@ -1,6 +1,8 @@
 ---
 $schema: ./person-template.schema.json
-relationship: null # colleague | mentor | collaborator | friend | family | advisor
+relationship: null # colleague | client | mentor | collaborator | friend | family | advisor
+last_contacted: null # Optional YYYY-MM-DD; do not infer from file modification time.
+linked_records: [] # Optional workspace-relative meeting/project Markdown paths.
 organization: null
 role: null
 location: null

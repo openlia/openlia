@@ -2,6 +2,7 @@
 $schema: ./finance-template.schema.json
 period: null # YYYY-MM or YYYY-QN
 review_date: null # YYYY-MM-DD
+journal_path: null # Optional workspace-relative journal path for the visual preview.
 ---
 
 # <Finance Review / Plan Title>
