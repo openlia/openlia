@@ -787,7 +787,10 @@ export function DocumentPane({
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="font-semibold">
-                    Template & Schema Warning
+                    {file.path.endsWith(".openui") ||
+                    file.path.endsWith("project-manifest.toml")
+                      ? "Project UI & Manifest Warning"
+                      : "Template & Schema Warning"}
                     {file.validation.template_path && (
                       <span className="font-normal font-mono opacity-80 ml-1">
                         [template: {file.validation.template_path}]
@@ -799,18 +802,20 @@ export function DocumentPane({
                       </span>
                     )}
                   </p>
-                  {onFixTemplate && (
-                    <button
-                      className="btn btn-warning btn-xs shrink-0"
-                      disabled={fixingTemplate}
-                      onClick={onFixTemplate}
-                      type="button"
-                    >
-                      {fixingTemplate
-                        ? "Creating Migration..."
-                        : "Fix in Migrations"}
-                    </button>
-                  )}
+                  {onFixTemplate &&
+                    !file.path.endsWith(".openui") &&
+                    !file.path.endsWith("project-manifest.toml") && (
+                      <button
+                        className="btn btn-warning btn-xs shrink-0"
+                        disabled={fixingTemplate}
+                        onClick={onFixTemplate}
+                        type="button"
+                      >
+                        {fixingTemplate
+                          ? "Creating Migration..."
+                          : "Fix in Migrations"}
+                      </button>
+                    )}
                 </div>
                 <ul className="list-disc list-inside mt-1 max-h-16 sm:max-h-24 overflow-y-auto space-y-0.5 opacity-90">
                   {file.validation.errors.map((err: string) => (

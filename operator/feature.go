@@ -22,11 +22,10 @@ import (
 
 var featureIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
-// LeanBaseCoreDomains are the 7 core roots in the Lean Productivity Base.
+// LeanBaseCoreDomains are the 6 core roots in the Lean Productivity Base.
 var LeanBaseCoreDomains = []string{
 	"inbox",
 	"goals",
-	"projects",
 	"knowledge",
 	"tasks",
 	"calendar",
@@ -40,7 +39,6 @@ var LeanBaseAllDirs = []string{
 	"inbox/ingestion",
 	"sources",
 	"goals",
-	"projects",
 	"knowledge",
 	"knowledge/claims",
 	"tasks",
