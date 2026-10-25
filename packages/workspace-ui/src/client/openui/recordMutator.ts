@@ -160,6 +160,9 @@ export function mutateRecordFrontmatter(
   content: string,
   updates: Record<string, unknown>,
 ): string {
+  if (!updates || typeof updates !== "object" || Array.isArray(updates)) {
+    return content;
+  }
   const match = content.match(
     /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/,
   );
