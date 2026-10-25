@@ -43,6 +43,11 @@ import type {
   WorkspaceWriteResponse,
 } from "../shared/api";
 import { isMemoryDocument, memoryFilename } from "../shared/memory";
+import type {
+  FinanceCheckResponse,
+  FinanceCheckFreshnessResponse,
+} from "../shared/finance";
+import { notifyWorkspaceFileChange } from "./workspaceFileChanges";
 import {
   ApiError,
   httpWorkspaceApi,
@@ -101,8 +106,20 @@ export const startWorkspaceApi: WorkspaceApi = {
         ? `/api/memory/file?${new URLSearchParams({ name: memoryFilename(path) })}`
         : `/api/workspace/file?${new URLSearchParams({ path })}`,
     }),
-  saveFile: (path, content, expectedRevision) =>
-    request<WorkspaceWriteResponse>({
+  checkFinanceJournal: (path) =>
+    request<FinanceCheckResponse>({
+      path: "/api/workspace/finance/check",
+      method: "POST",
+      body: { path },
+    }),
+  checkFinanceJournalFreshness: (path, fingerprint) =>
+    request<FinanceCheckFreshnessResponse>({
+      path: "/api/workspace/finance/check-status",
+      method: "POST",
+      body: { path, fingerprint },
+    }),
+  saveFile: async (path, content, expectedRevision) => {
+    const response = await request<WorkspaceWriteResponse>({
       body: {
         content,
         expected_revision: expectedRevision,
@@ -110,7 +127,10 @@ export const startWorkspaceApi: WorkspaceApi = {
       },
       method: "PUT",
       path: isMemoryDocument(path) ? "/api/memory/file" : "/api/workspace/file",
-    }),
+    });
+    notifyWorkspaceFileChange(path);
+    return response;
+  },
   loadFileMetadata: (path) =>
     request<WorkspaceFileMetadata>({
       path: isMemoryDocument(path)

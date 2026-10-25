@@ -190,6 +190,7 @@ export function DomainDashboardPane({
       value={{
         domainInfo: overview.domain,
         loadFile: api.loadFile,
+        financeApi: api,
         domainPath,
         onCreateRecord: (targetDomain) =>
           onCreateFile?.(targetDomain ?? domainPath),

@@ -28,6 +28,11 @@ import { Authenticator } from "./auth";
 import { ChatService, type ChatOptions } from "./chat";
 import { exportArchive } from "./export";
 import { FeatureService } from "./features";
+import {
+  FinanceCheckService,
+  financeRequest,
+  type FinanceCheckOptions,
+} from "./finance";
 import { IngestionService } from "./ingestion";
 import { MemoryFileService } from "./memory";
 import { MigrationService } from "./migration";
@@ -38,6 +43,7 @@ import { UsageService } from "./usage";
 import { CronService, CronError } from "./cron";
 
 export interface WorkspaceHandlerOptions {
+  finance?: FinanceCheckOptions;
   chat?: ChatOptions;
   workspaceRoot: string;
   memoriesRoot?: string;
@@ -304,6 +310,10 @@ export function createWorkspaceHandler(
   options: WorkspaceHandlerOptions,
 ): (request: Request, clientKey?: string) => Promise<Response> {
   const service = new WorkspaceService(options);
+  const financeService = new FinanceCheckService(
+    service.workspaceRoot,
+    options.finance,
+  );
   const memoryService = new MemoryFileService(service, options.memoriesRoot);
   const ingestionService = new IngestionService(options);
   const usageService = new UsageService(options.usageRoot);
@@ -684,6 +694,35 @@ export function createWorkspaceHandler(
             body.value.expected_revision,
           ),
         );
+      }
+      if (
+        request.method === "POST" &&
+        [
+          "/api/workspace/finance/check",
+          "/api/workspace/finance/check-status",
+        ].includes(url.pathname)
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const body = await readJson(request, maxDeleteRequestBytes);
+        if (body.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        const input = financeRequest(body.value);
+        if (url.pathname.endsWith("check-status")) {
+          if (!input.fingerprint)
+            return json(
+              { schema: 1, ok: false, error: "invalid_finance_request" },
+              400,
+            );
+          return json(financeService.freshness(input.path, input.fingerprint));
+        }
+        return json(await financeService.check(input.path));
       }
       if (request.method === "GET" && url.pathname === "/api/workspace/file") {
         return json(service.read(url.searchParams.get("path")));

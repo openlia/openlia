@@ -81,3 +81,48 @@ check. Open the journal for editing or authoritative accounting checks.
 Visual edits use the existing revision-aware workspace file API. Save failures
 remain visible; section drafts remain available to retry. YAML edits preserve
 comments and unrelated Markdown, and checklist mutations ignore code examples.
+
+## Authoritative journal checks (separate from preview calculations)
+
+`FinanceOverview` offers an explicit **Check journal / Recheck journal** action.
+The authenticated server runs the built-in `hledger check` command against an
+isolated snapshot, not the live workspace. The result includes the engine
+version, completion timestamp, content fingerprint, dependency revisions, and
+diagnostics linked back to workspace files. Successful validation means only
+**hledger check passed for that snapshot**; it does not certify the client-side
+preview metrics, market values, tax treatment, or reconciliation completeness.
+
+The service supports UTF-8 `.hledger` / `.journal` files with literal relative
+plain-journal includes with unquoted filenames. It resolves includes within the workspace, rejects
+symlinks and protected paths, and blocks cycles, globs, environment/home
+expansion, absolute paths, and format-prefixed includes (including CSV rules).
+Include-looking lines inside block comments are inspected conservatively too.
+Unsupported input is **blocked**, never silently omitted from validation.
+
+Checks use a ten-second process budget, a 32-KiB per-process diagnostic limit,
+and snapshots limited to 50 files (also counting repeated include expansions),
+32 include levels, 1 MiB per file, and 4 MiB
+total. Only one check runs at a time per workspace-handler instance. Source files
+are never modified; the service cannot post, import, add, clear, or reconcile
+transactions. It invokes a fixed argument array without a shell, strips inherited
+ledger/config settings, and disables config files on engines supporting them.
+
+Docker includes hledger. Other environments show **unavailable** if it cannot be
+run. Administrators may configure `OPENLIA_HLEDGER_BIN` to a trusted executable;
+clients cannot choose commands or flags. A failed journal, unavailable engine,
+timeout, output/resource limit, stale snapshot, and infrastructure error have
+separate outcomes.
+
+Results are not cached or persisted. Known saves of captured files invalidate
+the card immediately. While visible, the card checks content freshness every
+15 seconds and on window focus/tab visibility changes, without rerunning
+hledger. External edits are therefore not detected instantaneously: always use
+**Recheck journal** when current validation is required. Changes detected during
+the native check also prevent a passing current-state result.
+
+API endpoints (both authenticated and same-origin):
+- `POST /api/workspace/finance/check` with `{ "path": "finance/main.journal" }`
+- `POST /api/workspace/finance/check-status` with `{ "path": "finance/main.journal", "fingerprint": "sha256:..." }`
+
+The freshness endpoint only compares snapshot fingerprints; it never executes
+hledger. Both APIs are read-only with respect to the workspace.

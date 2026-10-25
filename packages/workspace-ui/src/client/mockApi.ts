@@ -57,6 +57,7 @@ import { ApiError, type WorkspaceApi } from "./api";
 import { mockUsage } from "./usageMock";
 import { createChatMock } from "./chatMock";
 import { parseMarkdownRecord } from "./openui/recordMutator";
+import { notifyWorkspaceFileChange } from "./workspaceFileChanges";
 
 export type MockWorkspaceScenario =
   | "default"
@@ -802,6 +803,27 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
   }
 
   return {
+    async checkFinanceJournal(path) {
+      requireAuthentication();
+      return {
+        schema: 1,
+        path,
+        status: "unavailable",
+        checked_at: new Date().toISOString(),
+        fingerprint: null,
+        files: [],
+        diagnostics: [
+          {
+            code: "mock_engine",
+            message: "hledger validation is unavailable in demo mode.",
+          },
+        ],
+      };
+    },
+    async checkFinanceJournalFreshness() {
+      requireAuthentication();
+      return { schema: 1, current: false, fingerprint: null };
+    },
     async loadTree() {
       requireAuthentication();
       return scenario === "empty"
@@ -871,6 +893,7 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         revision: nextRev,
         schema: 1,
       };
+      notifyWorkspaceFileChange(requestedPath);
       return response;
     },
     async deleteFile(

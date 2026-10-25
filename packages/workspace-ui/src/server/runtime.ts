@@ -114,6 +114,9 @@ export function createConfiguredWorkspaceHandler() {
       openlia_version: process.env.OPENLIA_VERSION,
     },
     workspaceRoot,
+    ...(process.env.OPENLIA_HLEDGER_BIN
+      ? { finance: { executable: process.env.OPENLIA_HLEDGER_BIN } }
+      : {}),
     ...(process.env.OPENLIA_USAGE_ROOT
       ? { usageRoot: resolve(process.env.OPENLIA_USAGE_ROOT) }
       : {}),
