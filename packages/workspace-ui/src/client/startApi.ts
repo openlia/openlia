@@ -43,35 +43,23 @@ import type {
   WorkspaceWriteResponse,
 } from "../shared/api";
 import { isMemoryDocument, memoryFilename } from "../shared/memory";
-import { ApiError, httpWorkspaceApi, type WorkspaceApi } from "./api";
+import {
+  ApiError,
+  httpWorkspaceApi,
+  isErrorResponse,
+  type WorkspaceApi,
+} from "./api";
 import {
   workspaceServerRequest,
   type WorkspaceServerRequest,
 } from "../server/start-api";
-
-function isErrorResponse(
-  value: unknown,
-): value is { error: string; ok: false; schema: 1 } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "schema" in value &&
-    value.schema === 1 &&
-    "ok" in value &&
-    value.ok === false &&
-    "error" in value &&
-    typeof value.error === "string"
-  );
-}
 
 async function request<T>(input: WorkspaceServerRequest): Promise<T> {
   const response = await workspaceServerRequest({ data: input });
   if (response.status < 200 || response.status >= 300) {
     throw new ApiError(
       response.status,
-      isErrorResponse(response.payload)
-        ? { ...response.payload, schema: 1 }
-        : null,
+      isErrorResponse(response.payload) ? response.payload : null,
     );
   }
   return response.payload as T;

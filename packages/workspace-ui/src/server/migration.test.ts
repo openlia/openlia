@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
 import { MigrationService } from "./migration";
 import { createWorkspaceHandler } from "./app";
 
@@ -328,6 +329,15 @@ describe("MigrationService & endpoints", () => {
     expect(detail.active_diff!).toContain("+## Context");
     expect(detail.active_diff!).toContain("+priority: null");
     expect(detail.active_diff!).toContain("+## Definition of Done");
+    expect(detail.active_diff!.endsWith("\n")).toBe(true);
+    expect(detail.revisions[0]!.patch_hash).toBe(
+      createHash("sha256").update(detail.active_diff!).digest("hex"),
+    );
+    expect(detail.revisions[0]!.patch_hash).not.toBe(
+      createHash("sha256").update(detail.active_diff!.trim()).digest("hex"),
+    );
+    expect(detail.revisions[0]!.commit_hash).toMatch(/^[a-f0-9]{40}$/);
+    expect(detail.revisions[0]!.tree_hash).toMatch(/^[a-f0-9]{40}$/);
 
     // 4. Test via HTTP handler
     const handler = createWorkspaceHandler({
