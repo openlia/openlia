@@ -1,5 +1,5 @@
 import { Renderer } from "@openuidev/react-lang";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ProjectSummary,
   WorkspaceProjectResponse,
@@ -29,7 +29,10 @@ export function ProjectPage({
 }: {
   api: WorkspaceApi;
   selectedProjectPath?: string | undefined;
-  onSelectProject: (projectPath: string) => void;
+  onSelectProject: (
+    projectPath: string,
+    options?: { replace?: boolean },
+  ) => void;
   onOpenFile: (path: string) => void;
   onCreateFile?: ((domainPath?: string) => void) | undefined;
   onAskLia?: ((prompt: string) => void) | undefined;
@@ -41,14 +44,18 @@ export function ProjectPage({
   const [projectLoading, setProjectLoading] = useState(false);
   const [error, setError] = useState("");
   const [activeView, setActiveView] = useState<ProjectViewTab>("ui");
+  const onSelectProjectRef = useRef(onSelectProject);
+  onSelectProjectRef.current = onSelectProject;
+  const selectedProjectPathRef = useRef(selectedProjectPath);
+  selectedProjectPathRef.current = selectedProjectPath;
 
   const loadProjectsList = useCallback(async () => {
     setProjectsLoading(true);
     try {
       const res = await api.loadProjects();
       setProjects(res.projects);
-      if (!selectedProjectPath && res.projects[0]) {
-        onSelectProject(res.projects[0].path);
+      if (!selectedProjectPathRef.current && res.projects[0]) {
+        onSelectProjectRef.current(res.projects[0].path, { replace: true });
       }
     } catch (err) {
       setError(
@@ -57,7 +64,7 @@ export function ProjectPage({
     } finally {
       setProjectsLoading(false);
     }
-  }, [api, selectedProjectPath, onSelectProject]);
+  }, [api]);
 
   useEffect(() => {
     void loadProjectsList();

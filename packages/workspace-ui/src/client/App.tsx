@@ -1331,6 +1331,7 @@ export function App({
       } else if (route.tab === "configuration") {
         setActiveTab("configuration");
       } else if (route.path) {
+        setActiveTab("documents");
         if (route.path !== file?.path && route.path !== artifact?.path) {
           void openFile(route.path, {
             requestedView: route.view,
@@ -1737,7 +1738,10 @@ export function App({
     }
   }
 
-  function requestOpenProject(projectPath?: string) {
+  function requestOpenProject(
+    projectPath?: string,
+    options?: { replace?: boolean },
+  ) {
     if (dirty) {
       setPendingAction({
         kind: "switchTab",
@@ -1749,10 +1753,13 @@ export function App({
     setActiveTab("projects");
     setSelectedProjectPath(projectPath);
     setFilesOpen(false);
-    navigateRoute({
-      projectPath,
-      tab: "projects",
-    });
+    navigateRoute(
+      {
+        projectPath,
+        tab: "projects",
+      },
+      options,
+    );
   }
 
   function requestMigration(migId?: string) {
@@ -1910,7 +1917,7 @@ export function App({
       }
       return;
     }
-    if (path === (file?.path ?? artifact?.path)) {
+    if (activeTab === "documents" && path === (file?.path ?? artifact?.path)) {
       setFilesOpen(false);
       return;
     }
@@ -1931,6 +1938,7 @@ export function App({
 
   async function openSkill(id: string, skillFilePath = "SKILL.md") {
     const requestSequence = ++skillRequestSequence.current;
+    setActiveTab("skills");
     setSkillsLoading(true);
     setSkillError("");
     try {
@@ -1968,6 +1976,7 @@ export function App({
 
   function requestOpenSkill(id: string, skillFilePath?: string) {
     if (
+      activeTab === "skills" &&
       id === selectedSkillId &&
       (!skillFilePath || skillFilePath === selectedSkillFile?.path)
     ) {
@@ -2928,7 +2937,9 @@ export function App({
           <ProjectPage
             api={api}
             selectedProjectPath={selectedProjectPath}
-            onSelectProject={(projectPath) => requestOpenProject(projectPath)}
+            onSelectProject={(projectPath, options) =>
+              requestOpenProject(projectPath, options)
+            }
             onOpenFile={(filePath) => requestOpenFile(filePath)}
             onCreateFile={(domain) => {
               setCreateFileError("");
