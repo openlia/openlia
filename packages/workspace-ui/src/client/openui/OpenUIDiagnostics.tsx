@@ -1,12 +1,12 @@
 import { createParser } from "@openuidev/react-lang";
 import { useMemo } from "react";
-import { openliaLibrary } from "./library";
+import { normalizeOpenUIProgram, openliaLibrary } from "./library";
 
 const parser = createParser(openliaLibrary.toJSONSchema());
 
 export function OpenUIDiagnostics({ content }: { content: string }) {
   const errors = useMemo(() => {
-    const result = parser.parse(content);
+    const result = parser.parse(normalizeOpenUIProgram(content));
     return [
       ...result.meta.errors.map((error) => `${error.code}: ${error.message}`),
       ...(!result.root ? ["Missing required root statement"] : []),

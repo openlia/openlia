@@ -1,4 +1,0 @@
-hdr = DomainHeader("Goals", "High-level objectives and review rhythms")
-kb = RecordKanban("status")
-tbl = RecordTable()
-root = Stack([hdr, kb, tbl])

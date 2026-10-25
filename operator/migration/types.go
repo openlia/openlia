@@ -82,17 +82,17 @@ type SourceEntry struct {
 
 // Job represents a sequential task processing a single eligible source file.
 type Job struct {
-	ID              string     `json:"id"`
-	MigrationID     string     `json:"migration_id"`
-	SourceID        string     `json:"source_id"`
-	IdempotencyKey  string     `json:"idempotency_key"`
-	State           string     `json:"state"`
-	Attempts        int        `json:"attempts"`
-	MaxAttempts     int        `json:"max_attempts"`
-	LeaseOwner      string     `json:"lease_owner,omitempty"`
-	LeaseGeneration int64      `json:"lease_generation"`
-	LeaseExpiresAt  *time.Time `json:"lease_expires_at,omitempty"`
-	HeartbeatAt     *time.Time `json:"heartbeat_at,omitempty"`
+	ID                  string              `json:"id"`
+	MigrationID         string              `json:"migration_id"`
+	SourceID            string              `json:"source_id"`
+	IdempotencyKey      string              `json:"idempotency_key"`
+	State               string              `json:"state"`
+	Attempts            int                 `json:"attempts"`
+	MaxAttempts         int                 `json:"max_attempts"`
+	LeaseOwner          string              `json:"lease_owner,omitempty"`
+	LeaseGeneration     int64               `json:"lease_generation"`
+	LeaseExpiresAt      *time.Time          `json:"lease_expires_at,omitempty"`
+	HeartbeatAt         *time.Time          `json:"heartbeat_at,omitempty"`
 	ResultSummary       string              `json:"result_summary,omitempty"`
 	ChangedPaths        []string            `json:"changed_paths,omitempty"`
 	Findings            []ValidationFinding `json:"findings,omitempty"`

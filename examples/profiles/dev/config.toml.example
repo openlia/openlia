@@ -79,7 +79,6 @@ enabled = [
   "inbox-triage",
   "daily-briefing",
   "weekly-review",
-  "project-review",
   "decision-analysis",
   "deep-research",
   "personal-finance",

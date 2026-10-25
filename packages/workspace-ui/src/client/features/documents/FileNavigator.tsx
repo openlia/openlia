@@ -15,6 +15,7 @@ export interface TreeNode {
   name: string;
   kind: WorkspaceTreeEntry["kind"];
   editable?: boolean;
+  project?: boolean;
   children: TreeNode[];
 }
 
@@ -34,18 +35,30 @@ export function buildTree(entries: WorkspaceTreeEntry[]): TreeNode[] {
       currentPath = currentPath ? `${currentPath}/${part}` : part;
       let node = parent.children.find((child) => child.path === currentPath);
       if (!node) {
+        const isLeaf = index === parts.length - 1;
         const createdNode: TreeNode = {
           children: [],
-          kind: index === parts.length - 1 ? entry.kind : "directory",
+          kind: isLeaf ? entry.kind : "directory",
           name:
             currentPath === MEMORY_DOCUMENT_PREFIX.slice(0, -1)
               ? "Assistant memory"
               : part,
           path: currentPath,
         };
-        if (entry.kind === "file") createdNode.editable = entry.editable;
+        if (isLeaf && entry.kind === "file") {
+          createdNode.editable = entry.editable;
+        }
+        if (isLeaf && entry.kind === "directory" && entry.project) {
+          createdNode.project = true;
+        }
         node = createdNode;
         parent.children.push(node);
+      } else if (
+        index === parts.length - 1 &&
+        entry.kind === "directory" &&
+        entry.project
+      ) {
+        node.project = true;
       }
       parent = node;
     });
@@ -102,6 +115,7 @@ export function FileNavigator({
   onCreateFile,
   onFilterChange,
   onOpenFile,
+  onOpenProject,
   onRenameFile,
   onMoveFile,
   onDeleteFile,
@@ -122,6 +136,7 @@ export function FileNavigator({
   onCreateFile?: ((domain?: string) => void) | undefined;
   onFilterChange: (value: string) => void;
   onOpenFile: (path: string) => void;
+  onOpenProject?: ((projectPath: string) => void) | undefined;
   onRenameFile?: ((path: string) => void) | undefined;
   onMoveFile?: ((path: string) => void) | undefined;
   onDeleteFile?: ((path: string) => void) | undefined;
@@ -239,6 +254,7 @@ export function FileNavigator({
           const childrenVisible = hasChildren && (!isCollapsed || forcedOpen);
           const directoryId = `workspace-directory-${encodeURIComponent(node.path)}`;
           const isCreatable = creatableDomainSet.has(node.path);
+          const hasProjectAction = Boolean(node.project && onOpenProject);
           return (
             <li key={node.path}>
               {isDirectory ? (
@@ -248,7 +264,7 @@ export function FileNavigator({
                       <button
                         aria-controls={directoryId}
                         aria-expanded={childrenVisible}
-                        className={`workspace-tree-row workspace-tree-directory flex-1 ${selectedPath === node.path ? "workspace-tree-file-selected" : ""} ${onCreateFile && isCreatable ? "pr-7" : ""}`}
+                        className={`workspace-tree-row workspace-tree-directory flex-1 ${onCreateFile && isCreatable ? "pr-7" : ""}`}
                         disabled={forcedOpen}
                         onClick={() => {
                           setCollapsed((current) => {
@@ -257,7 +273,6 @@ export function FileNavigator({
                             else next.add(node.path);
                             return next;
                           });
-                          onOpenFile(node.path);
                         }}
                         style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
                         title={
@@ -278,14 +293,7 @@ export function FileNavigator({
                     ) : (
                       <div
                         aria-label={`${node.name}, empty folder`}
-                        className={`workspace-tree-row workspace-tree-directory workspace-tree-empty-directory flex-1 cursor-pointer ${selectedPath === node.path ? "workspace-tree-file-selected" : ""} ${onCreateFile && isCreatable ? "pr-7" : ""}`}
-                        onClick={() => onOpenFile(node.path)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            onOpenFile(node.path);
-                          }
-                        }}
+                        className={`workspace-tree-row workspace-tree-directory workspace-tree-empty-directory flex-1 ${onCreateFile && isCreatable ? "pr-7" : ""}`}
                         role="treeitem"
                         style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
                         tabIndex={-1}
@@ -297,6 +305,20 @@ export function FileNavigator({
                         />
                         <span className="truncate">{node.name}</span>
                       </div>
+                    )}
+                    {hasProjectAction && (
+                      <button
+                        aria-label={`Open ${node.name} project UI`}
+                        className={`badge badge-xs badge-primary/15 text-primary hover:bg-primary hover:text-primary-content border-primary/20 cursor-pointer transition-colors shrink-0 mr-1 ${onCreateFile && isCreatable ? "mr-7" : "mr-1"}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenProject?.(node.path);
+                        }}
+                        title={`Open ${node.name} in Projects`}
+                        type="button"
+                      >
+                        UI
+                      </button>
                     )}
                     {onCreateFile && isCreatable && (
                       <button

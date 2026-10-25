@@ -40,8 +40,8 @@ LEGACY_BRIEFING_NAME_PATTERN = re.compile(r"daily-briefing-(\d{4}-\d{2}-\d{2})\.
 SOURCE_DIRECTORIES = (
     ("calendar", "Calendar", "calendar"),
     ("tasks", "Tasks", "tasks"),
-    ("projects", "Projects", "projects"),
     ("goals", "Goals", "goals"),
+    ("decisions", "Decisions", "decisions"),
     ("knowledge/claims", "Claims", "claims"),
     ("inbox", "Inbox", "inbox"),
 )
@@ -332,7 +332,7 @@ def _record_candidate(
             score, reason = 55, f"open task ({status})"
         else:
             score, reason = 35, "task status or due date needs review"
-    elif category in {"projects", "goals"}:
+    elif category == "goals":
         if status in INACTIVE_RECORD_STATUSES:
             return None
         target = _date_value(metadata.get("target_completion"))
@@ -694,7 +694,7 @@ def self_test() -> None:
             "---\nstatus: done\npriority: high\ndue_date: 2026-01-02\n---\n# Completed task\n",
         )
         _write_test_record(
-            workspace / "projects" / "active.md",
+            workspace / "goals" / "active.md",
             '---\nstatus: "active" # current\n---\n# Website refresh\nReview the next milestone.\n',
         )
         _write_test_record(
@@ -767,7 +767,7 @@ def self_test() -> None:
                     "properties": {
                         "$schema": {"const": "./workspace.schema.json"},
                         "version": {"const": 1},
-                        "domains": {"type": "array", "minItems": 7},
+                        "domains": {"type": "array", "minItems": 6},
                     },
                     "required": ["$schema", "version", "domains"],
                     "additionalProperties": False,
@@ -779,7 +779,6 @@ def self_test() -> None:
         for root_name in (
             "inbox",
             "goals",
-            "projects",
             "knowledge",
             "tasks",
             "calendar",

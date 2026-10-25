@@ -38,7 +38,7 @@ python scripts/build_briefing.py --collect \
 ```
 
 The collector prints a compact, read-only source packet. Without a registry it
-uses the standard source domains: `calendar/`, `tasks/`, `projects/`, `goals/`,
+uses the standard source domains: `calendar/`, `tasks/`, `goals/`,
 `decisions/`, `monitors/`, `knowledge/claims/`, and `inbox/`. With a registry it
 uses only entries whose `include_in_briefing` is true, including registered
 extensions. It uses structured dates and statuses where available, includes

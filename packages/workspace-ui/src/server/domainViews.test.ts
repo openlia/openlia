@@ -4,9 +4,13 @@ import { resolve, join } from "node:path";
 import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import YAML from "yaml";
-import { validateOpenUIContent } from "./validator";
+import { validateOpenUIContent, validateProjectManifest } from "./validator";
 
 const features = resolve(import.meta.dir, "../../../../features");
+const workspaceTemplate = resolve(
+  import.meta.dir,
+  "../../../../workspace-template",
+);
 const domains = [
   "personal-finance",
   "travel",
@@ -16,10 +20,41 @@ const domains = [
   "decision-analysis",
 ];
 
+for (const baseDomain of ["tasks", "goals"]) {
+  test(`workspace-template/${baseDomain}: shipped project-manifest.toml and ui.openui pass server diagnostics`, () => {
+    const manifestPath = `${baseDomain}/project-manifest.toml`;
+    const uiPath = `${baseDomain}/ui.openui`;
+    const manifestResult = validateProjectManifest(
+      workspaceTemplate,
+      manifestPath,
+      readFileSync(join(workspaceTemplate, manifestPath), "utf8"),
+    );
+    expect(manifestResult.errors).toEqual([]);
+    const uiResult = validateOpenUIContent(
+      workspaceTemplate,
+      uiPath,
+      readFileSync(join(workspaceTemplate, uiPath), "utf8"),
+    );
+    expect(uiResult.errors).toEqual([]);
+  });
+}
+
 for (const domain of domains) {
   const root = join(features, domain, "workspace");
   const paths = readdirSync(root, { recursive: true }).map(String);
-  test(`${domain}: shipped OpenUI programs pass server diagnostics`, () => {
+  test(`${domain}: shipped project-manifest.toml and OpenUI programs pass server diagnostics`, () => {
+    const manifests = paths.filter((path) =>
+      path.endsWith("project-manifest.toml"),
+    );
+    expect(manifests.length).toBeGreaterThan(0);
+    for (const path of manifests) {
+      const result = validateProjectManifest(
+        root,
+        path,
+        readFileSync(join(root, path), "utf8"),
+      );
+      expect(result.errors).toEqual([]);
+    }
     const layouts = paths.filter((path) => path.endsWith(".openui"));
     expect(layouts.length).toBeGreaterThan(0);
     for (const path of layouts) {
@@ -76,19 +111,19 @@ test("specialized component diagnostics reject invalid property contracts", () =
   }
 });
 
-test("section and Kanban bindings are checked against the feature contract", () => {
+test("manifest queries and Kanban bindings are checked against the feature contract", () => {
   const root = join(features, "travel", "workspace");
   expect(
     validateOpenUIContent(
       root,
-      "travel/trip-record.openui",
-      'root = RecordSectionView("Missing section", "schedule")',
-    ).errors.some((error) => error.startsWith("contract(template)")),
+      "travel/ui.openui",
+      'root = MetricCard("Bad", @Query("missing_query"))',
+    ).errors.some((error) => error.startsWith("contract(manifest)")),
   ).toBe(true);
   expect(
     validateOpenUIContent(
       root,
-      "travel/trip-dashboard.openui",
+      "travel/ui.openui",
       'root = RecordKanban("missing_status")',
     ).errors.some((error) => error.startsWith("contract(schema)")),
   ).toBe(true);

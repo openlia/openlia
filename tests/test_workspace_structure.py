@@ -25,7 +25,7 @@ class WorkspaceStructureTests(unittest.TestCase):
     def tearDown(self):
         self.tempdir.cleanup()
 
-    def menu(self, folder="projects/daily-menu"):
+    def menu(self, folder="goals/daily-menu"):
         directory = self.workspace / folder
         directory.mkdir(parents=True)
         (directory / "menu-template.md").write_text("# Daily Menu\n\n## Lunch\n\n## Dinner\n")
@@ -36,28 +36,28 @@ class WorkspaceStructureTests(unittest.TestCase):
         self.menu()
         registry = self.workspace / "workspace.yaml"
         registry.write_text(registry.read_text() + (
-            "  - path: projects/daily-menu\n    kind: extension\n    label: Daily Menu\n"
+            "  - path: goals/daily-menu\n    kind: extension\n    label: Daily Menu\n"
             "    purpose: Family lunch and dinner plans.\n    lifecycle: Active until archived.\n"
-            "    template: projects/daily-menu/menu-template.md\n"
+            "    template: goals/daily-menu/menu-template.md\n"
         ))
         self.assertEqual(validator.validate_workspace(self.workspace), [])
 
     def test_template_boundary_does_not_disable_parent_contract(self):
         directory = self.menu()
-        (self.workspace / "projects/invalid.md").write_text("# Missing project metadata\n")
+        (self.workspace / "goals/invalid.md").write_text("# Missing goal metadata\n")
         errors = validator.validate_workspace(self.workspace)
-        self.assertTrue(any("projects/invalid.md" in error for error in errors))
+        self.assertTrue(any("goals/invalid.md" in error for error in errors))
         self.assertFalse(any("daily-menu" in error for error in errors))
         (directory / "2026-10-24.md").write_text("# Missing sections\n")
         self.assertTrue(any("2026-10-24.md" in error for error in validator.validate_workspace(self.workspace)))
 
     def test_organizational_ancestors_need_no_registration(self):
-        self.menu("projects/family/plans/daily-menu")
+        self.menu("goals/family/plans/daily-menu")
         registry = self.workspace / "workspace.yaml"
         registry.write_text(registry.read_text() + (
-            "  - path: projects/family/plans/daily-menu\n    kind: extension\n"
+            "  - path: goals/family/plans/daily-menu\n    kind: extension\n"
             "    label: Daily Menu\n    purpose: Family menus.\n    lifecycle: Until archived.\n"
-            "    template: projects/family/plans/daily-menu/menu-template.md\n"
+            "    template: goals/family/plans/daily-menu/menu-template.md\n"
         ))
         self.assertEqual(validator.validate_workspace(self.workspace), [])
 
@@ -68,7 +68,7 @@ class WorkspaceStructureTests(unittest.TestCase):
         self.assertTrue(any("missing.schema.json" in error for error in errors))
 
     def test_frontmatter_removal_in_supporting_folder_needs_no_template(self):
-        directory = self.workspace / "projects/daily-menu"
+        directory = self.workspace / "goals/daily-menu"
         directory.mkdir()
         record = directory / "2026-10-24.md"
         body = "# Daily Menu\n\n## Lunch\nRice\n\n## Dinner\nSoup\n"
@@ -85,9 +85,9 @@ class WorkspaceStructureTests(unittest.TestCase):
         (nested / "next-week.md").write_text("Free-form supporting text\n")
         registry = self.workspace / "workspace.yaml"
         registry.write_text(registry.read_text() + (
-            "  - path: projects/daily-menu/drafts\n    kind: extension\n    label: Drafts\n"
+            "  - path: goals/daily-menu/drafts\n    kind: extension\n    label: Drafts\n"
             "    purpose: Draft menus.\n    lifecycle: Until published.\n"
-            "    template: projects/daily-menu/menu-template.md\n"
+            "    template: goals/daily-menu/menu-template.md\n"
         ))
         self.assertEqual(validator.validate_workspace(self.workspace), [])
 
@@ -97,7 +97,7 @@ class WorkspaceStructureTests(unittest.TestCase):
         self.assertTrue(any("expected one workspace template" in error for error in validator.validate_workspace(self.workspace)))
 
     def test_explicit_record_schema_without_local_template(self):
-        directory = self.workspace / "projects/notes"
+        directory = self.workspace / "goals/notes"
         directory.mkdir()
         (directory / "note.schema.json").write_text('{"type":"object","required":["date"],"properties":{"date":{"type":"string"}}}')
         record = directory / "note.md"
@@ -117,7 +117,7 @@ class WorkspaceStructureTests(unittest.TestCase):
         self.assertTrue(any("missing required section" in error for error in validator.validate_workspace(self.workspace)))
 
     def test_explicit_record_schema_rejects_symlinks_and_remote_refs(self):
-        directory = self.workspace / "projects/notes"
+        directory = self.workspace / "goals/notes"
         directory.mkdir()
         schema = directory / "schema.json"
         schema.write_text('{"type":"object"}')
@@ -138,11 +138,27 @@ class WorkspaceStructureTests(unittest.TestCase):
         self.menu()
         registry = self.workspace / "workspace.yaml"
         registry.write_text(registry.read_text() + (
-            "  - path: projects/daily-menu\n    kind: extension\n    label: Daily Menu\n"
+            "  - path: goals/daily-menu\n    kind: extension\n    label: Daily Menu\n"
             "    purpose: Menus.\n    lifecycle: Until archived.\n    route: review\n"
         ))
         with self.assertRaisesRegex(ValueError, "needs tags"):
             validator.load_registry(self.workspace)
+
+    def test_project_manifest_and_openui_query_validation(self):
+        self.assertEqual(validator.validate_workspace(self.workspace), [])
+        tasks_ui = self.workspace / "tasks/ui.openui"
+        orig_ui = tasks_ui.read_text()
+        tasks_ui.write_text(orig_ui + '\nbad = MetricCard("Bad", @Query("nonexistent_query"))\n')
+        errors = validator.validate_workspace(self.workspace)
+        self.assertTrue(any("nonexistent_query" in error for error in errors))
+        tasks_ui.write_text(orig_ui)
+
+        tasks_manifest = self.workspace / "tasks/project-manifest.toml"
+        orig_manifest = tasks_manifest.read_text()
+        tasks_manifest.write_text(orig_manifest + '\n[data.queries.bad_q]\nop = "count"\nwhere = { unknown_field = "todo" }\n')
+        errors = validator.validate_workspace(self.workspace)
+        self.assertTrue(any("unknown_field" in error for error in errors))
+        tasks_manifest.write_text(orig_manifest)
 
 
 if __name__ == "__main__":

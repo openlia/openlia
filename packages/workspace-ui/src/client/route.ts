@@ -9,6 +9,7 @@ import {
 export type MainTab =
   | "chat"
   | "documents"
+  | "projects"
   | "skills"
   | "shares"
   | "ingestion"
@@ -21,6 +22,7 @@ export type MainTab =
 export interface WorkspaceRoute {
   tab?: MainTab | undefined;
   path?: string | undefined;
+  projectPath?: string | undefined;
   view?: WorkspaceView | undefined;
   filter?: string | undefined;
   scenario?: string | undefined;
@@ -31,12 +33,7 @@ export interface WorkspaceRoute {
   migrationId?: string | undefined;
 }
 
-const validViews: ReadonlySet<string> = new Set([
-  "edit",
-  "preview",
-  "info",
-  "visual",
-]);
+const validViews: ReadonlySet<string> = new Set(["edit", "preview", "info"]);
 
 function isValidView(value: string | null): value is WorkspaceView {
   return value !== null && validViews.has(value);
@@ -64,6 +61,7 @@ export function parseRoute(
 
   const pathname = url.pathname;
   let path: string | undefined;
+  let projectPath: string | undefined;
   let skill: string | undefined;
   let shareId: string | undefined;
   let tab: MainTab | undefined;
@@ -80,6 +78,9 @@ export function parseRoute(
     } else if (host === "workspace") {
       if (raw) path = safeDecodeURIComponent(raw);
       tab = "documents";
+    } else if (host === "project" || host === "projects" || host === "domain") {
+      if (raw) projectPath = safeDecodeURIComponent(raw).replace(/\/+$/, "");
+      tab = "projects";
     } else if (host === "skills") {
       if (raw) {
         const decoded = safeDecodeURIComponent(raw);
@@ -121,6 +122,13 @@ export function parseRoute(
       safeDecodeURIComponent(pathname.slice("/memory/".length)),
     );
     tab = "documents";
+  } else if (pathname.startsWith("/projects/")) {
+    const raw = pathname.slice("/projects/".length).replace(/\/+$/, "");
+    if (raw) projectPath = safeDecodeURIComponent(raw);
+    tab = "projects";
+  } else if (pathname === "/projects") {
+    projectPath = undefined;
+    tab = "projects";
   } else if (pathname.startsWith("/files/")) {
     const raw = pathname.slice("/files/".length);
     if (raw) path = safeDecodeURIComponent(raw);
@@ -175,6 +183,7 @@ export function parseRoute(
     tabParam === "skills" ||
     tabParam === "shares" ||
     tabParam === "documents" ||
+    tabParam === "projects" ||
     tabParam === "ingestion" ||
     tabParam === "git-activity" ||
     tabParam === "configuration" ||
@@ -183,6 +192,12 @@ export function parseRoute(
     tabParam === "migration"
   ) {
     tab = tabParam;
+  }
+
+  const projectParam = url.searchParams.get("project");
+  if (projectParam) {
+    projectPath = projectParam.trim().replace(/^\/+|\/+$/g, "");
+    tab = "projects";
   }
 
   const skillParam = url.searchParams.get("skill");
@@ -212,6 +227,10 @@ export function parseRoute(
     path = path.replace(/^\/+/, "");
   }
 
+  if (projectPath) {
+    projectPath = projectPath.replace(/^\/+|\/+$/g, "");
+  }
+
   const viewParam = url.searchParams.get("view");
   const view = isValidView(viewParam) ? viewParam : undefined;
 
@@ -227,6 +246,7 @@ export function parseRoute(
     ingestionId: ingestionId || undefined,
     migrationId: migrationId || undefined,
     path: path || undefined,
+    projectPath: projectPath || undefined,
     scenario,
     shareId: shareId || undefined,
     skill: skill || undefined,
@@ -244,6 +264,16 @@ export function buildRouteUrl(route: WorkspaceRoute): string {
     pathname = "/shares";
   } else if (route.tab === "chat") {
     pathname = "/chat";
+  } else if (route.tab === "projects" || route.projectPath) {
+    if (route.projectPath) {
+      const segments = route.projectPath
+        .replace(/^\/+|\/+$/g, "")
+        .split("/")
+        .map(encodeURIComponent);
+      pathname = `/projects/${segments.join("/")}`;
+    } else {
+      pathname = "/projects";
+    }
   } else if (route.tab === "usage") {
     pathname = "/usage";
   } else if (route.tab === "schedule") {

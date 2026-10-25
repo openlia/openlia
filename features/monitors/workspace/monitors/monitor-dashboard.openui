@@ -1,4 +1,0 @@
-hdr = DomainHeader("Monitors", "Active watches, thresholds, trigger rules, and check logs")
-watches = DomainCollection("monitors")
-tbl = RecordTable()
-root = Stack([hdr, watches, tbl])

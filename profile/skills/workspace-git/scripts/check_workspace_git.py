@@ -13,7 +13,7 @@ SAFE_PATH = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 DOMAIN_MESSAGES: dict[str, str] = {
     "tasks": "docs(tasks): update task records",
-    "projects": "docs(projects): update project initiatives",
+    "goals": "docs(goals): update goal records",
     "inbox": "docs(inbox): file intake records",
     "knowledge": "feat(knowledge): update research and claims",
     "reports": "docs(reports): archive generated reports",
@@ -76,7 +76,7 @@ def group_workspace_changes(paths: list[str]) -> list[dict[str, Any]]:
 
 
 def self_test() -> None:
-    assert is_safe_workspace_path("projects/example.md")
+    assert is_safe_workspace_path("goals/example.md")
     assert not is_safe_workspace_path(".env")
     assert not is_safe_workspace_path("people/../secret.md")
     assert not is_safe_workspace_path("logs/gateway.log")

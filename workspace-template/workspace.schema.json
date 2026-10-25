@@ -15,7 +15,7 @@
       "items": {
         "$ref": "#/$defs/domain"
       },
-      "minItems": 7
+      "minItems": 6
     }
   },
   "$defs": {
@@ -62,7 +62,7 @@
           "default": false
         },
         "briefing_category": {
-          "enum": ["calendar", "tasks", "projects", "goals", "decisions", "monitors", "claims", "finance", "inbox", "extension", null]
+          "enum": ["calendar", "tasks", "goals", "decisions", "monitors", "claims", "finance", "inbox", "extension", null]
         },
         "skills": {
           "type": "array",
@@ -110,7 +110,7 @@
             "properties": {
               "briefing_category": {
                 "type": "string",
-                "enum": ["calendar", "tasks", "projects", "goals", "decisions", "monitors", "claims", "finance", "inbox", "extension"]
+                "enum": ["calendar", "tasks", "goals", "decisions", "monitors", "claims", "finance", "inbox", "extension"]
               }
             }
           }

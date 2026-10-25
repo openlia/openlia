@@ -18,16 +18,22 @@ from openlia_link_rewriter import (
 def test_rewrite_workspace_links_with_origin():
     os.environ["OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN"] = "https://workspace.example.test"
     try:
-        sample = "[Roadmap](openlia://workspace/projects/roadmap.md)"
+        sample = "[Roadmap](openlia://workspace/goals/roadmap.md)"
         assert (
             rewrite_openlia_links(sample)
-            == "[Roadmap](https://workspace.example.test/files/projects/roadmap.md)"
+            == "[Roadmap](https://workspace.example.test/files/goals/roadmap.md)"
         )
 
-        sample_hash = "[Section](openlia://workspace/projects/plan.md#milestones)"
+        sample_project = "[Tasks Project](openlia://projects/tasks)"
+        assert (
+            rewrite_openlia_links(sample_project)
+            == "[Tasks Project](https://workspace.example.test/projects/tasks)"
+        )
+
+        sample_hash = "[Section](openlia://workspace/goals/plan.md#milestones)"
         assert (
             rewrite_openlia_links(sample_hash)
-            == "[Section](https://workspace.example.test/files/projects/plan.md#milestones)"
+            == "[Section](https://workspace.example.test/files/goals/plan.md#milestones)"
         )
 
         sample_encoded = "See openlia://workspace/calendar/2026-09-30%20sync.md."

@@ -905,7 +905,7 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 			return FeatureInstallResult{}, err
 		}
 		prof := NewProfileOperator(config)
-		if ! now.IsZero() {
+		if !now.IsZero() {
 			prof.Now = func() time.Time { return now.UTC() }
 		}
 		distVer, distSource := prof.distributionInfo()

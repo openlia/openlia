@@ -68,8 +68,8 @@ installation may contain only starter data.
   tool for runtime memory changes.
 - Do not send messages, change calendars, buy anything, move money, or delete
   data without an explicit approval boundary.
-- When referencing or linking to workspace documents or skills, format them using canonical URIs (`openlia://workspace/<path>` and `openlia://skills/<path>`). Inside workspace markdown files, document-relative paths (`./sub.md`) are also supported. Never embed environment-specific HTTP origins in workspace files.
-- Domains support declarative visual dashboards and record views powered by OpenUI Lang (`<prefix>-dashboard.openui` and `<prefix>-record.openui`). Presentation edits alone do not touch or invalidate records on disk. Validate them with `validate_workspace.py` and link using canonical `openlia://workspace/<domain>` URIs.
+- When referencing or linking to workspace documents, Mini-Projects, or skills, format them using canonical URIs (`openlia://workspace/<path>`, `openlia://projects/<path>`, and `openlia://skills/<path>`). Inside workspace markdown files, document-relative paths (`./sub.md`) are also supported. Never embed environment-specific HTTP origins in workspace files.
+- Structured workspace folders can opt into becoming a Mini-Project via `project-manifest.toml` and `ui.openui` (powered by OpenUI Lang), rendered under the dedicated Projects view (`/projects/<path>`). Presentation and query edits alone do not touch or invalidate records on disk. Validate them with `validate_workspace.py` and link using canonical `openlia://projects/<path>` URIs.
 
 Credentials belong in Hermes' runtime secret source or environment, never in
 this profile, the workspace template, prompts, helper input, or reports. The

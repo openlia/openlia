@@ -7,6 +7,7 @@ import argparse
 import json
 import re
 import sys
+import tomllib
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -437,11 +438,122 @@ def validate_workspace_policy(workspace_root: Path) -> tuple[list[str], set[Path
     return [], referenced
 
 
+PROJECT_MANIFEST_FILENAME = "project-manifest.toml"
+BUILTIN_RECORD_FIELDS = {"title", "path"}
+
+
+def validate_project_manifest(
+    path: Path,
+    root: Path,
+    schema: dict[str, Any] | None = None,
+) -> tuple[list[str], dict[str, Any] | None]:
+    """Validate project-manifest.toml syntax, required sections, and local file references."""
+    relative = _relative(path, root)
+    if path.is_symlink():
+        return [f"{relative}: symbolic links are not validated"], None
+    try:
+        raw = path.read_text(encoding="utf-8")
+        data = tomllib.loads(raw)
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
+        return [f"{relative}: invalid TOML: {exc}"], None
+
+    errors: list[str] = []
+    project = data.get("project")
+    if not isinstance(project, dict):
+        errors.append(f"{relative}: missing required [project] section")
+    else:
+        id_val = project.get("id")
+        if not isinstance(id_val, str) or not id_val.strip():
+            errors.append(f"{relative}: [project].id must be a non-empty string")
+        name_val = project.get("name") or project.get("title")
+        if not isinstance(name_val, str) or not name_val.strip():
+            errors.append(f"{relative}: [project].name must be a non-empty string")
+        desc_val = project.get("description")
+        if desc_val is not None and (not isinstance(desc_val, str) or not desc_val.strip()):
+            errors.append(f"{relative}: [project].description must be a non-empty string")
+
+    data_sec = data.get("data")
+    if data_sec is not None:
+        if not isinstance(data_sec, dict):
+            errors.append(f"{relative}: [data] must be a table")
+        else:
+            for ref_field in ("template", "schema"):
+                ref_val = data_sec.get(ref_field)
+                if ref_val is not None:
+                    if not isinstance(ref_val, str) or not ref_val.strip():
+                        errors.append(f"{relative}: [data].{ref_field} must be a non-empty string")
+                    else:
+                        ref_path = path.parent / ref_val
+                        if ref_path.is_symlink() or not ref_path.is_file():
+                            errors.append(
+                                f"{relative}: [data].{ref_field} '{ref_val}' does not exist in '{_relative(path.parent, root)}'"
+                            )
+            queries = data_sec.get("queries")
+            if queries is not None:
+                if not isinstance(queries, dict):
+                    errors.append(f"{relative}: [data.queries] must be a table")
+                else:
+                    props = (schema or {}).get("properties", {})
+                    valid_ops = {
+                        "count_by",
+                        "count",
+                        "group_count",
+                        "sum_by",
+                        "sum",
+                        "filter_records",
+                        "filter",
+                        "records",
+                    }
+                    for q_key, q_val in queries.items():
+                        if not isinstance(q_val, dict):
+                            errors.append(f"{relative}: [data.queries.{q_key}] must be a table")
+                            continue
+                        op = q_val.get("op") or q_val.get("type")
+                        if op not in valid_ops:
+                            errors.append(
+                                f"{relative}: [data.queries.{q_key}].op must be one of {sorted(valid_ops)}"
+                            )
+                        field = q_val.get("field")
+                        where = q_val.get("where")
+                        if field is not None:
+                            if not isinstance(field, str) or not field.strip():
+                                errors.append(f"{relative}: [data.queries.{q_key}].field must be a non-empty string")
+                            elif props and field not in props and field not in BUILTIN_RECORD_FIELDS:
+                                errors.append(
+                                    f"{relative}: [data.queries.{q_key}] references field '{field}' not found in local schema properties"
+                                )
+                        elif not isinstance(where, dict) and op not in {"count", "filter", "records"}:
+                            errors.append(f"{relative}: [data.queries.{q_key}].field must be a non-empty string")
+                        if isinstance(where, dict) and props:
+                            for w_field in where:
+                                if w_field not in props and w_field not in BUILTIN_RECORD_FIELDS:
+                                    errors.append(
+                                        f"{relative}: [data.queries.{q_key}].where references field '{w_field}' not found in local schema properties"
+                                    )
+
+    ui_sec = data.get("ui")
+    if not isinstance(ui_sec, dict):
+        errors.append(f"{relative}: missing required [ui] section")
+    else:
+        entry = ui_sec.get("entry")
+        if not isinstance(entry, str) or not entry.strip():
+            errors.append(f"{relative}: [ui].entry must be a non-empty string")
+        else:
+            entry_path = path.parent / entry
+            if entry_path.is_symlink() or not entry_path.is_file():
+                errors.append(
+                    f"{relative}: [ui].entry '{entry}' does not exist in '{_relative(path.parent, root)}'"
+                )
+
+    return errors, data
+
+
 def validate_openui_file(
     path: Path,
     root: Path,
     schema: dict[str, Any] | None = None,
     template_path: Path | None = None,
+    manifest: dict[str, Any] | None = None,
 ) -> list[str]:
     """Validate .openui file syntax, entry point, and cross-contract consistency."""
     relative = _relative(path, root)
@@ -466,34 +578,41 @@ def validate_openui_file(
     if not has_root:
         errors.append(f"{relative}: OpenUI file missing required 'root = ...' statement")
 
-    # If template_path is provided, check referenced sections
-    if template_path and template_path.is_file():
-        try:
-            template_headings = [
-                h.strip().lower()
-                for _, h in extract_headings(template_path.read_text(encoding="utf-8"))
-            ]
-            for match in re.finditer(
-                r'(?:ChecklistSection|MarkdownSectionCard)\s*\(\s*["\']([^"\']+)["\']',
-                content,
-            ):
-                ref_heading = match.group(1).strip().lower()
-                if ref_heading not in template_headings:
-                    errors.append(
-                        f"{relative}: references heading '{match.group(1)}' not found in local template '{_relative(template_path, root)}'"
-                    )
-        except Exception:
-            pass
-
-    # If schema is provided, check referenced properties in RecordKanban
+    # If schema is provided, check referenced properties in RecordKanban, RecordTable, and @functions
     if schema and "properties" in schema:
         props = schema["properties"]
         for match in re.finditer(r'RecordKanban\s*\(\s*["\']([^"\']+)["\']', content):
             ref_prop = match.group(1).strip()
-            if ref_prop not in props:
+            if ref_prop not in props and ref_prop not in BUILTIN_RECORD_FIELDS:
                 errors.append(
                     f"{relative}: references property '{ref_prop}' not found in local schema properties"
                 )
+        for match in re.finditer(
+            r'@(?:CountBy|GroupCount|FilterRecords|SumBy)\s*\(\s*["\']([^"\']+)["\']',
+            content,
+        ):
+            ref_prop = match.group(1).strip()
+            if ref_prop not in props and ref_prop not in BUILTIN_RECORD_FIELDS:
+                errors.append(
+                    f"{relative}: references field '{ref_prop}' not found in local schema properties"
+                )
+        for match in re.finditer(r'RecordTable\s*\(\s*\[([^\]]*)\]', content):
+            cols = re.findall(r'["\']([^"\']+)["\']', match.group(1))
+            for col in cols:
+                if col not in props and col not in BUILTIN_RECORD_FIELDS:
+                    errors.append(
+                        f"{relative}: RecordTable column '{col}' not found in local schema properties"
+                    )
+
+    if manifest and isinstance(manifest.get("data"), dict):
+        queries = manifest["data"].get("queries")
+        if isinstance(queries, dict):
+            for match in re.finditer(r'@Query\s*\(\s*["\']([^"\']+)["\']', content):
+                q_key = match.group(1).strip()
+                if q_key not in queries:
+                    errors.append(
+                        f"{relative}: @Query('{q_key}') is not defined in project-manifest.toml [data.queries]"
+                    )
 
     return errors
 
@@ -578,13 +697,31 @@ def validate_workspace(workspace_root: Path) -> list[str]:
     schema_paths = sorted(root.rglob("*.schema.json"))
     errors.extend(_validate_unreferenced_schemas(schema_paths, referenced_schemas, root))
 
+    manifests_by_domain: dict[Path, dict[str, Any]] = {}
+    for manifest_path in sorted(root.rglob(PROJECT_MANIFEST_FILENAME)):
+        domain = manifest_path.parent
+        domain_templates = templates_by_domain.get(domain, [])
+        local_template = domain_templates[0] if len(domain_templates) == 1 else None
+        local_schema = schemas_by_template.get(local_template) if local_template else None
+        manifest_errors, parsed_manifest = validate_project_manifest(
+            manifest_path, root, local_schema
+        )
+        errors.extend(manifest_errors)
+        if parsed_manifest is not None:
+            manifests_by_domain[domain] = parsed_manifest
+
     openui_files = sorted(root.rglob("*.openui"))
     for openui_path in openui_files:
         domain = openui_path.parent
         domain_templates = templates_by_domain.get(domain, [])
         local_template = domain_templates[0] if len(domain_templates) == 1 else None
         local_schema = schemas_by_template.get(local_template) if local_template else None
-        errors.extend(validate_openui_file(openui_path, root, local_schema, local_template))
+        local_manifest = manifests_by_domain.get(domain)
+        errors.extend(
+            validate_openui_file(
+                openui_path, root, local_schema, local_template, local_manifest
+            )
+        )
 
     return sorted(set(errors))
 
@@ -791,7 +928,6 @@ def self_test() -> None:
         core_roots = (
             "inbox",
             "goals",
-            "projects",
             "knowledge",
             "tasks",
             "calendar",

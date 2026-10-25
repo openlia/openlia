@@ -1,3 +1,0 @@
-hdr = DomainHeader("Areas", "Long-term spheres of life, responsibility, and standards")
-tbl = RecordTable()
-root = Stack([hdr, tbl])

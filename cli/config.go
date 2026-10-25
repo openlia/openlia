@@ -46,7 +46,6 @@ var defaultSkills = []string{
 	"document-intelligence",
 	"daily-briefing",
 	"weekly-review",
-	"project-review",
 	"calendar",
 	"workspace-git",
 	"workspace-organize",

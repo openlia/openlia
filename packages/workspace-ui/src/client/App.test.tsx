@@ -1203,6 +1203,7 @@ messages:
     ).toEqual([
       "Chat",
       "Documents",
+      "Projects",
       "Calendar",
       "Ingestion",
       "Skills",

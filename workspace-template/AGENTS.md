@@ -12,7 +12,7 @@ user-owned delegation policy authorizes the scoped update.
   scheduled action, or external action is authorized. It is user-owned and
   controls delegation; a missing policy means use ask-before-write behavior.
 - Use `inbox/` as the universal intake point when classification is uncertain.
-- Keep goals, areas, projects, tasks, and resources distinct.
+- Keep goals, areas, tasks, and resources distinct.
 - Record important reasoning in `decisions/` instead of leaving it only in chat.
 - Store reusable personal claims in `knowledge/claims/` with their source,
   provenance, temporal scope, kind, and status, following
@@ -33,8 +33,7 @@ user-owned delegation policy authorizes the scoped update.
   replace the entire file. Removing optional frontmatter is an ordinary content
   edit, not file deletion. Preserve all unrelated content and validate afterward.
   - **Base Starter Templates**:
-    - `goals/goal-template.md`: high-level outcomes, rationale, and linked projects.
-    - `projects/project-template.md`: bounded initiatives with milestones and tasks.
+    - `goals/goal-template.md`: high-level outcomes, rationale, and linked tasks.
     - `tasks/task-template.md`: concrete physical actions with priorities and context tags.
     - `calendar/event-note-template.md`: event agendas, notes, and follow-up items.
     - `knowledge/claims/claim-template.md`: starter format for durable
@@ -66,10 +65,10 @@ user-owned delegation policy authorizes the scoped update.
   updated Markdown record directly in that folder must conform to the referenced schema
   as well as the starter template. Run the `workspace-template-customization`
   validator on demand after template, schema, or record changes.
-- **Domain UI Customization (`.openui`)**:
-  - Domains support declarative visual dashboards (`<prefix>-dashboard.openui`) and record visual views (`<prefix>-record.openui`) powered by OpenUI Lang.
-  - Modifying `.openui` files alters the presentation layer without touching or invalidating records on disk.
-  - After updating a domain's UI, validate with `validate_workspace.py` and reply with canonical links (e.g. `openlia://workspace/<domain>`).
+- **Mini-Projects (`project-manifest.toml` + `ui.openui`)**:
+  - Structured folders can opt into becoming a Mini-Project by defining `project-manifest.toml` and `ui.openui` (powered by OpenUI Lang), rendered in the dedicated **Projects** view (`/projects/<path>`).
+  - Modifying `project-manifest.toml` queries or `ui.openui` alters the presentation layer without touching or invalidating Markdown records on disk.
+  - After updating a Mini-Project's UI, validate with `validate_workspace.py` and reply with canonical links (e.g. `openlia://projects/<path>`).
 - Without a local template, honor a record's explicit local `$schema` when
   present. A record directive cannot override a local template's contract.
 - Authorization and validation are separate: report invalid content accurately,
@@ -120,6 +119,7 @@ user-owned delegation policy authorizes the scoped update.
 When referencing or providing links to workspace documents, notes, or skills in user-facing responses or workspace records:
 - Format links using canonical `openlia://` URIs:
   - Workspace documents: `[Label](openlia://workspace/<path>)` (e.g. `[Career Goal](openlia://workspace/goals/career.md)`).
+  - Mini-Projects: `[Label](openlia://projects/<path>)` (e.g. `[Tasks Project](openlia://projects/tasks)`).
   - Skills: `[Label](openlia://skills/<skill-id>)` (e.g. `[Inbox Triage](openlia://skills/inbox-triage)`).
   - Inside workspace markdown files, document-relative links (e.g. `[Specs](./specs.md)`) are also supported.
 - Never embed environment-specific HTTP origins or hostnames into workspace records.

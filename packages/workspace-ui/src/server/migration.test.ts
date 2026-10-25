@@ -363,14 +363,14 @@ describe("MigrationService & endpoints", () => {
   });
 
   test("createTemplateFixMigration strips unrecognized frontmatter when additionalProperties is false and coerces invalid enum values", () => {
-    const projectsDir = join(workspaceDir, "projects");
-    mkdirSync(projectsDir, { recursive: true });
+    const goalsDir = join(workspaceDir, "goals");
+    mkdirSync(goalsDir, { recursive: true });
     writeFileSync(
-      join(projectsDir, "project-template.md"),
-      "---\n$schema: ./project-template.schema.json\nstatus: null\ntarget_completion: null\n---\n# <Project Title>\n\n## Objective\nOutcome\n",
+      join(goalsDir, "goal-template.md"),
+      "---\n$schema: ./goal-template.schema.json\nstatus: null\ntarget_completion: null\n---\n# <Goal Title>\n\n## Objective\nOutcome\n",
     );
     writeFileSync(
-      join(projectsDir, "project-template.schema.json"),
+      join(goalsDir, "goal-template.schema.json"),
       JSON.stringify({
         $schema: "https://json-schema.org/draft/2020-12/schema",
         type: "object",
@@ -387,7 +387,7 @@ describe("MigrationService & endpoints", () => {
     );
 
     writeFileSync(
-      join(projectsDir, "menu-note.md"),
+      join(goalsDir, "menu-note.md"),
       "---\nmenu_date: 2026-10-24\nstatus: draft\n---\n# Family Menu\n\nMenu details\n",
     );
 
@@ -396,7 +396,7 @@ describe("MigrationService & endpoints", () => {
       migrationsRoot: migrationsDir,
     });
 
-    const result = service.createTemplateFixMigration("projects/menu-note.md");
+    const result = service.createTemplateFixMigration("goals/menu-note.md");
     const detail = service.detail(result.migration_id);
     expect(detail.active_diff).toContain("-menu_date: 2026-10-24");
     expect(detail.active_diff).toContain("-status: draft");

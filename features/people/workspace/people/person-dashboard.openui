@@ -1,4 +1,0 @@
-hdr = DomainHeader("People", "Network, relationships, and touchpoints")
-tbl = RecordTable()
-directory = DomainCollection("people")
-root = Stack([hdr, directory, tbl])

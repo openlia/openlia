@@ -47,6 +47,8 @@ import type {
   WorkspaceFixTemplateResponse,
   WorkspaceGitStatus,
   WorkspaceMoveResponse,
+  WorkspaceProjectResponse,
+  WorkspaceProjectsResponse,
   WorkspaceRenameResponse,
   WorkspaceSettings,
   WorkspaceSystemInfo,
@@ -131,6 +133,8 @@ export interface WorkspaceApi {
   loadDomainOverview(
     domainPath: string,
   ): Promise<WorkspaceDomainRecordsResponse>;
+  loadProjects(): Promise<WorkspaceProjectsResponse>;
+  loadProject(projectPath: string): Promise<WorkspaceProjectResponse>;
   createFile(domain: string, name: string): Promise<WorkspaceFile>;
   fixTemplateIssues(
     path: string,
@@ -646,6 +650,25 @@ function isWorkspaceDomainsResponse(
   );
 }
 
+function isWorkspaceProjectsResponse(
+  value: unknown,
+): value is WorkspaceProjectsResponse {
+  return isObject(value) && value.schema === 1 && Array.isArray(value.projects);
+}
+
+function isWorkspaceProjectResponse(
+  value: unknown,
+): value is WorkspaceProjectResponse {
+  return (
+    isObject(value) &&
+    value.schema === 1 &&
+    isObject(value.project) &&
+    isObject(value.manifest) &&
+    typeof value.ui_content === "string" &&
+    Array.isArray(value.records)
+  );
+}
+
 function isSkillsListResponse(value: unknown): value is SkillsListResponse {
   return (
     isObject(value) &&
@@ -847,6 +870,16 @@ export const httpWorkspaceApi: WorkspaceApi = {
     requestJson<WorkspaceDomainRecordsResponse>(
       `/api/workspace/domain-overview?${new URLSearchParams({ path: domainPath })}`,
       isWorkspaceDomainRecordsResponse,
+    ),
+  loadProjects: () =>
+    requestJson<WorkspaceProjectsResponse>(
+      "/api/workspace/projects",
+      isWorkspaceProjectsResponse,
+    ),
+  loadProject: (projectPath) =>
+    requestJson<WorkspaceProjectResponse>(
+      `/api/workspace/project?${new URLSearchParams({ path: projectPath })}`,
+      isWorkspaceProjectResponse,
     ),
   createFile: (domain, name) =>
     requestJson<WorkspaceFile>("/api/workspace/create-file", isWorkspaceFile, {

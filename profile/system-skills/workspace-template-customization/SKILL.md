@@ -51,7 +51,7 @@ other skills, or existing records without explicit approval.
 - Workspace copies are user-owned. OpenLia seeds missing files and preserves
   existing files during profile updates.
 - A missing registry is supported for older workspaces; registry-aware skills
-  then fall back to the 15 default domains. A malformed registry must fail
+  then fall back to the 14 default domains. A malformed registry must fail
   closed for automatic routing and be reported for repair.
 
 ## Validation
@@ -116,7 +116,7 @@ instructions.
 ### Example: Daily Menu
 
 For a recurring family meal-planning request with the destination
-`projects/daily-menu/YYYY-MM-DD.md`, recommend a Daily Menu extension there with
+`areas/daily-menu/YYYY-MM-DD.md`, recommend a Daily Menu extension there with
 `menu-template.md` and the requested dated file. A suitable plain template has
 sections for lunch, dinner, individual portions, shopping quantities, estimated
 cost, and relevant constraints. Do not fabricate medical facts or promise
@@ -131,20 +131,28 @@ When the user edits templates or schemas through Workspace UI, validation is
 available on demand using the command above. Never overwrite a workspace
 customization with the bundled default.
 
-## Domain UI Customization with OpenUI
+## Mini-Projects (`project-manifest.toml` + `ui.openui`)
 
-Each workspace domain can define a declarative Domain Dashboard (`<prefix>-dashboard.openui`) and a Record Visual View (`<prefix>-record.openui`) using OpenUI Lang (`thesysdev/openui`).
+Select workspace folders can opt into becoming a **Mini-Project** by adding `project-manifest.toml` and `ui.openui`. Mini-Projects connect four layers in one self-contained directory and render under the dedicated **Projects** view (`/projects/<path>`):
+
+1. **Project Metadata (`[project]`)**: `id`, `title`, `description`, `icon`, `version`.
+2. **Data Contract (`[data]`)**: `records_glob`, `template`, `schema`, `primary_status_field`, `default_sort`, and named server-evaluated queries (`[data.queries.<name>]`).
+3. **UI Presentation (`[ui]`)**: `entry = "ui.openui"`, written in OpenUI Lang (`thesysdev/openui`).
+4. **Logic & Skills (`[logic]`)**: `skills`, `mutations.status_field`, `mutations.editable_fields`, and `[[logic.prompts]]` quick actions for Hermes.
 
 ### Guidelines for Hermes & Chat Agents:
-1. **Presentation Customization**:
-   - When the user asks to modify a domain's layout, cards, kanban grouping, or charts, update `<domain>/<prefix>-dashboard.openui` or `<domain>/<prefix>-record.openui`.
-   - Modifying `.openui` files alone is a pure presentation update and NEVER invalidates records on disk.
-2. **Contract Safety with Schemas & Templates**:
-   - Refer to `references/openui-spec.md` for full component and DSL documentation.
-   - Referenced frontmatter properties (e.g. in `RecordKanban` or `FrontmatterEditorCard`) must be present in `*.schema.json`.
-   - Referenced Markdown headings (in `ChecklistSection` or `MarkdownSectionCard`) must be present in `*-template.md`.
+1. **When NOT to Create a Mini-Project UI**:
+   - Do **not** add `project-manifest.toml` or `ui.openui` to unstructured notes, inbox captures, daily briefings, plain knowledge docs, or low-volume sub-folders. Keep those as fast, clean Markdown in the **Documents** view.
+   - Only create or enable a Mini-Project when the folder holds structured, recurring records with frontmatter status/metrics where visual aggregation (Kanban, KPI metrics, charts, comparison tables, or hledger overview) provides clear value.
+2. **Presentation & Query Customization**:
+   - When the user asks to improve a Mini-Project's UI (e.g., via **"Improve UI with Lia"**), inspect `<folder>/project-manifest.toml`, `<folder>/ui.openui`, `<folder>/*-template.md`, and `<folder>/*.schema.json`.
+   - Prefer adding or updating server-evaluated queries under `[data.queries.<name>]` in `project-manifest.toml` and referencing them via `@Query("<name>")` in `ui.openui`.
+   - Modifying `project-manifest.toml` queries or `ui.openui` alone is a pure presentation update and NEVER invalidates Markdown records on disk.
+3. **Contract Safety with Schemas & Templates**:
+   - Refer to `references/openui-spec.md` for full manifest, component, and DSL documentation.
+   - Referenced frontmatter properties (in `[data]`, `[data.queries]`, `[logic.mutations]`, `RecordKanban`, `RecordTable`, `@CountBy`, `@GroupCount`, `@FilterRecords`, `@SumBy`) must be present in `*.schema.json`.
    - When adding new frontmatter fields, keep them optional/nullable in `*.schema.json` unless the user explicitly requests a required field, ensuring existing records remain 100% valid.
-3. **Chat Response & Linking**:
-   - After updating or creating a domain's UI and validating with `validate_workspace.py`, reply with a canonical Workspace UI link:
-     - For domain dashboards: `[Tasks Dashboard](openlia://workspace/tasks)`
-     - For visual records: `[Record Visual View](openlia://workspace/tasks/task-1.md?view=visual)`
+4. **Chat Response & Linking**:
+   - After updating or creating a Mini-Project and validating with `validate_workspace.py`, reply with a canonical Workspace UI link:
+     - For Mini-Projects: `[Tasks Project](openlia://projects/tasks)`
+     - For Markdown documents: `[Task Record](openlia://workspace/tasks/task-1.md)`

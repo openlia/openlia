@@ -577,7 +577,6 @@ def run(mode: str, args: argparse.Namespace) -> list[dict[str, Any]]:
             "inbox-triage",
             "daily-briefing",
             "weekly-review",
-            "project-review",
             "decision-analysis",
             "deep-research",
             "personal-finance",

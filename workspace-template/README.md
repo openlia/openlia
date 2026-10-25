@@ -27,7 +27,6 @@ Every workspace starts with the **Lean Productivity Base** (`workspace.yaml`):
 - `sources/`: retained originals, source records, immutable extraction artifacts,
   and evidence manifests created by durable ingestion (`sources/records/source-template.md`).
 - `goals/`: outcomes and the reason they matter (`goal-template.md`).
-- `projects/`: bounded outcomes with milestones, tasks, risks, and decisions (`project-template.md`).
 - `knowledge/`: durable notes, references, and research.
 - `knowledge/claims/`: reusable personal claim records with structured evidence,
   provenance, temporal metadata, and status (`knowledge/claims/claim-template.md`).
@@ -67,8 +66,8 @@ path from that template (for example, `goals/goal-template.md` can use
 `$schema: ./goal-template.schema.json`). The referenced schema must remain
 inside the workspace root. That schema applies only to non-template Markdown
 files directly in the same directory, never subdirectories. Without a local
-template, Markdown is free-form: a daily menu under `projects/daily-menu/`
-does not inherit the project contract or require its own template. A plain
+template, Markdown is free-form: a daily menu under `areas/daily-menu/`
+does not inherit an ancestor contract or require its own template. A plain
 Markdown template makes frontmatter optional but requires its section headings.
 A record's explicit local `$schema` is honored when there is no local template.
 Only one `*-template.md` is allowed per folder; invalid contracts are errors,
@@ -133,7 +132,7 @@ review or output. Scheduled work uses the same policy and must not exceed its
 ## Working rules
 
 Capture first in `inbox/` when the final category is unclear. Link actions to a
-project or goal when that context is known. Prefer small Markdown files with
+goal when that context is known. Prefer small Markdown files with
 clear dates and titles over opaque databases. Use `knowledge/claims/` for
 reusable personal statements in Markdown files with YAML front matter, and
 distinguish direct reports from observations and inferences. Move inactive
@@ -162,7 +161,7 @@ than editing infrastructure. When a recurring use case needs reusable structure:
    changes, destructive actions, or external effects. Revise and reapprove if
    the scope changes; do not rewrite existing records as an incidental migration.
 
-For example, propose `projects/daily-menu/` with a reusable menu template and
+For example, propose `areas/daily-menu/` with a reusable menu template and
 the requested dated menu together. One confirmation creates the useful
 structure **and** the menu, not just scaffolding. A schema is not required.
 

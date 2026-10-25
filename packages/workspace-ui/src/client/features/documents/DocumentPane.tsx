@@ -6,31 +6,24 @@ import type {
   WorkspaceFile,
   WorkspaceFileMetadata,
 } from "../../../shared/api";
-import type { WorkspaceApi } from "../../api";
 import { ActivitySection } from "../../ActivitySection";
 import {
   CodeEditor,
   isJournalPath,
   isMarkdownPath,
-  isOpenUIPath,
   isRemindPath,
 } from "../../CodeEditor";
 import { JournalPreviewPane } from "../../journal/JournalPreviewPane";
 import { CalendarPreviewPane } from "../../calendar/CalendarPreviewPane";
 import { MarkdownPreview } from "../../components/editor/MarkdownPreview";
 import { CopyLinkButton } from "../../components/common/CopyLinkButton";
-import { DomainDashboardPane } from "../../openui/DomainDashboardPane";
-import { RecordOpenUIPane } from "../../openui/RecordOpenUIPane";
-import { OpenUIDiagnostics } from "../../openui/OpenUIDiagnostics";
-import { openliaLibrary } from "../../openui/library";
-import { Renderer } from "@openuidev/react-lang";
 import { DocumentInspector } from "./DocumentInspector";
 import {
   buildCanonicalWorkspaceUri,
   buildWorkspaceLink,
 } from "../../openliaLinks";
 
-export type WorkspaceView = "edit" | "preview" | "info" | "visual";
+export type WorkspaceView = "edit" | "preview" | "info";
 
 function ModeButton({
   active,
@@ -358,10 +351,6 @@ export function DocumentPane({
   onFixTemplate,
   fixingTemplate,
   onShare,
-  api,
-  selectedDomain,
-  onCreateFile,
-  onSaveRecordContent,
 }: {
   conflict: string;
   detailsOpen?: boolean;
@@ -412,12 +401,6 @@ export function DocumentPane({
   onFixTemplate?: (() => void) | undefined;
   fixingTemplate?: boolean | undefined;
   onShare?: (() => void) | undefined;
-  api?: WorkspaceApi | undefined;
-  selectedDomain?: string | null | undefined;
-  onCreateFile?: ((domain?: string) => void) | undefined;
-  onSaveRecordContent?:
-    | ((newContent: string) => Promise<void> | void)
-    | undefined;
 }) {
   const dirty = file !== null && file.content !== draft;
   const canEdit = Boolean(file?.editable);
@@ -425,7 +408,6 @@ export function DocumentPane({
   const isMarkdown = file !== null && isMarkdownPath(file.path);
   const isJournal = file !== null && isJournalPath(file.path);
   const isRemind = file !== null && isRemindPath(file.path);
-  const isOpenUI = file !== null && isOpenUIPath(file.path);
 
   return (
     <section aria-label="Document workspace" className="workspace-document">
@@ -465,35 +447,11 @@ export function DocumentPane({
               {isMarkdown ? (
                 <>
                   <ModeButton
-                    active={view === "visual"}
-                    onClick={() => onViewChange("visual")}
-                    value="visual"
-                  >
-                    Visual
-                  </ModeButton>
-                  <ModeButton
                     active={view === "preview"}
                     onClick={() => onViewChange("preview")}
                     value="preview"
                   >
                     Preview
-                  </ModeButton>
-                  <ModeButton
-                    active={view === "edit"}
-                    onClick={() => onViewChange("edit")}
-                    value="edit"
-                  >
-                    Edit
-                  </ModeButton>
-                </>
-              ) : isOpenUI ? (
-                <>
-                  <ModeButton
-                    active={view === "preview" || view === "visual"}
-                    onClick={() => onViewChange("preview")}
-                    value="preview"
-                  >
-                    Visual
                   </ModeButton>
                   <ModeButton
                     active={view === "edit"}
@@ -807,9 +765,6 @@ export function DocumentPane({
               </div>
             </div>
           )}
-          {file.path.toLowerCase().endsWith(".openui") && (
-            <OpenUIDiagnostics content={draft} />
-          )}
           {file.validation && !file.validation.valid && (
             <div
               className="alert alert-warning rounded-none py-1.5 px-3 text-xs flex items-start gap-2 shrink-0"
@@ -925,22 +880,6 @@ export function DocumentPane({
                 onDraftChange={onDraftChange}
               />
             )
-          ) : isOpenUI ? (
-            view === "edit" ? (
-              <EditorPane
-                draft={draft}
-                file={file}
-                fileLoading={fileLoading}
-                onDraftChange={onDraftChange}
-              />
-            ) : (
-              <section
-                aria-label="OpenUI Preview"
-                className="workspace-preview-pane p-4 overflow-auto"
-              >
-                <Renderer library={openliaLibrary} response={draft} />
-              </section>
-            )
           ) : !isMarkdown ? (
             <EditorPane
               draft={draft}
@@ -948,24 +887,6 @@ export function DocumentPane({
               fileLoading={fileLoading}
               onDraftChange={onDraftChange}
             />
-          ) : view === "visual" && api ? (
-            <section
-              aria-label="Visual record view"
-              className="workspace-preview-pane overflow-auto"
-            >
-              <RecordOpenUIPane
-                api={api}
-                content={draft}
-                onOpenFile={onOpenFile ?? (() => {})}
-                onSaveContent={
-                  onSaveRecordContent ??
-                  (async (next) => {
-                    onDraftChange(next);
-                  })
-                }
-                path={file.path}
-              />
-            </section>
           ) : view === "edit" ? (
             <EditorPane
               draft={draft}
@@ -998,15 +919,6 @@ export function DocumentPane({
               </button>
             </div>
           </div>
-        </div>
-      ) : selectedDomain && api ? (
-        <div className="workspace-preview-pane min-h-0 flex-1 overflow-auto">
-          <DomainDashboardPane
-            api={api}
-            domainPath={selectedDomain}
-            onCreateFile={onCreateFile}
-            onOpenFile={onOpenFile ?? (() => {})}
-          />
         </div>
       ) : (
         <ActivitySection

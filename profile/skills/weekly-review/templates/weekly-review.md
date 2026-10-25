@@ -10,7 +10,7 @@ Week: YYYY-Www
 
 -
 
-## Active Projects
+## Active Goals
 
 -
 

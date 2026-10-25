@@ -1,7 +1,0 @@
-hdr = RecordHeaderCard()
-props = FrontmatterEditorCard()
-obj = MarkdownSectionCard("Objective")
-links = MarkdownSectionCard("Linked Areas & Projects")
-krs = ChecklistSection("Key Results & Milestones")
-actions = ChecklistSection("Current Focus & Next Actions")
-root = Stack([hdr, props, obj, links, krs, actions])

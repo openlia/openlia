@@ -62,7 +62,8 @@ synchronize workspace history over the network.
    git status --porcelain | awk '{print $2}' | python /opt/data/skills/workspace-git/scripts/check_workspace_git.py --plan
    ```
    Or group files logically by directory:
-   - `tasks/` & `projects/` -> `docs(tasks): update task records`
+   - `tasks/` -> `docs(tasks): update task records`
+   - `goals/` -> `docs(goals): update goal records`
    - `inbox/` -> `docs(inbox): file intake records`
     - `knowledge/` -> `feat(knowledge): update research and claims`
     - `sources/` -> `docs(sources): update retained source artifacts`
