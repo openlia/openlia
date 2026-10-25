@@ -268,7 +268,11 @@ export function MigrationSection({
                       </span>
                     </td>
                     <td className="min-w-32">
-                      {m.progress ? (
+                      {m.state === "applied" ? (
+                        <span className="text-xs font-semibold text-success">
+                          Applied
+                        </span>
+                      ) : m.progress && m.progress.total > 0 ? (
                         <div className="flex flex-col gap-1">
                           <div className="flex justify-between text-xs font-mono">
                             <span>{m.progress.percent}%</span>
@@ -277,6 +281,7 @@ export function MigrationSection({
                             </span>
                           </div>
                           <progress
+                            aria-label="Processing progress"
                             className="progress progress-primary w-full h-1.5"
                             value={m.progress.percent}
                             max="100"
@@ -656,13 +661,20 @@ export function MigrationSection({
       <div className="flex-1 overflow-y-auto p-3 sm:p-6 bg-base-200/30">
         {activeSubTab === "overview" && (
           <div className="space-y-6 max-w-4xl">
-            {/* Live Progress & ETA Banner (when processing or stopped or progress exists) */}
-            {migration.progress && (
+            {/* Applying a revision is separate from background processing jobs. */}
+            {migration.state === "applied" ? (
+              <div className="p-5 rounded-2xl bg-success/10 border border-success/30 space-y-2">
+                <h3 className="text-sm font-bold text-success">Applied</h3>
+                <p className="text-sm text-base-content/80">
+                  Approved changes have been applied to your workspace.
+                </p>
+              </div>
+            ) : migration.progress && migration.progress.total > 0 ? (
               <div className="p-5 rounded-2xl bg-base-100 border border-base-content/10 shadow-sm space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold uppercase tracking-wider text-base-content/70">
-                      Migration Progress
+                      Processing Progress
                     </span>
                     <span className="badge badge-primary font-mono font-semibold">
                       {migration.progress.percent}%
@@ -695,6 +707,7 @@ export function MigrationSection({
 
                 {/* Progress bar */}
                 <progress
+                  aria-label="Processing progress"
                   className="progress progress-primary w-full h-3"
                   value={migration.progress.percent}
                   max="100"
@@ -736,7 +749,7 @@ export function MigrationSection({
                   )}
                 </div>
               </div>
-            )}
+            ) : null}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="p-4 rounded-xl bg-base-100 border border-base-content/10 shadow-xs">
