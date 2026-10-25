@@ -8,6 +8,7 @@ data_start: null # YYYY-MM-DD
 data_end: null # YYYY-MM-DD
 reconciliation_status: not-started # not-started | in-progress | complete | discrepancy
 next_review_date: null # YYYY-MM-DD
+journal_path: null # Optional workspace-relative journal path for the visual preview.
 ---
 
 # <Periodic Finance Review>

@@ -116,4 +116,52 @@ Roof was inspected last month.
     );
     expect(updated).toContain("Updated roof inspection details.");
   });
+
+  it("preserves YAML comments, quoted values, body spacing, and CRLF", () => {
+    const body = "\r\n\r\n# Record\r\n\r\nKeep this exactly.\r\n";
+    const original = `---\r\nstatus: todo # lifecycle\r\nname: 'Quoted name'\r\n---${body}`;
+    const result = mutateRecordFrontmatter(original, { status: "done" });
+    expect(result).toContain("status: done # lifecycle\r\n");
+    expect(result).toContain("name: 'Quoted name'");
+    expect(result.slice(result.indexOf("\r\n---") + 5)).toBe(body);
+  });
+
+  it("does not discard invalid YAML on edit", () => {
+    expect(() =>
+      mutateRecordFrontmatter("---\nstatus: [\n---\n# Record", {
+        status: "done",
+      }),
+    ).toThrow();
+  });
+
+  it("uses the same checklist indexing as the renderer and ignores fenced examples", () => {
+    const content =
+      "# Record\n## Packing\n```md\n## Packing\n- [ ] Example\n```\n- [ ] Passport\n## Notes\nKeep me\n";
+    const updated = toggleRecordChecklistItem(content, "Packing", 0, true);
+    expect(updated).toContain("- [ ] Example");
+    expect(updated).toContain("- [x] Passport");
+    expect(updated).toContain("## Notes\nKeep me\n");
+  });
+
+  it("ignores fenced headings when adding items or replacing a section", () => {
+    const content =
+      "# Record\n## Notes\n```md\n## Fake heading\n```\nOriginal\n## Keep\nUntouched\n";
+    expect(addRecordChecklistItem(content, "Notes", "New item")).toContain(
+      "Original\n- [ ] New item\n## Keep",
+    );
+    const updated = updateRecordSectionContent(content, "Notes", "Replacement");
+    expect(updated).not.toContain("Fake heading");
+    expect(updated).toContain("## Keep\nUntouched\n");
+  });
+
+  it("preserves CRLF when changing a checklist or section", () => {
+    const content =
+      "# Record\r\n## Packing\r\n- [ ] Passport\r\n## Keep\r\nKeep me\r\n";
+    expect(toggleRecordChecklistItem(content, "Packing", 0, true)).toBe(
+      content.replace("[ ]", "[x]"),
+    );
+    expect(
+      updateRecordSectionContent(content, "Packing", "New\nContent"),
+    ).toContain("New\r\nContent\r\n\r\n## Keep\r\nKeep me\r\n");
+  });
 });

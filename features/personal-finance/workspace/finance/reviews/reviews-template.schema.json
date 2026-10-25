@@ -15,6 +15,7 @@
     "next_review_date"
   ],
   "properties": {
+    "journal_path": { "type": ["string", "null"], "minLength": 1 },
     "period": {
       "type": ["string", "null"],
       "pattern": "^[0-9]{4}-(0[1-9]|1[0-2]|Q[1-4])$"

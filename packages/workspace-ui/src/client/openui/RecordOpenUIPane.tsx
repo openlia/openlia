@@ -1,5 +1,5 @@
 import { Renderer } from "@openuidev/react-lang";
-import { Component, useEffect, useState } from "react";
+import { Component, useEffect, useRef, useState } from "react";
 import type { WorkspaceApi } from "../api";
 import type { WorkspaceDomainRecordsResponse } from "../../shared/api";
 import { OpenLiaOpenUIProvider } from "./context";
@@ -64,12 +64,48 @@ export function RecordOpenUIPane({
   const [isCustomOpenUI, setIsCustomOpenUI] = useState(false);
   const [useFallbackUI, setUseFallbackUI] = useState(false);
   const [openuiError, setOpenuiError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const latestContent = useRef(content);
+  const currentPath = useRef(path);
+  currentPath.current = path;
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  useEffect(() => {
+    latestContent.current = content;
+  }, [content]);
+
+  const saveMutation = (mutate: (value: string) => string) => {
+    const targetPath = path;
+    const operation = saveQueue.current
+      .catch(() => {})
+      .then(async () => {
+        if (currentPath.current !== targetPath || !onSaveContent) return;
+        setSaveError(null);
+        try {
+          const nextContent = mutate(latestContent.current);
+          await onSaveContent(nextContent);
+          if (currentPath.current === targetPath)
+            latestContent.current = nextContent;
+        } catch (error) {
+          if (currentPath.current === targetPath)
+            setSaveError(
+              error instanceof Error ? error.message : "Save failed",
+            );
+          throw error;
+        }
+      });
+    saveQueue.current = operation;
+    return operation;
+  };
 
   const domainParts = path.split("/").slice(0, -1);
   const domainPath = domainParts.join("/");
 
   useEffect(() => {
     let active = true;
+    setUseFallbackUI(false);
+    setOpenuiError(null);
+    setSaveError(null);
+    setDomainOverview(null);
     const loadOpenUI = async () => {
       setLoading(true);
       try {
@@ -129,8 +165,7 @@ export function RecordOpenUIPane({
     _recordPath: string,
     updates: Record<string, unknown>,
   ) => {
-    const nextContent = mutateRecordFrontmatter(content, updates);
-    if (onSaveContent) await onSaveContent(nextContent);
+    await saveMutation((value) => mutateRecordFrontmatter(value, updates));
   };
 
   const handleToggleChecklistItem = async (
@@ -139,13 +174,9 @@ export function RecordOpenUIPane({
     itemIndex: number,
     checked?: boolean,
   ) => {
-    const nextContent = toggleRecordChecklistItem(
-      content,
-      heading,
-      itemIndex,
-      checked,
+    await saveMutation((value) =>
+      toggleRecordChecklistItem(value, heading, itemIndex, checked),
     );
-    if (onSaveContent) await onSaveContent(nextContent);
   };
 
   const handleAddChecklistItem = async (
@@ -153,8 +184,9 @@ export function RecordOpenUIPane({
     heading: string,
     itemText: string,
   ) => {
-    const nextContent = addRecordChecklistItem(content, heading, itemText);
-    if (onSaveContent) await onSaveContent(nextContent);
+    await saveMutation((value) =>
+      addRecordChecklistItem(value, heading, itemText),
+    );
   };
 
   const handleUpdateSectionContent = async (
@@ -162,12 +194,9 @@ export function RecordOpenUIPane({
     heading: string,
     markdownContent: string,
   ) => {
-    const nextContent = updateRecordSectionContent(
-      content,
-      heading,
-      markdownContent,
+    await saveMutation((value) =>
+      updateRecordSectionContent(value, heading, markdownContent),
     );
-    if (onSaveContent) await onSaveContent(nextContent);
   };
 
   if (loading) {
@@ -197,18 +226,25 @@ export function RecordOpenUIPane({
     <OpenLiaOpenUIProvider
       value={{
         currentRecordContent: content,
+        loadFile: api.loadFile,
         currentRecordPath: path,
         domainInfo: domainOverview?.domain,
         domainPath,
-        onAddChecklistItem: handleAddChecklistItem,
+        onAddChecklistItem: onSaveContent ? handleAddChecklistItem : undefined,
         onEditOpenUI: (openuiPath) => {
           const target = openuiPath ?? recordOpenUIPath;
           if (target) onOpenFile(target);
         },
         onOpenRecord: (targetPath) => onOpenFile(targetPath),
-        onToggleChecklistItem: handleToggleChecklistItem,
-        onUpdateRecordFrontmatter: handleUpdateRecordFrontmatter,
-        onUpdateSectionContent: handleUpdateSectionContent,
+        onToggleChecklistItem: onSaveContent
+          ? handleToggleChecklistItem
+          : undefined,
+        onUpdateRecordFrontmatter: onSaveContent
+          ? handleUpdateRecordFrontmatter
+          : undefined,
+        onUpdateSectionContent: onSaveContent
+          ? handleUpdateSectionContent
+          : undefined,
         schemaJson: domainOverview?.schema_json,
         templateHeadings: domainOverview?.template_headings,
       }}
@@ -231,6 +267,14 @@ export function RecordOpenUIPane({
           </div>
         )}
 
+        {saveError && (
+          <p
+            role="alert"
+            className="rounded-lg border border-error p-3 text-error"
+          >
+            Could not save record: {saveError}
+          </p>
+        )}
         {/* OpenUI parse or runtime error banner */}
         {openuiError && !useFallbackUI && (
           <div className="flex flex-col gap-3 rounded-xl border border-error/30 bg-error/5 p-5 text-xs">
@@ -298,6 +342,7 @@ export function RecordOpenUIPane({
           {(!openuiError || useFallbackUI) && (
             <div className="openui-record-container">
               <Renderer
+                key={path}
                 library={openliaLibrary}
                 onError={(errs: unknown) => {
                   if (Array.isArray(errs) && errs.length > 0) {

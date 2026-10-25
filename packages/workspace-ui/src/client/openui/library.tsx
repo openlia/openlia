@@ -6,6 +6,15 @@ import {
 import { openuiLibrary } from "@openuidev/react-ui";
 import { useId, useState } from "react";
 import { z } from "zod";
+import { domainOpenUIProps } from "../../shared/domainOpenUI";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import {
+  DomainCollection,
+  RecordProfile,
+  RecordSectionView,
+} from "./domainComponents";
+import { FinanceOverview } from "./FinanceOverview";
 import { useOpenLiaOpenUI } from "./context";
 import {
   extractMarkdownChecklist,
@@ -19,14 +28,7 @@ export const DomainHeader = defineComponent({
   name: "DomainHeader",
   description:
     "Domain overview hero header with title, description, and action buttons",
-  props: z.object({
-    title: z.string().describe("Domain title (e.g. Tasks, Projects)"),
-    description: z.string().optional().describe("Domain purpose description"),
-    recordCount: z
-      .number()
-      .optional()
-      .describe("Total number of records in this domain"),
-  }),
+  props: domainOpenUIProps.DomainHeader,
   component: ({ props }) => {
     const { title, description, recordCount } = props;
     const { domainPath, domainInfo, onCreateRecord, onEditOpenUI } =
@@ -85,15 +87,7 @@ export const DomainHeader = defineComponent({
 export const MetricCard = defineComponent({
   name: "MetricCard",
   description: "Single KPI metric card displaying a headline number and label",
-  props: z.object({
-    label: z.string().describe("Metric label or title"),
-    value: z.union([z.string(), z.number()]).describe("Headline metric value"),
-    subtext: z.string().optional().describe("Supporting detail or trend"),
-    tone: z
-      .enum(["neutral", "primary", "success", "warning", "error"])
-      .optional()
-      .describe("Semantic color tone"),
-  }),
+  props: domainOpenUIProps.MetricCard,
   component: ({ props }) => {
     const { label, value, subtext, tone = "neutral" } = props;
     const toneClasses: Record<string, string> = {
@@ -142,17 +136,7 @@ export const RecordKanban = defineComponent({
   name: "RecordKanban",
   description:
     "Interactive Kanban board grouping domain records by a frontmatter enum field",
-  props: z.object({
-    groupBy: z
-      .string()
-      .optional()
-      .describe("Frontmatter key to group by (default: 'status')"),
-    columns: z
-      .array(z.string())
-      .optional()
-      .describe("Optional explicit list and ordering of column keys"),
-    title: z.string().optional().describe("Optional board title"),
-  }),
+  props: domainOpenUIProps.RecordKanban,
   component: ({ props }) => {
     const { groupBy = "status", columns, title } = props;
     const {
@@ -173,9 +157,16 @@ export const RecordKanban = defineComponent({
     );
 
     const cols = columns && columns.length > 0 ? columns : discoveredKeys;
+    const [error, setError] = useState("");
+    const [updating, setUpdating] = useState(false);
 
     return (
       <div className="flex flex-col gap-3">
+        {error && (
+          <p role="alert" className="text-error">
+            {error}
+          </p>
+        )}
         {title && (
           <h2 className="text-sm font-semibold uppercase tracking-wider text-base-content/70">
             {title}
@@ -270,18 +261,33 @@ export const RecordKanban = defineComponent({
                           <div className="mt-1 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             {cols
                               .filter(
-                                (c) => c.toLowerCase() !== colKey.toLowerCase(),
+                                (c) =>
+                                  c !== "unspecified" &&
+                                  c.toLowerCase() !== colKey.toLowerCase(),
                               )
                               .slice(0, 2)
                               .map((nextCol) => (
                                 <button
                                   key={nextCol}
                                   className="btn btn-ghost btn-xs text-[10px] h-5 min-h-0 px-1.5 border border-base-content/15"
-                                  onClick={(e) => {
+                                  disabled={updating}
+                                  onClick={async (e) => {
                                     e.stopPropagation();
-                                    void onUpdateRecordFrontmatter(r.path, {
-                                      [groupBy]: nextCol,
-                                    });
+                                    setUpdating(true);
+                                    setError("");
+                                    try {
+                                      await onUpdateRecordFrontmatter(r.path, {
+                                        [groupBy]: nextCol,
+                                      });
+                                    } catch (err) {
+                                      setError(
+                                        err instanceof Error
+                                          ? err.message
+                                          : "Save failed",
+                                      );
+                                    } finally {
+                                      setUpdating(false);
+                                    }
                                   }}
                                   type="button"
                                 >
@@ -307,15 +313,7 @@ export const RecordTable = defineComponent({
   name: "RecordTable",
   description:
     "Tabular list of domain records with status badges, tags, and open shortcuts",
-  props: z.object({
-    filterStatus: z.string().optional().describe("Filter rows by status value"),
-    filterPriority: z
-      .string()
-      .optional()
-      .describe("Filter rows by priority value"),
-    limit: z.number().optional().describe("Maximum rows to display"),
-    title: z.string().optional().describe("Optional table title"),
-  }),
+  props: domainOpenUIProps.RecordTable,
   component: ({ props }) => {
     const { filterStatus, filterPriority, limit, title } = props;
     const { records = [], onOpenRecord } = useOpenLiaOpenUI();
@@ -462,12 +460,7 @@ export const RecordTable = defineComponent({
 export const RecordHeaderCard = defineComponent({
   name: "RecordHeaderCard",
   description: "Hero header for a single Markdown record visual view",
-  props: z.object({
-    title: z.string().optional().describe("Record title override"),
-    status: z.string().optional().describe("Record status"),
-    priority: z.string().optional().describe("Record priority"),
-    dueDate: z.string().optional().describe("Target completion or due date"),
-  }),
+  props: domainOpenUIProps.RecordHeaderCard,
   component: ({ props }) => {
     const { title, status, priority, dueDate } = props;
     const { currentRecordPath, currentRecordContent, onEditOpenUI } =
@@ -546,13 +539,7 @@ export const RecordHeaderCard = defineComponent({
 export const FrontmatterEditorCard = defineComponent({
   name: "FrontmatterEditorCard",
   description: "Interactive editor form for record metadata frontmatter fields",
-  props: z.object({
-    title: z.string().optional().describe("Card title (default: 'Properties')"),
-    fields: z
-      .array(z.string())
-      .optional()
-      .describe("Specific frontmatter fields to display"),
-  }),
+  props: domainOpenUIProps.FrontmatterEditorCard,
   component: ({ props }) => {
     const { title = "Properties", fields } = props;
     const {
@@ -567,10 +554,9 @@ export const FrontmatterEditorCard = defineComponent({
       : null;
     const meta = parsed?.metadata ?? {};
 
-    const [formState, setFormState] = useState<Record<string, unknown>>(() => ({
-      ...meta,
-    }));
+    const [formState, setFormState] = useState<Record<string, unknown>>({});
     const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState("");
     const formId = useId();
 
     const schemaProperties =
@@ -588,8 +574,12 @@ export const FrontmatterEditorCard = defineComponent({
     const handleSave = async () => {
       if (!currentRecordPath || !onUpdateRecordFrontmatter) return;
       setSaving(true);
+      setSaveError("");
       try {
         await onUpdateRecordFrontmatter(currentRecordPath, formState);
+        setFormState({});
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : "Save failed");
       } finally {
         setSaving(false);
       }
@@ -612,14 +602,28 @@ export const FrontmatterEditorCard = defineComponent({
             </button>
           )}
         </div>
+        {saveError && (
+          <p role="alert" className="text-error">
+            {saveError}
+          </p>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
           {keysToShow.map((key) => {
             const fieldSchema = schemaProperties[key] ?? {};
             const enumOptions =
-              (fieldSchema.enum as string[] | undefined) ?? [];
+              (fieldSchema.enum as unknown[] | undefined)?.filter(
+                (value): value is string => typeof value === "string",
+              ) ?? [];
             const isArray =
-              fieldSchema.type === "array" || Array.isArray(formState[key]);
-            const val = formState[key];
+              fieldSchema.type === "array" || Array.isArray(meta[key]);
+            const val = Object.hasOwn(formState, key)
+              ? formState[key]
+              : meta[key];
+            const types = Array.isArray(fieldSchema.type)
+              ? fieldSchema.type
+              : [fieldSchema.type];
+            const isNumber =
+              types.includes("number") || types.includes("integer");
             const inputId = `${formId}-${key}`;
 
             return (
@@ -637,7 +641,9 @@ export const FrontmatterEditorCard = defineComponent({
                     onChange={(e) =>
                       setFormState((prev) => ({
                         ...prev,
-                        [key]: e.target.value,
+                        [key]:
+                          e.target.value ||
+                          (types.includes("null") ? null : undefined),
                       }))
                     }
                     value={(val as string) ?? ""}
@@ -671,10 +677,24 @@ export const FrontmatterEditorCard = defineComponent({
                     onChange={(e) =>
                       setFormState((prev) => ({
                         ...prev,
-                        [key]: e.target.value,
+                        [key]:
+                          e.target.value === ""
+                            ? types.includes("null")
+                              ? null
+                              : undefined
+                            : isNumber
+                              ? Number(e.target.value)
+                              : e.target.value,
                       }))
                     }
-                    type={key.includes("date") ? "date" : "text"}
+                    type={
+                      isNumber
+                        ? "number"
+                        : fieldSchema.format === "date"
+                          ? "date"
+                          : "text"
+                    }
+                    step={isNumber ? "any" : undefined}
                     value={val !== undefined && val !== null ? String(val) : ""}
                   />
                 )}
@@ -691,16 +711,7 @@ export const ChecklistSection = defineComponent({
   name: "ChecklistSection",
   description:
     "Interactive checklist bound to a Markdown section heading (- [ ] / - [x])",
-  props: z.object({
-    heading: z
-      .string()
-      .describe("Markdown ## heading name containing the checklist"),
-    title: z.string().optional().describe("Optional card title"),
-    allowAdd: z
-      .boolean()
-      .optional()
-      .describe("Allow adding new checklist items"),
-  }),
+  props: domainOpenUIProps.ChecklistSection,
   component: ({ props }) => {
     const { heading, title, allowAdd = true } = props;
     const {
@@ -714,14 +725,24 @@ export const ChecklistSection = defineComponent({
     const [newItemText, setNewItemText] = useState("");
     const [adding, setAdding] = useState(false);
 
-    const handleToggle = (itemIndex: number, currentChecked: boolean) => {
+    const [error, setError] = useState("");
+    const [toggling, setToggling] = useState(false);
+    const handleToggle = async (itemIndex: number, currentChecked: boolean) => {
       if (!currentRecordPath || !onToggleChecklistItem) return;
-      void onToggleChecklistItem(
-        currentRecordPath,
-        heading,
-        itemIndex,
-        !currentChecked,
-      );
+      setToggling(true);
+      setError("");
+      try {
+        await onToggleChecklistItem(
+          currentRecordPath,
+          heading,
+          itemIndex,
+          !currentChecked,
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Save failed");
+      } finally {
+        setToggling(false);
+      }
     };
 
     const handleAdd = async (e?: React.FormEvent) => {
@@ -729,9 +750,12 @@ export const ChecklistSection = defineComponent({
       const clean = newItemText.trim();
       if (!clean || !currentRecordPath || !onAddChecklistItem) return;
       setAdding(true);
+      setError("");
       try {
         await onAddChecklistItem(currentRecordPath, heading, clean);
         setNewItemText("");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Save failed");
       } finally {
         setAdding(false);
       }
@@ -762,6 +786,11 @@ export const ChecklistSection = defineComponent({
           )}
         </div>
 
+        {error && (
+          <p role="alert" className="text-error">
+            {error}
+          </p>
+        )}
         <div className="flex flex-col gap-1.5">
           {items.length === 0 ? (
             <div className="py-3 text-xs italic text-base-content/40">
@@ -775,6 +804,7 @@ export const ChecklistSection = defineComponent({
               >
                 <input
                   checked={item.checked}
+                  disabled={toggling || !onToggleChecklistItem}
                   className="checkbox checkbox-primary checkbox-xs mt-0.5"
                   onChange={() => handleToggle(item.index, item.checked)}
                   type="checkbox"
@@ -817,12 +847,7 @@ export const MarkdownSectionCard = defineComponent({
   name: "MarkdownSectionCard",
   description:
     "Renders the body content of a specific Markdown ## Heading section",
-  props: z.object({
-    heading: z
-      .string()
-      .describe("Markdown ## heading name to extract and display"),
-    title: z.string().optional().describe("Optional card title override"),
-  }),
+  props: domainOpenUIProps.MarkdownSectionCard,
   component: ({ props }) => {
     const { heading, title } = props;
     const {
@@ -831,12 +856,18 @@ export const MarkdownSectionCard = defineComponent({
       currentRecordPath,
     } = useOpenLiaOpenUI();
     const sectionBody = extractMarkdownSection(currentRecordContent, heading);
+    const [error, setError] = useState("");
 
     return (
       <div className="flex flex-col gap-2 rounded-xl border border-base-content/10 bg-base-100 p-4 shadow-sm">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-base-content/80 border-b border-base-content/10 pb-2">
           {title || heading}
         </h2>
+        {error && (
+          <p role="alert" className="text-error">
+            {error}
+          </p>
+        )}
         {sectionBody ? (
           <div className="prose prose-sm max-w-none text-base-content/80 whitespace-pre-wrap leading-relaxed">
             {sectionBody}
@@ -847,13 +878,20 @@ export const MarkdownSectionCard = defineComponent({
             {onUpdateSectionContent && currentRecordPath && (
               <button
                 className="btn btn-ghost btn-xs text-primary"
-                onClick={() =>
-                  void onUpdateSectionContent(
-                    currentRecordPath,
-                    heading,
-                    "(Write section content here)",
-                  )
-                }
+                onClick={async () => {
+                  setError("");
+                  try {
+                    await onUpdateSectionContent(
+                      currentRecordPath,
+                      heading,
+                      "(Write section content here)",
+                    );
+                  } catch (err) {
+                    setError(
+                      err instanceof Error ? err.message : "Save failed",
+                    );
+                  }
+                }}
                 type="button"
               >
                 + Add Section
@@ -870,21 +908,7 @@ export const ClaimProvenanceCard = defineComponent({
   name: "ClaimProvenanceCard",
   description:
     "Structured card for knowledge claims provenance, confidence, and temporal validity",
-  props: z.object({
-    kind: z
-      .string()
-      .optional()
-      .describe("Claim kind (e.g. fact, assumption, prediction)"),
-    status: z.string().optional().describe("Claim lifecycle status"),
-    confidence: z
-      .union([z.string(), z.number()])
-      .optional()
-      .describe("Confidence score or level"),
-    sourceRef: z.string().optional().describe("Source document reference"),
-    validFrom: z.string().optional().describe("Temporal validity start date"),
-    validUntil: z.string().optional().describe("Temporal validity end date"),
-    reviewAfter: z.string().optional().describe("Review expiration date"),
-  }),
+  props: domainOpenUIProps.ClaimProvenanceCard,
   component: ({ props }) => {
     const {
       kind,
@@ -956,19 +980,24 @@ export const DecisionMatrixCard = defineComponent({
   name: "DecisionMatrixCard",
   description:
     "Visual decision summary displaying recommendation, chosen option, and criteria",
-  props: z.object({
-    chosenOption: z
-      .string()
-      .optional()
-      .describe("The selected or adopted option"),
-    recommendation: z
-      .string()
-      .optional()
-      .describe("Hermes or team recommendation"),
-    options: z.array(z.string()).optional().describe("Options evaluated"),
-  }),
+  props: domainOpenUIProps.DecisionMatrixCard,
   component: ({ props }) => {
-    const { chosenOption, recommendation, options = [] } = props;
+    const { currentRecordContent = "" } = useOpenLiaOpenUI();
+    // A template's rationale section can contain an undecided placeholder.
+    // Never turn that prose into a green "Chosen" badge automatically.
+    const chosenOption = props.chosenOption;
+    const recommendation =
+      props.recommendation ??
+      extractMarkdownSection(currentRecordContent, "Recommendation");
+    const options = props.options ?? [];
+    const comparison = extractMarkdownSection(
+      currentRecordContent,
+      "Options Considered",
+    );
+    const criteria = extractMarkdownSection(
+      currentRecordContent,
+      "Criteria And Weights",
+    );
     return (
       <div className="flex flex-col gap-3 rounded-xl border border-base-content/10 bg-base-100 p-4 shadow-sm">
         <div className="flex items-center justify-between border-b border-base-content/10 pb-2">
@@ -1004,6 +1033,21 @@ export const DecisionMatrixCard = defineComponent({
                 </span>
               ))}
             </div>
+          </div>
+        )}
+        {comparison && (
+          <div className="prose prose-sm max-w-none overflow-x-auto">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {comparison}
+            </ReactMarkdown>
+          </div>
+        )}
+        {criteria && (
+          <div className="prose prose-sm max-w-none overflow-x-auto">
+            <h3>Criteria and weights</h3>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {criteria}
+            </ReactMarkdown>
           </div>
         )}
       </div>
@@ -1133,6 +1177,10 @@ export const openliaComponents = [
   MarkdownSectionCard,
   ClaimProvenanceCard,
   DecisionMatrixCard,
+  DomainCollection,
+  RecordSectionView,
+  RecordProfile,
+  FinanceOverview,
 ];
 
 export const openliaFunctions = [

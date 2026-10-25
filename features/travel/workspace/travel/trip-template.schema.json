@@ -4,6 +4,7 @@
   "title": "Trip template frontmatter schema",
   "type": "object",
   "properties": {
+    "alerts": { "type": "array", "items": { "type": "string", "minLength": 1 } },
     "start_date": {"type": ["string", "null"], "format": "date"},
     "end_date": {"type": ["string", "null"], "format": "date"},
     "destination": {"type": ["string", "null"], "minLength": 1},

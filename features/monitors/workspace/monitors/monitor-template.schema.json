@@ -4,6 +4,7 @@
   "title": "Monitor template frontmatter schema",
   "type": "object",
   "properties": {
+    "last_checked": { "type": ["string", "null"], "format": "date-time" },
     "status": {
       "type": ["string", "null"],
       "enum": [null, "active", "paused", "triggered", "retired"]

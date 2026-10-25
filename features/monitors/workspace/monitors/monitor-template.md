@@ -4,6 +4,7 @@ status: null # active | paused | triggered | retired
 source: null # source URL or other stable reference
 check_frequency: null # hourly | daily | weekly | monthly
 alert_channel: null # e.g. Telegram or Daily Briefing
+last_checked: null # Optional ISO 8601 timestamp with timezone; unknown until observed.
 ---
 
 # <Monitor Title>

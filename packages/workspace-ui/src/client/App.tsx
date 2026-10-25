@@ -452,6 +452,8 @@ export function App({
   );
   const [filter, setFilter] = useState(() => initialRoute.current.filter ?? "");
   const [file, setFile] = useState<WorkspaceFile | null>(null);
+  const visualSaveFileRef = useRef(file);
+  visualSaveFileRef.current = file;
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [artifact, setArtifact] = useState<WorkspaceFileMetadata | null>(null);
   const [draft, setDraft] = useState("");
@@ -2023,18 +2025,27 @@ export function App({
   }
 
   async function handleSaveRecordContent(nextContent: string): Promise<void> {
-    if (!file?.editable) return;
+    const target = visualSaveFileRef.current;
+    if (!target?.editable) throw new Error("This record is read-only");
+    if (isMemoryDocument(target.path) && !settings.enable_memory_editing)
+      throw new Error("Memory editing is disabled");
     setSaving(true);
     try {
       const response = await api.saveFile(
-        file.path,
+        target.path,
         nextContent,
-        file.revision,
+        target.revision,
       );
-      setFile({ ...file, ...response, content: nextContent });
-      setDraft(nextContent);
+      if (visualSaveFileRef.current?.path === target.path) {
+        const updated = { ...target, ...response, content: nextContent };
+        visualSaveFileRef.current = updated;
+        setFile(updated);
+        setDraft(nextContent);
+      }
     } catch (err) {
       console.error("Failed to save record content:", err);
+      if (err instanceof ApiError && err.status === 401) handleUnauthorized();
+      throw err;
     } finally {
       setSaving(false);
     }

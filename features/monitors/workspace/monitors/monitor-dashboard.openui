@@ -1,4 +1,4 @@
 hdr = DomainHeader("Monitors", "Active watches, thresholds, trigger rules, and check logs")
-kb = RecordKanban("status")
+watches = DomainCollection("monitors")
 tbl = RecordTable()
-root = Stack([hdr, kb, tbl])
+root = Stack([hdr, watches, tbl])

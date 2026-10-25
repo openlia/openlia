@@ -1,5 +1,6 @@
 hdr = RecordHeaderCard()
 props = FrontmatterEditorCard()
+profile = RecordProfile("people")
 loops = ChecklistSection("Open Loops & Commitments")
-notes = MarkdownSectionCard("Interaction Notes & Context")
-root = Stack([hdr, props, loops, notes])
+notes = RecordSectionView("Interaction Notes & Context", "timeline", "Interaction history")
+root = Stack([hdr, profile, props, loops, notes])

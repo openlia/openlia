@@ -1,0 +1,4 @@
+hdr = DomainHeader("Accounts", "Account mappings, balances, and reconciliation review")
+summary = FinanceOverview("finance/journal.hledger")
+tbl = RecordTable()
+root = Stack([hdr, summary, tbl])

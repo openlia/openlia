@@ -4,9 +4,11 @@
   "title": "Person template frontmatter schema",
   "type": "object",
   "properties": {
+    "last_contacted": { "type": ["string", "null"], "format": "date" },
+    "linked_records": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
     "relationship": {
       "type": ["string", "null"],
-      "enum": [null, "colleague", "mentor", "collaborator", "friend", "family", "advisor"]
+      "enum": [null, "colleague", "client", "mentor", "collaborator", "friend", "family", "advisor"]
     },
     "organization": {"type": ["string", "null"], "minLength": 1},
     "role": {"type": ["string", "null"], "minLength": 1},

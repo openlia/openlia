@@ -4,6 +4,11 @@
   "title": "Shopping item template frontmatter schema",
   "type": "object",
   "properties": {
+    "budget": { "type": ["number", "null"], "minimum": 0 },
+    "target_price": { "type": ["number", "null"], "minimum": 0 },
+    "actual_price": { "type": ["number", "null"], "minimum": 0 },
+    "currency": { "type": ["string", "null"], "minLength": 1 },
+    "vendor_url": { "type": ["string", "null"], "format": "uri" },
     "category": {
       "type": ["string", "null"],
       "enum": [null, "electronics", "household", "clothing", "tools", "books", "other"]
@@ -18,7 +23,7 @@
     },
     "status": {
       "type": ["string", "null"],
-      "enum": [null, "researching", "watching-price", "ready-to-buy", "purchased", "abandoned"]
+      "enum": [null, "wishlist", "researching", "watching-price", "ready-to-buy", "purchased", "abandoned"]
     }
   },
   "required": ["category", "classification", "priority", "status"],
