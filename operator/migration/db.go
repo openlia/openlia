@@ -778,7 +778,8 @@ func (d *DB) GetRevision(revID string) (*ReviewRevision, error) {
 	`, revID, revID)
 
 	var rev ReviewRevision
-	var parent, summary, filesJSON, findingsJSON, questionsJSON, created string
+	var parent, summary, filesJSON, findingsJSON, questionsJSON sql.NullString
+	var created string
 	err := row.Scan(&rev.ID, &rev.MigrationID, &rev.RevisionNum, &rev.BaselineHash, &rev.CommitHash, &rev.TreeHash, &rev.PatchHash, &parent, &summary, &filesJSON, &findingsJSON, &questionsJSON, &created)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -786,17 +787,17 @@ func (d *DB) GetRevision(revID string) (*ReviewRevision, error) {
 		}
 		return nil, err
 	}
-	rev.ParentRevID = parent
-	rev.Summary = summary
+	rev.ParentRevID = parent.String
+	rev.Summary = summary.String
 	rev.CreatedAt, _ = time.Parse(time.RFC3339, created)
-	if filesJSON != "" {
-		_ = json.Unmarshal([]byte(filesJSON), &rev.ChangedFiles)
+	if filesJSON.String != "" {
+		_ = json.Unmarshal([]byte(filesJSON.String), &rev.ChangedFiles)
 	}
-	if findingsJSON != "" {
-		_ = json.Unmarshal([]byte(findingsJSON), &rev.Findings)
+	if findingsJSON.String != "" {
+		_ = json.Unmarshal([]byte(findingsJSON.String), &rev.Findings)
 	}
-	if questionsJSON != "" {
-		_ = json.Unmarshal([]byte(questionsJSON), &rev.UnresolvedQuestions)
+	if questionsJSON.String != "" {
+		_ = json.Unmarshal([]byte(questionsJSON.String), &rev.UnresolvedQuestions)
 	}
 	return &rev, nil
 }
@@ -815,21 +816,22 @@ func (d *DB) ListRevisions(migrationID string) ([]ReviewRevision, error) {
 	var list []ReviewRevision
 	for rows.Next() {
 		var rev ReviewRevision
-		var parent, summary, filesJSON, findingsJSON, questionsJSON, created string
+		var parent, summary, filesJSON, findingsJSON, questionsJSON sql.NullString
+		var created string
 		if err := rows.Scan(&rev.ID, &rev.MigrationID, &rev.RevisionNum, &rev.BaselineHash, &rev.CommitHash, &rev.TreeHash, &rev.PatchHash, &parent, &summary, &filesJSON, &findingsJSON, &questionsJSON, &created); err != nil {
 			return nil, err
 		}
-		rev.ParentRevID = parent
-		rev.Summary = summary
+		rev.ParentRevID = parent.String
+		rev.Summary = summary.String
 		rev.CreatedAt, _ = time.Parse(time.RFC3339, created)
-		if filesJSON != "" {
-			_ = json.Unmarshal([]byte(filesJSON), &rev.ChangedFiles)
+		if filesJSON.String != "" {
+			_ = json.Unmarshal([]byte(filesJSON.String), &rev.ChangedFiles)
 		}
-		if findingsJSON != "" {
-			_ = json.Unmarshal([]byte(findingsJSON), &rev.Findings)
+		if findingsJSON.String != "" {
+			_ = json.Unmarshal([]byte(findingsJSON.String), &rev.Findings)
 		}
-		if questionsJSON != "" {
-			_ = json.Unmarshal([]byte(questionsJSON), &rev.UnresolvedQuestions)
+		if questionsJSON.String != "" {
+			_ = json.Unmarshal([]byte(questionsJSON.String), &rev.UnresolvedQuestions)
 		}
 		list = append(list, rev)
 	}

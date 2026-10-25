@@ -1074,7 +1074,7 @@ export class MigrationService {
           `git ${args[0]} failed: ${proc.stderr.toString() || proc.stdout.toString()}`,
         );
       }
-      return proc.stdout.toString().trim();
+      return proc.stdout.toString();
     };
 
     runGit(["init"]);
@@ -1093,7 +1093,7 @@ export class MigrationService {
       "-m",
       "baseline: initial snapshot from live workspace",
     ]);
-    const baselineHash = runGit(["rev-parse", "HEAD"]);
+    const baselineHash = runGit(["rev-parse", "HEAD"]).trim();
 
     for (const item of records) {
       const repoFilePath = join(propRepoDir, item.relPath);
@@ -1102,9 +1102,10 @@ export class MigrationService {
     }
     runGit(["add", "-A"]);
     runGit(["commit", "--allow-empty", "-m", commitMessage]);
-    const commitHash = runGit(["rev-parse", "HEAD"]);
-    const treeHash = runGit(["rev-parse", `${commitHash}^{tree}`]);
-    const diff = runGit(["diff", baselineHash, commitHash]);
+    const commitHash = runGit(["rev-parse", "HEAD"]).trim();
+    const treeHash = runGit(["rev-parse", `${commitHash}^{tree}`]).trim();
+    // Match the operator's patch hash exactly, including the final newline.
+    const diff = runGit(["diff", "--no-renames", baselineHash, commitHash]);
     const patchHash = createHash("sha256").update(diff).digest("hex");
 
     const changedFiles = records.map((item) => ({

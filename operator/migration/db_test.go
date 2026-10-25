@@ -6,6 +6,39 @@ import (
 	"time"
 )
 
+func TestRevisionNullableFields(t *testing.T) {
+	db, err := OpenDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.CreateMigration(Migration{ID: "mig-ui", Schema: 2, State: StateReadyForReview}); err != nil {
+		t.Fatal(err)
+	}
+	// UI-created revisions omit optional columns rather than writing empty strings.
+	_, err = db.db.Exec(`
+		INSERT INTO revisions (id, migration_id, revision_num, baseline_hash, commit_hash, tree_hash, patch_hash, created_at)
+		VALUES ('rev-ui', 'mig-ui', 1, 'base', 'commit', 'tree', 'patch', ?)
+	`, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err := db.GetRevision("rev-ui")
+	if err != nil || revision == nil {
+		t.Fatalf("GetRevision with NULL optional fields: revision=%+v, err=%v", revision, err)
+	}
+	if revision.ParentRevID != "" || revision.Summary != "" || len(revision.ChangedFiles) != 0 || len(revision.Findings) != 0 || len(revision.UnresolvedQuestions) != 0 {
+		t.Fatalf("unexpected optional fields: %+v", revision)
+	}
+	revisions, err := db.ListRevisions("mig-ui")
+	if err != nil || len(revisions) != 1 {
+		t.Fatalf("ListRevisions with NULL optional fields: revisions=%+v, err=%v", revisions, err)
+	}
+	if revisions[0].ID != revision.ID || revisions[0].ParentRevID != "" || revisions[0].Summary != "" || len(revisions[0].ChangedFiles) != 0 || len(revisions[0].Findings) != 0 || len(revisions[0].UnresolvedQuestions) != 0 {
+		t.Fatalf("unexpected listed revision: %+v", revisions[0])
+	}
+}
+
 func TestMigrationDB_CRUDAndLeasing(t *testing.T) {
 	tempDir := t.TempDir()
 	db, err := OpenDB(tempDir)

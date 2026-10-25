@@ -6,6 +6,40 @@ afterEach(() => {
 });
 
 describe("HTTP workspace API", () => {
+  test.each([1, 2])("preserves schema-%i migration errors", async (schema) => {
+    const payload = {
+      schema,
+      ok: false,
+      error: "Apply failed: patch hash mismatch",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(payload), { status: 400 })),
+    );
+
+    await expect(
+      httpWorkspaceApi.approveMigration("mig-test", "rev-test", "patch-test"),
+    ).rejects.toMatchObject({
+      message: payload.error,
+      status: 400,
+      payload,
+    });
+  });
+
+  test.each([
+    null,
+    { schema: 3, ok: false, error: "unexpected" },
+  ])("uses the fallback for malformed or unsupported error responses", async (payload) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(payload), { status: 500 })),
+    );
+
+    await expect(
+      httpWorkspaceApi.approveMigration("mig-test", "rev-test"),
+    ).rejects.toMatchObject({ message: "request_failed", payload: null });
+  });
+
   test("routes memory reads and writes through the dedicated API", async () => {
     const fetchMock = vi.fn(
       async () =>

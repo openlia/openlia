@@ -65,11 +65,15 @@ import { httpChatApi } from "./chatApi";
 import { isMemoryDocument, memoryFilename } from "../shared/memory";
 import type { UsageRates, UsageResponse } from "../shared/usage";
 
+export type ApiErrorResponse = Omit<WorkspaceErrorResponse, "schema"> & {
+  schema: 1 | 2;
+};
+
 export class ApiError extends Error {
   readonly status: number;
-  readonly payload: WorkspaceErrorResponse | null;
+  readonly payload: ApiErrorResponse | null;
 
-  constructor(status: number, payload: WorkspaceErrorResponse | null) {
+  constructor(status: number, payload: ApiErrorResponse | null) {
     super(payload?.error ?? "request_failed");
     this.name = "ApiError";
     this.status = status;
@@ -295,12 +299,12 @@ async function requestJson<T>(
   return payload;
 }
 
-function isErrorResponse(value: unknown): value is WorkspaceErrorResponse {
+export function isErrorResponse(value: unknown): value is ApiErrorResponse {
   return (
     typeof value === "object" &&
     value !== null &&
     "schema" in value &&
-    value.schema === 1 &&
+    (value.schema === 1 || value.schema === 2) &&
     "ok" in value &&
     value.ok === false &&
     "error" in value &&
