@@ -49,7 +49,15 @@ function errorText(error: unknown) {
   return value.replaceAll("_", " ");
 }
 
-export function ChatPage({ api }: { api: ChatApi }) {
+export function ChatPage({
+  api,
+  initialPrompt,
+  onConsumeInitialPrompt,
+}: {
+  api: ChatApi;
+  initialPrompt?: string | undefined;
+  onConsumeInitialPrompt?: (() => void) | undefined;
+}) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [selected, setSelected] = useState<ChatSession | null>(null);
   const [other, setOther] = useState(false);
@@ -200,6 +208,54 @@ export function ChatPage({ api }: { api: ChatApi }) {
       generation.current++;
     };
   }, [api, other, select]);
+
+  useEffect(() => {
+    if (!initialPrompt || loading) return;
+    if (selected?.writable) {
+      setDraft(initialPrompt);
+      storageSet(`chat-draft:${selected.id}`, initialPrompt);
+      onConsumeInitialPrompt?.();
+      return;
+    }
+    const firstWritable = sessions.find((s) => s.writable);
+    if (firstWritable) {
+      storageSet(`chat-draft:${firstWritable.id}`, initialPrompt);
+      void select(firstWritable).then(() => {
+        setDraft(initialPrompt);
+        onConsumeInitialPrompt?.();
+      });
+      return;
+    }
+    if (ready && !busy) {
+      setBusy(true);
+      setError("");
+      void (async () => {
+        try {
+          const result = await api.create();
+          storageSet(`chat-draft:${result.session.id}`, initialPrompt);
+          await select(result.session);
+          setDraft(initialPrompt);
+          onConsumeInitialPrompt?.();
+          await list(0, false);
+        } catch (err) {
+          setError(errorText(err));
+        } finally {
+          setBusy(false);
+        }
+      })();
+    }
+  }, [
+    api,
+    busy,
+    initialPrompt,
+    list,
+    loading,
+    onConsumeInitialPrompt,
+    ready,
+    select,
+    selected,
+    sessions,
+  ]);
 
   // Runs are detached from browser subscriptions. Unmounting only disconnects the observer.
   useEffect(() => {
@@ -729,6 +785,16 @@ export function ChatPage({ api }: { api: ChatApi }) {
               Your workspace, tools, and memories—with conversations saved by
               Hermes. Start a new chat or select one from the sidebar.
             </p>
+            {initialPrompt && (
+              <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-left text-xs">
+                <div className="mb-1 font-semibold uppercase tracking-wider text-primary">
+                  Prepared Prompt
+                </div>
+                <pre className="whitespace-pre-wrap font-mono text-base-content/80">
+                  {initialPrompt}
+                </pre>
+              </div>
+            )}
             <button
               type="button"
               className="btn btn-primary btn-sm mt-4 chat-empty-conversations"

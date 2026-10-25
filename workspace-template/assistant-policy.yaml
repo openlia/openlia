@@ -17,7 +17,6 @@ delegation:
       - inbox
       - sources
       - goals
-      - projects
       - knowledge
       - tasks
       - calendar

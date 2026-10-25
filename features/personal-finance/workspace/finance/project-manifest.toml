@@ -1,0 +1,19 @@
+[project]
+id = "finance"
+name = "Personal Finance"
+description = "Plain-text accounting ledger overview and periodic financial reviews."
+icon = "wallet"
+
+[data]
+template = "finance-template.md"
+schema = "finance-template.schema.json"
+
+[ui]
+entry = "ui.openui"
+
+[logic]
+skills = ["personal-finance"]
+
+[[logic.prompts]]
+label = "Generate monthly financial review"
+prompt = "Review my ledger in finance/main.journal and create or update the current month's financial review in finance/."

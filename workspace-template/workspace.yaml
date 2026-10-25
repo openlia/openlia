@@ -23,15 +23,6 @@ domains:
     template: goals/goal-template.md
     include_in_briefing: true
     briefing_category: goals
-  - path: projects
-    kind: core
-    label: Projects
-    purpose: Bounded outcomes with milestones, tasks, risks, and decisions.
-    template: projects/project-template.md
-    include_in_briefing: true
-    briefing_category: projects
-    skills:
-      - project-review
   - path: knowledge
     kind: core
     label: Knowledge

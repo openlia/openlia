@@ -1,22 +1,25 @@
 import { defineComponent } from "@openuidev/react-lang";
 import { useEffect, useState } from "react";
-import { domainOpenUIProps } from "../../shared/domainOpenUI";
+import { projectOpenUIProps } from "../../shared/project";
 import {
   buildJournalMetrics,
   computeMonthlyCashflow,
   type ParsedJournal,
 } from "../journal/parser";
 import { useOpenLiaOpenUI } from "./context";
-import { text } from "./domainData";
 import { loadFinanceJournal } from "./financeData";
 import { parseMarkdownRecord } from "./recordMutator";
 import { FinanceValidationCard } from "./FinanceValidationCard";
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
 
 export const FinanceOverview = defineComponent({
   name: "FinanceOverview",
   description:
     "Read-only journal preview: per-currency net assets, monthly cashflow, category breakdown, and account history",
-  props: domainOpenUIProps.FinanceOverview,
+  props: projectOpenUIProps.FinanceOverview,
   component: ({ props: { journalPath } }) => {
     const {
       loadFile,

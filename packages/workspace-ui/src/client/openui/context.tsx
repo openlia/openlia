@@ -1,6 +1,8 @@
 import { createContext, useContext } from "react";
 import type { WorkspaceApi } from "../api";
 import type {
+  ProjectManifest,
+  ProjectSummary,
   WorkspaceDomainInfo,
   WorkspaceDomainRecordSummary,
 } from "../../shared/api";
@@ -10,41 +12,22 @@ export interface OpenLiaOpenUIContextValue {
     | Pick<WorkspaceApi, "checkFinanceJournal" | "checkFinanceJournalFreshness">
     | undefined;
   loadFile?: WorkspaceApi["loadFile"] | undefined;
+  project?: ProjectSummary | undefined;
+  manifest?: ProjectManifest | undefined;
+  queries?: Record<string, unknown> | undefined;
   domainPath?: string | undefined;
   domainInfo?: WorkspaceDomainInfo | undefined;
   schemaJson?: Record<string, unknown> | undefined;
   templateHeadings?: string[] | undefined;
-  currentRecordPath?: string | undefined;
-  currentRecordContent?: string | undefined;
   onOpenRecord?: ((path: string) => void) | undefined;
   onCreateRecord?: ((domainPath?: string) => void) | undefined;
   onEditOpenUI?: ((openuiPath?: string) => void) | undefined;
+  onImproveUI?: (() => void) | undefined;
   onUpdateRecordFrontmatter?:
     | ((path: string, updates: Record<string, unknown>) => Promise<void> | void)
     | undefined;
-  onToggleChecklistItem?:
-    | ((
-        path: string,
-        heading: string | undefined,
-        itemIndex: number,
-        checked?: boolean,
-      ) => Promise<void> | void)
-    | undefined;
-  onAddChecklistItem?:
-    | ((
-        path: string,
-        heading: string,
-        itemText: string,
-      ) => Promise<void> | void)
-    | undefined;
-  onUpdateSectionContent?:
-    | ((
-        path: string,
-        heading: string,
-        markdownContent: string,
-      ) => Promise<void> | void)
-    | undefined;
   records?: WorkspaceDomainRecordSummary[] | undefined;
+  currentRecordContent?: string | undefined;
 }
 
 const OpenLiaOpenUIContext = createContext<OpenLiaOpenUIContextValue>({});

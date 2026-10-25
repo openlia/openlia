@@ -541,6 +541,7 @@ export class FeatureService {
           const fname = entry.name;
           if (fname.startsWith(".")) continue;
           const isTplOrSchema =
+            fname === "project-manifest.toml" ||
             fname.endsWith("-template.md") ||
             fname.endsWith(".schema.json") ||
             fname.endsWith(".openui");

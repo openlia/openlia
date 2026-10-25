@@ -442,7 +442,6 @@ var CanonicalDomains = []string{
 	"archive",
 	"inbox",
 	"goals",
-	"projects",
 	"decisions",
 	"monitors",
 	"shopping",

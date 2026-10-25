@@ -4,20 +4,20 @@ import { OpenUIDiagnostics } from "./OpenUIDiagnostics";
 
 it("updates diagnostics from the live draft without saving it", () => {
   const { rerender } = render(
-    <OpenUIDiagnostics content={'root = DomainCollection("travel")'} />,
+    <OpenUIDiagnostics content={'root = DomainHeader("Travel")'} />,
   );
   expect(screen.getByRole("status").textContent).toContain(
     "OpenUI layout is valid.",
   );
   rerender(
-    <OpenUIDiagnostics content={'root = DomainCollection("unsupported")'} />,
+    <OpenUIDiagnostics content={'root = UnknownWidget("unsupported")'} />,
   );
   expect(screen.getByRole("status").textContent).toContain(
     "OpenUI layout diagnostics",
   );
   rerender(
     <OpenUIDiagnostics
-      content={'root = RecordSectionView("Notes", "details")'}
+      content={'root = MetricCard("Active", @Query("active_count"), "Ready")'}
     />,
   );
   expect(screen.getByRole("status").textContent).toContain(

@@ -1,4 +1,0 @@
-hdr = DomainHeader("Decisions", "Architectural and personal decisions registry")
-kb = RecordKanban("status", ["proposed", "under-review", "accepted", "decided", "superseded", "abandoned", "unspecified"])
-tbl = RecordTable()
-root = Stack([hdr, kb, tbl])

@@ -1,8 +1,0 @@
-hdr = RecordHeaderCard()
-props = FrontmatterEditorCard()
-profile = RecordProfile("monitors")
-target = RecordSectionView("Target Condition", "details")
-trigger = RecordSectionView("Trigger Rule", "details")
-action = MarkdownSectionCard("Recommended Action")
-log = RecordSectionView("Check Log", "timeline", "Historical observations")
-root = Stack([hdr, profile, props, target, trigger, action, log])

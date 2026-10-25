@@ -1203,6 +1203,7 @@ messages:
     ).toEqual([
       "Chat",
       "Documents",
+      "Projects",
       "Calendar",
       "Ingestion",
       "Skills",
@@ -1732,5 +1733,53 @@ messages:
     expect(robotsMeta?.getAttribute("content")).toBe(
       "noindex, nofollow, noarchive",
     );
+  });
+
+  test("re-opens the same project record in Documents after navigating back to /projects/*", async () => {
+    window.history.replaceState(null, "", "/projects/tasks");
+    const mockApi = createMockWorkspaceApi({
+      files: {
+        "tasks/ship-ui.md":
+          "---\nstatus: todo\npriority: high\n---\n\n# Ship workspace UI\n",
+      },
+    });
+    render(<App api={mockApi} />);
+
+    // Wait for Tasks project UI to render (lazy-loaded ProjectPage chunk)
+    const firstRecordButtons = await screen.findAllByText(
+      "Ship workspace UI",
+      {},
+      { timeout: 5000 },
+    );
+    expect(firstRecordButtons.length).toBeGreaterThan(0);
+
+    // 1. Click record in Projects -> navigates to /files/tasks/ship-ui.md
+    if (firstRecordButtons[0]) {
+      fireEvent.click(firstRecordButtons[0]);
+    }
+    expect(
+      await screen.findByRole("article", { name: "Markdown preview" }),
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/files/tasks/ship-ui.md");
+
+    // 2. Simulate browser Back navigation to /projects/tasks
+    window.history.replaceState(null, "", "/projects/tasks");
+    fireEvent(window, new PopStateEvent("popstate"));
+
+    expect(
+      await screen.findByRole("region", { name: "Projects workspace" }),
+    ).toBeInTheDocument();
+    const recordButtonsAfterBack =
+      await screen.findAllByText("Ship workspace UI");
+    expect(recordButtonsAfterBack.length).toBeGreaterThan(0);
+
+    // 3. Click the same record again -> navigates back to /files/tasks/ship-ui.md
+    if (recordButtonsAfterBack[0]) {
+      fireEvent.click(recordButtonsAfterBack[0]);
+    }
+    expect(
+      await screen.findByRole("article", { name: "Markdown preview" }),
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/files/tasks/ship-ui.md");
   });
 });

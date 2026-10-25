@@ -9,7 +9,7 @@ export interface WorkspaceFileMetadata {
 }
 
 export type WorkspaceTreeEntry =
-  | { path: string; kind: "directory" }
+  | { path: string; kind: "directory"; project?: boolean | undefined }
   | (WorkspaceFileMetadata & { kind: "file" });
 
 export interface WorkspaceTreeResponse {
@@ -929,3 +929,15 @@ export interface PublicShareResponse {
     files: PublicShareFileEntry[];
   };
 }
+
+export type {
+  ProjectManifest,
+  ProjectMutationsDefinition,
+  ProjectPromptDefinition,
+  ProjectQueryDefinition,
+  ProjectQueryType,
+  ProjectSortDefinition,
+  ProjectSummary,
+  WorkspaceProjectResponse,
+  WorkspaceProjectsResponse,
+} from "./project";

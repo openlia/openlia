@@ -74,13 +74,13 @@ func TestFeatureListInstallAndRemove(t *testing.T) {
 	cfg, wsDir := setupLeanWorkspaceForTest(t)
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 
-	// 1. Verify initial Lean Base has 11 domains (7 core + 4 system extensions)
+	// 1. Verify initial Lean Base has 10 domains (6 core + 4 system extensions)
 	regPaths, err := RegisteredDomainPaths(wsDir)
 	if err != nil {
 		t.Fatalf("RegisteredDomainPaths: %v", err)
 	}
-	if len(regPaths) != 11 {
-		t.Fatalf("expected 11 lean base domains, got %d: %v", len(regPaths), regPaths)
+	if len(regPaths) != 10 {
+		t.Fatalf("expected 10 lean base domains, got %d: %v", len(regPaths), regPaths)
 	}
 	if regPaths["finance"] || regPaths["travel"] {
 		t.Fatalf("did not expect finance or travel in lean base")

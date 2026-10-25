@@ -1,10 +1,12 @@
-# Specialized workspace domain views
+# Workspace Mini-Projects (`project-manifest.toml` + `ui.openui`)
 
-Feature-owned `*-dashboard.openui` and `*-record.openui` files use the normal
-OpenUI library and can be edited in the browser. Existing records remain valid:
+Curated workspace folders (`tasks`, `goals`, and optional features `finance`,
+`travel`, `shopping`, `monitors`, `decisions`, `people`) include a
+`project-manifest.toml` and `ui.openui` file that power the dedicated
+**Projects** view (`/projects/<path>`). Existing Markdown records remain valid:
 new frontmatter properties are optional, old lifecycle values are retained, and
-unstructured Markdown is rendered without requiring a migration. Broken custom
-layouts can still be bypassed with the synthesized view.
+Documents view (`/files/<path>`) remains a fast, clean Markdown preview and
+editor without OpenUI overhead.
 
 ## Optional metadata
 

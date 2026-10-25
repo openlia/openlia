@@ -21,7 +21,6 @@ const knownSchemaDomains = new Set([
   "ideas",
   "monitors",
   "people",
-  "projects",
   "shopping",
   "tasks",
   "travel",

@@ -21,7 +21,6 @@ REGISTRY_VERSION = 1
 CORE_ROOTS = {
     "inbox",
     "goals",
-    "projects",
     "knowledge",
     "tasks",
     "calendar",
@@ -31,7 +30,6 @@ ROUTES = {"task", "event", "decision", "idea", "research", "claim", "finance", "
 BRIEFING_CATEGORIES = {
     "calendar",
     "tasks",
-    "projects",
     "goals",
     "decisions",
     "monitors",

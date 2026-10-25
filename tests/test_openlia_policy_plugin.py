@@ -62,7 +62,7 @@ class PolicyPluginTests(unittest.TestCase):
     def test_ordinary_nested_folder_does_not_need_registration(self):
         self.assertIsNone(
             self.policy.pre_tool_call(
-                "write_file", {"path": "projects/daily-menu/2026-10-23.md", "content": "# Menu"}
+                "write_file", {"path": "goals/daily-menu/2026-10-23.md", "content": "# Menu"}
             )
         )
 
@@ -71,8 +71,8 @@ class PolicyPluginTests(unittest.TestCase):
             "mode": "patch",
             "patch": (
                 "*** Update File: workspace.yaml\n@@\n+  # proposed menu extension\n"
-                "*** Add File: projects/daily-menu/menu-template.md\n+# Menu\n+## Lunch\n"
-                "*** Add File: projects/daily-menu/2026-10-23.md\n+# Friday\n+## Lunch\n"
+                "*** Add File: goals/daily-menu/menu-template.md\n+# Menu\n+## Lunch\n"
+                "*** Add File: goals/daily-menu/2026-10-23.md\n+# Friday\n+## Lunch\n"
             ),
         }
         decision = self.policy.pre_tool_call("patch", args)
@@ -86,7 +86,7 @@ class PolicyPluginTests(unittest.TestCase):
         self.assertEqual(
             self.policy.pre_tool_call("patch", {**args, "approved": True})["action"], "approve"
         )
-        directory = self.workspace / "projects/daily-menu"
+        directory = self.workspace / "goals/daily-menu"
         self.assertFalse(directory.exists())  # Proposing never applies changes.
         directory.mkdir()
         (directory / "2026-10-23.md").write_text("newer user work")
@@ -96,8 +96,8 @@ class PolicyPluginTests(unittest.TestCase):
 
     def test_template_and_schema_changes_require_approval(self):
         for path in (
-            "projects/project-template.md", "projects/project-template.schema.json",
-            "projects/AGENTS.md", "workspace.yaml",
+            "goals/goal-template.md", "goals/goal-template.schema.json",
+            "goals/AGENTS.md", "workspace.yaml",
         ):
             decision = self.policy.pre_tool_call(
                 "patch", {
@@ -126,9 +126,9 @@ class PolicyPluginTests(unittest.TestCase):
 
     def test_structural_batch_preserves_safety_boundaries(self):
         prefix = "*** Update File: workspace.yaml\n@@\n+  # extension\n"
-        (self.workspace / "projects/escape").symlink_to(self.workspace.parent, target_is_directory=True)
+        (self.workspace / "goals/escape").symlink_to(self.workspace.parent, target_is_directory=True)
         for path in (
-            "../outside.md", ".git/config", "assistant-policy.yaml", "projects/escape/outside.md"
+            "../outside.md", ".git/config", "assistant-policy.yaml", "goals/escape/outside.md"
         ):
             decision = self.policy.pre_tool_call(
                 "patch", {"mode": "patch", "patch": prefix + f"*** Add File: {path}\n+no\n"}
@@ -148,14 +148,14 @@ class PolicyPluginTests(unittest.TestCase):
                 "mode": "patch",
                 "patch": (
                     "*** Update File: workspace.yaml\n@@\n+  # extension\n"
-                    "*** Delete File: projects/project-template.md\n"
+                    "*** Delete File: goals/goal-template.md\n"
                 ),
             }
         )
         self.assertEqual(decision["action"], "block")
         path.write_text(path.read_text().replace("overwrite_records: ask", "overwrite_records: deny"))
         decision = self.policy.pre_tool_call(
-            "write_file", {"path": "projects/project-template.md", "content": "replacement"}
+            "write_file", {"path": "goals/goal-template.md", "content": "replacement"}
         )
         self.assertEqual(decision["action"], "block")
 
@@ -163,7 +163,7 @@ class PolicyPluginTests(unittest.TestCase):
         decision = self.policy.pre_tool_call(
             "patch", {
                 "mode": "patch",
-                "patch": "*** Move File: projects/note.md -> projects/menu-template.md\n",
+                "patch": "*** Move File: goals/note.md -> goals/menu-template.md\n",
             }
         )
         self.assertEqual(decision["action"], "block")
@@ -204,12 +204,12 @@ class PolicyPluginTests(unittest.TestCase):
         self.assertEqual(decision["rule_key"], "openlia.policy.delete_records")
 
     def test_removing_optional_menu_frontmatter_is_a_delegated_update(self):
-        directory = self.workspace / "projects/daily-menu"
+        directory = self.workspace / "goals/daily-menu"
         directory.mkdir()
         (directory / "2026-10-24.md").write_text("---\nstatus: draft\n---\n# Menu\n")
         decision = self.policy.pre_tool_call("patch", {
             "mode": "patch",
-            "patch": "*** Update File: projects/daily-menu/2026-10-24.md\n@@\n----\n-status: draft\n----\n # Menu\n",
+            "patch": "*** Update File: goals/daily-menu/2026-10-24.md\n@@\n----\n-status: draft\n----\n # Menu\n",
         })
         self.assertIsNone(decision)
 

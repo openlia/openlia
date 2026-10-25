@@ -98,7 +98,7 @@
             "default": false
           },
           "briefing_category": {
-            "enum": ["calendar", "tasks", "projects", "goals", "decisions", "monitors", "claims", "finance", "inbox", "extension", null]
+            "enum": ["calendar", "tasks", "goals", "decisions", "monitors", "claims", "finance", "inbox", "extension", null]
           },
           "skills": {
             "type": "array",

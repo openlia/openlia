@@ -28,7 +28,7 @@ def _ordered(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def build_review(data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("input must be a JSON object")
-    projects = _list(data, "projects")
+    goals = _list(data, "goals")
     tasks = _list(data, "tasks")
     decisions = _list(data, "decisions")
     claims = _list(data, "claims")
@@ -46,10 +46,10 @@ def build_review(data: dict[str, Any]) -> dict[str, Any]:
         if str(task.get("status", "")).lower()
         not in {"done", "completed", "cancelled", "canceled", "archived"}
     ]
-    active_projects = [
-        project
-        for project in projects
-        if str(project.get("status") or "active").lower() == "active"
+    active_goals = [
+        goal
+        for goal in goals
+        if str(goal.get("status") or "active").lower() == "active"
     ]
     revisit = [
         decision
@@ -81,7 +81,7 @@ def build_review(data: dict[str, Any]) -> dict[str, Any]:
         "week": str(data.get("week") or "unspecified"),
         "completed": _ordered(completed),
         "closed_tasks": _ordered(closed_tasks),
-        "active_projects": _ordered(active_projects),
+        "active_goals": _ordered(active_goals),
         "open_tasks": _ordered(open_tasks),
         "decisions_to_revisit": _ordered(revisit),
         "claims_to_review": _ordered(claim_review),
@@ -94,10 +94,10 @@ def self_test() -> None:
     review = build_review(
         {
             "week": "2026-W01",
-            "projects": [
-                {"title": "Active project", "status": "active"},
-                {"title": "Unspecified project", "status": None},
-                {"title": "Paused project", "status": "paused"},
+            "goals": [
+                {"title": "Active goal", "status": "active"},
+                {"title": "Unspecified goal", "status": None},
+                {"title": "Paused goal", "status": "paused"},
             ],
             "tasks": [
                 {"title": "Finished task", "status": "done"},
@@ -126,11 +126,11 @@ def self_test() -> None:
     assert review["claims_to_review"][0]["claim"] == "A stale preference"
     assert review["finance_open"][0]["title"] == "Unreconciled card"
     assert review["health_open"][0]["title"] == "Unconfirmed diagnosis"
-    assert {project["title"] for project in review["active_projects"]} == {
-        "Active project",
-        "Unspecified project",
+    assert {goal["title"] for goal in review["active_goals"]} == {
+        "Active goal",
+        "Unspecified goal",
     }
-    assert all(project.get("title") != "Paused project" for project in review["active_projects"])
+    assert all(goal.get("title") != "Paused goal" for goal in review["active_goals"])
     assert all(decision.get("title") != "Abandoned decision" for decision in review["decisions_to_revisit"])
 
 

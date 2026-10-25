@@ -28,7 +28,6 @@ from workspace_registry import allowed_root_domains, load_policy, load_registry
 CANONICAL_DOMAINS = {
     "inbox",
     "goals",
-    "projects",
     "knowledge",
     "tasks",
     "calendar",
@@ -218,14 +217,14 @@ def audit_broken_links(workspace: Path) -> list[dict[str, Any]]:
     return issues
 
 
-def audit_completed_projects(workspace: Path) -> list[dict[str, Any]]:
+def audit_completed_goals(workspace: Path) -> list[dict[str, Any]]:
     issues = []
-    projects_dir = workspace / "projects"
-    if not projects_dir.is_dir():
+    goals_dir = workspace / "goals"
+    if not goals_dir.is_dir():
         return issues
-    for root, _, files in os.walk(projects_dir):
+    for root, _, files in os.walk(goals_dir):
         for file in files:
-            if not file.endswith(".md") or file in ("project-template.md", "README.md"):
+            if not file.endswith(".md") or file in ("goal-template.md", "README.md"):
                 continue
             file_path = Path(root, file)
             rel_path = file_path.relative_to(workspace).as_posix()
@@ -244,10 +243,10 @@ def audit_completed_projects(workspace: Path) -> list[dict[str, Any]]:
 
             if is_completed_status or all_checked:
                 issues.append({
-                    "type": "completed-project",
+                    "type": "completed-goal",
                     "file": rel_path,
-                    "observation": f"Project '{rel_path}' appears finished (all tasks checked or status completed).",
-                    "suggestion": f"Move to archive/projects/{file} to keep active project list clean.",
+                    "observation": f"Goal '{rel_path}' appears finished (all milestones checked or status completed).",
+                    "suggestion": f"Move to archive/goals/{file} to keep active goal list clean.",
                 })
     return issues
 
@@ -454,7 +453,7 @@ def run_audit(
     root_issues = audit_root_files(workspace, registry)
     inbox_issues = audit_inbox(workspace)
     broken_link_issues = audit_broken_links(workspace)
-    project_issues = audit_completed_projects(workspace)
+    goal_issues = audit_completed_goals(workspace)
     claim_issues = audit_claims(workspace)
     provenance_issues = audit_source_provenance(workspace, ingestion_root=ingestion_root)
 
@@ -464,7 +463,7 @@ def run_audit(
         + root_issues
         + inbox_issues
         + broken_link_issues
-        + project_issues
+        + goal_issues
         + claim_issues
         + provenance_issues
     )
@@ -477,7 +476,7 @@ def run_audit(
             ),
             "unfiled_inbox_items": len(inbox_issues),
             "broken_links": len(broken_link_issues),
-            "completed_projects": len(project_issues),
+            "completed_goals": len(goal_issues),
             "claims_requiring_review": len(claim_issues),
             "evidence_provenance_issues": len(provenance_issues),
             "registry_errors": len(registry_issues),
@@ -494,13 +493,12 @@ def self_test() -> None:
     with tempfile.TemporaryDirectory() as tmp_str:
         tmp = Path(tmp_str)
         # Create canonical dirs
-        for d in ("inbox", "projects", "knowledge/claims"):
+        for d in ("inbox", "goals", "knowledge/claims"):
             (tmp / d).mkdir(parents=True)
 
         core_roots = (
             "inbox",
             "goals",
-            "projects",
             "knowledge",
             "tasks",
             "calendar",
@@ -509,7 +507,7 @@ def self_test() -> None:
         (tmp / "workspace.schema.json").write_text(
             '{"$schema":"https://json-schema.org/draft/2020-12/schema",'
             '"type":"object","properties":{"$schema":{"const":"./workspace.schema.json"},'
-            '"version":{"const":1},"domains":{"type":"array","minItems":7}},'
+            '"version":{"const":1},"domains":{"type":"array","minItems":6}},'
             '"required":["$schema","version","domains"],"additionalProperties":false}\n',
             encoding="utf-8",
         )
@@ -553,13 +551,13 @@ def self_test() -> None:
         (tmp / "inbox" / "2026-09-trip-notes.md").write_text("Trip notes", encoding="utf-8")
 
         # 3. Broken markdown link
-        (tmp / "projects" / "website.md").write_text(
+        (tmp / "goals" / "website.md").write_text(
             "status: active\n- [ ] Design [missing doc](missing_spec.md)\n- [x] Wireframe\n",
             encoding="utf-8",
         )
 
-        # 4. Completed project
-        (tmp / "projects" / "garden.md").write_text(
+        # 4. Completed goal
+        (tmp / "goals" / "garden.md").write_text(
             "status: completed\n- [x] Buy seeds\n- [x] Plant seeds\n",
             encoding="utf-8",
         )
@@ -580,7 +578,7 @@ def self_test() -> None:
         assert result["summary"]["unregistered_directories"] == 1
         assert result["summary"]["unfiled_inbox_items"] == 1
         assert result["summary"]["broken_links"] == 1
-        assert result["summary"]["completed_projects"] == 1
+        assert result["summary"]["completed_goals"] == 1
         assert result["summary"]["claims_requiring_review"] == 1
 
         # Also test on a clean directory

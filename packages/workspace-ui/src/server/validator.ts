@@ -14,7 +14,13 @@ import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import YAML from "yaml";
 import { z } from "zod";
-import { domainOpenUIProps } from "../shared/domainOpenUI";
+import {
+  DEFAULT_PROJECT_UI_ENTRY,
+  PROJECT_MANIFEST_FILENAME,
+  type ProjectManifest,
+  type ProjectQueryDefinition,
+  projectOpenUIProps,
+} from "../shared/project";
 import type {
   WorkspaceDiagnosticIssue,
   WorkspaceDiagnosticsResponse,
@@ -85,16 +91,12 @@ const OPENUI_KNOWN_COMPONENTS = new Set([
   "OverviewCardItem",
   "Modal",
   // OpenLia custom components
+  "Grid",
   "DomainHeader",
   "MetricCard",
   "RecordKanban",
   "RecordTable",
-  "RecordHeaderCard",
-  "FrontmatterEditorCard",
-  "ChecklistSection",
-  "MarkdownSectionCard",
-  "ClaimProvenanceCard",
-  "DecisionMatrixCard",
+  "FinanceOverview",
   // Built-in OpenUI expressions
   "Query",
   "Mutation",
@@ -131,6 +133,8 @@ const OPENUI_KNOWN_FUNCTIONS = new Set([
   "GroupCount",
   "FilterRecords",
   "SumBy",
+  "Query",
+  "GetQuery",
   "Section",
   "Checklist",
 ]);
@@ -139,10 +143,420 @@ const openuiSchemaDefs = Object.fromEntries(
   [...OPENUI_KNOWN_COMPONENTS].map((name) => [name, { type: "object" }]),
 );
 Object.assign(openuiSchemaDefs, openuiLibrary.toJSONSchema().$defs);
-for (const [name, props] of Object.entries(domainOpenUIProps)) {
+for (const [name, props] of Object.entries(projectOpenUIProps)) {
   openuiSchemaDefs[name] = z.toJSONSchema(props) as { type: string };
 }
-const openuiParser = createParser({ $defs: openuiSchemaDefs });
+const openuiFunctionDefs = {
+  ...openuiLibrary.toJSONSchema().functions,
+  CountBy: {
+    params: z.toJSONSchema(
+      z.object({ field: z.string(), value: z.any().optional() }),
+    ),
+  },
+  GroupCount: {
+    params: z.toJSONSchema(z.object({ field: z.string() })),
+  },
+  FilterRecords: {
+    params: z.toJSONSchema(
+      z.object({ field: z.string(), value: z.any().optional() }),
+    ),
+  },
+  SumBy: {
+    params: z.toJSONSchema(z.object({ field: z.string() })),
+  },
+  GetQuery: {
+    params: z.toJSONSchema(z.object({ name: z.string() })),
+  },
+};
+const openuiParser = createParser({
+  $defs: openuiSchemaDefs,
+  functions: openuiFunctionDefs,
+} as Parameters<typeof createParser>[0]);
+
+export function parseProjectManifest(content: string): {
+  manifest: ProjectManifest | null;
+  errors: string[];
+} {
+  const errors: string[] = [];
+  let raw: Record<string, unknown>;
+  try {
+    const parsed = Bun.TOML.parse(content);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {
+        errors: ["project-manifest.toml must be a TOML table"],
+        manifest: null,
+      };
+    }
+    raw = parsed as Record<string, unknown>;
+  } catch (err) {
+    return {
+      errors: [
+        `TOML syntax error: ${err instanceof Error ? err.message : String(err)}`,
+      ],
+      manifest: null,
+    };
+  }
+
+  const version = typeof raw.version === "number" ? raw.version : 1;
+  if (version !== 1) {
+    errors.push(`version must be 1 (got ${String(raw.version)})`);
+  }
+
+  const projectRaw =
+    raw.project &&
+    typeof raw.project === "object" &&
+    !Array.isArray(raw.project)
+      ? (raw.project as Record<string, unknown>)
+      : null;
+  if (!projectRaw) {
+    errors.push("missing required [project] table");
+  }
+  const id = typeof projectRaw?.id === "string" ? projectRaw.id.trim() : "";
+  const rawName =
+    typeof projectRaw?.name === "string"
+      ? projectRaw.name
+      : typeof projectRaw?.title === "string"
+        ? projectRaw.title
+        : "";
+  const name = rawName.trim();
+  if (!id) {
+    errors.push("[project].id is required and must be a non-empty string");
+  }
+  if (!name) {
+    errors.push("[project].name is required and must be a non-empty string");
+  }
+
+  const dataRaw =
+    raw.data && typeof raw.data === "object" && !Array.isArray(raw.data)
+      ? (raw.data as Record<string, unknown>)
+      : {};
+  const uiRaw =
+    raw.ui && typeof raw.ui === "object" && !Array.isArray(raw.ui)
+      ? (raw.ui as Record<string, unknown>)
+      : {};
+  const entry =
+    typeof uiRaw.entry === "string" && uiRaw.entry.trim()
+      ? uiRaw.entry.trim()
+      : DEFAULT_PROJECT_UI_ENTRY;
+
+  const queries: Record<string, ProjectQueryDefinition> = {};
+  if (
+    dataRaw.queries &&
+    typeof dataRaw.queries === "object" &&
+    !Array.isArray(dataRaw.queries)
+  ) {
+    for (const [qName, qVal] of Object.entries(
+      dataRaw.queries as Record<string, unknown>,
+    )) {
+      if (!qVal || typeof qVal !== "object" || Array.isArray(qVal)) {
+        errors.push(`[data.queries.${qName}] must be a table`);
+        continue;
+      }
+      const qObj = qVal as Record<string, unknown>;
+      const rawType = typeof qObj.type === "string" ? qObj.type : qObj.op;
+      const normalizedType =
+        rawType === "count_by" || rawType === "count"
+          ? "count"
+          : rawType === "group_count"
+            ? "group_count"
+            : rawType === "sum_by" || rawType === "sum"
+              ? "sum"
+              : rawType === "filter_records" ||
+                  rawType === "filter" ||
+                  rawType === "records"
+                ? "filter"
+                : null;
+      if (!normalizedType) {
+        errors.push(
+          `[data.queries.${qName}].op/type must be one of 'count'/'count_by', 'group_count', 'sum'/'sum_by', 'filter'/'filter_records'`,
+        );
+        continue;
+      }
+      queries[qName] = {
+        type: normalizedType,
+        ...(typeof qObj.field === "string" ? { field: qObj.field } : {}),
+        ...(qObj.value !== undefined
+          ? {
+              value: qObj.value as
+                | string
+                | number
+                | boolean
+                | Array<string | number | boolean>,
+            }
+          : {}),
+        ...(qObj.where &&
+        typeof qObj.where === "object" &&
+        !Array.isArray(qObj.where)
+          ? {
+              where: qObj.where as Record<
+                string,
+                string | number | boolean | Array<string | number | boolean>
+              >,
+            }
+          : {}),
+      };
+    }
+  }
+
+  const logicRaw =
+    raw.logic && typeof raw.logic === "object" && !Array.isArray(raw.logic)
+      ? (raw.logic as Record<string, unknown>)
+      : undefined;
+
+  const mutationsRaw =
+    logicRaw?.mutations &&
+    typeof logicRaw.mutations === "object" &&
+    !Array.isArray(logicRaw.mutations)
+      ? (logicRaw.mutations as Record<string, unknown>)
+      : undefined;
+
+  const promptsRaw = Array.isArray(logicRaw?.prompts)
+    ? logicRaw.prompts
+    : undefined;
+
+  const manifest: ProjectManifest = {
+    version,
+    project: {
+      id: id || "unnamed",
+      name: name || "Unnamed Project",
+      ...(typeof projectRaw?.description === "string"
+        ? { description: projectRaw.description }
+        : {}),
+      ...(typeof projectRaw?.icon === "string"
+        ? { icon: projectRaw.icon }
+        : {}),
+    },
+    data: {
+      ...(typeof dataRaw.records_glob === "string"
+        ? { records_glob: dataRaw.records_glob }
+        : {}),
+      ...(Array.isArray(dataRaw.exclude)
+        ? {
+            exclude: dataRaw.exclude.filter(
+              (item): item is string => typeof item === "string",
+            ),
+          }
+        : {}),
+      ...(typeof dataRaw.template === "string"
+        ? { template: dataRaw.template }
+        : {}),
+      ...(typeof dataRaw.schema === "string" ? { schema: dataRaw.schema } : {}),
+      ...(typeof dataRaw.status_field === "string"
+        ? { status_field: dataRaw.status_field }
+        : {}),
+      ...(dataRaw.default_sort &&
+      typeof dataRaw.default_sort === "object" &&
+      !Array.isArray(dataRaw.default_sort) &&
+      typeof (dataRaw.default_sort as Record<string, unknown>).field ===
+        "string"
+        ? {
+            default_sort: {
+              field: (dataRaw.default_sort as Record<string, unknown>)
+                .field as string,
+              direction:
+                (dataRaw.default_sort as Record<string, unknown>).direction ===
+                "desc"
+                  ? "desc"
+                  : "asc",
+            },
+          }
+        : {}),
+      ...(Object.keys(queries).length > 0 ? { queries } : {}),
+    },
+    ui: {
+      entry,
+    },
+    ...(logicRaw
+      ? {
+          logic: {
+            ...(Array.isArray(logicRaw.skills)
+              ? {
+                  skills: logicRaw.skills.filter(
+                    (s): s is string => typeof s === "string",
+                  ),
+                }
+              : {}),
+            ...(mutationsRaw
+              ? {
+                  mutations: {
+                    ...(Array.isArray(mutationsRaw.editable_fields)
+                      ? {
+                          editable_fields: mutationsRaw.editable_fields.filter(
+                            (f): f is string => typeof f === "string",
+                          ),
+                        }
+                      : {}),
+                    ...(Array.isArray(mutationsRaw.checklist_sections)
+                      ? {
+                          checklist_sections:
+                            mutationsRaw.checklist_sections.filter(
+                              (s): s is string => typeof s === "string",
+                            ),
+                        }
+                      : {}),
+                  },
+                }
+              : {}),
+            ...(promptsRaw
+              ? {
+                  prompts: promptsRaw
+                    .filter(
+                      (p): p is Record<string, unknown> =>
+                        Boolean(p) &&
+                        typeof p === "object" &&
+                        !Array.isArray(p),
+                    )
+                    .filter(
+                      (p) =>
+                        typeof p.label === "string" &&
+                        typeof p.prompt === "string",
+                    )
+                    .map((p, idx) => ({
+                      id:
+                        typeof p.id === "string" && p.id.trim()
+                          ? p.id.trim()
+                          : `prompt-${idx + 1}`,
+                      label: p.label as string,
+                      prompt: p.prompt as string,
+                    })),
+                }
+              : {}),
+          },
+        }
+      : {}),
+  };
+
+  return { errors, manifest: errors.length === 0 ? manifest : manifest };
+}
+
+export function validateProjectManifest(
+  workspaceRoot: string,
+  manifestRelativePath: string,
+  content: string,
+): WorkspaceFileValidation {
+  const root = resolve(workspaceRoot);
+  const normalized = manifestRelativePath.replaceAll("\\", "/");
+  const projectDir = dirname(resolve(root, normalized));
+  const { manifest, errors } = parseProjectManifest(content);
+  if (!manifest) {
+    return { errors, valid: false };
+  }
+
+  const uiEntryAbs = resolve(projectDir, manifest.ui.entry);
+  if (!uiEntryAbs.startsWith(projectDir + sep) || !existsSync(uiEntryAbs)) {
+    errors.push(
+      `[ui].entry '${manifest.ui.entry}' does not exist in ${dirname(normalized)}`,
+    );
+  }
+
+  let schemaProps: Set<string> | null = null;
+  let schemaRel: string | undefined;
+  if (manifest.data.schema) {
+    const schemaAbs = resolve(projectDir, manifest.data.schema);
+    if (!schemaAbs.startsWith(projectDir + sep) || !existsSync(schemaAbs)) {
+      errors.push(
+        `[data].schema '${manifest.data.schema}' does not exist in ${dirname(normalized)}`,
+      );
+    } else {
+      schemaRel = relative(root, schemaAbs).replaceAll("\\", "/");
+      try {
+        const rawSchema = JSON.parse(readFileSync(schemaAbs, "utf-8"));
+        if (rawSchema?.properties && typeof rawSchema.properties === "object") {
+          schemaProps = new Set(Object.keys(rawSchema.properties));
+        }
+      } catch {
+        errors.push(
+          `[data].schema '${manifest.data.schema}' is not valid JSON`,
+        );
+      }
+    }
+  }
+
+  let templateSections: Set<string> | null = null;
+  let templateRel: string | undefined;
+  if (manifest.data.template) {
+    const tplAbs = resolve(projectDir, manifest.data.template);
+    if (!tplAbs.startsWith(projectDir + sep) || !existsSync(tplAbs)) {
+      errors.push(
+        `[data].template '${manifest.data.template}' does not exist in ${dirname(normalized)}`,
+      );
+    } else {
+      templateRel = relative(root, tplAbs).replaceAll("\\", "/");
+      try {
+        const tplContent = readFileSync(tplAbs, "utf-8");
+        const headings = extractHeadings(
+          parseRecordFrontmatter(tplContent).body,
+        );
+        templateSections = new Set(
+          headings
+            .filter((h) => h.level === 2)
+            .map((h) => h.text.trim().toLowerCase())
+            .filter(Boolean),
+        );
+      } catch {}
+    }
+  }
+
+  if (schemaProps && schemaProps.size > 0) {
+    if (
+      manifest.data.status_field &&
+      !schemaProps.has(manifest.data.status_field)
+    ) {
+      errors.push(
+        `contract(schema): [data].status_field '${manifest.data.status_field}' is not defined in ${schemaRel ?? manifest.data.schema}`,
+      );
+    }
+    for (const field of manifest.logic?.mutations?.editable_fields ?? []) {
+      if (!schemaProps.has(field)) {
+        errors.push(
+          `contract(schema): [logic.mutations].editable_fields '${field}' is not defined in ${schemaRel ?? manifest.data.schema}`,
+        );
+      }
+    }
+    for (const [qName, qDef] of Object.entries(manifest.data.queries ?? {})) {
+      if (
+        qDef.field &&
+        qDef.field !== "title" &&
+        qDef.field !== "filename" &&
+        qDef.field !== "path" &&
+        !schemaProps.has(qDef.field)
+      ) {
+        errors.push(
+          `contract(schema): [data.queries.${qName}].field '${qDef.field}' is not defined in ${schemaRel ?? manifest.data.schema}`,
+        );
+      }
+      for (const whereField of Object.keys(qDef.where ?? {})) {
+        if (
+          whereField !== "title" &&
+          whereField !== "filename" &&
+          whereField !== "path" &&
+          !schemaProps.has(whereField)
+        ) {
+          errors.push(
+            `contract(schema): [data.queries.${qName}].where '${whereField}' is not defined in ${schemaRel ?? manifest.data.schema}`,
+          );
+        }
+      }
+    }
+  }
+
+  if (templateSections && templateSections.size > 0) {
+    for (const heading of manifest.logic?.mutations?.checklist_sections ?? []) {
+      if (!templateSections.has(heading.trim().toLowerCase())) {
+        errors.push(
+          `contract(template): [logic.mutations].checklist_sections '## ${heading}' is not defined in ${templateRel ?? manifest.data.template}`,
+        );
+      }
+    }
+  }
+
+  return {
+    errors,
+    ...(schemaRel ? { schema_path: schemaRel } : {}),
+    ...(templateRel ? { template_path: templateRel } : {}),
+    valid: errors.length === 0,
+  };
+}
 
 export function validateOpenUIContent(
   workspaceRoot: string,
@@ -159,7 +573,8 @@ export function validateOpenUIContent(
     };
   }
 
-  const parseResult = openuiParser.parse(content);
+  const normalizedContent = content.replace(/@Query\s*\(/g, "@GetQuery(");
+  const parseResult = openuiParser.parse(normalizedContent);
   for (const err of parseResult.meta.errors) {
     errors.push(`openui(${err.code}): ${err.message}`);
   }
@@ -261,9 +676,9 @@ export function validateOpenUIContent(
       }
     }
 
-    // Check @CountBy / @GroupCount / @FilterRecords / @SumBy field argument
+    // Check @CountBy / @GroupCount / @FilterRecords / @SumBy field argument (supports @CountBy("field", ...) or @CountBy($records, "field", ...))
     for (const match of content.matchAll(
-      /@(?:CountBy|GroupCount|FilterRecords|SumBy)\s*\([^,]+,\s*(?:"([^"]+)"|'([^']+)')/g,
+      /@(?:CountBy|GroupCount|FilterRecords|SumBy)\s*\(\s*(?:\$[A-Za-z0-9_.]+\s*,\s*)?(?:"([^"]+)"|'([^']+)')/g,
     )) {
       const field = match[1] ?? match[2];
       if (
@@ -279,6 +694,34 @@ export function validateOpenUIContent(
         );
       }
     }
+  }
+
+  // If project-manifest.toml is in the same folder, check @Query("name") against [data.queries]
+  const manifestAbs = resolve(
+    dirname(resolve(workspaceRoot, normalized)),
+    PROJECT_MANIFEST_FILENAME,
+  );
+  if (existsSync(manifestAbs)) {
+    try {
+      const { manifest } = parseProjectManifest(
+        readFileSync(manifestAbs, "utf-8"),
+      );
+      if (manifest) {
+        const definedQueries = new Set(
+          Object.keys(manifest.data.queries ?? {}),
+        );
+        for (const match of content.matchAll(
+          /@(?:Query|GetQuery)\s*\(\s*(?:"([^"]+)"|'([^']+)')\s*\)/g,
+        )) {
+          const queryName = match[1] ?? match[2];
+          if (queryName && !definedQueries.has(queryName)) {
+            errors.push(
+              `contract(manifest): query '${queryName}' is not defined in [data.queries] of ${PROJECT_MANIFEST_FILENAME}`,
+            );
+          }
+        }
+      }
+    } catch {}
   }
 
   if (templateSections && templateSections.size > 0) {
@@ -737,6 +1180,13 @@ export function validateRecordContent(
     );
   }
 
+  if (
+    normalized === PROJECT_MANIFEST_FILENAME ||
+    normalized.endsWith(`/${PROJECT_MANIFEST_FILENAME}`)
+  ) {
+    return validateProjectManifest(workspaceRoot, normalized, content);
+  }
+
   if (normalized.toLowerCase().endsWith(".openui")) {
     return validateOpenUIContent(workspaceRoot, normalized, content);
   }
@@ -988,6 +1438,7 @@ export function validateEntireWorkspace(
         entry.isFile() &&
         (relPath.toLowerCase().endsWith(".md") ||
           relPath.toLowerCase().endsWith(".openui") ||
+          entry.name === PROJECT_MANIFEST_FILENAME ||
           isConfigurationPath(relPath))
       ) {
         try {

@@ -1914,6 +1914,18 @@ export function createWorkspaceHandler(
         return json(service.domainOverview(url.searchParams.get("path")));
       }
       if (
+        request.method === "GET" &&
+        url.pathname === "/api/workspace/projects"
+      ) {
+        return json(service.listProjects());
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname === "/api/workspace/project"
+      ) {
+        return json(service.loadProject(url.searchParams.get("path")));
+      }
+      if (
         request.method === "POST" &&
         url.pathname === "/api/workspace/fix-domain-template"
       ) {

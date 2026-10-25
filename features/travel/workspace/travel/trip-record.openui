@@ -1,8 +1,0 @@
-hdr = RecordHeaderCard()
-props = FrontmatterEditorCard()
-profile = RecordProfile("travel")
-itinerary = RecordSectionView("Itinerary Outline", "schedule", "Daily itinerary")
-reservations = RecordSectionView("Reservations & Confirmations", "bookings", "Bookings and confirmations")
-packing = ChecklistSection("Packing & Preparation Checklist")
-budget = MarkdownSectionCard("Budget & Expenses")
-root = Stack([hdr, profile, props, itinerary, reservations, packing, budget])

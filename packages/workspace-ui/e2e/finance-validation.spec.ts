@@ -34,12 +34,20 @@ test.describe("snapshot-based finance validation", () => {
     for (const file of [
       "finance-template.md",
       "finance-template.schema.json",
-      "finance-record.openui",
+      "project-manifest.toml",
+      "ui.openui",
     ])
       writeFileSync(
         join(root, "finance", file),
         readFileSync(join(source, file)),
       );
+    writeFileSync(
+      join(root, "finance/ui.openui"),
+      readFileSync(join(source, "ui.openui"), "utf8").replaceAll(
+        "finance/main.journal",
+        journalPath,
+      ),
+    );
     const template = readFileSync(join(source, "finance-template.md"), "utf8");
     writeFileSync(
       join(root, "finance/review.md"),
@@ -64,7 +72,7 @@ test.describe("snapshot-based finance validation", () => {
       !engineAvailable,
       "Native integration requires an installed hledger binary",
     );
-    await page.goto(`/files/${name}/finance/review.md?view=visual`);
+    await page.goto(`/projects/${name}/finance`);
     const card = page.getByRole("region", { name: "Journal validation" });
     await expect(card.getByRole("status")).toHaveText("Not checked");
     await card.getByRole("button", { name: "Check journal" }).click();
@@ -102,7 +110,7 @@ test.describe("snapshot-based finance validation", () => {
     page,
   }) => {
     writeFileSync(join(root, "finance/main.journal"), "include *.journal\n");
-    await page.goto(`/files/${name}/finance/review.md?view=visual`);
+    await page.goto(`/projects/${name}/finance`);
     const card = page.getByRole("region", { name: "Journal validation" });
     await card.getByRole("button", { name: "Check journal" }).click();
     await expect(card.getByRole("status")).toHaveText("Journal check blocked");
@@ -121,7 +129,7 @@ test.describe("snapshot-based finance validation", () => {
       engineAvailable,
       "Unavailable-engine case runs when hledger is not installed/configured",
     );
-    await page.goto(`/files/${name}/finance/review.md?view=visual`);
+    await page.goto(`/projects/${name}/finance`);
     const card = page.getByRole("region", { name: "Journal validation" });
     await card.getByRole("button", { name: "Check journal" }).click();
     await expect(card.getByRole("status")).toHaveText("hledger is unavailable");

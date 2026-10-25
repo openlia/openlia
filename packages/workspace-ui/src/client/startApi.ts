@@ -36,6 +36,8 @@ import type {
   WorkspaceFixTemplateResponse,
   WorkspaceGitStatus,
   WorkspaceMoveResponse,
+  WorkspaceProjectResponse,
+  WorkspaceProjectsResponse,
   WorkspaceRenameResponse,
   WorkspaceSettings,
   WorkspaceSystemInfo,
@@ -170,6 +172,14 @@ export const startWorkspaceApi: WorkspaceApi = {
   loadDomainOverview: (domainPath) =>
     request<WorkspaceDomainRecordsResponse>({
       path: `/api/workspace/domain-overview?${new URLSearchParams({ path: domainPath })}`,
+    }),
+  loadProjects: () =>
+    request<WorkspaceProjectsResponse>({
+      path: "/api/workspace/projects",
+    }),
+  loadProject: (projectPath) =>
+    request<WorkspaceProjectResponse>({
+      path: `/api/workspace/project?${new URLSearchParams({ path: projectPath })}`,
     }),
   createFile: (domain, name) =>
     request<WorkspaceFile>({

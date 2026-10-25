@@ -1,8 +1,0 @@
-hdr = RecordHeaderCard()
-props = FrontmatterEditorCard()
-profile = RecordProfile("shopping")
-budget = MarkdownSectionCard("Budget & Price Targets")
-options = RecordSectionView("Candidate Options", "comparison", "Price comparison and pros / cons")
-criteria = RecordSectionView("Decision Criteria", "details", "Specifications and evaluation")
-history = MarkdownSectionCard("Purchase History")
-root = Stack([hdr, profile, props, budget, options, criteria, history])

@@ -1,4 +1,0 @@
-hdr = DomainHeader("Finance", "Journal-backed cashflow and net assets; previews are not authoritative accounting validation")
-summary = FinanceOverview("finance/journal.hledger")
-tbl = RecordTable()
-root = Stack([hdr, summary, tbl])

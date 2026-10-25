@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useId,
@@ -73,6 +75,7 @@ import { GoToModal } from "./GoToModal";
 import { diffLines } from "./markdown";
 import {
   buildCanonicalWorkspaceUri,
+  buildProjectLink,
   buildSkillLink,
   resolveLinkTarget,
 } from "./openliaLinks";
@@ -80,6 +83,12 @@ import { type MainTab, navigateRoute, parseRoute } from "./route";
 import { SkillDetailPane, type SkillSubTab } from "./SkillDetailPane";
 import { SkillsNavigator } from "./SkillsNavigator";
 import "./styles.css";
+
+const ProjectPage = lazy(() =>
+  import("./features/projects/ProjectPage").then((m) => ({
+    default: m.ProjectPage,
+  })),
+);
 
 type PendingAction =
   | { kind: "open"; path: string; view?: WorkspaceView | undefined }
@@ -89,6 +98,7 @@ type PendingAction =
       tab: MainTab;
       ingestionId?: string | undefined;
       migrationId?: string | undefined;
+      projectPath?: string | undefined;
     }
   | { kind: "switchView"; view: WorkspaceView }
   | { kind: "signout" }
@@ -109,7 +119,6 @@ function viewForPath(
   requested: WorkspaceView | undefined,
 ): WorkspaceView {
   if (requested === "info") return "info";
-  if (requested === "visual") return "visual";
   if (
     path &&
     !isMarkdownPath(path) &&
@@ -417,6 +426,7 @@ export function App({
       : {
           filter: undefined,
           path: undefined,
+          projectPath: undefined,
           scenario: undefined,
           shareId: undefined,
           skill: undefined,
@@ -443,7 +453,7 @@ export function App({
       (initialRoute.current.skill ? "skills" : "documents"),
   );
 
-  // Documents state
+  // Documents & Projects state
   const [tree, setTree] = useState<WorkspaceTreeEntry[]>(
     () => initialData?.tree?.entries ?? [],
   );
@@ -452,9 +462,10 @@ export function App({
   );
   const [filter, setFilter] = useState(() => initialRoute.current.filter ?? "");
   const [file, setFile] = useState<WorkspaceFile | null>(null);
-  const visualSaveFileRef = useRef(file);
-  visualSaveFileRef.current = file;
-  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
+  const [selectedProjectPath, setSelectedProjectPath] = useState<
+    string | undefined
+  >(() => initialRoute.current.projectPath);
+  const [chatDraftPrompt, setChatDraftPrompt] = useState<string>("");
   const [artifact, setArtifact] = useState<WorkspaceFileMetadata | null>(null);
   const [draft, setDraft] = useState("");
   const [git, setGit] = useState<WorkspaceGitStatus | null>(null);
@@ -682,13 +693,17 @@ export function App({
             selectedSkillFile?.path ?? undefined,
           )
         : undefined
-      : activeTab === "documents"
-        ? file
-          ? buildCanonicalWorkspaceUri(file.path)
-          : artifact
-            ? buildCanonicalWorkspaceUri(artifact.path)
-            : undefined
-        : undefined;
+      : activeTab === "projects"
+        ? selectedProjectPath
+          ? buildProjectLink(selectedProjectPath)
+          : undefined
+        : activeTab === "documents"
+          ? file
+            ? buildCanonicalWorkspaceUri(file.path)
+            : artifact
+              ? buildCanonicalWorkspaceUri(artifact.path)
+              : undefined
+          : undefined;
 
   const directories = useMemo(() => {
     const set = new Set<string>();
@@ -891,6 +906,9 @@ export function App({
             if (route.skill) {
               void appStateRef.current.openSkill(route.skill, route.skillFile);
             }
+          } else if (route.tab === "projects" || route.projectPath) {
+            setActiveTab("projects");
+            setSelectedProjectPath(route.projectPath);
           } else if (route.tab === "shares") {
             setActiveTab("shares");
           } else if (route.tab === "usage") {
@@ -937,6 +955,7 @@ export function App({
     try {
       const {
         activeTab,
+        artifact,
         file,
         settings: currentSettings,
       } = appStateRef.current;
@@ -948,11 +967,16 @@ export function App({
         setSettings(latestSettings);
       }
       if (activeTab === "documents") {
+        const isOverview = !file && !artifact;
         const [treeRes, gitRes, activityRes, diagRes] = await Promise.all([
           api.loadTree().catch(() => null),
           api.loadGitStatus().catch(() => null),
-          api.loadActivity().catch(() => null),
-          api.loadDiagnostics().catch(() => null),
+          isOverview
+            ? api.loadActivity().catch(() => null)
+            : Promise.resolve(null),
+          isOverview
+            ? api.loadDiagnostics().catch(() => null)
+            : Promise.resolve(null),
         ]);
 
         if (treeRes) {
@@ -1100,7 +1124,7 @@ export function App({
     if (publicShareId) return;
     const timer = setInterval(() => {
       void syncWorkspace();
-    }, 4000);
+    }, 10000);
 
     function handleRevalidation() {
       if (typeof document !== "undefined" && !document.hidden) {
@@ -1203,6 +1227,12 @@ export function App({
             kind: "openSkill",
             skillFile: route.skillFile,
           });
+        } else if (route.tab === "projects" || route.projectPath) {
+          setPendingAction({
+            kind: "switchTab",
+            projectPath: route.projectPath,
+            tab: "projects",
+          });
         } else if (route.tab === "shares") {
           setPendingAction({
             kind: "switchTab",
@@ -1260,6 +1290,9 @@ export function App({
         if (route.skill) {
           void openSkill(route.skill, route.skillFile);
         }
+      } else if (route.tab === "projects" || route.projectPath) {
+        setActiveTab("projects");
+        setSelectedProjectPath(route.projectPath);
       } else if (route.tab === "shares") {
         setActiveTab("shares");
       } else if (route.tab === "git-activity") {
@@ -1298,6 +1331,7 @@ export function App({
       } else if (route.tab === "configuration") {
         setActiveTab("configuration");
       } else if (route.path) {
+        setActiveTab("documents");
         if (route.path !== file?.path && route.path !== artifact?.path) {
           void openFile(route.path, {
             requestedView: route.view,
@@ -1324,6 +1358,10 @@ export function App({
       document.title = selectedSkillDetail
         ? `${selectedSkillDetail.name} - OpenLia Skills`
         : "Skills - OpenLia Workspace";
+    } else if (activeTab === "projects") {
+      document.title = selectedProjectPath
+        ? `${selectedProjectPath} - OpenLia Projects`
+        : "Projects - OpenLia Workspace";
     } else if (activeTab === "shares") {
       document.title = "Shared Links - OpenLia Workspace";
     } else if (activeTab === "git-activity") {
@@ -1337,7 +1375,7 @@ export function App({
     } else if (activeTab === "configuration") {
       document.title = "Configuration - OpenLia Workspace";
     } else {
-      const selectedPath = file?.path ?? artifact?.path ?? selectedDomain;
+      const selectedPath = file?.path ?? artifact?.path;
       if (selectedPath) {
         const name = selectedPath.split("/").at(-1) ?? selectedPath;
         document.title = `${name} - OpenLia Workspace`;
@@ -1350,7 +1388,7 @@ export function App({
     artifact?.path,
     file?.path,
     publicShareId,
-    selectedDomain,
+    selectedProjectPath,
     selectedSkillDetail,
   ]);
 
@@ -1418,6 +1456,9 @@ export function App({
           if (route.skill) {
             void appStateRef.current.openSkill(route.skill, route.skillFile);
           }
+        } else if (route.tab === "projects" || route.projectPath) {
+          setActiveTab("projects");
+          setSelectedProjectPath(route.projectPath);
         } else if (route.tab === "shares") {
           setActiveTab("shares");
         } else if (route.tab === "usage") {
@@ -1513,6 +1554,9 @@ export function App({
           if (route.skill) {
             void appStateRef.current.openSkill(route.skill, route.skillFile);
           }
+        } else if (route.tab === "projects" || route.projectPath) {
+          setActiveTab("projects");
+          setSelectedProjectPath(route.projectPath);
         } else if (route.tab === "shares") {
           setActiveTab("shares");
         } else if (route.tab === "usage") {
@@ -1674,11 +1718,16 @@ export function App({
       return;
     }
     if ((dirty || protectedMemoryDraft) && !canRecoverMemoryDraft) {
-      setPendingAction({ kind: "switchTab", tab: nextTab });
+      setPendingAction({
+        kind: "switchTab",
+        projectPath: nextTab === "projects" ? selectedProjectPath : undefined,
+        tab: nextTab,
+      });
     } else {
       setActiveTab(nextTab);
       navigateRoute({
         path: nextTab === "documents" ? file?.path : undefined,
+        projectPath: nextTab === "projects" ? selectedProjectPath : undefined,
         skill:
           nextTab === "skills" ? (selectedSkillId ?? undefined) : undefined,
         tab: nextTab,
@@ -1687,6 +1736,30 @@ export function App({
         setIngestionDetail(null);
       }
     }
+  }
+
+  function requestOpenProject(
+    projectPath?: string,
+    options?: { replace?: boolean },
+  ) {
+    if (dirty) {
+      setPendingAction({
+        kind: "switchTab",
+        projectPath,
+        tab: "projects",
+      });
+      return;
+    }
+    setActiveTab("projects");
+    setSelectedProjectPath(projectPath);
+    setFilesOpen(false);
+    navigateRoute(
+      {
+        projectPath,
+        tab: "projects",
+      },
+      options,
+    );
   }
 
   function requestMigration(migId?: string) {
@@ -1742,35 +1815,9 @@ export function App({
     setFileLoading(true);
     setDocumentError("");
     setConflict("");
-    const isDirectory =
-      tree.some((entry) => entry.path === path && entry.kind === "directory") ||
-      creatableDomains?.some((d) => d.path === path);
-    if (isDirectory) {
-      if (requestSequence !== fileRequestSequence.current) return;
-      setActiveTab("documents");
-      setSelectedDomain(path);
-      setFile(null);
-      setArtifact(null);
-      setDraft("");
-      setFilesOpen(false);
-      const currentRoute =
-        typeof window !== "undefined" ? parseRoute(window.location) : {};
-      navigateRoute(
-        {
-          filter: filter || undefined,
-          path,
-          scenario: currentRoute.scenario,
-          tab: "documents",
-          view: options?.requestedView,
-        },
-        { replace: options?.replaceHistory },
-      );
-      return;
-    }
     const selectArtifact = (metadata: WorkspaceFileMetadata) => {
       if (requestSequence !== fileRequestSequence.current) return;
       setActiveTab("documents");
-      setSelectedDomain(null);
       setFile(null);
       setArtifact(metadata);
       setDraft("");
@@ -1800,7 +1847,6 @@ export function App({
       }
       const response = await api.loadFile(path);
       if (requestSequence !== fileRequestSequence.current) return;
-      setSelectedDomain(null);
       setFile(response);
       setArtifact(null);
       setDraft(response.content);
@@ -1847,7 +1893,7 @@ export function App({
 
   function requestOpenFile(path: string) {
     if (!path) {
-      if (activeTab === "documents" && !file && !artifact && !selectedDomain) {
+      if (activeTab === "documents" && !file && !artifact) {
         setFilesOpen(false);
         return;
       }
@@ -1855,7 +1901,6 @@ export function App({
         setPendingAction({ kind: "open", path: "" });
       } else {
         setActiveTab("documents");
-        setSelectedDomain(null);
         setFile(null);
         setArtifact(null);
         setDraft("");
@@ -1872,7 +1917,7 @@ export function App({
       }
       return;
     }
-    if (path === (file?.path ?? artifact?.path ?? selectedDomain)) {
+    if (activeTab === "documents" && path === (file?.path ?? artifact?.path)) {
       setFilesOpen(false);
       return;
     }
@@ -1893,6 +1938,7 @@ export function App({
 
   async function openSkill(id: string, skillFilePath = "SKILL.md") {
     const requestSequence = ++skillRequestSequence.current;
+    setActiveTab("skills");
     setSkillsLoading(true);
     setSkillError("");
     try {
@@ -1930,6 +1976,7 @@ export function App({
 
   function requestOpenSkill(id: string, skillFilePath?: string) {
     if (
+      activeTab === "skills" &&
       id === selectedSkillId &&
       (!skillFilePath || skillFilePath === selectedSkillFile?.path)
     ) {
@@ -1952,6 +1999,8 @@ export function App({
     if (!target) return;
     if (target.kind === "workspace") {
       requestOpenFile(target.path);
+    } else if (target.kind === "project") {
+      requestOpenProject(target.projectPath);
     } else if (target.kind === "skill") {
       requestOpenSkill(target.skillId, target.skillFile);
     } else if (target.kind === "git-activity") {
@@ -2019,33 +2068,6 @@ export function App({
         );
       } else setDocumentError("The document could not be saved. Try again.");
       return false;
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleSaveRecordContent(nextContent: string): Promise<void> {
-    const target = visualSaveFileRef.current;
-    if (!target?.editable) throw new Error("This record is read-only");
-    if (isMemoryDocument(target.path) && !settings.enable_memory_editing)
-      throw new Error("Memory editing is disabled");
-    setSaving(true);
-    try {
-      const response = await api.saveFile(
-        target.path,
-        nextContent,
-        target.revision,
-      );
-      if (visualSaveFileRef.current?.path === target.path) {
-        const updated = { ...target, ...response, content: nextContent };
-        visualSaveFileRef.current = updated;
-        setFile(updated);
-        setDraft(nextContent);
-      }
-    } catch (err) {
-      console.error("Failed to save record content:", err);
-      if (err instanceof ApiError && err.status === 401) handleUnauthorized();
-      throw err;
     } finally {
       setSaving(false);
     }
@@ -2449,10 +2471,14 @@ export function App({
       void openSkill(action.id, action.skillFile);
     } else if (action.kind === "switchTab") {
       setActiveTab(action.tab);
+      if (action.tab === "projects") {
+        setSelectedProjectPath(action.projectPath);
+      }
       setIngestionDetail(null);
       navigateRoute({
         ingestionId: action.ingestionId,
         migrationId: action.migrationId,
+        projectPath: action.projectPath,
         tab: action.tab,
       });
       if (action.ingestionId) void loadIngestionDetail(action.ingestionId);
@@ -2499,10 +2525,14 @@ export function App({
       void openSkill(action.id, action.skillFile);
     } else if (action.kind === "switchTab") {
       setActiveTab(action.tab);
+      if (action.tab === "projects") {
+        setSelectedProjectPath(action.projectPath);
+      }
       setIngestionDetail(null);
       navigateRoute({
         ingestionId: action.ingestionId,
         migrationId: action.migrationId,
+        projectPath: action.projectPath,
         tab: action.tab,
       });
       if (action.ingestionId) void loadIngestionDetail(action.ingestionId);
@@ -2796,20 +2826,18 @@ export function App({
             onFilterChange={handleFilterChange}
             onMoveFile={(path) => requestMove(path)}
             onOpenFile={requestOpenFile}
+            onOpenProject={(projectPath) => requestOpenProject(projectPath)}
             onRenameFile={(path) => requestRename(path)}
             onRetry={() => void loadWorkspace()}
             rawUrl={api.rawUrl}
             revealToken={revealToken}
-            selectedPath={
-              file?.path ?? artifact?.path ?? selectedDomain ?? undefined
-            }
+            selectedPath={file?.path ?? artifact?.path ?? undefined}
             truncated={treeTruncated}
             workspaceError={workspaceError}
           />
           <DocumentPane
             activity={activity}
             activityLoading={activityLoading}
-            api={api}
             artifact={artifact}
             conflict={conflict}
             deleting={deleting}
@@ -2821,12 +2849,6 @@ export function App({
             draft={draft}
             file={file}
             fileLoading={fileLoading}
-            onCreateFile={(domain) => {
-              setCreateFileError("");
-              setPendingCreateFile({ domain });
-            }}
-            onSaveRecordContent={handleSaveRecordContent}
-            selectedDomain={selectedDomain}
             onLoadCalendarFile={handleLoadCalendarFile}
             onSaveCalendarFile={handleSaveCalendarFile}
             onLoadInclude={handleLoadInclude}
@@ -2904,6 +2926,31 @@ export function App({
             </div>
           )}
         </div>
+      ) : activeTab === "projects" ? (
+        <Suspense
+          fallback={
+            <div className="grid min-h-[50dvh] place-items-center p-8 text-sm text-base-content/60">
+              <span className="loading loading-spinner loading-md text-primary" />
+            </div>
+          }
+        >
+          <ProjectPage
+            api={api}
+            selectedProjectPath={selectedProjectPath}
+            onSelectProject={(projectPath, options) =>
+              requestOpenProject(projectPath, options)
+            }
+            onOpenFile={(filePath) => requestOpenFile(filePath)}
+            onCreateFile={(domain) => {
+              setCreateFileError("");
+              setPendingCreateFile({ domain });
+            }}
+            onAskLia={(prompt) => {
+              setChatDraftPrompt(prompt);
+              requestTabChange("chat");
+            }}
+          />
+        </Suspense>
       ) : activeTab === "skills" ? (
         <div className="workspace-layout xl:grid-cols-[clamp(18rem,22vw,22rem)_minmax(0,1fr)]">
           <div
@@ -3003,7 +3050,11 @@ export function App({
           )}
         </div>
       ) : activeTab === "chat" ? (
-        <ChatPage api={api.chat} />
+        <ChatPage
+          api={api.chat}
+          initialPrompt={chatDraftPrompt || undefined}
+          onConsumeInitialPrompt={() => setChatDraftPrompt("")}
+        />
       ) : activeTab === "shares" ? (
         <div className="workspace-layout xl:grid-cols-1">
           <SharedLinksSection

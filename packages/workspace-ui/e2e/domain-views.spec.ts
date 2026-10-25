@@ -75,11 +75,11 @@ test.describe("specialized domain views with real file persistence", () => {
       );
       writeFileSync(join(destination, "fixture.md"), content);
       if (domain === "finance") {
-        const dashboard = join(destination, "finance-dashboard.openui");
+        const dashboard = join(destination, "ui.openui");
         writeFileSync(
           dashboard,
           readFileSync(dashboard, "utf8").replaceAll(
-            "finance/journal.hledger",
+            "finance/main.journal",
             `${fixtureName}/finance/journal.hledger`,
           ),
         );
@@ -96,92 +96,35 @@ test.describe("specialized domain views with real file persistence", () => {
   });
 
   for (const { domain, title } of domains) {
-    test(`${domain} dashboard and record render`, async ({ page }) => {
-      await page.goto(`/files/${fixtureName}/${domain}`);
+    test(`${domain} mini-project and record markdown preview render`, async ({
+      page,
+    }) => {
+      await page.goto(`/projects/${fixtureName}/${domain}`);
       await expect(
-        page.getByRole("heading", { name: title, exact: true }),
+        page.getByRole("heading", { name: title }).first(),
       ).toBeVisible();
       await expect(page.getByText(/OpenUI Render Error/)).toHaveCount(0);
-      if (["travel", "shopping", "monitors", "people"].includes(domain)) {
-        await expect(
-          page.getByRole("region", { name: `${domain} overview` }),
-        ).toBeVisible();
-      } else if (domain === "finance") {
-        await expect(
-          page.getByRole("region", { name: "Finance overview" }),
-        ).toBeVisible();
-      } else {
-        await expect(
-          page.getByText("under-review", { exact: true }),
-        ).toBeVisible();
-      }
-      await page.goto(`/files/${fixtureName}/${domain}/fixture.md?view=visual`);
+      await page.goto(`/files/${fixtureName}/${domain}/fixture.md`);
       await expect(
         page.getByRole("heading", { name: `E2E ${domain}`, exact: true }),
-      ).toBeVisible();
-      await expect(page.getByText(/OpenUI Render Error/)).toHaveCount(0);
-      await expect(
-        page.getByRole("button", { name: "Save Properties" }),
       ).toBeVisible();
     });
   }
 
-  test("packing and schedule edits use PUT and survive reload", async ({
-    page,
-  }) => {
-    await page.goto(`/files/${fixtureName}/travel/fixture.md?view=visual`);
-    const checkbox = page.getByRole("checkbox", { name: /Travel documents/ });
-    const savedPacking = page.waitForResponse(isFileSave);
-    // The controlled checkbox reflects the persisted value after the async save.
-    await checkbox.click();
-    expect((await savedPacking).ok()).toBe(true);
-    await expect(checkbox).toBeChecked();
-    await page.reload();
-    await expect(checkbox).toBeChecked();
-    await page.getByRole("button", { name: "Edit Daily itinerary" }).click();
-    await page
-      .getByLabel("Itinerary Outline")
-      .fill("- 2026-11-01 09:00: Flight to Tokyo");
-    const savedSchedule = page.waitForResponse(isFileSave);
-    await page.getByRole("button", { name: "Save section" }).click();
-    expect((await savedSchedule).ok()).toBe(true);
-    await page.reload();
-    await expect(
-      page.getByText("2026-11-01 09:00: Flight to Tokyo", { exact: true }),
-    ).toBeVisible();
-    await expect(checkbox).toBeChecked();
-  });
-
-  test("layout editor gives live schema diagnostics and broken layouts retain a fallback", async ({
-    page,
-  }) => {
-    const layout = `${fixtureName}/travel/trip-record.openui`;
+  test("layout editor gives live schema diagnostics", async ({ page }) => {
+    const layout = `${fixtureName}/travel/ui.openui`;
     await page.goto(`/files/${layout}?view=edit`);
     const editor = page.getByRole("textbox", { name: "Code editor" });
     await expect(page.getByLabel("OpenUI diagnostics")).toContainText(
       "OpenUI layout is valid.",
     );
-    await editor.fill('root = DomainCollection("unsupported")');
+    await editor.fill('root = UnknownWidget("unsupported")');
     await expect(page.getByLabel("OpenUI diagnostics")).toContainText(
       "OpenUI layout diagnostics",
     );
-    await editor.fill('root = RecordProfile("travel")');
+    await editor.fill('root = DomainHeader("Travel")');
     await expect(page.getByLabel("OpenUI diagnostics")).toContainText(
       "OpenUI layout is valid.",
     );
-    // Simulate a broken externally edited layout, then exercise recovery in-browser.
-    writeFileSync(
-      join(fixtureRoot, "travel/trip-record.openui"),
-      "root = UnknownDomainWidget()",
-    );
-    await page.goto(`/files/${fixtureName}/travel/fixture.md?view=visual`);
-    await expect(page.getByText(/OpenUI Render Error/)).toBeVisible();
-    await page
-      .getByRole("button", { name: /default|fallback/i })
-      .first()
-      .click();
-    await expect(
-      page.getByRole("heading", { name: "E2E travel", exact: true }),
-    ).toBeVisible();
   });
 });
