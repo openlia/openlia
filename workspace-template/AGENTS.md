@@ -66,6 +66,10 @@ user-owned delegation policy authorizes the scoped update.
   updated Markdown record directly in that folder must conform to the referenced schema
   as well as the starter template. Run the `workspace-template-customization`
   validator on demand after template, schema, or record changes.
+- **Domain UI Customization (`.openui`)**:
+  - Domains support declarative visual dashboards (`<prefix>-dashboard.openui`) and record visual views (`<prefix>-record.openui`) powered by OpenUI Lang.
+  - Modifying `.openui` files alters the presentation layer without touching or invalidating records on disk.
+  - After updating a domain's UI, validate with `validate_workspace.py` and reply with canonical links (e.g. `openlia://workspace/<domain>`).
 - Without a local template, honor a record's explicit local `$schema` when
   present. A record directive cannot override a local template's contract.
 - Authorization and validation are separate: report invalid content accurately,

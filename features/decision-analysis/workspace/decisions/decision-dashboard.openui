@@ -1,0 +1,4 @@
+hdr = DomainHeader("Decisions", "Architectural and personal decisions registry")
+kb = RecordKanban("status")
+tbl = RecordTable()
+root = Stack([hdr, kb, tbl])

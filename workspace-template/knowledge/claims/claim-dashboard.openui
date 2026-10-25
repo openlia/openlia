@@ -1,0 +1,4 @@
+hdr = DomainHeader("Claims Ledger", "Atomic assertions, evidence, and provenance ledger")
+kb = RecordKanban("status")
+tbl = RecordTable()
+root = Stack([hdr, kb, tbl])

@@ -437,6 +437,67 @@ def validate_workspace_policy(workspace_root: Path) -> tuple[list[str], set[Path
     return [], referenced
 
 
+def validate_openui_file(
+    path: Path,
+    root: Path,
+    schema: dict[str, Any] | None = None,
+    template_path: Path | None = None,
+) -> list[str]:
+    """Validate .openui file syntax, entry point, and cross-contract consistency."""
+    relative = _relative(path, root)
+    if path.is_symlink():
+        return [f"{relative}: symbolic links are not validated"]
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return [f"{relative}: {exc}"]
+    if not content.strip():
+        return [f"{relative}: OpenUI file must not be empty"]
+    errors = []
+    lines = content.splitlines()
+    has_root = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith("//"):
+            continue
+        if re.match(r"^root\s*=", stripped):
+            has_root = True
+            break
+    if not has_root:
+        errors.append(f"{relative}: OpenUI file missing required 'root = ...' statement")
+
+    # If template_path is provided, check referenced sections
+    if template_path and template_path.is_file():
+        try:
+            template_headings = [
+                h.strip().lower()
+                for _, h in extract_headings(template_path.read_text(encoding="utf-8"))
+            ]
+            for match in re.finditer(
+                r'(?:ChecklistSection|MarkdownSectionCard)\s*\(\s*["\']([^"\']+)["\']',
+                content,
+            ):
+                ref_heading = match.group(1).strip().lower()
+                if ref_heading not in template_headings:
+                    errors.append(
+                        f"{relative}: references heading '{match.group(1)}' not found in local template '{_relative(template_path, root)}'"
+                    )
+        except Exception:
+            pass
+
+    # If schema is provided, check referenced properties in RecordKanban
+    if schema and "properties" in schema:
+        props = schema["properties"]
+        for match in re.finditer(r'RecordKanban\s*\(\s*["\']([^"\']+)["\']', content):
+            ref_prop = match.group(1).strip()
+            if ref_prop not in props:
+                errors.append(
+                    f"{relative}: references property '{ref_prop}' not found in local schema properties"
+                )
+
+    return errors
+
+
 def validate_workspace(workspace_root: Path) -> list[str]:
     """Validate workspace templates and Markdown records in their domains."""
     root = workspace_root.expanduser().resolve()
@@ -516,6 +577,14 @@ def validate_workspace(workspace_root: Path) -> list[str]:
 
     schema_paths = sorted(root.rglob("*.schema.json"))
     errors.extend(_validate_unreferenced_schemas(schema_paths, referenced_schemas, root))
+
+    openui_files = sorted(root.rglob("*.openui"))
+    for openui_path in openui_files:
+        domain = openui_path.parent
+        domain_templates = templates_by_domain.get(domain, [])
+        local_template = domain_templates[0] if len(domain_templates) == 1 else None
+        local_schema = schemas_by_template.get(local_template) if local_template else None
+        errors.extend(validate_openui_file(openui_path, root, local_schema, local_template))
 
     return sorted(set(errors))
 

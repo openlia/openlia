@@ -1,0 +1,3 @@
+hdr = DomainHeader("People", "Network, relationships, and touchpoints")
+tbl = RecordTable()
+root = Stack([hdr, tbl])

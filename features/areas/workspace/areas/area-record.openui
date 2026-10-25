@@ -1,0 +1,7 @@
+hdr = RecordHeaderCard()
+props = FrontmatterEditorCard()
+scope = MarkdownSectionCard("Scope & Purpose")
+standards = MarkdownSectionCard("Standards & Principles")
+recurring = MarkdownSectionCard("Recurring Responsibilities")
+projects = MarkdownSectionCard("Active Projects")
+root = Stack([hdr, props, scope, standards, recurring, projects])

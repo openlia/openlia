@@ -28,8 +28,12 @@ import type {
   WorkspaceActivityResponse,
   WorkspaceDeleteResponse,
   WorkspaceDiagnosticsResponse,
+  WorkspaceDomainRecordsResponse,
+  WorkspaceDomainsResponse,
   WorkspaceFile,
   WorkspaceFileMetadata,
+  WorkspaceFixDomainTemplateResponse,
+  WorkspaceFixTemplateResponse,
   WorkspaceGitStatus,
   WorkspaceMoveResponse,
   WorkspaceRenameResponse,
@@ -150,6 +154,32 @@ export const startWorkspaceApi: WorkspaceApi = {
   loadDiagnostics: () =>
     request<WorkspaceDiagnosticsResponse>({
       path: "/api/workspace/diagnostics",
+    }),
+  loadCreatableDomains: () =>
+    request<WorkspaceDomainsResponse>({
+      path: "/api/workspace/creatable-domains",
+    }),
+  loadDomainOverview: (domainPath) =>
+    request<WorkspaceDomainRecordsResponse>({
+      path: `/api/workspace/domain-overview?${new URLSearchParams({ path: domainPath })}`,
+    }),
+  createFile: (domain, name) =>
+    request<WorkspaceFile>({
+      body: { domain, name },
+      method: "POST",
+      path: "/api/workspace/create-file",
+    }),
+  fixTemplateIssues: (path, content) =>
+    request<WorkspaceFixTemplateResponse>({
+      body: { path, content },
+      method: "POST",
+      path: "/api/workspace/fix-template-issues",
+    }),
+  fixDomainTemplateIssues: (domain) =>
+    request<WorkspaceFixDomainTemplateResponse>({
+      body: { domain },
+      method: "POST",
+      path: "/api/workspace/fix-domain-template",
     }),
   loadSettings: () =>
     request<WorkspaceSettings>({ path: "/api/workspace/settings" }),

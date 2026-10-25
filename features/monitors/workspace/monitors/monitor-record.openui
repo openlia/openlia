@@ -1,0 +1,7 @@
+hdr = RecordHeaderCard()
+props = FrontmatterEditorCard()
+target = MarkdownSectionCard("Target Condition")
+trigger = MarkdownSectionCard("Trigger Rule")
+action = MarkdownSectionCard("Recommended Action")
+log = MarkdownSectionCard("Check Log")
+root = Stack([hdr, props, target, trigger, action, log])

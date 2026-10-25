@@ -1,0 +1,5 @@
+hdr = RecordHeaderCard()
+props = FrontmatterEditorCard()
+loops = ChecklistSection("Open Loops & Commitments")
+notes = MarkdownSectionCard("Interaction Notes & Context")
+root = Stack([hdr, props, loops, notes])

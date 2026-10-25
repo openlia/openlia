@@ -1,0 +1,7 @@
+hdr = RecordHeaderCard()
+props = FrontmatterEditorCard()
+itinerary = MarkdownSectionCard("Itinerary Outline")
+reservations = MarkdownSectionCard("Reservations & Confirmations")
+packing = ChecklistSection("Packing & Preparation Checklist")
+budget = MarkdownSectionCard("Budget & Expenses")
+root = Stack([hdr, props, itinerary, reservations, packing, budget])

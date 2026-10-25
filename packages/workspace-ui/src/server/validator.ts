@@ -8,6 +8,7 @@ import {
   statSync,
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { createParser } from "@openuidev/lang-core";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import YAML from "yaml";
@@ -17,6 +18,279 @@ import type {
   WorkspaceFileValidation,
 } from "../shared/api";
 import { isConfigurationPath, protectedPath } from "./workspace";
+
+const OPENUI_KNOWN_COMPONENTS = new Set([
+  // @openuidev/react-ui built-in components
+  "Stack",
+  "Card",
+  "CardHeader",
+  "TextContent",
+  "MarkDownRenderer",
+  "Callout",
+  "TextCallout",
+  "InlineHeader",
+  "Table",
+  "Col",
+  "EditableTable",
+  "BarChart",
+  "LineChart",
+  "AreaChart",
+  "RadarChart",
+  "HorizontalBarChart",
+  "Series",
+  "PieChart",
+  "RadialChart",
+  "SingleStackedBarChart",
+  "Slice",
+  "Form",
+  "FormControl",
+  "Label",
+  "Input",
+  "TextArea",
+  "Select",
+  "SelectItem",
+  "DatePicker",
+  "Slider",
+  "CheckBoxGroup",
+  "CheckBoxItem",
+  "RadioGroup",
+  "RadioItem",
+  "SwitchGroup",
+  "SwitchItem",
+  "Chips",
+  "ChipItem",
+  "Button",
+  "Buttons",
+  "IconButton",
+  "Tabs",
+  "TabItem",
+  "Accordion",
+  "AccordionItem",
+  "Steps",
+  "StepsItem",
+  "Separator",
+  "TagBlock",
+  "Tag",
+  "EntityList",
+  "ListBlock",
+  "ListItem",
+  "Text",
+  "BoldText",
+  "IconText",
+  "MetricIndicatorInline",
+  "OverviewCardBlock",
+  "OverviewCardItem",
+  "Modal",
+  // OpenLia custom components
+  "DomainHeader",
+  "MetricCard",
+  "RecordKanban",
+  "RecordTable",
+  "RecordHeaderCard",
+  "FrontmatterEditorCard",
+  "ChecklistSection",
+  "MarkdownSectionCard",
+  "ClaimProvenanceCard",
+  "DecisionMatrixCard",
+  // Built-in OpenUI expressions
+  "Query",
+  "Mutation",
+  "Action",
+]);
+
+const OPENUI_KNOWN_FUNCTIONS = new Set([
+  // Built-in OpenUI functions
+  "Count",
+  "Sum",
+  "Avg",
+  "Min",
+  "Max",
+  "First",
+  "Last",
+  "Sort",
+  "Filter",
+  "Pluck",
+  "Each",
+  "Round",
+  "Abs",
+  "Upper",
+  "Lower",
+  "Trim",
+  "Join",
+  "Split",
+  "Default",
+  "Length",
+  "Contains",
+  "Keys",
+  "Values",
+  // OpenLia custom functions
+  "CountBy",
+  "GroupCount",
+  "FilterRecords",
+  "SumBy",
+  "Section",
+  "Checklist",
+]);
+
+const openuiSchemaDefs = Object.fromEntries(
+  [...OPENUI_KNOWN_COMPONENTS].map((name) => [name, { type: "object" }]),
+);
+const openuiParser = createParser({ $defs: openuiSchemaDefs });
+
+export function validateOpenUIContent(
+  workspaceRoot: string,
+  relativePath: string,
+  content: string,
+): WorkspaceFileValidation {
+  const normalized = relativePath.replaceAll("\\", "/");
+  const errors: string[] = [];
+  const trimmed = content.trim();
+  if (!trimmed) {
+    return {
+      errors: ["OpenUI file must not be empty"],
+      valid: false,
+    };
+  }
+
+  const parseResult = openuiParser.parse(content);
+  for (const err of parseResult.meta.errors) {
+    errors.push(`openui(${err.code}): ${err.message}`);
+  }
+  if (!parseResult.root) {
+    errors.push("openui: missing required 'root = ...' statement");
+  }
+
+  // Check unknown @Function(...) calls
+  for (const match of content.matchAll(/@([A-Za-z_][A-Za-z0-9_]*)\s*\(/g)) {
+    const fnName = match[1];
+    if (fnName && !OPENUI_KNOWN_FUNCTIONS.has(fnName)) {
+      errors.push(`openui(unknown-function): Unknown function '@${fnName}'`);
+    }
+  }
+
+  // Discover domain template and schema for cross-contract validation
+  const domain = findDomainTemplate(workspaceRoot, normalized);
+  let schemaProps: Set<string> | null = null;
+  let templateSections: Set<string> | null = null;
+
+  if (domain?.schemaAbsolutePath && existsSync(domain.schemaAbsolutePath)) {
+    try {
+      const rawSchema = JSON.parse(
+        readFileSync(domain.schemaAbsolutePath, "utf-8"),
+      );
+      if (rawSchema?.properties && typeof rawSchema.properties === "object") {
+        schemaProps = new Set(Object.keys(rawSchema.properties));
+      }
+    } catch {}
+  }
+
+  if (domain?.templateRelativePath) {
+    const tplAbs = resolve(workspaceRoot, domain.templateRelativePath);
+    if (existsSync(tplAbs)) {
+      try {
+        const tplContent = readFileSync(tplAbs, "utf-8");
+        const headings = extractHeadings(
+          parseRecordFrontmatter(tplContent).body,
+        );
+        templateSections = new Set(
+          headings
+            .filter((h) => h.level === 2)
+            .map((h) => h.text.trim().toLowerCase())
+            .filter(Boolean),
+        );
+      } catch {}
+    }
+  }
+
+  if (schemaProps && schemaProps.size > 0) {
+    // Check $record.frontmatter.<key> references
+    for (const match of content.matchAll(
+      /\$[A-Za-z0-9_]+\.frontmatter\.([A-Za-z0-9_-]+)/g,
+    )) {
+      const key = match[1];
+      if (key && key !== "$schema" && !schemaProps.has(key)) {
+        errors.push(
+          `contract(schema): frontmatter field '${key}' is not defined in ${domain?.schemaRelativePath ?? "domain schema"}`,
+        );
+      }
+    }
+
+    // Check FrontmatterEditorCard($record, ["field1", "field2"])
+    for (const match of content.matchAll(
+      /FrontmatterEditorCard\s*\([^,]+,\s*\[([^\]]*)\]/g,
+    )) {
+      const listRaw = match[1] ?? "";
+      for (const strMatch of listRaw.matchAll(/"([^"]+)"|'([^']+)'/g)) {
+        const field = strMatch[1] ?? strMatch[2];
+        if (field && field !== "$schema" && !schemaProps.has(field)) {
+          errors.push(
+            `contract(schema): FrontmatterEditorCard field '${field}' is not defined in ${domain?.schemaRelativePath ?? "domain schema"}`,
+          );
+        }
+      }
+    }
+
+    // Check RecordKanban($records.records, "groupField", ...)
+    for (const match of content.matchAll(
+      /RecordKanban\s*\([^,]+,\s*(?:"([^"]+)"|'([^']+)')/g,
+    )) {
+      const groupField = match[1] ?? match[2];
+      if (
+        groupField &&
+        groupField !== "$schema" &&
+        !schemaProps.has(groupField)
+      ) {
+        errors.push(
+          `contract(schema): RecordKanban group field '${groupField}' is not defined in ${domain?.schemaRelativePath ?? "domain schema"}`,
+        );
+      }
+    }
+
+    // Check @CountBy / @GroupCount / @FilterRecords / @SumBy field argument
+    for (const match of content.matchAll(
+      /@(?:CountBy|GroupCount|FilterRecords|SumBy)\s*\([^,]+,\s*(?:"([^"]+)"|'([^']+)')/g,
+    )) {
+      const field = match[1] ?? match[2];
+      if (
+        field &&
+        field !== "$schema" &&
+        field !== "title" &&
+        field !== "filename" &&
+        field !== "path" &&
+        !schemaProps.has(field)
+      ) {
+        errors.push(
+          `contract(schema): query function field '${field}' is not defined in ${domain?.schemaRelativePath ?? "domain schema"}`,
+        );
+      }
+    }
+  }
+
+  if (templateSections && templateSections.size > 0) {
+    // Check @Section(..., "Heading") and @Checklist(..., "Heading")
+    for (const match of content.matchAll(
+      /@(?:Section|Checklist)\s*\([^,]+,\s*(?:"([^"]+)"|'([^']+)')/g,
+    )) {
+      const heading = (match[1] ?? match[2] ?? "").trim();
+      if (heading && !templateSections.has(heading.toLowerCase())) {
+        errors.push(
+          `contract(template): section '## ${heading}' is not defined in ${domain?.templateRelativePath ?? "domain template"}`,
+        );
+      }
+    }
+  }
+
+  return {
+    errors,
+    ...(domain?.schemaRelativePath
+      ? { schema_path: domain.schemaRelativePath }
+      : {}),
+    ...(domain?.templateRelativePath
+      ? { template_path: domain.templateRelativePath }
+      : {}),
+    valid: errors.length === 0,
+  };
+}
 
 const compiledValidators = new Map<
   string,
@@ -438,6 +712,10 @@ export function validateRecordContent(
     );
   }
 
+  if (normalized.toLowerCase().endsWith(".openui")) {
+    return validateOpenUIContent(workspaceRoot, normalized, content);
+  }
+
   if (!normalized.toLowerCase().endsWith(".md")) {
     return { errors: [], valid: true };
   }
@@ -683,7 +961,9 @@ export function validateEntireWorkspace(
         visit(absolute);
       } else if (
         entry.isFile() &&
-        (relPath.toLowerCase().endsWith(".md") || isConfigurationPath(relPath))
+        (relPath.toLowerCase().endsWith(".md") ||
+          relPath.toLowerCase().endsWith(".openui") ||
+          isConfigurationPath(relPath))
       ) {
         try {
           const content = readFileSync(absolute, "utf-8");

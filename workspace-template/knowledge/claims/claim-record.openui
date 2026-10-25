@@ -1,0 +1,7 @@
+hdr = RecordHeaderCard()
+prov = ClaimProvenanceCard()
+props = FrontmatterEditorCard()
+claim = MarkdownSectionCard("Claim")
+evidence = MarkdownSectionCard("Evidence")
+notes = MarkdownSectionCard("Notes")
+root = Stack([hdr, prov, props, claim, evidence, notes])

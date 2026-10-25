@@ -1,0 +1,4 @@
+hdr = DomainHeader("Ideas", "Sparks, incubation concepts, and exploratory topics")
+kb = RecordKanban("status")
+tbl = RecordTable()
+root = Stack([hdr, kb, tbl])

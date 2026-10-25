@@ -220,8 +220,9 @@ export function resolveLinkTarget(
   if (!trimmed) return null;
 
   const knownSkillIds = options?.skills?.map((s) => s.id) ?? [];
-  const files = options?.tree?.filter((e) => e.kind === "file") ?? [];
-  const knownDocPaths = new Set(files.map((e) => e.path));
+  const allEntries = options?.tree ?? [];
+  const files = allEntries.filter((e) => e.kind === "file");
+  const knownDocPaths = new Set(allEntries.map((e) => e.path));
 
   // 0. Handle relative paths (e.g. ./sibling.md or ../folder/doc.md)
   if (trimmed.startsWith("./") || trimmed.startsWith("../")) {
@@ -229,7 +230,13 @@ export function resolveLinkTarget(
       ? resolveRelativePath(trimmed, options.currentFilePath)
       : trimmed.replace(/^\.\//, "");
     if (targetPath) {
-      const matched = findMatchingWorkspaceFile(targetPath, files);
+      const matched =
+        findMatchingWorkspaceFile(targetPath, files) ??
+        allEntries.find(
+          (e) =>
+            e.path === targetPath ||
+            e.path.toLowerCase() === targetPath.toLowerCase(),
+        );
       const resolvedPath = matched ? matched.path : targetPath;
       return {
         exists: matched ? true : knownDocPaths.size > 0 ? false : undefined,
@@ -254,7 +261,12 @@ export function resolveLinkTarget(
             ? memoryDocumentPath(rawPath)
             : rawPath.replace(/^\/+/, "");
         if (!path) return null;
-        const matched = findMatchingWorkspaceFile(path, files);
+        const matched =
+          findMatchingWorkspaceFile(path, files) ??
+          allEntries.find(
+            (e) =>
+              e.path === path || e.path.toLowerCase() === path.toLowerCase(),
+          );
         const resolvedPath = matched ? matched.path : path;
         return {
           exists: matched ? true : knownDocPaths.size > 0 ? false : undefined,
@@ -413,7 +425,11 @@ export function resolveLinkTarget(
     const pathPart = withoutPrefix.split("?")[0] ?? "";
     const path = safeDecode(pathPart).replace(/^\/+/, "");
     if (!path) return null;
-    const matched = findMatchingWorkspaceFile(path, files);
+    const matched =
+      findMatchingWorkspaceFile(path, files) ??
+      allEntries.find(
+        (e) => e.path === path || e.path.toLowerCase() === path.toLowerCase(),
+      );
     const resolvedPath = matched ? matched.path : path;
     return {
       exists: matched ? true : knownDocPaths.size > 0 ? false : undefined,

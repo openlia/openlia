@@ -17,6 +17,7 @@ import type {
   WorkspaceCreateFileRequest,
   WorkspaceDeleteRequest,
   WorkspaceErrorResponse,
+  WorkspaceFixDomainTemplateRequest,
   WorkspaceFixTemplateRequest,
   WorkspaceMoveRequest,
   WorkspaceRenameRequest,
@@ -1866,6 +1867,58 @@ export function createWorkspaceHandler(
         url.pathname === "/api/workspace/creatable-domains"
       ) {
         return json({ schema: 1, domains: service.creatableDomains() });
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname === "/api/workspace/domain-overview"
+      ) {
+        return json(service.domainOverview(url.searchParams.get("path")));
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/workspace/fix-domain-template"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, maxDeleteRequestBytes);
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        const body: unknown = bodyResult.value;
+        if (!isObject(body))
+          return json(
+            { schema: 1, ok: false, error: "request_body_must_be_json" },
+            400,
+          );
+        const fixReq = body as Partial<WorkspaceFixDomainTemplateRequest>;
+        try {
+          const result = migrationService.createDomainTemplateFixMigration(
+            fixReq.domain,
+          );
+          return json({
+            schema: 1,
+            ok: true,
+            migration_id: result.migration_id,
+            fixed_count: result.fixed_count,
+          });
+        } catch (error) {
+          return json(
+            {
+              schema: 1,
+              ok: false,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "fix_domain_template_error",
+            },
+            400,
+          );
+        }
       }
       if (
         request.method === "POST" &&

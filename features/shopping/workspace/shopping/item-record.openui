@@ -1,0 +1,7 @@
+hdr = RecordHeaderCard()
+props = FrontmatterEditorCard()
+budget = MarkdownSectionCard("Budget & Price Targets")
+options = MarkdownSectionCard("Candidate Options")
+criteria = MarkdownSectionCard("Decision Criteria")
+history = MarkdownSectionCard("Purchase History")
+root = Stack([hdr, props, budget, options, criteria, history])

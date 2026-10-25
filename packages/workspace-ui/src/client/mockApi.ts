@@ -25,10 +25,12 @@ import type {
   WorkspaceDeleteResponse,
   WorkspaceDiagnosticsResponse,
   WorkspaceDomainInfo,
+  WorkspaceDomainRecordsResponse,
   WorkspaceDomainsResponse,
   WorkspaceErrorResponse,
   WorkspaceFile,
   WorkspaceFileMetadata,
+  WorkspaceFixDomainTemplateResponse,
   WorkspaceFixTemplateResponse,
   WorkspaceGitStatus,
   WorkspaceMoveResponse,
@@ -54,6 +56,7 @@ import { suggestPasswordProfiles } from "../shared/passwordSuggester";
 import { ApiError, type WorkspaceApi } from "./api";
 import { mockUsage } from "./usageMock";
 import { createChatMock } from "./chatMock";
+import { parseMarkdownRecord } from "./openui/recordMutator";
 
 export type MockWorkspaceScenario =
   | "default"
@@ -65,6 +68,7 @@ export type MockWorkspaceScenario =
 
 export interface MockWorkspaceOptions {
   scenario?: MockWorkspaceScenario;
+  files?: Record<string, string>;
 }
 
 const modifiedAt = "2026-09-22T00:00:00.000Z";
@@ -176,6 +180,7 @@ function metadata(path: string, content: string): WorkspaceFileMetadata {
 
 export function createMockWorkspaceApi({
   scenario = "default",
+  files,
 }: MockWorkspaceOptions = {}): WorkspaceApi {
   const usageData = mockUsage();
   if (scenario === "empty") usageData.rows = [];
@@ -331,9 +336,16 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
       kind: "file",
     },
     { ...metadata(path, content), kind: "file" },
+    ...(files
+      ? Object.entries(files).map(([fPath, fContent]) => ({
+          ...metadata(fPath, fContent),
+          kind: "file" as const,
+        }))
+      : []),
   ];
 
   const fileContents: Record<string, string> = {
+    ...(files ?? {}),
     [memoryDocumentPath("USER.md")]:
       "# User profile\n\nPrefer concise, practical answers.\n",
     [memoryDocumentPath("MEMORY.md")]:
@@ -970,6 +982,72 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         schema: 1,
       };
     },
+    async loadDomainOverview(
+      domainPath: string,
+    ): Promise<WorkspaceDomainRecordsResponse> {
+      requireAuthentication();
+      const clean = domainPath.replace(/^\/+|\/+$/g, "");
+      const matched = mockCreatableDomains.find((d) => d.path === clean) ?? {
+        path: clean,
+        label: clean.split("/").at(-1) ?? clean,
+      };
+      const prefix = `${clean}/`;
+      const records = Object.entries(fileContents)
+        .filter(
+          ([p]) =>
+            p.startsWith(prefix) &&
+            p.endsWith(".md") &&
+            !p.endsWith("-template.md") &&
+            !p.slice(prefix.length).includes("/"),
+        )
+        .map(([p, text]) => {
+          const fname = p.slice(prefix.length);
+          const parsed = parseMarkdownRecord(text);
+          return {
+            path: p,
+            filename: fname,
+            title: parsed.title || fname.replace(/\.md$/i, ""),
+            modified_at: modifiedAt,
+            size: new TextEncoder().encode(text).byteLength,
+            revision: fileRevisions[p] ?? revision,
+            frontmatter: parsed.metadata,
+            sections: Object.keys(parsed.sections),
+            excerpt: parsed.body.trim().slice(0, 140),
+            validation: { valid: true, errors: [] },
+          };
+        });
+
+      let schemaJson: Record<string, unknown> | undefined;
+      const schemaEntry = Object.entries(fileContents).find(
+        ([p]) => p.startsWith(prefix) && p.endsWith(".schema.json"),
+      );
+      if (schemaEntry) {
+        try {
+          schemaJson = JSON.parse(schemaEntry[1]);
+        } catch {}
+      }
+
+      let templateHeadings: string[] | undefined;
+      const templateEntry = Object.entries(fileContents).find(
+        ([p]) => p.startsWith(prefix) && p.endsWith("-template.md"),
+      );
+      if (templateEntry) {
+        const parsedTmpl = parseMarkdownRecord(templateEntry[1]);
+        templateHeadings = Object.keys(parsedTmpl.sections);
+      }
+
+      return {
+        schema: 1,
+        domain: {
+          ...matched,
+          record_count: records.length,
+          invalid_record_count: 0,
+        },
+        records,
+        schema_json: schemaJson,
+        template_headings: templateHeadings,
+      };
+    },
     async createFile(domain: string, name: string): Promise<WorkspaceFile> {
       requireAuthentication();
       const matched = mockCreatableDomains.find((d) => d.path === domain);
@@ -1036,6 +1114,17 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         schema: 1,
         ok: true,
         migration_id: `mig-mock-${Date.now()}`,
+      };
+    },
+    async fixDomainTemplateIssues(
+      domain: string,
+    ): Promise<WorkspaceFixDomainTemplateResponse> {
+      requireAuthentication();
+      return {
+        schema: 1,
+        ok: true,
+        migration_id: `mig-mock-${domain}-${Date.now()}`,
+        fixed_count: 1,
       };
     },
     async loadDiagnostics(): Promise<WorkspaceDiagnosticsResponse> {

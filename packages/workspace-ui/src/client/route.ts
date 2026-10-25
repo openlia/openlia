@@ -31,7 +31,12 @@ export interface WorkspaceRoute {
   migrationId?: string | undefined;
 }
 
-const validViews: ReadonlySet<string> = new Set(["edit", "preview", "info"]);
+const validViews: ReadonlySet<string> = new Set([
+  "edit",
+  "preview",
+  "info",
+  "visual",
+]);
 
 function isValidView(value: string | null): value is WorkspaceView {
   return value !== null && validViews.has(value);

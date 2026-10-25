@@ -1,0 +1,4 @@
+hdr = DomainHeader("Projects", "Multi-step initiatives driving towards concrete outcomes")
+kb = RecordKanban("status")
+tbl = RecordTable()
+root = Stack([hdr, kb, tbl])

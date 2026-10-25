@@ -38,10 +38,12 @@ import type {
   WorkspaceDeleteResponse,
   WorkspaceDiagnosticsResponse,
   WorkspaceDomainInfo,
+  WorkspaceDomainRecordsResponse,
   WorkspaceDomainsResponse,
   WorkspaceErrorResponse,
   WorkspaceFile,
   WorkspaceFileMetadata,
+  WorkspaceFixDomainTemplateResponse,
   WorkspaceFixTemplateResponse,
   WorkspaceGitStatus,
   WorkspaceMoveResponse,
@@ -110,11 +112,17 @@ export interface WorkspaceApi {
     expectedRevision: string,
   ): Promise<WorkspaceMoveResponse>;
   loadCreatableDomains(): Promise<WorkspaceDomainsResponse>;
+  loadDomainOverview(
+    domainPath: string,
+  ): Promise<WorkspaceDomainRecordsResponse>;
   createFile(domain: string, name: string): Promise<WorkspaceFile>;
   fixTemplateIssues(
     path: string,
     content?: string,
   ): Promise<WorkspaceFixTemplateResponse>;
+  fixDomainTemplateIssues(
+    domain: string,
+  ): Promise<WorkspaceFixDomainTemplateResponse>;
   loadDiagnostics(): Promise<WorkspaceDiagnosticsResponse>;
   loadSettings(): Promise<WorkspaceSettings>;
   updateSettings(settings: WorkspaceSettings): Promise<WorkspaceSettings>;
@@ -449,6 +457,29 @@ function isWorkspaceFixTemplateResponse(
   );
 }
 
+function isWorkspaceFixDomainTemplateResponse(
+  value: unknown,
+): value is WorkspaceFixDomainTemplateResponse {
+  return (
+    isObject(value) &&
+    value.schema === 1 &&
+    value.ok === true &&
+    typeof value.migration_id === "string" &&
+    typeof value.fixed_count === "number"
+  );
+}
+
+function isWorkspaceDomainRecordsResponse(
+  value: unknown,
+): value is WorkspaceDomainRecordsResponse {
+  return (
+    isObject(value) &&
+    value.schema === 1 &&
+    isWorkspaceDomainInfo(value.domain) &&
+    Array.isArray(value.records)
+  );
+}
+
 function isWorkspaceGitStatus(value: unknown): value is WorkspaceGitStatus {
   return (
     isObject(value) &&
@@ -773,6 +804,11 @@ export const httpWorkspaceApi: WorkspaceApi = {
       "/api/workspace/creatable-domains",
       isWorkspaceDomainsResponse,
     ),
+  loadDomainOverview: (domainPath) =>
+    requestJson<WorkspaceDomainRecordsResponse>(
+      `/api/workspace/domain-overview?${new URLSearchParams({ path: domainPath })}`,
+      isWorkspaceDomainRecordsResponse,
+    ),
   createFile: (domain, name) =>
     requestJson<WorkspaceFile>("/api/workspace/create-file", isWorkspaceFile, {
       body: JSON.stringify({ domain, name }),
@@ -785,6 +821,16 @@ export const httpWorkspaceApi: WorkspaceApi = {
       isWorkspaceFixTemplateResponse,
       {
         body: JSON.stringify({ path, content }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  fixDomainTemplateIssues: (domain) =>
+    requestJson<WorkspaceFixDomainTemplateResponse>(
+      "/api/workspace/fix-domain-template",
+      isWorkspaceFixDomainTemplateResponse,
+      {
+        body: JSON.stringify({ domain }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       },

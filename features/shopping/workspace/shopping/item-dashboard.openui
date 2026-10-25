@@ -1,0 +1,4 @@
+hdr = DomainHeader("Shopping", "Watchlist, price targets, candidate comparisons, and purchase history")
+kb = RecordKanban("status")
+tbl = RecordTable()
+root = Stack([hdr, kb, tbl])

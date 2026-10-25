@@ -1,0 +1,8 @@
+hdr = RecordHeaderCard()
+matrix = DecisionMatrixCard()
+props = FrontmatterEditorCard()
+q = MarkdownSectionCard("Question")
+rec = MarkdownSectionCard("Recommendation")
+chosen = MarkdownSectionCard("Chosen Option & Rationale")
+next = ChecklistSection("Next Actions")
+root = Stack([hdr, matrix, props, q, rec, chosen, next])

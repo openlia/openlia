@@ -130,3 +130,21 @@ then return the menu without asking the user to design infrastructure.
 When the user edits templates or schemas through Workspace UI, validation is
 available on demand using the command above. Never overwrite a workspace
 customization with the bundled default.
+
+## Domain UI Customization with OpenUI
+
+Each workspace domain can define a declarative Domain Dashboard (`<prefix>-dashboard.openui`) and a Record Visual View (`<prefix>-record.openui`) using OpenUI Lang (`thesysdev/openui`).
+
+### Guidelines for Hermes & Chat Agents:
+1. **Presentation Customization**:
+   - When the user asks to modify a domain's layout, cards, kanban grouping, or charts, update `<domain>/<prefix>-dashboard.openui` or `<domain>/<prefix>-record.openui`.
+   - Modifying `.openui` files alone is a pure presentation update and NEVER invalidates records on disk.
+2. **Contract Safety with Schemas & Templates**:
+   - Refer to `references/openui-spec.md` for full component and DSL documentation.
+   - Referenced frontmatter properties (e.g. in `RecordKanban` or `FrontmatterEditorCard`) must be present in `*.schema.json`.
+   - Referenced Markdown headings (in `ChecklistSection` or `MarkdownSectionCard`) must be present in `*-template.md`.
+   - When adding new frontmatter fields, keep them optional/nullable in `*.schema.json` unless the user explicitly requests a required field, ensuring existing records remain 100% valid.
+3. **Chat Response & Linking**:
+   - After updating or creating a domain's UI and validating with `validate_workspace.py`, reply with a canonical Workspace UI link:
+     - For domain dashboards: `[Tasks Dashboard](openlia://workspace/tasks)`
+     - For visual records: `[Record Visual View](openlia://workspace/tasks/task-1.md?view=visual)`

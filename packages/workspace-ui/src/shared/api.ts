@@ -712,7 +712,39 @@ export interface WorkspaceDomainInfo {
   path: string;
   label: string;
   template_path?: string | undefined;
+  schema_path?: string | undefined;
+  dashboard_openui_path?: string | undefined;
+  record_openui_path?: string | undefined;
   purpose?: string | undefined;
+  kind?: "core" | "extension" | undefined;
+  lifecycle?: string | undefined;
+  feature?: string | undefined;
+  skills?: string[] | undefined;
+  record_count?: number | undefined;
+  invalid_record_count?: number | undefined;
+}
+
+export interface WorkspaceDomainRecordSummary {
+  path: string;
+  filename: string;
+  title: string;
+  modified_at: string;
+  size: number;
+  revision: string;
+  frontmatter: Record<string, unknown>;
+  sections: string[];
+  excerpt: string;
+  validation?: WorkspaceFileValidation | undefined;
+}
+
+export interface WorkspaceDomainRecordsResponse {
+  schema: 1;
+  domain: WorkspaceDomainInfo;
+  records: WorkspaceDomainRecordSummary[];
+  schema_json?: Record<string, unknown> | undefined;
+  template_headings?: string[] | undefined;
+  dashboard_openui?: string | undefined;
+  record_openui?: string | undefined;
 }
 
 export interface WorkspaceDomainsResponse {
@@ -734,6 +766,17 @@ export interface WorkspaceFixTemplateResponse {
   schema: 1;
   ok: true;
   migration_id: string;
+}
+
+export interface WorkspaceFixDomainTemplateRequest {
+  domain: string;
+}
+
+export interface WorkspaceFixDomainTemplateResponse {
+  schema: 1;
+  ok: true;
+  migration_id: string;
+  fixed_count: number;
 }
 
 export type ShareKind = "workspace" | "skill" | "feature";

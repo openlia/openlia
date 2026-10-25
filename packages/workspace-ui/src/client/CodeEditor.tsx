@@ -59,6 +59,10 @@ export function isRemindPath(path: string): boolean {
   return lower.endsWith(".rem") || lower.endsWith(".remind");
 }
 
+export function isOpenUIPath(path: string): boolean {
+  return path.toLowerCase().endsWith(".openui");
+}
+
 export function detectLanguage(path: string): { id: string; name: string } {
   const ext = path.toLowerCase().split(".").pop() ?? "";
   switch (ext) {
@@ -90,6 +94,8 @@ export function detectLanguage(path: string): { id: string; name: string } {
     case "journal":
     case "hledger":
       return { id: "ledger", name: "Ledger" };
+    case "openui":
+      return { id: "openui", name: "OpenUI" };
     default:
       return { id: "text", name: "Plain Text" };
   }
@@ -98,6 +104,8 @@ export function detectLanguage(path: string): { id: string; name: string } {
 function languageExtension(path: string): Extension {
   const ext = path.toLowerCase().split(".").pop() ?? "";
   switch (ext) {
+    case "openui":
+      return javascript();
     case "py":
       return python();
     case "json":

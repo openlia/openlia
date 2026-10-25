@@ -1,0 +1,4 @@
+hdr = DomainHeader("Travel", "Trips, itineraries, bookings, and packing checklists")
+kb = RecordKanban("status")
+tbl = RecordTable()
+root = Stack([hdr, kb, tbl])

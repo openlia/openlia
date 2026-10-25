@@ -248,7 +248,7 @@ export function FileNavigator({
                       <button
                         aria-controls={directoryId}
                         aria-expanded={childrenVisible}
-                        className={`workspace-tree-row workspace-tree-directory flex-1 ${onCreateFile && isCreatable ? "pr-7" : ""}`}
+                        className={`workspace-tree-row workspace-tree-directory flex-1 ${selectedPath === node.path ? "workspace-tree-file-selected" : ""} ${onCreateFile && isCreatable ? "pr-7" : ""}`}
                         disabled={forcedOpen}
                         onClick={() => {
                           setCollapsed((current) => {
@@ -257,6 +257,7 @@ export function FileNavigator({
                             else next.add(node.path);
                             return next;
                           });
+                          onOpenFile(node.path);
                         }}
                         style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
                         title={
@@ -277,7 +278,14 @@ export function FileNavigator({
                     ) : (
                       <div
                         aria-label={`${node.name}, empty folder`}
-                        className={`workspace-tree-row workspace-tree-directory workspace-tree-empty-directory flex-1 ${onCreateFile && isCreatable ? "pr-7" : ""}`}
+                        className={`workspace-tree-row workspace-tree-directory workspace-tree-empty-directory flex-1 cursor-pointer ${selectedPath === node.path ? "workspace-tree-file-selected" : ""} ${onCreateFile && isCreatable ? "pr-7" : ""}`}
+                        onClick={() => onOpenFile(node.path)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onOpenFile(node.path);
+                          }
+                        }}
                         role="treeitem"
                         style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
                         tabIndex={-1}

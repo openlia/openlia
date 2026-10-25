@@ -1,0 +1,6 @@
+hdr = RecordHeaderCard()
+props = FrontmatterEditorCard()
+action = MarkdownSectionCard("Action")
+substeps = ChecklistSection("Checklist / Substeps")
+comp = MarkdownSectionCard("Completion Note")
+root = Stack([hdr, props, action, substeps, comp])

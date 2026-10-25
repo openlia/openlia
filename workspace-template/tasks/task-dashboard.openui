@@ -1,0 +1,4 @@
+hdr = DomainHeader("Tasks", "Actionable items, chores, and workstreams")
+kb = RecordKanban("status")
+tbl = RecordTable()
+root = Stack([hdr, kb, tbl])

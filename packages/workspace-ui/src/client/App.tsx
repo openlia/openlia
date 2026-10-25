@@ -38,7 +38,12 @@ import {
   subscribeToFirebaseAuth,
   type FirebaseAccount,
 } from "./firebase";
-import { isJournalPath, isMarkdownPath, isRemindPath } from "./CodeEditor";
+import {
+  isJournalPath,
+  isMarkdownPath,
+  isOpenUIPath,
+  isRemindPath,
+} from "./CodeEditor";
 import { CreateSkillModal } from "./CreateSkillModal";
 import { ConfigurationPage } from "./ConfigurationPage";
 import { SchedulePage } from "./SchedulePage";
@@ -93,7 +98,8 @@ function defaultView(path?: string): WorkspaceView {
   return path &&
     !isMarkdownPath(path) &&
     !isJournalPath(path) &&
-    !isRemindPath(path)
+    !isRemindPath(path) &&
+    !isOpenUIPath(path)
     ? "edit"
     : "preview";
 }
@@ -103,11 +109,13 @@ function viewForPath(
   requested: WorkspaceView | undefined,
 ): WorkspaceView {
   if (requested === "info") return "info";
+  if (requested === "visual") return "visual";
   if (
     path &&
     !isMarkdownPath(path) &&
     !isJournalPath(path) &&
-    !isRemindPath(path)
+    !isRemindPath(path) &&
+    !isOpenUIPath(path)
   )
     return "edit";
   return requested ?? defaultView(path);
@@ -444,6 +452,7 @@ export function App({
   );
   const [filter, setFilter] = useState(() => initialRoute.current.filter ?? "");
   const [file, setFile] = useState<WorkspaceFile | null>(null);
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [artifact, setArtifact] = useState<WorkspaceFileMetadata | null>(null);
   const [draft, setDraft] = useState("");
   const [git, setGit] = useState<WorkspaceGitStatus | null>(null);
@@ -1326,7 +1335,7 @@ export function App({
     } else if (activeTab === "configuration") {
       document.title = "Configuration - OpenLia Workspace";
     } else {
-      const selectedPath = file?.path ?? artifact?.path;
+      const selectedPath = file?.path ?? artifact?.path ?? selectedDomain;
       if (selectedPath) {
         const name = selectedPath.split("/").at(-1) ?? selectedPath;
         document.title = `${name} - OpenLia Workspace`;
@@ -1339,6 +1348,7 @@ export function App({
     artifact?.path,
     file?.path,
     publicShareId,
+    selectedDomain,
     selectedSkillDetail,
   ]);
 
@@ -1730,9 +1740,35 @@ export function App({
     setFileLoading(true);
     setDocumentError("");
     setConflict("");
+    const isDirectory =
+      tree.some((entry) => entry.path === path && entry.kind === "directory") ||
+      creatableDomains?.some((d) => d.path === path);
+    if (isDirectory) {
+      if (requestSequence !== fileRequestSequence.current) return;
+      setActiveTab("documents");
+      setSelectedDomain(path);
+      setFile(null);
+      setArtifact(null);
+      setDraft("");
+      setFilesOpen(false);
+      const currentRoute =
+        typeof window !== "undefined" ? parseRoute(window.location) : {};
+      navigateRoute(
+        {
+          filter: filter || undefined,
+          path,
+          scenario: currentRoute.scenario,
+          tab: "documents",
+          view: options?.requestedView,
+        },
+        { replace: options?.replaceHistory },
+      );
+      return;
+    }
     const selectArtifact = (metadata: WorkspaceFileMetadata) => {
       if (requestSequence !== fileRequestSequence.current) return;
       setActiveTab("documents");
+      setSelectedDomain(null);
       setFile(null);
       setArtifact(metadata);
       setDraft("");
@@ -1762,6 +1798,7 @@ export function App({
       }
       const response = await api.loadFile(path);
       if (requestSequence !== fileRequestSequence.current) return;
+      setSelectedDomain(null);
       setFile(response);
       setArtifact(null);
       setDraft(response.content);
@@ -1808,7 +1845,7 @@ export function App({
 
   function requestOpenFile(path: string) {
     if (!path) {
-      if (activeTab === "documents" && !file && !artifact) {
+      if (activeTab === "documents" && !file && !artifact && !selectedDomain) {
         setFilesOpen(false);
         return;
       }
@@ -1816,6 +1853,7 @@ export function App({
         setPendingAction({ kind: "open", path: "" });
       } else {
         setActiveTab("documents");
+        setSelectedDomain(null);
         setFile(null);
         setArtifact(null);
         setDraft("");
@@ -1832,7 +1870,7 @@ export function App({
       }
       return;
     }
-    if (path === (file?.path ?? artifact?.path)) {
+    if (path === (file?.path ?? artifact?.path ?? selectedDomain)) {
       setFilesOpen(false);
       return;
     }
@@ -1979,6 +2017,24 @@ export function App({
         );
       } else setDocumentError("The document could not be saved. Try again.");
       return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveRecordContent(nextContent: string): Promise<void> {
+    if (!file?.editable) return;
+    setSaving(true);
+    try {
+      const response = await api.saveFile(
+        file.path,
+        nextContent,
+        file.revision,
+      );
+      setFile({ ...file, ...response, content: nextContent });
+      setDraft(nextContent);
+    } catch (err) {
+      console.error("Failed to save record content:", err);
     } finally {
       setSaving(false);
     }
@@ -2733,13 +2789,16 @@ export function App({
             onRetry={() => void loadWorkspace()}
             rawUrl={api.rawUrl}
             revealToken={revealToken}
-            selectedPath={file?.path ?? artifact?.path}
+            selectedPath={
+              file?.path ?? artifact?.path ?? selectedDomain ?? undefined
+            }
             truncated={treeTruncated}
             workspaceError={workspaceError}
           />
           <DocumentPane
             activity={activity}
             activityLoading={activityLoading}
+            api={api}
             artifact={artifact}
             conflict={conflict}
             deleting={deleting}
@@ -2751,6 +2810,12 @@ export function App({
             draft={draft}
             file={file}
             fileLoading={fileLoading}
+            onCreateFile={(domain) => {
+              setCreateFileError("");
+              setPendingCreateFile({ domain });
+            }}
+            onSaveRecordContent={handleSaveRecordContent}
+            selectedDomain={selectedDomain}
             onLoadCalendarFile={handleLoadCalendarFile}
             onSaveCalendarFile={handleSaveCalendarFile}
             onLoadInclude={handleLoadInclude}

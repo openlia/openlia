@@ -11,10 +11,12 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import YAML from "yaml";
 import {
+  type DomainTemplateInfo,
   extractHeadings,
   findDomainTemplate,
   isSimilarHeading,
   parseRecordFrontmatter,
+  validateRecordContent,
 } from "./validator";
 import type {
   MigrationActionResponse,
@@ -859,41 +861,12 @@ export class MigrationService {
     return { migration_id: migrationId, ok: true, state: "discarded" };
   }
 
-  createTemplateFixMigration(
-    relativePathValue: unknown,
-    currentContentValue?: unknown,
-  ): { migration_id: string } {
-    if (typeof relativePathValue !== "string" || !relativePathValue.trim()) {
-      throw new Error("path must be a non-empty string");
-    }
-    const relPath = relativePathValue.replaceAll("\\", "/").replace(/^\/+/, "");
-    const liveFileAbsolute = resolve(this.workspaceRoot, relPath);
-
-    let contentToFix = "";
-    if (typeof currentContentValue === "string") {
-      contentToFix = currentContentValue;
-    } else if (existsSync(liveFileAbsolute)) {
-      contentToFix = readFileSync(liveFileAbsolute, "utf-8");
-    } else {
-      throw new Error(`file ${relPath} does not exist`);
-    }
-
-    const domain = findDomainTemplate(this.workspaceRoot, relPath);
-    if (!domain) {
-      throw new Error(`no domain template found for ${relPath}`);
-    }
-
-    const templateAbsolute = resolve(
-      this.workspaceRoot,
-      domain.templateRelativePath,
-    );
-    if (!existsSync(templateAbsolute)) {
-      throw new Error(
-        `template file not found: ${domain.templateRelativePath}`,
-      );
-    }
-
-    const templateContent = readFileSync(templateAbsolute, "utf-8");
+  private reconcileRecordWithDomain(
+    relPath: string,
+    contentToFix: string,
+    domain: DomainTemplateInfo,
+    templateContent: string,
+  ): string {
     const templateParsed = parseRecordFrontmatter(templateContent);
     const fileParsed = parseRecordFrontmatter(contentToFix);
 
@@ -1065,11 +1038,20 @@ export class MigrationService {
       fileParsed.hasFrontmatter ||
       Object.keys(fixedMetadata).length > 0;
     const yamlStr = YAML.stringify(fixedMetadata).trim();
-    const fixedContent = shouldIncludeFrontmatter
+    return shouldIncludeFrontmatter
       ? `---\n${yamlStr}\n---\n\n${fixedBody}\n`
       : `${fixedBody}\n`;
+  }
 
-    // 3. Create Migration
+  private persistBatchMigration(
+    records: Array<{
+      relPath: string;
+      baselineContent: string;
+      fixedContent: string;
+    }>,
+    summaryText: string,
+    commitMessage: string,
+  ): { migration_id: string; fixed_count: number } {
     const now = new Date().toISOString();
     const dateTag =
       now.slice(0, 10).replace(/-/g, "") +
@@ -1083,7 +1065,6 @@ export class MigrationService {
     const propRepoDir = join(migDir, "proposal-repo");
     mkdirSync(propRepoDir, { recursive: true });
 
-    // Initialize Git proposal repo
     const runGit = (args: string[]) => {
       const proc = Bun.spawnSync(["git", "-c", "safe.directory=*", ...args], {
         cwd: propRepoDir,
@@ -1100,18 +1081,11 @@ export class MigrationService {
     runGit(["config", "user.name", "OpenLia Migration"]);
     runGit(["config", "user.email", "migration@openlia.local"]);
 
-    // Write baseline
-    const repoFilePath = join(propRepoDir, relPath);
-    mkdirSync(dirname(repoFilePath), { recursive: true });
-
-    let baselineContent = "";
-    if (existsSync(liveFileAbsolute)) {
-      baselineContent = readFileSync(liveFileAbsolute, "utf-8");
-    } else {
-      baselineContent = contentToFix;
+    for (const item of records) {
+      const repoFilePath = join(propRepoDir, item.relPath);
+      mkdirSync(dirname(repoFilePath), { recursive: true });
+      writeFileSync(repoFilePath, item.baselineContent, "utf-8");
     }
-
-    writeFileSync(repoFilePath, baselineContent, "utf-8");
     runGit(["add", "-A"]);
     runGit([
       "commit",
@@ -1121,32 +1095,25 @@ export class MigrationService {
     ]);
     const baselineHash = runGit(["rev-parse", "HEAD"]);
 
-    // Write proposal commit: fixed content
-    writeFileSync(repoFilePath, fixedContent, "utf-8");
+    for (const item of records) {
+      const repoFilePath = join(propRepoDir, item.relPath);
+      mkdirSync(dirname(repoFilePath), { recursive: true });
+      writeFileSync(repoFilePath, item.fixedContent, "utf-8");
+    }
     runGit(["add", "-A"]);
-    runGit([
-      "commit",
-      "-m",
-      `fix(template): conform ${relPath} to ${domain.templateRelativePath}`,
-    ]);
+    runGit(["commit", "--allow-empty", "-m", commitMessage]);
     const commitHash = runGit(["rev-parse", "HEAD"]);
     const treeHash = runGit(["rev-parse", `${commitHash}^{tree}`]);
     const diff = runGit(["diff", baselineHash, commitHash]);
-
     const patchHash = createHash("sha256").update(diff).digest("hex");
-    const oldHash = createHash("sha256").update(baselineContent).digest("hex");
-    const newHash = createHash("sha256").update(fixedContent).digest("hex");
 
-    const changedFiles = [
-      {
-        old_hash: oldHash,
-        new_hash: newHash,
-        path: relPath,
-        status: "modified",
-      },
-    ];
+    const changedFiles = records.map((item) => ({
+      old_hash: createHash("sha256").update(item.baselineContent).digest("hex"),
+      new_hash: createHash("sha256").update(item.fixedContent).digest("hex"),
+      path: item.relPath,
+      status: "modified",
+    }));
 
-    // Initialize SQLite database
     const sqlitePath = join(migDir, "migration.sqlite");
     const db = new Database(sqlitePath);
     try {
@@ -1232,15 +1199,22 @@ export class MigrationService {
         VALUES (?, 2, 'ready_for_review', ?, ?, ?, ?)
       `).run(migrationId, baselineHash, revisionId, now, now);
 
-      db.query(`
-        INSERT INTO sources (id, migration_id, relative_path, byte_hash, byte_size, encoding, detected_type, eligibility, order_index)
-        VALUES ('src-1', ?, ?, ?, ?, 'utf-8', 'markdown', 'eligible', 0)
-      `).run(
-        migrationId,
-        relPath,
-        oldHash,
-        Buffer.byteLength(baselineContent, "utf-8"),
-      );
+      records.forEach((item, idx) => {
+        const oldHash = createHash("sha256")
+          .update(item.baselineContent)
+          .digest("hex");
+        db.query(`
+          INSERT INTO sources (id, migration_id, relative_path, byte_hash, byte_size, encoding, detected_type, eligibility, order_index)
+          VALUES (?, ?, ?, ?, ?, 'utf-8', 'markdown', 'eligible', ?)
+        `).run(
+          `src-${idx + 1}`,
+          migrationId,
+          item.relPath,
+          oldHash,
+          Buffer.byteLength(item.baselineContent, "utf-8"),
+          idx,
+        );
+      });
 
       db.query(`
         INSERT INTO revisions (id, migration_id, revision_num, baseline_hash, commit_hash, tree_hash, patch_hash, summary, changed_files, created_at)
@@ -1252,7 +1226,7 @@ export class MigrationService {
         commitHash,
         treeHash,
         patchHash,
-        `Fix template headings and schema conformance for ${relPath}`,
+        summaryText,
         JSON.stringify(changedFiles),
         now,
       );
@@ -1260,6 +1234,143 @@ export class MigrationService {
       db.close();
     }
 
-    return { migration_id: migrationId };
+    return { migration_id: migrationId, fixed_count: records.length };
+  }
+
+  createTemplateFixMigration(
+    relativePathValue: unknown,
+    currentContentValue?: unknown,
+  ): { migration_id: string } {
+    if (typeof relativePathValue !== "string" || !relativePathValue.trim()) {
+      throw new Error("path must be a non-empty string");
+    }
+    const relPath = relativePathValue.replaceAll("\\", "/").replace(/^\/+/, "");
+    const liveFileAbsolute = resolve(this.workspaceRoot, relPath);
+
+    let contentToFix = "";
+    if (typeof currentContentValue === "string") {
+      contentToFix = currentContentValue;
+    } else if (existsSync(liveFileAbsolute)) {
+      contentToFix = readFileSync(liveFileAbsolute, "utf-8");
+    } else {
+      throw new Error(`file ${relPath} does not exist`);
+    }
+
+    const domain = findDomainTemplate(this.workspaceRoot, relPath);
+    if (!domain) {
+      throw new Error(`no domain template found for ${relPath}`);
+    }
+
+    const templateAbsolute = resolve(
+      this.workspaceRoot,
+      domain.templateRelativePath,
+    );
+    if (!existsSync(templateAbsolute)) {
+      throw new Error(
+        `template file not found: ${domain.templateRelativePath}`,
+      );
+    }
+
+    const templateContent = readFileSync(templateAbsolute, "utf-8");
+    const fixedContent = this.reconcileRecordWithDomain(
+      relPath,
+      contentToFix,
+      domain,
+      templateContent,
+    );
+    const baselineContent = existsSync(liveFileAbsolute)
+      ? readFileSync(liveFileAbsolute, "utf-8")
+      : contentToFix;
+
+    const result = this.persistBatchMigration(
+      [{ relPath, baselineContent, fixedContent }],
+      `Fix template headings and schema conformance for ${relPath}`,
+      `fix(template): conform ${relPath} to ${domain.templateRelativePath}`,
+    );
+    return { migration_id: result.migration_id };
+  }
+
+  createDomainTemplateFixMigration(domainPathValue: unknown): {
+    migration_id: string;
+    fixed_count: number;
+  } {
+    if (typeof domainPathValue !== "string" || !domainPathValue.trim()) {
+      throw new Error("domain must be a non-empty string");
+    }
+    const domainPath = domainPathValue
+      .trim()
+      .replaceAll("\\", "/")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
+    const dirAbs = resolve(this.workspaceRoot, domainPath);
+    if (!existsSync(dirAbs) || !statSync(dirAbs).isDirectory()) {
+      throw new Error(`domain directory not found: ${domainPath}`);
+    }
+
+    const domain = findDomainTemplate(
+      this.workspaceRoot,
+      `${domainPath}/dummy.md`,
+    );
+    if (!domain) {
+      throw new Error(`no domain template found for ${domainPath}`);
+    }
+    const templateAbsolute = resolve(
+      this.workspaceRoot,
+      domain.templateRelativePath,
+    );
+    if (!existsSync(templateAbsolute)) {
+      throw new Error(
+        `template file not found: ${domain.templateRelativePath}`,
+      );
+    }
+    const templateContent = readFileSync(templateAbsolute, "utf-8");
+
+    const entries = readdirSync(dirAbs, { withFileTypes: true });
+    const recordsToFix: Array<{
+      relPath: string;
+      baselineContent: string;
+      fixedContent: string;
+    }> = [];
+
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const fname = entry.name;
+      if (fname.startsWith(".")) continue;
+      if (!fname.toLowerCase().endsWith(".md")) continue;
+      if (fname.toLowerCase().endsWith("-template.md")) continue;
+      if (fname.toLowerCase() === "readme.md") continue;
+
+      const relPath = `${domainPath}/${fname}`;
+      const absPath = join(dirAbs, fname);
+      const baselineContent = readFileSync(absPath, "utf-8");
+      const validation = validateRecordContent(
+        this.workspaceRoot,
+        relPath,
+        baselineContent,
+      );
+      if (validation.valid) continue;
+
+      const fixedContent = this.reconcileRecordWithDomain(
+        relPath,
+        baselineContent,
+        domain,
+        templateContent,
+      );
+      if (fixedContent !== baselineContent) {
+        recordsToFix.push({ relPath, baselineContent, fixedContent });
+      }
+    }
+
+    if (recordsToFix.length === 0) {
+      throw new Error(
+        `no invalid records found in domain ${domainPath} requiring migration`,
+      );
+    }
+
+    return this.persistBatchMigration(
+      recordsToFix,
+      `Fix template headings and schema conformance for ${recordsToFix.length} record(s) in ${domainPath}`,
+      `fix(template): conform ${recordsToFix.length} record(s) in ${domainPath} to ${domain.templateRelativePath}`,
+    );
   }
 }

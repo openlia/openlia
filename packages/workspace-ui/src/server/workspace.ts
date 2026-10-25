@@ -23,6 +23,8 @@ import type {
   WorkspaceDeleteResponse,
   WorkspaceDiagnosticsResponse,
   WorkspaceDomainInfo,
+  WorkspaceDomainRecordsResponse,
+  WorkspaceDomainRecordSummary,
   WorkspaceFile,
   WorkspaceFileMetadata,
   WorkspaceGitStatus,
@@ -34,7 +36,9 @@ import type {
   WorkspaceWriteResponse,
 } from "../shared/api";
 import {
+  extractHeadings,
   findDomainTemplate,
+  parseRecordFrontmatter,
   validateEntireWorkspace,
   validateRecordContent,
 } from "./validator";
@@ -65,6 +69,7 @@ const editableExtensions = new Set([
   ".hledger",
   ".rem",
   ".remind",
+  ".openui",
 ]);
 
 const protectedDirectoryNames = new Set([
@@ -213,6 +218,7 @@ export function isTemplateOrSchemaPath(path: string): boolean {
   return (
     basename.endsWith("-template.md") ||
     basename.endsWith(".schema.json") ||
+    basename.endsWith(".openui") ||
     templatePaths.has(normalized)
   );
 }
@@ -797,14 +803,16 @@ export class WorkspaceService {
               typeof item.template === "string"
                 ? item.template.replaceAll("\\", "/")
                 : undefined;
-            if (!templateRel) {
-              const info = findDomainTemplate(
-                this.workspaceRoot,
-                `${domainPath}/dummy.md`,
-              );
-              if (info) templateRel = info.templateRelativePath;
+            const info = findDomainTemplate(
+              this.workspaceRoot,
+              `${domainPath}/dummy.md`,
+            );
+            if (!templateRel && info) {
+              templateRel = info.templateRelativePath;
             }
             if (!templateRel) continue;
+
+            const openuiPaths = this.findDomainOpenUIPaths(domainPath);
 
             list.push({
               path: domainPath,
@@ -812,6 +820,25 @@ export class WorkspaceService {
               purpose:
                 typeof item.purpose === "string" ? item.purpose : undefined,
               template_path: templateRel,
+              ...(info?.schemaRelativePath
+                ? { schema_path: info.schemaRelativePath }
+                : {}),
+              ...(openuiPaths.dashboard_openui_path
+                ? { dashboard_openui_path: openuiPaths.dashboard_openui_path }
+                : {}),
+              ...(openuiPaths.record_openui_path
+                ? { record_openui_path: openuiPaths.record_openui_path }
+                : {}),
+              ...(item.kind === "core" || item.kind === "extension"
+                ? { kind: item.kind }
+                : {}),
+              ...(typeof item.lifecycle === "string"
+                ? { lifecycle: item.lifecycle }
+                : {}),
+              ...(typeof item.feature === "string"
+                ? { feature: item.feature }
+                : {}),
+              ...(Array.isArray(item.skills) ? { skills: item.skills } : {}),
             });
           }
           if (list.length > 0) {
@@ -822,6 +849,274 @@ export class WorkspaceService {
     }
 
     return DEFAULT_CREATABLE_DOMAINS;
+  }
+
+  private findDomainOpenUIPaths(domainPath: string): {
+    dashboard_openui_path?: string | undefined;
+    record_openui_path?: string | undefined;
+  } {
+    const dirAbs = resolve(this.workspaceRoot, domainPath);
+    if (!this.insideWorkspace(dirAbs) || !existsSync(dirAbs)) return {};
+    try {
+      const entries = readdirSync(dirAbs, { withFileTypes: true });
+      let dashboardPath: string | undefined;
+      let recordPath: string | undefined;
+      for (const entry of entries) {
+        if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+        const name = entry.name;
+        if (name.startsWith(".")) continue;
+        if (name.endsWith("-dashboard.openui")) {
+          dashboardPath = `${domainPath}/${name}`;
+        } else if (name.endsWith("-record.openui")) {
+          recordPath = `${domainPath}/${name}`;
+        }
+      }
+      return {
+        dashboard_openui_path: dashboardPath,
+        record_openui_path: recordPath,
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  domainOverview(domainPathValue: unknown): WorkspaceDomainRecordsResponse {
+    if (typeof domainPathValue !== "string" || !domainPathValue.trim()) {
+      throw new WorkspaceError(
+        "domain path is required",
+        400,
+        "invalid_domain",
+      );
+    }
+    const domainPath = domainPathValue
+      .trim()
+      .replaceAll("\\", "/")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
+    if (
+      !domainPath ||
+      domainPath.includes("..") ||
+      domainPath.includes("\0") ||
+      protectedPath(domainPath)
+    ) {
+      throw new WorkspaceError("invalid domain path", 400, "invalid_domain");
+    }
+
+    const dirAbs = this.assertNoSymlink(domainPath);
+    if (!existsSync(dirAbs) || !lstatSync(dirAbs).isDirectory()) {
+      throw new WorkspaceError(
+        `domain "${domainPath}" was not found`,
+        404,
+        "not_found",
+      );
+    }
+
+    const allDomains = this.creatableDomains();
+    let domainInfo: WorkspaceDomainInfo | undefined = allDomains.find(
+      (d) => d.path === domainPath,
+    );
+
+    const templateInfo = findDomainTemplate(
+      this.workspaceRoot,
+      `${domainPath}/dummy.md`,
+    );
+    const openuiPaths = this.findDomainOpenUIPaths(domainPath);
+
+    if (!domainInfo) {
+      const label =
+        (domainPath.split("/").at(-1) ?? domainPath)
+          .replace(/[-_]/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase()) || domainPath;
+      domainInfo = {
+        path: domainPath,
+        label,
+        ...(templateInfo?.templateRelativePath
+          ? { template_path: templateInfo.templateRelativePath }
+          : {}),
+        ...(templateInfo?.schemaRelativePath
+          ? { schema_path: templateInfo.schemaRelativePath }
+          : {}),
+        ...(openuiPaths.dashboard_openui_path
+          ? { dashboard_openui_path: openuiPaths.dashboard_openui_path }
+          : {}),
+        ...(openuiPaths.record_openui_path
+          ? { record_openui_path: openuiPaths.record_openui_path }
+          : {}),
+      };
+    } else {
+      domainInfo = {
+        ...domainInfo,
+        ...(templateInfo?.schemaRelativePath && !domainInfo.schema_path
+          ? { schema_path: templateInfo.schemaRelativePath }
+          : {}),
+        ...(openuiPaths.dashboard_openui_path &&
+        !domainInfo.dashboard_openui_path
+          ? { dashboard_openui_path: openuiPaths.dashboard_openui_path }
+          : {}),
+        ...(openuiPaths.record_openui_path && !domainInfo.record_openui_path
+          ? { record_openui_path: openuiPaths.record_openui_path }
+          : {}),
+      };
+    }
+
+    let schemaJson: Record<string, unknown> | undefined;
+    if (
+      templateInfo?.schemaAbsolutePath &&
+      existsSync(templateInfo.schemaAbsolutePath)
+    ) {
+      try {
+        const parsed = JSON.parse(
+          readFileSync(templateInfo.schemaAbsolutePath, "utf-8"),
+        );
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          schemaJson = parsed as Record<string, unknown>;
+        }
+      } catch {}
+    }
+
+    let templateHeadings: string[] | undefined;
+    if (templateInfo?.templateRelativePath) {
+      const tplAbs = resolve(
+        this.workspaceRoot,
+        templateInfo.templateRelativePath,
+      );
+      if (existsSync(tplAbs)) {
+        try {
+          const tplRaw = readFileSync(tplAbs, "utf-8");
+          const { body } = parseRecordFrontmatter(tplRaw);
+          templateHeadings = extractHeadings(body)
+            .filter((h) => h.level === 2)
+            .map((h) => h.text.trim())
+            .filter(Boolean);
+        } catch {}
+      }
+    }
+
+    let dashboardOpenui: string | undefined;
+    if (domainInfo.dashboard_openui_path) {
+      const dashAbs = resolve(
+        this.workspaceRoot,
+        domainInfo.dashboard_openui_path,
+      );
+      if (this.insideWorkspace(dashAbs) && existsSync(dashAbs)) {
+        try {
+          dashboardOpenui = readFileSync(dashAbs, "utf-8");
+        } catch {}
+      }
+    }
+
+    let recordOpenui: string | undefined;
+    if (domainInfo.record_openui_path) {
+      const recAbs = resolve(this.workspaceRoot, domainInfo.record_openui_path);
+      if (this.insideWorkspace(recAbs) && existsSync(recAbs)) {
+        try {
+          recordOpenui = readFileSync(recAbs, "utf-8");
+        } catch {}
+      }
+    }
+
+    const records: WorkspaceDomainRecordSummary[] = [];
+    let invalidCount = 0;
+
+    let entries: Dirent<string>[] = [];
+    try {
+      entries = readdirSync(dirAbs, { encoding: "utf8", withFileTypes: true });
+    } catch {}
+
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const fname = entry.name;
+      if (fname.startsWith(".")) continue;
+      if (!fname.toLowerCase().endsWith(".md")) continue;
+      if (fname.toLowerCase().endsWith("-template.md")) continue;
+      if (fname.toLowerCase() === "readme.md") continue;
+
+      const relPath = `${domainPath}/${fname}`;
+      if (protectedPath(relPath) || isTemplateOrSchemaPath(relPath)) continue;
+
+      const absPath = join(dirAbs, fname);
+      try {
+        const info = lstatSync(absPath);
+        if (info.isSymbolicLink() || !info.isFile()) continue;
+        const rawBytes = readFileSync(absPath);
+        const content = new TextDecoder("utf-8").decode(rawBytes);
+        const parsed = parseRecordFrontmatter(content);
+        const headings = extractHeadings(parsed.body);
+        const l1 = headings.find((h) => h.level === 1)?.text.trim();
+        const title =
+          l1 ||
+          (typeof parsed.metadata?.title === "string"
+            ? parsed.metadata.title
+            : "") ||
+          fname.replace(/\.md$/i, "");
+        const sections = headings
+          .filter((h) => h.level === 2)
+          .map((h) => h.text.trim())
+          .filter(Boolean);
+
+        // Compute plain excerpt from body (excluding headings)
+        const excerptLines = parsed.body
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(
+            (l) =>
+              l.length > 0 &&
+              !l.startsWith("#") &&
+              !l.startsWith("---") &&
+              !l.startsWith("```"),
+          );
+        const excerpt = excerptLines.slice(0, 2).join(" ").slice(0, 220);
+
+        const validation = validateRecordContent(
+          this.workspaceRoot,
+          relPath,
+          content,
+        );
+        if (!validation.valid) {
+          invalidCount++;
+        }
+
+        const fm: Record<string, unknown> = {};
+        if (parsed.metadata) {
+          for (const [k, v] of Object.entries(parsed.metadata)) {
+            if (k !== "$schema") fm[k] = v;
+          }
+        }
+
+        records.push({
+          path: relPath,
+          filename: fname,
+          title,
+          modified_at: info.mtime.toISOString(),
+          size: info.size,
+          revision: revision(rawBytes),
+          frontmatter: fm,
+          sections,
+          excerpt,
+          validation,
+        });
+      } catch {}
+    }
+
+    records.sort((a, b) => a.path.localeCompare(b.path));
+
+    domainInfo = {
+      ...domainInfo,
+      record_count: records.length,
+      invalid_record_count: invalidCount,
+    };
+
+    return {
+      schema: 1,
+      domain: domainInfo,
+      records,
+      ...(schemaJson ? { schema_json: schemaJson } : {}),
+      ...(templateHeadings ? { template_headings: templateHeadings } : {}),
+      ...(dashboardOpenui !== undefined
+        ? { dashboard_openui: dashboardOpenui }
+        : {}),
+      ...(recordOpenui !== undefined ? { record_openui: recordOpenui } : {}),
+    };
   }
 
   createFile(domainValue: unknown, nameValue: unknown): WorkspaceFile {
@@ -868,7 +1163,8 @@ export class WorkspaceService {
     }
     if (
       filename.endsWith("-template.md") ||
-      filename.endsWith(".schema.json")
+      filename.endsWith(".schema.json") ||
+      filename.endsWith(".openui")
     ) {
       throw new WorkspaceError(
         "filename cannot use protected template or schema name",

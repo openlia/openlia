@@ -1,0 +1,7 @@
+hdr = RecordHeaderCard()
+props = FrontmatterEditorCard()
+concept = MarkdownSectionCard("Concept")
+opp = MarkdownSectionCard("Potential Value & Opportunity")
+questions = ChecklistSection("Key Questions & Uncertainties")
+next = ChecklistSection("Next Exploration Step")
+root = Stack([hdr, props, concept, opp, questions, next])
