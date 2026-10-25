@@ -10,6 +10,7 @@ import { useOpenLiaOpenUI } from "./context";
 import { text } from "./domainData";
 import { loadFinanceJournal } from "./financeData";
 import { parseMarkdownRecord } from "./recordMutator";
+import { FinanceValidationCard } from "./FinanceValidationCard";
 
 export const FinanceOverview = defineComponent({
   name: "FinanceOverview",
@@ -105,9 +106,11 @@ export const FinanceOverview = defineComponent({
         aria-label="Finance overview"
       >
         <h2 className="font-semibold">Financial journal preview</h2>
+        {path && <FinanceValidationCard key={path} path={path} />}
         <p className="text-sm text-warning">
-          Preview only — not hledger-validated. No currency conversion or market
-          valuation. Checklist completion does not reconcile transactions.
+          Preview calculations are not hledger-validated. No currency conversion
+          or market valuation. Checklist completion does not reconcile
+          transactions.
         </p>
         {path ? (
           <button

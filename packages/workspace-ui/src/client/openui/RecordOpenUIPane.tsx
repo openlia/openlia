@@ -227,6 +227,7 @@ export function RecordOpenUIPane({
       value={{
         currentRecordContent: content,
         loadFile: api.loadFile,
+        financeApi: api,
         currentRecordPath: path,
         domainInfo: domainOverview?.domain,
         domainPath,
