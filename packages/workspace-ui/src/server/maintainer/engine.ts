@@ -372,7 +372,11 @@ export function evaluateFileFindings(
   }
 
   // 4. Markdown files (*.md)
-  if (!lower.endsWith(".md") || lower.endsWith("/readme.md") || lower === "readme.md") {
+  if (
+    !lower.endsWith(".md") ||
+    lower.endsWith("/readme.md") ||
+    lower === "readme.md"
+  ) {
     return findings;
   }
 
@@ -479,7 +483,9 @@ export function evaluateFileFindings(
   // Domain template has a structural error itself
   if (domain.error) {
     const isMultiple = domain.error.includes("Expected one workspace template");
-    const ruleCode = isMultiple ? "WM-TEMPLATE-MULTIPLE" : "WM-TEMPLATE-INVALID";
+    const ruleCode = isMultiple
+      ? "WM-TEMPLATE-MULTIPLE"
+      : "WM-TEMPLATE-INVALID";
     const fp = computeContractFingerprint({
       ruleCode,
       subject: domain.templateRelativePath,
@@ -544,8 +550,7 @@ export function evaluateFileFindings(
     );
   } else if (domain.schemaAbsolutePath && hasFrontmatter && metadata) {
     const compiled = loadCompiledSchema(domain.schemaAbsolutePath);
-    const schemaRel =
-      domain.schemaRelativePath ?? domain.templateRelativePath;
+    const schemaRel = domain.schemaRelativePath ?? domain.templateRelativePath;
     if (!compiled) {
       const fp = computeContractFingerprint({
         ruleCode: "WM-SCHEMA-INVALID",
@@ -838,9 +843,7 @@ function humanizeDomainLabel(domainPath: string): string {
     .split("/")
     .filter(Boolean)
     .map((segment) =>
-      segment
-        .replace(/[-_]+/g, " ")
-        .replace(/\b\w/g, (c) => c.toUpperCase()),
+      segment.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
     )
     .join(" ");
 }
@@ -880,9 +883,7 @@ export class MaintainerService {
   expandDependentPaths(changedRelativePaths: string[]): string[] {
     const expanded = new Set<string>();
     for (const raw of changedRelativePaths) {
-      const clean = raw
-        .replaceAll("\\", "/")
-        .replace(/^\/+|\/+$/g, "");
+      const clean = raw.replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
       if (!clean || protectedPath(clean)) continue;
       expanded.add(clean);
 

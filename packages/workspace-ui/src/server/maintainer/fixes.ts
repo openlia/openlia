@@ -108,7 +108,9 @@ function deriveTitle(
   metadata: Record<string, unknown> | null,
   body: string,
 ): string {
-  const l1 = extractHeadings(body).find((h) => h.level === 1)?.text.trim();
+  const l1 = extractHeadings(body)
+    .find((h) => h.level === 1)
+    ?.text.trim();
   if (l1) return l1;
   if (typeof metadata?.title === "string" && metadata.title.trim()) {
     return metadata.title.trim();
@@ -260,7 +262,10 @@ function computeDeterministicTransform(
       defaultValue = structuredClone(parsedTemplate.metadata[prop]);
     } else if (prop === "title") {
       defaultValue = deriveTitle(relPath, parsed.metadata, parsed.body);
-    } else if (domain?.schemaAbsolutePath && existsSync(domain.schemaAbsolutePath)) {
+    } else if (
+      domain?.schemaAbsolutePath &&
+      existsSync(domain.schemaAbsolutePath)
+    ) {
       try {
         const rawSchema = JSON.parse(
           readFileSync(domain.schemaAbsolutePath, "utf8"),
@@ -277,10 +282,7 @@ function computeDeterministicTransform(
             defaultValue = [];
           } else if (propDef.type === "boolean") {
             defaultValue = false;
-          } else if (
-            propDef.type === "number" ||
-            propDef.type === "integer"
-          ) {
+          } else if (propDef.type === "number" || propDef.type === "integer") {
             defaultValue = 0;
           } else if (propDef.format === "date") {
             defaultValue = new Date().toISOString().slice(0, 10);

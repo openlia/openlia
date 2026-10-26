@@ -57,10 +57,7 @@ import {
 } from "./validator";
 import YAML from "yaml";
 import { MEMORY_DOCUMENT_PREFIX } from "../shared/memory";
-import {
-  evaluateFileFindings,
-  MaintainerService,
-} from "./maintainer/engine";
+import { evaluateFileFindings, MaintainerService } from "./maintainer/engine";
 
 export const DEFAULT_MAX_EDITABLE_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
@@ -466,8 +463,7 @@ export class WorkspaceService {
       relativePath,
       content,
     );
-    const rev =
-      checkedRev ?? revision(new TextEncoder().encode(content));
+    const rev = checkedRev ?? revision(new TextEncoder().encode(content));
     const candidates = evaluateFileFindings(
       this.workspaceRoot,
       this.maintainer.workspaceId,
@@ -1480,9 +1476,7 @@ export class WorkspaceService {
     const uiRel = `${projectPath}/${uiEntry}`;
     const uiAbs = resolve(dirAbs, uiEntry);
     if (!uiAbs.startsWith(dirAbs + sep) || !existsSync(uiAbs)) {
-      renderErrors.push(
-        `UI entry '${uiEntry}' is missing in '${projectPath}'`,
-      );
+      renderErrors.push(`UI entry '${uiEntry}' is missing in '${projectPath}'`);
     } else {
       try {
         const uiRaw = readFileSync(uiAbs, "utf8");
@@ -1658,8 +1652,7 @@ export class WorkspaceService {
         `ui: entry file '${uiEntry}' is missing in '${projectPath}'`,
       );
     }
-    const renderable =
-      renderErrors.length === 0 && Boolean(uiContent.trim());
+    const renderable = renderErrors.length === 0 && Boolean(uiContent.trim());
 
     const templateInfo = findDomainTemplate(
       this.workspaceRoot,
@@ -2081,10 +2074,7 @@ export class WorkspaceService {
       textContent = new TextDecoder("utf-8").decode(contents);
     } catch {}
 
-    this.maintainer.db.markFileDeleted(
-      this.maintainer.workspaceId,
-      sourcePath,
-    );
+    this.maintainer.db.markFileDeleted(this.maintainer.workspaceId, sourcePath);
     const validation = this.validateWithMaintainer(
       destinationPath,
       textContent,

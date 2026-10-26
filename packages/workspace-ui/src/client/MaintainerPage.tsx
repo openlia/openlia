@@ -6,11 +6,7 @@ import type {
 import type { WorkspaceApi } from "./api";
 import { MaintainerFixModal } from "./MaintainerFixModal";
 
-export type MaintainerViewTab =
-  | "open"
-  | "ignored"
-  | "resolved"
-  | "collections";
+export type MaintainerViewTab = "open" | "ignored" | "resolved" | "collections";
 
 export interface MaintainerPageProps {
   api: WorkspaceApi;
@@ -338,7 +334,11 @@ export function MaintainerPage({
                           Contract:{" "}
                           <button
                             className="link link-hover text-primary"
-                            onClick={() => onOpenFile(finding.contract_path!)}
+                            onClick={() => {
+                              if (finding.contract_path) {
+                                onOpenFile(finding.contract_path);
+                              }
+                            }}
                             type="button"
                           >
                             {finding.contract_path}
@@ -532,7 +532,11 @@ export function MaintainerPage({
                     {col.template_path && (
                       <button
                         className="link link-primary"
-                        onClick={() => onOpenFile(col.template_path!)}
+                        onClick={() => {
+                          if (col.template_path) {
+                            onOpenFile(col.template_path);
+                          }
+                        }}
                         type="button"
                       >
                         Template: {col.template_path}
@@ -541,7 +545,11 @@ export function MaintainerPage({
                     {col.schema_path && (
                       <button
                         className="link link-primary"
-                        onClick={() => onOpenFile(col.schema_path!)}
+                        onClick={() => {
+                          if (col.schema_path) {
+                            onOpenFile(col.schema_path);
+                          }
+                        }}
                         type="button"
                       >
                         Schema: {col.schema_path}

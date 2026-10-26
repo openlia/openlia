@@ -30,11 +30,16 @@ export function computeContractFingerprint(params: {
   } = params;
 
   if (ruleCode.startsWith("WM-FM-")) {
-    return sha256Hex(`frontmatter:${ruleCode}:${ templateSchemaRef ?? "none"}`).slice(0, 16);
+    return sha256Hex(
+      `frontmatter:${ruleCode}:${templateSchemaRef ?? "none"}`,
+    ).slice(0, 16);
   }
 
   if (ruleCode === "WM-TEMPLATE-SECTION-MISSING") {
-    return sha256Hex(`template-section:${subject.trim().toLowerCase()}`).slice(0, 16);
+    return sha256Hex(`template-section:${subject.trim().toLowerCase()}`).slice(
+      0,
+      16,
+    );
   }
 
   if (ruleCode.startsWith("WM-TEMPLATE-")) {
@@ -52,7 +57,10 @@ export function computeContractFingerprint(params: {
     ).slice(0, 16);
   }
 
-  if (ruleCode.startsWith("WM-MANIFEST-") || ruleCode.startsWith("WM-OPENUI-")) {
+  if (
+    ruleCode.startsWith("WM-MANIFEST-") ||
+    ruleCode.startsWith("WM-OPENUI-")
+  ) {
     return sha256Hex(
       `project:${ruleCode}:${subject}:${manifestTarget ?? ""}`,
     ).slice(0, 16);

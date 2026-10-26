@@ -61,10 +61,14 @@ export function MaintainerFixModal({
 
   if (!finding) return null;
 
-  const computedDiff =
-    preview && preview.deterministically_fixable
-      ? diffLines(preview.before_content, preview.after_content)
-      : [];
+  const computedDiff = preview?.deterministically_fixable
+    ? diffLines(preview.before_content, preview.after_content).map(
+        (line, idx) => ({
+          id: `${idx + 1}:${line}`,
+          line,
+        }),
+      )
+    : [];
 
   const handleApplyDeterministic = async () => {
     if (!preview) return;
@@ -148,18 +152,18 @@ export function MaintainerFixModal({
                 </div>
                 <pre className="max-h-64 overflow-auto rounded-lg border border-base-content/10 bg-base-200/70 p-3 font-mono text-xs leading-relaxed">
                   {computedDiff.length > 0
-                    ? computedDiff.map((line, idx) => (
+                    ? computedDiff.map((entry) => (
                         <div
                           className={
-                            line.startsWith("+")
+                            entry.line.startsWith("+")
                               ? "text-success"
-                              : line.startsWith("-")
+                              : entry.line.startsWith("-")
                                 ? "text-error"
                                 : "text-base-content/70"
                           }
-                          key={`${idx}-${line.slice(0, 16)}`}
+                          key={entry.id}
                         >
-                          {line}
+                          {entry.line}
                         </div>
                       ))
                     : preview.after_content}

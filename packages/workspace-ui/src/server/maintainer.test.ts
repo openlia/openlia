@@ -325,9 +325,9 @@ describe("Workspace Maintainer & Consequential Permissions", () => {
       open_findings: Array<{ issue_id: string }>;
       ignored_findings: Array<{ issue_id: string }>;
     };
-    expect(
-      overviewAfterRestore.open_findings.map((f) => f.issue_id),
-    ).toContain(issueId1);
+    expect(overviewAfterRestore.open_findings.map((f) => f.issue_id)).toContain(
+      issueId1,
+    );
     expect(overviewAfterRestore.ignored_findings.length).toBe(0);
   });
 
@@ -410,9 +410,9 @@ describe("Workspace Maintainer & Consequential Permissions", () => {
       file_findings: Array<{ state: string }>;
     };
     expect(applied.finding?.state).toBe("resolved");
-    expect(
-      applied.file_findings.filter((f) => f.state === "open").length,
-    ).toBe(0);
+    expect(applied.file_findings.filter((f) => f.state === "open").length).toBe(
+      0,
+    );
   });
 
   test("10. Broken project UI is reported as renderable: false while preserving record & file access", async () => {

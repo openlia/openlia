@@ -88,8 +88,7 @@ export const startWorkspaceApi: WorkspaceApi = {
       method: "POST",
       body: { revision },
     }),
-  loadMaintainerOverview: () =>
-    request({ path: "/api/maintainer/overview" }),
+  loadMaintainerOverview: () => request({ path: "/api/maintainer/overview" }),
   runMaintainerAudit: () =>
     request({ path: "/api/maintainer/audit", method: "POST" }),
   ignoreMaintainerIssue: (issueId, reason) =>
@@ -116,8 +115,7 @@ export const startWorkspaceApi: WorkspaceApi = {
       method: "POST",
       body: { issue_id: issueId, expected_revision: expectedRevision },
     }),
-  loadPermissions: () =>
-    request({ path: "/api/permissions" }),
+  loadPermissions: () => request({ path: "/api/permissions" }),
   updatePermissions: (permissions) =>
     request({
       path: "/api/permissions",
