@@ -17,6 +17,7 @@ var ProtectedPaths = []string{
 	"SOUL.md",
 	"workspace.yaml",
 	"assistant-policy.yaml",
+	"permissions.yaml",
 }
 
 // IsProtectedWorkspacePath returns true for system paths and core instruction

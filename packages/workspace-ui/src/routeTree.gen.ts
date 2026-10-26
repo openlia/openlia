@@ -14,6 +14,7 @@ import { Route as SplatRouteImport } from './routes/$'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as ConfigurationRouteImport } from './routes/configuration'
 import { Route as GitActivityRouteImport } from './routes/git-activity'
+import { Route as MaintainerRouteImport } from './routes/maintainer'
 import { Route as ScheduleRouteImport } from './routes/schedule'
 import { Route as SharesRouteImport } from './routes/shares'
 import { Route as UsageRouteImport } from './routes/usage'
@@ -54,6 +55,11 @@ const ConfigurationRoute = ConfigurationRouteImport.update({
 const GitActivityRoute = GitActivityRouteImport.update({
   id: '/git-activity',
   path: '/git-activity',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MaintainerRoute = MaintainerRouteImport.update({
+  id: '/maintainer',
+  path: '/maintainer',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ScheduleRoute = ScheduleRouteImport.update({
@@ -143,6 +149,7 @@ export interface FileRoutesByFullPath {
   '/chat': typeof ChatRoute
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
+  '/maintainer': typeof MaintainerRoute
   '/schedule': typeof ScheduleRoute
   '/shares': typeof SharesRoute
   '/usage': typeof UsageRoute
@@ -166,6 +173,7 @@ export interface FileRoutesByTo {
   '/chat': typeof ChatRoute
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
+  '/maintainer': typeof MaintainerRoute
   '/schedule': typeof ScheduleRoute
   '/shares': typeof SharesRoute
   '/usage': typeof UsageRoute
@@ -190,6 +198,7 @@ export interface FileRoutesById {
   '/chat': typeof ChatRoute
   '/configuration': typeof ConfigurationRoute
   '/git-activity': typeof GitActivityRoute
+  '/maintainer': typeof MaintainerRoute
   '/schedule': typeof ScheduleRoute
   '/shares': typeof SharesRoute
   '/usage': typeof UsageRoute
@@ -215,6 +224,7 @@ export interface FileRouteTypes {
     | '/chat'
     | '/configuration'
     | '/git-activity'
+    | '/maintainer'
     | '/schedule'
     | '/shares'
     | '/usage'
@@ -238,6 +248,7 @@ export interface FileRouteTypes {
     | '/chat'
     | '/configuration'
     | '/git-activity'
+    | '/maintainer'
     | '/schedule'
     | '/shares'
     | '/usage'
@@ -261,6 +272,7 @@ export interface FileRouteTypes {
     | '/chat'
     | '/configuration'
     | '/git-activity'
+    | '/maintainer'
     | '/schedule'
     | '/shares'
     | '/usage'
@@ -285,6 +297,7 @@ export interface RootRouteChildren {
   ChatRoute: typeof ChatRoute
   ConfigurationRoute: typeof ConfigurationRoute
   GitActivityRoute: typeof GitActivityRoute
+  MaintainerRoute: typeof MaintainerRoute
   ScheduleRoute: typeof ScheduleRoute
   SharesRoute: typeof SharesRoute
   UsageRoute: typeof UsageRoute
@@ -338,6 +351,13 @@ declare module '@tanstack/react-router' {
       path: '/git-activity'
       fullPath: '/git-activity'
       preLoaderRoute: typeof GitActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/maintainer': {
+      id: '/maintainer'
+      path: '/maintainer'
+      fullPath: '/maintainer'
+      preLoaderRoute: typeof MaintainerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/schedule': {
@@ -461,6 +481,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRoute,
   ConfigurationRoute: ConfigurationRoute,
   GitActivityRoute: GitActivityRoute,
+  MaintainerRoute: MaintainerRoute,
   ScheduleRoute: ScheduleRoute,
   SharesRoute: SharesRoute,
   UsageRoute: UsageRoute,

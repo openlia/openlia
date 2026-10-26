@@ -93,44 +93,35 @@ def _policy_errors() -> list[str]:
     errors: list[str] = []
     try:
         registry = validator.load_registry(BUNDLE_ROOT, required=True)
-        policy = validator.load_policy(BUNDLE_ROOT, registry=registry, required=True)
-        legacy_registry = {
-            **registry,
-            "domains": [
-                domain
-                for domain in registry["domains"]
-                if domain["path"] != "inbox/daily-briefing"
-            ],
-        }
-        validator.load_policy(BUNDLE_ROOT, registry=legacy_registry, required=True)
+        policy = validator.load_policy(BUNDLE_ROOT, registry=registry, required=False)
         if not validator.policy_allows(
             policy,
             "generate_reports",
             "inbox/daily-briefing/2026-10-08.md",
             scheduled=True,
         ):
-            errors.append("assistant policy rejected its configured scheduled report path")
+            errors.append("permissions rejected its configured scheduled report path")
         if not validator.policy_allows(
             policy,
             "create_records",
             "tasks/2026-10-08-review.md",
         ):
-            errors.append("assistant policy rejected delegated tasks record writes")
-        if validator.policy_allows(
+            errors.append("permissions rejected tasks record writes")
+        if not validator.policy_allows(
             policy,
-            "record_financial_data",
-            "finance/intake/2026-10-08-statement.md",
+            "create_records",
+            "family-menu/2026-10-08.md",
         ):
-            errors.append("lean base assistant policy allowed uninstalled finance record writes")
+            errors.append("permissions rejected custom collection record writes")
         if validator.policy_allows(
             policy,
             "generate_reports",
             "inbox/other/2026-10-08.md",
             scheduled=True,
         ):
-            errors.append("assistant policy allowed a scheduled report outside its destination")
+            errors.append("permissions allowed a scheduled report outside its destination")
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        errors.append(f"assistant-policy.yaml: {exc}")
+        errors.append(f"permissions.yaml: {exc}")
     return errors
 
 
@@ -146,7 +137,7 @@ def validate_bundle() -> list[str]:
             if "template" in domain
         }
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        errors.append(f"workspace.yaml: {exc}")
+        errors.append(f"domain discovery: {exc}")
         expected = set()
     discovered = {
         path.relative_to(BUNDLE_ROOT).as_posix()
@@ -156,9 +147,9 @@ def validate_bundle() -> list[str]:
         missing = sorted(expected - discovered)
         unregistered = sorted(discovered - expected)
         if missing:
-            errors.append(f"missing registered templates: {', '.join(missing)}")
+            errors.append(f"missing discovered templates: {', '.join(missing)}")
         if unregistered:
-            errors.append(f"unregistered template files: {', '.join(unregistered)}")
+            errors.append(f"undiscovered template files: {', '.join(unregistered)}")
 
     expected_schemas: set[str] = set()
     for path in BUNDLE_ROOT.rglob("*-template.md"):
@@ -176,12 +167,7 @@ def validate_bundle() -> list[str]:
     discovered_schemas = {
         path.relative_to(BUNDLE_ROOT).as_posix()
         for path in BUNDLE_ROOT.rglob("*.schema.json")
-        if path.name
-        not in {
-            "workspace.schema.json",
-            "assistant-policy.schema.json",
-            "feature.schema.json",
-        }
+        if path.name not in {"feature.schema.json"}
     }
     if discovered_schemas != expected_schemas:
         missing = sorted(expected_schemas - discovered_schemas)

@@ -1,14 +1,13 @@
-"""Runtime enforcement for the user-owned OpenLia workspace policy.
+"""Runtime enforcement for OpenLia consequential permissions (/opt/data/permissions.yaml).
 
-The policy file remains user-owned and is loaded at tool-dispatch time. This
-plugin deliberately treats the model's intent as untrusted: read-only tools
-are allowed, while writes and side effects must either be delegated by the
-policy or pass through Hermes' existing approval gate.
+Ordinary workspace creation, record updates, templates, schemas, and mini-projects
+are allowed without domain registration or structural batch gates. Consequential
+permissions (destructive actions, external side effects, scheduled work) and
+protected system/secret paths remain strictly enforced.
 """
 
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import json
 import logging
@@ -20,6 +19,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import Any
+
+
+def _load_maintainer_bridge_cls() -> Any:
+    try:
+        from .maintainer_bridge import MaintainerBridge  # type: ignore[import-not-found]
+
+        return MaintainerBridge
+    except Exception:
+        bridge_path = Path(__file__).resolve().parent / "maintainer_bridge.py"
+        spec = importlib.util.spec_from_file_location(
+            "openlia_policy_maintainer_bridge", bridge_path
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"cannot load maintainer_bridge: {bridge_path}")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.MaintainerBridge
+
+
+MaintainerBridge = _load_maintainer_bridge_cls()
 
 
 LOGGER = logging.getLogger("openlia.policy")
@@ -58,6 +77,8 @@ _READ_ONLY_TOOLS = {
     "ingestion_status",
     "list_document_password_profiles",
     "ingestion_suggest_passwords",
+    "maintainer_status",
+    "maintainer_audit",
 }
 _READ_ONLY_COMMANDS = {
     "basename",
@@ -116,46 +137,76 @@ _YOUTUBE_TERMINAL_BYPASS = re.compile(
     re.IGNORECASE,
 )
 
+_PROTECTED_ROOT_FILES = {
+    "README.md",
+    "AGENTS.md",
+    "SOUL.md",
+    "IDENTITY.md",
+    "DREAMS.md",
+    "feature.schema.json",
+    "permissions.yaml",
+    "workspace.yaml",
+    "workspace.schema.json",
+    "assistant-policy.yaml",
+    "assistant-policy.schema.json",
+    "sources/document-passwords.toml",
+}
+_PROTECTED_BASENAMES = {
+    "AGENTS.md",
+    "SOUL.md",
+    "IDENTITY.md",
+    "DREAMS.md",
+}
+
 
 class PolicyLoadError(RuntimeError):
-    """The policy or workspace registry could not be trusted."""
+    """The permissions configuration could not be trusted."""
 
 
 @dataclass(frozen=True)
 class Authority:
     helper: ModuleType
-    registry: dict[str, Any]
-    policy: dict[str, Any] | None
+    permissions: dict[str, Any]
+
+    @property
+    def policy(self) -> dict[str, Any]:
+        return self.permissions
 
 
 class AuthorityStore:
-    """Load policy state atomically and refresh it when user files change."""
+    """Load consequential permissions atomically and refresh when the file changes."""
 
-    def __init__(self, workspace_root: Path, helper_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        workspace_root: Path,
+        helper_path: Path | None = None,
+        permissions_file: Path | None = None,
+    ) -> None:
         self.workspace_root = workspace_root.expanduser().resolve()
         self.helper_path = helper_path or Path(
             os.environ.get("OPENLIA_POLICY_HELPER", str(DEFAULT_HELPER))
         )
+        self._explicit_permissions_file = permissions_file
         self._lock = threading.RLock()
         self._signature: tuple[Any, ...] | None = None
         self._authority: Authority | None = None
 
+    @property
+    def permissions_file(self) -> Path:
+        if self._explicit_permissions_file is not None:
+            return self._explicit_permissions_file.expanduser()
+        configured = os.environ.get("OPENLIA_PERMISSIONS_FILE")
+        if configured:
+            return Path(configured).expanduser()
+        return self.workspace_root.parent / "permissions.yaml"
+
     def _file_signature(self) -> tuple[Any, ...]:
-        paths = (
-            self.workspace_root / "workspace.yaml",
-            self.workspace_root / "workspace.schema.json",
-            self.workspace_root / "assistant-policy.yaml",
-            self.workspace_root / "assistant-policy.schema.json",
-        )
-        signature: list[Any] = []
-        for path in paths:
-            try:
-                stat = path.stat()
-            except OSError:
-                signature.append((str(path), None))
-            else:
-                signature.append((str(path), stat.st_mtime_ns, stat.st_size))
-        return tuple(signature)
+        path = self.permissions_file
+        try:
+            stat = path.lstat()
+        except OSError:
+            return (str(path), None)
+        return (str(path), stat.st_mode, stat.st_mtime_ns, stat.st_size)
 
     def _load_helper(self) -> ModuleType:
         if self.helper_path.is_symlink() or not self.helper_path.is_file():
@@ -168,7 +219,7 @@ class AuthorityStore:
         module = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(module)
-        except Exception as exc:  # pragma: no cover - exact dependency errors vary by runtime
+        except Exception as exc:  # pragma: no cover
             raise PolicyLoadError(f"policy helper failed to load: {exc}") from exc
         return module
 
@@ -179,17 +230,14 @@ class AuthorityStore:
                 return self._authority
             helper = self._load_helper()
             try:
-                registry = helper.load_registry(self.workspace_root, required=True)
-                policy = helper.load_policy(
-                    self.workspace_root, registry=registry, required=False
+                permissions = helper.load_permissions(
+                    self.permissions_file, required=False
                 )
             except Exception as exc:
                 raise PolicyLoadError(str(exc)) from exc
-            if not isinstance(registry, dict):
-                raise PolicyLoadError("workspace registry did not contain a mapping")
-            if policy is not None and not isinstance(policy, dict):
-                raise PolicyLoadError("assistant policy did not contain a mapping")
-            self._authority = Authority(helper, registry, policy)
+            if not isinstance(permissions, dict):
+                raise PolicyLoadError("permissions did not contain a mapping")
+            self._authority = Authority(helper, permissions)
             self._signature = signature
             return self._authority
 
@@ -230,64 +278,15 @@ def _within(path: str, parent: str) -> bool:
     return path_parts[: len(parent_parts)] == parent_parts
 
 
-def _policy_path_allowed(authority: Authority, relative_path: str) -> bool:
-    policy = authority.policy
-    if not policy:
-        return False
-    workspace = policy.get("delegation", {}).get("workspace", {})
-    if not workspace.get("enabled"):
-        return False
-    return any(
-        _within(relative_path, allowed)
-        for allowed in workspace.get("allowed_domains", [])
-    )
-
-
-def _registered_path(authority: Authority, relative_path: str) -> bool:
-    domains = authority.helper.domains(authority.registry)
-    return any(_within(relative_path, domain.get("path")) for domain in domains)
-
-
-_STRUCTURAL_ROOT_FILES = {
-    "workspace.yaml",
-    "workspace.schema.json",
-    "feature.schema.json",
-    "AGENTS.md",
-    "README.md",
-}
-
-
-def _structural_path(relative_path: str) -> bool:
-    """Structure is user-approved, never an ordinary delegated record write."""
-    return relative_path in _STRUCTURAL_ROOT_FILES or (
-        Path(relative_path).name == "AGENTS.md"
-        or relative_path.endswith("-template.md")
-        or relative_path.endswith(".schema.json")
-    )
-
-
-def _structure_approval(
-    args: dict[str, Any], workspace_root: Path, targets: list[tuple[str, bool] | None]
-) -> dict[str, str]:
-    # A remembered rule may only match this exact batch, never all structural
-    # writes. No model-provided approval or proposal ID confers authority.
-    # Bind remembered approvals to the workspace and pre-change state as well
-    # as the payload. Replaying a patch against newer user work needs review.
-    state = {}
-    paths = {target[0] for target in targets if target is not None}
-    paths.update({"workspace.yaml", "workspace.schema.json", "assistant-policy.yaml", "assistant-policy.schema.json"})
-    for path in sorted(paths):
-        file = workspace_root / path
-        state[path] = hashlib.sha256(file.read_bytes()).hexdigest() if file.is_file() else None
-    digest = hashlib.sha256(json.dumps({
-        "workspace": str(workspace_root), "args": args, "state": state
-    }, sort_keys=True).encode()).hexdigest()
-    return _approve(
-        "Approve only this workspace structure proposal and included files. "
-        "Review its purpose, paths, template/schema and routing effects; "
-        "then validate and continue the original task. Do not grant persistent rule approval.",
-        f"openlia.policy.workspace_structure.{digest}",
-    )
+def _is_protected_workspace_path(relative_path: str) -> bool:
+    if relative_path in _PROTECTED_ROOT_FILES:
+        return True
+    parts = relative_path.split("/")
+    if any(part.startswith(".") for part in parts):
+        return True
+    if parts[-1] in _PROTECTED_BASENAMES:
+        return True
+    return False
 
 
 def _safe_workspace_target(
@@ -305,6 +304,12 @@ def _safe_workspace_target(
         return None
     if not relative or relative == "." or relative.startswith("../"):
         return None
+    # Reject any symlink along the workspace path
+    current = workspace_root
+    for part in relative.split("/"):
+        current = current / part
+        if current.is_symlink():
+            return None
     return relative, os.path.lexists(resolved)
 
 
@@ -330,7 +335,7 @@ def _external_action(tool_name: str) -> str | None:
 
 
 def _patch_operations(args: dict[str, Any]) -> list[tuple[str, str, str | None]]:
-    """Return ``(operation, path, second_path)`` records from an Hermes patch."""
+    """Return ``(operation, path, second_path)`` records from a Hermes patch."""
     mode = args.get("mode") or "replace"
     if mode != "patch":
         path = args.get("path")
@@ -354,17 +359,28 @@ def _patch_operations(args: dict[str, Any]) -> list[tuple[str, str, str | None]]
 
 
 class PolicyEnforcer:
-    """Translate Hermes tool calls into OpenLia policy decisions."""
+    """Translate Hermes tool calls into OpenLia consequential permission decisions."""
 
     def __init__(
         self,
         workspace_root: Path | None = None,
         helper_path: Path | None = None,
+        permissions_file: Path | None = None,
+        maintainer_root: Path | None = None,
     ) -> None:
         self.workspace_root = (workspace_root or _workspace_root()).expanduser().resolve()
-        self.store = AuthorityStore(self.workspace_root, helper_path)
+        self.store = AuthorityStore(
+            self.workspace_root, helper_path, permissions_file=permissions_file
+        )
+        self.maintainer = MaintainerBridge(
+            self.workspace_root, maintainer_root=maintainer_root
+        )
         self._scheduled_sessions: set[str] = set()
         self._session_lock = threading.Lock()
+
+    @property
+    def permissions_file(self) -> Path:
+        return self.store.permissions_file
 
     def _set_scheduled(self, session_id: Any, platform: Any) -> None:
         if not isinstance(session_id, str) or not session_id:
@@ -385,8 +401,6 @@ class PolicyEnforcer:
     def on_pre_llm_call(
         self, session_id: str = "", platform: str = "", **_: Any
     ) -> None:
-        # pre_tool_call does not carry platform, so retain the trusted Hermes
-        # surface classification for scheduled-work path restrictions.
         self._set_scheduled(session_id, platform)
 
     def on_session_end(self, session_id: str = "", **_: Any) -> None:
@@ -396,60 +410,32 @@ class PolicyEnforcer:
     def _load(self) -> Authority:
         return self.store.load()
 
-    def _workspace_action(
-        self,
-        authority: Authority,
-        action: str,
-        relative_path: str,
-        scheduled: bool,
+    def _scheduled_path_decision(
+        self, authority: Authority, action: str, relative_path: str
     ) -> dict[str, str] | None:
-        if not _registered_path(authority, relative_path):
+        scheduled_policy = authority.permissions.get("scheduled_work", {})
+        if not scheduled_policy.get("enabled", True):
+            return _block("OpenLia policy blocked scheduled work: scheduled_work is disabled.")
+        if relative_path.endswith(("-template.md", ".schema.json", "project-manifest.toml", ".openui")):
             return _block(
-                f"OpenLia policy blocked {action}: {relative_path} is outside registered workspace domains."
+                f"OpenLia policy blocked scheduled structural edit on {relative_path}."
             )
-        policy = authority.policy
-        if policy is None:
-            return _approve(
-                f"No assistant policy delegates {action} for {relative_path}; approval is required.",
-                "openlia.policy.missing",
-            )
-        scheduled_policy = policy.get("scheduled_work", {})
-        if scheduled:
-            if not scheduled_policy.get("enabled"):
-                return _block("OpenLia policy blocked scheduled work: scheduled_work is disabled.")
-            if action not in scheduled_policy.get("allowed_actions", []):
-                return _block(
-                    f"OpenLia policy blocked scheduled action {action} for {relative_path}."
-                )
-            destination = scheduled_policy.get("report_destination")
-            if action == "generate_reports" and not _within(relative_path, destination):
-                return _block(
-                    "OpenLia policy blocked the scheduled report: its path is outside "
-                    f"scheduled_work.report_destination ({destination})."
-                )
-        try:
-            delegated = authority.helper.policy_allows(
-                policy, action, relative_path, scheduled=scheduled
-            )
-        except Exception as exc:
-            raise PolicyLoadError(f"policy authorization failed: {exc}") from exc
-        if delegated:
+        destination = scheduled_policy.get("report_destination", "inbox/daily-briefing")
+        if _within(relative_path, destination):
             return None
-        return _approve(
-            f"OpenLia policy does not delegate {action} for {relative_path}; approval is required.",
-            f"openlia.policy.{action}",
+        if action in {"capture", "triage_inbox"} and (
+            _within(relative_path, "inbox") or _within(relative_path, "sources")
+        ):
+            return None
+        return _block(
+            "OpenLia policy blocked the scheduled report: its path is outside "
+            f"scheduled_work.report_destination ({destination})."
         )
 
     def _destructive_action(
         self, authority: Authority, key: str, relative_path: str
     ) -> dict[str, str] | None:
-        policy = authority.policy
-        if policy is None:
-            return _approve(
-                f"No assistant policy authorizes destructive action {key} on {relative_path}.",
-                f"openlia.policy.{key}",
-            )
-        decision = policy.get("delegation", {}).get("destructive", {}).get(key)
+        decision = authority.permissions.get("destructive", {}).get(key, "ask")
         if decision == "deny":
             return _block(f"OpenLia policy denies {key} for {relative_path}.")
         if decision == "ask":
@@ -457,18 +443,12 @@ class PolicyEnforcer:
                 f"OpenLia policy requires approval for {key} on {relative_path}.",
                 f"openlia.policy.{key}",
             )
-        raise PolicyLoadError(f"invalid destructive policy decision for {key}: {decision!r}")
+        raise PolicyLoadError(f"invalid destructive permission decision for {key}: {decision!r}")
 
     def _external_decision(
         self, authority: Authority, key: str, tool_name: str
     ) -> dict[str, str] | None:
-        policy = authority.policy
-        if policy is None:
-            return _approve(
-                f"No assistant policy authorizes external action {key} ({tool_name}).",
-                f"openlia.policy.{key}",
-            )
-        decision = policy.get("delegation", {}).get("external", {}).get(key)
+        decision = authority.permissions.get("external", {}).get(key, "ask")
         if decision == "allow":
             return None
         if decision == "deny":
@@ -478,7 +458,7 @@ class PolicyEnforcer:
                 f"OpenLia policy requires approval for external action {key} ({tool_name}).",
                 f"openlia.policy.{key}",
             )
-        raise PolicyLoadError(f"invalid external policy decision for {key}: {decision!r}")
+        raise PolicyLoadError(f"invalid external permission decision for {key}: {decision!r}")
 
     def _workspace_tool_decision(
         self, authority: Authority, tool_name: str, args: dict[str, Any], scheduled: bool
@@ -490,58 +470,22 @@ class PolicyEnforcer:
             return _block(f"OpenLia policy could not determine the target path for {tool_name}.")
 
         pending: dict[str, str] | None = None
-        # One patch can contain a reviewed extension contract and its first record.
-        # This does not grant a session-wide capability: Hermes must approve the
-        # actual tool call, including every path and its content. Never trust an
-        # `approved` argument supplied by the model.
-        targets = [
-            _safe_workspace_target(self.workspace_root, path) for _, path, _ in operations
-        ]
-        registry_batch = any(
-            target is not None
-            and target[0] == "workspace.yaml"
-            and operation in {"add", "update", "replace"}
-            for (operation, _, _), target in zip(operations, targets)
-        )
         for operation, raw_path, second_path in operations:
             target = _safe_workspace_target(self.workspace_root, raw_path)
             if target is None:
                 return _block(f"OpenLia policy blocked unsafe workspace path: {raw_path}.")
             relative_path, exists = target
-            structural = _structural_path(relative_path)
-            registered = _registered_path(authority, relative_path)
-            root_structure = relative_path in _STRUCTURAL_ROOT_FILES
-            extension_file = (
-                registry_batch
-                and not registered
-                and "/" in relative_path
-                and not relative_path.split("/", 1)[0].startswith(".")
-            )
-            # Delegation/policy files are not part of an organizational proposal.
-            if relative_path in {"assistant-policy.yaml", "assistant-policy.schema.json"}:
-                return _block("Workspace structure approval cannot change assistant delegation policy.")
-            if (structural or extension_file) and scheduled:
-                return _block("Scheduled work cannot apply workspace structural proposals.")
-            if not registered and not root_structure and not extension_file:
+
+            if _is_protected_workspace_path(relative_path):
                 return _block(
-                    f"OpenLia policy blocked workspace path outside registered domains: {relative_path}."
+                    f"OpenLia policy blocked protected workspace path: {relative_path}."
                 )
 
-            if structural or extension_file:
-                if operation == "move":
-                    return _block("Propose structural moves separately from additive workspace customization.")
-                if operation == "delete" or (operation in {"add", "replace"} and exists):
-                    destructive_key = "delete_records" if operation == "delete" else "overwrite_records"
-                    destructive = self._destructive_action(authority, destructive_key, relative_path)
-                    if destructive is not None and destructive.get("action") == "block":
-                        return destructive
-                pending = _structure_approval(args, self.workspace_root, targets)
-                continue
-
+            decision: dict[str, str] | None = None
             if operation == "delete":
-                if authority.policy is not None and not _policy_path_allowed(authority, relative_path):
+                if scheduled:
                     return _block(
-                        f"OpenLia policy blocked deletion outside allowed domains: {relative_path}."
+                        f"OpenLia policy blocked scheduled deletion of {relative_path}."
                     )
                 decision = self._destructive_action(authority, "delete_records", relative_path)
             elif operation == "move":
@@ -550,45 +494,37 @@ class PolicyEnforcer:
                 destination = _safe_workspace_target(self.workspace_root, second_path)
                 if destination is None:
                     return _block(f"OpenLia policy blocked unsafe move destination: {second_path}.")
-                destination_path, _ = destination
-                if _structural_path(destination_path):
-                    return _block("Propose structural moves separately from additive workspace customization.")
-                if not _registered_path(authority, destination_path):
+                destination_path, dest_exists = destination
+                if _is_protected_workspace_path(destination_path):
                     return _block(
-                        f"OpenLia policy blocked move destination outside registered domains: {destination_path}."
+                        f"OpenLia policy blocked move to protected workspace path: {destination_path}."
                     )
-                action = "archive_records" if _within(destination_path, "archive") else "update_records"
-                decision = self._workspace_action(authority, action, relative_path, scheduled)
-                if decision is None:
-                    decision = self._workspace_action(authority, action, destination_path, scheduled)
+                if scheduled:
+                    return _block(
+                        f"OpenLia policy blocked scheduled move from {relative_path} to {destination_path}."
+                    )
+                if dest_exists:
+                    decision = self._destructive_action(
+                        authority, "overwrite_records", destination_path
+                    )
             else:
-                report_destination = (
-                    authority.policy or {}
-                ).get("scheduled_work", {}).get("report_destination")
-                is_report = isinstance(report_destination, str) and _within(
-                    relative_path, report_destination
-                )
-                if operation == "add" and exists:
+                if scheduled:
+                    if exists and operation in {"add", "replace"}:
+                        return _block(
+                            f"OpenLia policy blocked scheduled overwrite of {relative_path}."
+                        )
+                    decision = self._scheduled_path_decision(
+                        authority, "generate_reports", relative_path
+                    )
+                elif exists and operation in {"add", "replace"}:
                     decision = self._destructive_action(
                         authority, "overwrite_records", relative_path
                     )
-                elif operation == "add" or (operation == "replace" and not exists):
-                    action = "generate_reports" if is_report else "create_records"
-                    decision = self._workspace_action(authority, action, relative_path, scheduled)
-                elif operation == "update":
-                    action = "generate_reports" if is_report else "update_records"
-                    decision = self._workspace_action(authority, action, relative_path, scheduled)
                 else:
-                    decision = self._workspace_action(
-                        authority,
-                        "generate_reports" if is_report else "update_records",
-                        relative_path,
-                        scheduled,
-                    )
-                    if decision is None:
-                        decision = self._destructive_action(
-                            authority, "overwrite_records", relative_path
-                        )
+                    # Ordinary file creation (write_file/patch add on new path) or
+                    # targeted patch update on an existing non-protected file is allowed!
+                    decision = None
+
             if decision is not None and decision.get("action") == "block":
                 return decision
             if decision is not None:
@@ -659,8 +595,6 @@ class PolicyEnforcer:
             or tokens[1] != script
         ):
             return False
-        # Exact tokens exclude shell chaining, redirection, environment prefixes,
-        # Python options, self-tests and arbitrary extra script arguments.
         if len(tokens) < 5 or tokens[2] != "--workspace-root":
             return False
         if Path(tokens[3]).expanduser().resolve() != self.workspace_root:
@@ -727,8 +661,6 @@ class PolicyEnforcer:
                 )
         if tool_name in _READ_ONLY_TOOLS or tool_name in _BROWSER_READ_TOOLS:
             return None
-        # Validation must remain available even when a proposed registry change
-        # is invalid. It is diagnostic, not delegated workspace mutation.
         if tool_name == "terminal":
             command = args.get("command") or args.get("cmd")
             if isinstance(command, str) and self._workspace_validation_command(command):
@@ -736,25 +668,24 @@ class PolicyEnforcer:
         authority = self._load()
         scheduled = self._is_scheduled(session_id)
 
+        if tool_name == "maintainer_triage_issue":
+            action = str(args.get("action") or "").lower()
+            if action == "restore":
+                return None
+            issue_id = str(args.get("issue_id") or "")
+            path = str(args.get("path") or "")
+            return _approve(
+                f"Approve ignoring Workspace Maintainer warning {issue_id} in {path}.",
+                "openlia.policy.maintainer_ignore",
+            )
+
         if tool_name in {"write_file", "patch"}:
             return self._workspace_tool_decision(authority, tool_name, args, scheduled)
         if tool_name == "delete_document_password_profile":
-            if authority.policy is not None and not _policy_path_allowed(
-                authority, "sources/document-passwords.toml"
-            ):
-                return _block(
-                    "OpenLia policy blocked deletion outside allowed domains: sources/document-passwords.toml."
-                )
             return self._destructive_action(
                 authority, "delete_records", "sources/document-passwords.toml"
             )
         if tool_name == "ingestion_delete_document":
-            if authority.policy is not None and not _policy_path_allowed(
-                authority, "sources"
-            ):
-                return _block(
-                    "OpenLia policy blocked deletion outside allowed domains: sources."
-                )
             return self._destructive_action(
                 authority, "delete_records", "sources"
             )
@@ -768,9 +699,9 @@ class PolicyEnforcer:
             "ingestion_tag",
             "ingestion_cancel_document",
         }:
-            action = "capture" if tool_name in {"ingestion_capture", "save_document_password"} else "update_records"
-            relative_path = "sources/document-passwords.toml" if tool_name == "save_document_password" else "sources"
-            return self._workspace_action(authority, action, relative_path, scheduled)
+            if scheduled:
+                return self._scheduled_path_decision(authority, "capture", "sources")
+            return None
         if tool_name == "terminal":
             return self._terminal_decision(authority, args, scheduled)
         if tool_name in _BROWSER_MUTATING_TOOLS:
@@ -829,19 +760,79 @@ class PolicyEnforcer:
             )
         return decision
 
-    @staticmethod
+    def _mutated_workspace_paths(
+        self, tool_name: str, args: dict[str, Any] | None
+    ) -> list[str]:
+        if not isinstance(args, dict):
+            return []
+        if tool_name == "write_file":
+            raw = args.get("path")
+            target = _safe_workspace_target(self.workspace_root, raw)
+            return [target[0]] if target else []
+        if tool_name == "patch":
+            rels: list[str] = []
+            for op, path, second in _patch_operations(args):
+                candidate_raw = second if op == "move" and second else path
+                target = _safe_workspace_target(self.workspace_root, candidate_raw)
+                if target:
+                    rels.append(target[0])
+            return rels
+        return []
+
     def post_tool_call(
+        self,
         tool_name: str,
+        args: dict[str, Any] | None = None,
         status: str | None = None,
         error_type: str | None = None,
         **_: Any,
-    ) -> None:
+    ) -> dict[str, str] | None:
         LOGGER.info(
             "policy tool result tool=%s status=%s error_type=%s",
             tool_name,
             status or "unknown",
             error_type or "",
         )
+        if error_type or (status and status not in {"ok", "success", "completed"}):
+            return None
+        if tool_name in {"write_file", "patch"}:
+            try:
+                mutated = self._mutated_workspace_paths(tool_name, args)
+                if mutated:
+                    advisory = self.maintainer.format_post_mutation_feedback(mutated)
+                    if advisory:
+                        return {"advisory": advisory, "message": advisory}
+            except Exception as exc:
+                LOGGER.warning("maintainer post-tool validation failed: %s", exc)
+        return None
+
+    def tool_maintainer_status(
+        self,
+        path: str | None = None,
+        state: str | None = None,
+        **_: Any,
+    ) -> str:
+        res = self.maintainer.status(relative_path=path, state=state)
+        return json.dumps(res, ensure_ascii=False, sort_keys=True)
+
+    def tool_maintainer_audit(self, **_: Any) -> str:
+        res = self.maintainer.run_audit()
+        return json.dumps(res, ensure_ascii=False, sort_keys=True)
+
+    def tool_maintainer_triage_issue(
+        self,
+        issue_id: str,
+        action: str,
+        reason: str | None = None,
+        **_: Any,
+    ) -> str:
+        res = self.maintainer.triage_issue(
+            issue_id=issue_id,
+            action=action,
+            actor="agent",
+            reason=reason,
+        )
+        return json.dumps(res, ensure_ascii=False, sort_keys=True)
 
 
 def register(ctx: Any) -> None:
@@ -851,3 +842,84 @@ def register(ctx: Any) -> None:
     ctx.register_hook("on_session_end", enforcer.on_session_end)
     ctx.register_hook("pre_tool_call", enforcer.pre_tool_call)
     ctx.register_hook("post_tool_call", enforcer.post_tool_call)
+    if hasattr(ctx, "register_tool"):
+        status_schema = {
+            "name": "maintainer_status",
+            "description": "Inspect Workspace Maintainer open, ignored, and resolved structural findings for the workspace or a specific relative file path.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Optional relative file path (e.g. 'family-menu/2026-10-26.md') to filter findings.",
+                    },
+                    "state": {
+                        "type": "string",
+                        "enum": ["open", "ignored", "resolved"],
+                        "description": "Optional finding state filter.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        }
+        ctx.register_tool(
+            name="maintainer_status",
+            toolset="openlia-policy",
+            schema=status_schema,
+            handler=enforcer.tool_maintainer_status,
+            is_async=False,
+            description=status_schema["description"],
+        )
+        audit_schema = {
+            "name": "maintainer_audit",
+            "description": "Run an on-demand non-destructive Workspace Maintainer audit across the workspace and return active, ignored, and resolved findings.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        }
+        ctx.register_tool(
+            name="maintainer_audit",
+            toolset="openlia-policy",
+            schema=audit_schema,
+            handler=enforcer.tool_maintainer_audit,
+            is_async=False,
+            description=audit_schema["description"],
+        )
+        triage_schema = {
+            "name": "maintainer_triage_issue",
+            "description": "Ignore or restore a specific Workspace Maintainer finding by exact issue_id in its file. Ignoring an issue requires user confirmation.",
+            "parameters": {
+                "type": "object",
+                "required": ["issue_id", "action"],
+                "properties": {
+                    "issue_id": {
+                        "type": "string",
+                        "description": "Exact finding issue_id (wm_...).",
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["ignore", "restore"],
+                        "description": "Whether to ignore or restore the warning.",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Relative file path for context in approval prompts.",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional user reason for ignoring the finding.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        }
+        ctx.register_tool(
+            name="maintainer_triage_issue",
+            toolset="openlia-policy",
+            schema=triage_schema,
+            handler=enforcer.tool_maintainer_triage_issue,
+            is_async=False,
+            description=triage_schema["description"],
+        )

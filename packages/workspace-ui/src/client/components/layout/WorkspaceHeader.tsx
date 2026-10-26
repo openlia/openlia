@@ -33,6 +33,7 @@ export function WorkspaceHeader({
     | "schedule"
     | "usage"
     | "migration"
+    | "maintainer"
     | undefined;
   authRequired: boolean;
   currentLink?: string | undefined;
@@ -57,7 +58,8 @@ export function WorkspaceHeader({
           | "configuration"
           | "schedule"
           | "usage"
-          | "migration",
+          | "migration"
+          | "maintainer",
       ) => void)
     | undefined;
 }) {
@@ -209,6 +211,21 @@ export function WorkspaceHeader({
           )}
           {onTabChange && (
             <button
+              aria-current={activeTab === "maintainer" ? "page" : undefined}
+              className={`btn btn-xs join-item shrink-0 ${
+                activeTab === "maintainer"
+                  ? "btn-primary shadow-xs"
+                  : "btn-ghost text-base-content/70"
+              }`}
+              onClick={() => onTabChange("maintainer")}
+              title="Open Workspace Maintainer"
+              type="button"
+            >
+              Maintainer
+            </button>
+          )}
+          {onTabChange && (
+            <button
               aria-current={activeTab === "migration" ? "page" : undefined}
               aria-label="Migrations"
               className={`btn btn-xs join-item shrink-0 ${
@@ -283,13 +300,15 @@ export function WorkspaceHeader({
                           ? "INGESTION RUNTIME"
                           : activeTab === "migration"
                             ? "MIGRATION"
-                            : activeTab === "configuration"
-                              ? "CONFIGURATION"
-                              : file
-                                ? file.source === "memory"
-                                  ? "ASSISTANT MEMORY"
-                                  : "WORKSPACE"
-                                : "ACTIVITY"}
+                            : activeTab === "maintainer"
+                              ? "MAINTAINER"
+                              : activeTab === "configuration"
+                                ? "CONFIGURATION"
+                                : file
+                                  ? file.source === "memory"
+                                    ? "ASSISTANT MEMORY"
+                                    : "WORKSPACE"
+                                  : "ACTIVITY"}
         </p>
         <div className="flex items-center gap-1 min-w-0">
           <h1 className="workspace-title" title={file?.path}>
@@ -312,9 +331,11 @@ export function WorkspaceHeader({
                               ? "Ingestion"
                               : activeTab === "migration"
                                 ? "Migrations"
-                                : activeTab === "configuration"
-                                  ? "Configuration"
-                                  : "Activity")}
+                                : activeTab === "maintainer"
+                                  ? "Workspace Maintainer"
+                                  : activeTab === "configuration"
+                                    ? "Configuration"
+                                    : "Activity")}
           </h1>
           {currentLink && (
             <CopyLinkButton

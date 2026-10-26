@@ -1,10 +1,15 @@
 import type {
   AuthLoginResponse,
   AuthSessionResponse,
+  ConsequentialPermissionsResponse,
   DocumentPasswordProfile,
   DocumentPasswordSuggestResponse,
   IngestionDetailResponse,
   IngestionOverviewResponse,
+  MaintainerFinding,
+  MaintainerFixApplyResponse,
+  MaintainerFixPreviewResponse,
+  MaintainerOverviewResponse,
   PublicShareFileEntry,
   PublicShareResponse,
   ShareCreateRequest,
@@ -2194,5 +2199,154 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     },
     publicShareSkillDownloadUrl: (id: string) =>
       `/api/public/share/skill/${encodeURIComponent(id)}/download`,
+    async loadMaintainerOverview(): Promise<MaintainerOverviewResponse> {
+      requireAuthentication();
+      return {
+        schema: 1,
+        workspace_id: "ws_mock",
+        counts: {
+          open: 0,
+          ignored: 0,
+          resolved: 0,
+          suggestions: 0,
+          collections: 3,
+        },
+        scan_state: {
+          workspace_id: "ws_mock",
+          last_scan_at: new Date().toISOString(),
+          coverage_status: "complete",
+          files_scanned: 5,
+          files_skipped: 0,
+          scan_errors: [],
+        },
+        collections: [
+          {
+            path: "tasks",
+            label: "Tasks",
+            kind: "core",
+            template_path: "tasks/task-template.md",
+            inferred_purpose: "Concrete actions that can be completed.",
+            record_count: 1,
+            open_finding_count: 0,
+            ignored_finding_count: 0,
+          },
+        ],
+        open_findings: [],
+        ignored_findings: [],
+        resolved_findings: [],
+        suggestions: [],
+      };
+    },
+    async runMaintainerAudit(): Promise<MaintainerOverviewResponse> {
+      return this.loadMaintainerOverview();
+    },
+    async ignoreMaintainerIssue(issueId: string, _reason?: string) {
+      requireAuthentication();
+      return {
+        schema: 1 as const,
+        ok: true as const,
+        issue_id: issueId,
+        state: "ignored" as const,
+        finding: null,
+      };
+    },
+    async restoreMaintainerIssue(issueId: string) {
+      requireAuthentication();
+      const dummy: MaintainerFinding = {
+        issue_id: issueId,
+        workspace_id: "ws_mock",
+        relative_path: "tasks/example.md",
+        rule_code: "WM-TEMPLATE-SECTION-MISSING",
+        severity: "warning",
+        category: "contract",
+        subject: "Notes",
+        message: "Missing template section: ## Notes",
+        explanation: "Record is missing ## Notes",
+        contract_fingerprint: "cfp_mock",
+        fix_strategy: "deterministic",
+        state: "open",
+        present: true,
+        first_seen_at: new Date().toISOString(),
+        last_seen_at: new Date().toISOString(),
+        last_checked_revision: "sha256:mock",
+      };
+      return {
+        schema: 1 as const,
+        ok: true as const,
+        issue_id: issueId,
+        state: "open" as const,
+        finding: dummy,
+      };
+    },
+    async previewMaintainerFix(
+      issueId: string,
+    ): Promise<MaintainerFixPreviewResponse> {
+      requireAuthentication();
+      return {
+        schema: 1,
+        issue_id: issueId,
+        path: "tasks/example.md",
+        rule_code: "WM-TEMPLATE-SECTION-MISSING",
+        subject: "Notes",
+        fix_strategy: "deterministic",
+        deterministically_fixable: true,
+        current_revision: "sha256:mock",
+        before_content: "# Example\n",
+        after_content: "# Example\n\n## Notes\n",
+        summary: "Append missing section '## Notes'",
+        agent_prompt: "Fix missing Notes section in tasks/example.md",
+      };
+    },
+    async applyMaintainerFix(
+      issueId: string,
+      expectedRevision: string,
+    ): Promise<MaintainerFixApplyResponse> {
+      requireAuthentication();
+      return {
+        schema: 1,
+        ok: true,
+        issue_id: issueId,
+        path: "tasks/example.md",
+        before_revision: expectedRevision,
+        after_revision: "sha256:mock-after",
+        summary: "Append missing section '## Notes'",
+        finding: null,
+        file_findings: [],
+      };
+    },
+    async loadPermissions(): Promise<ConsequentialPermissionsResponse> {
+      requireAuthentication();
+      return {
+        schema: 1,
+        version: 1,
+        permissions: {
+          destructive: {
+            delete_records: "ask",
+            overwrite_records: "ask",
+          },
+          external: {
+            send_messages: "ask",
+            make_purchases: "deny",
+            modify_external_accounts: "deny",
+            ingest_external_content: "allow",
+          },
+          scheduled_work: {
+            run_briefings: "allow",
+            run_audits: "allow",
+            run_monitors: "allow",
+          },
+        },
+      };
+    },
+    async updatePermissions(
+      permissions: ConsequentialPermissionsResponse["permissions"],
+    ): Promise<ConsequentialPermissionsResponse> {
+      requireAuthentication();
+      return {
+        schema: 1,
+        version: 1,
+        permissions,
+      };
+    },
   };
 }

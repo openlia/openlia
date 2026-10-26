@@ -629,6 +629,69 @@ export function ProjectPage({
                 }}
               >
                 <div className="flex-1 overflow-y-auto p-4 sm:p-6 flex flex-col gap-4">
+                  {projectData.renderable === false && (
+                    <div
+                      className="rounded-xl border border-warning/40 bg-warning/10 p-4 space-y-3 text-xs"
+                      role="alert"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-sm text-warning">
+                            Project UI cannot render yet
+                          </p>
+                          <p className="text-base-content/75 mt-0.5">
+                            Your project records ({projectData.records.length})
+                            are safely stored and accessible, but the UI or
+                            manifest has structural issues:
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            className="btn btn-xs btn-outline"
+                            onClick={() =>
+                              onOpenFile(projectData.project.manifest_path)
+                            }
+                            type="button"
+                          >
+                            Edit project-manifest.toml
+                          </button>
+                          <button
+                            className="btn btn-xs btn-outline"
+                            onClick={() =>
+                              onOpenFile(projectData.project.ui_path)
+                            }
+                            type="button"
+                          >
+                            Edit {projectData.manifest.ui.entry}
+                          </button>
+                          <button
+                            className="btn btn-xs btn-outline"
+                            onClick={() => handleViewChange("files")}
+                            type="button"
+                          >
+                            View Project Files ({projectData.records.length})
+                          </button>
+                          {onAskLia && (
+                            <button
+                              className="btn btn-xs btn-primary"
+                              onClick={handleImproveUI}
+                              type="button"
+                            >
+                              Fix with Lia
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {projectData.render_errors &&
+                        projectData.render_errors.length > 0 && (
+                          <ul className="list-disc list-inside font-mono text-warning space-y-0.5">
+                            {projectData.render_errors.map((err) => (
+                              <li key={err}>{err}</li>
+                            ))}
+                          </ul>
+                        )}
+                    </div>
+                  )}
                   <OpenUIDiagnostics content={projectData.ui_content} />
                   <OpenUIErrorBoundary
                     key={projectData.project.ui_path}

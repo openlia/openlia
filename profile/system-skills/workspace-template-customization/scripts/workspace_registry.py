@@ -1,23 +1,28 @@
 #!/usr/bin/env python3
-"""Read and resolve the user-owned OpenLia workspace registry."""
+"""Discover workspace collections and load OpenLia runtime permissions."""
 
 from __future__ import annotations
 
-import json
+import os
 import re
+import tomllib
 from pathlib import Path
 from typing import Any
 
-from jsonschema import Draft202012Validator
 import yaml
 
 
-REGISTRY_FILENAME = "workspace.yaml"
-REGISTRY_SCHEMA_FILENAME = "workspace.schema.json"
-POLICY_FILENAME = "assistant-policy.yaml"
-POLICY_SCHEMA_FILENAME = "assistant-policy.schema.json"
+PERMISSIONS_FILENAME = "permissions.yaml"
+DEFAULT_PERMISSIONS_PATH = Path("/opt/data/permissions.yaml")
 FEATURE_SCHEMA_FILENAME = "feature.schema.json"
 REGISTRY_VERSION = 1
+
+# Legacy constants retained for import compatibility where needed
+REGISTRY_FILENAME = "workspace.yaml"
+REGISTRY_SCHEMA_FILENAME = "workspace.schema.json"
+POLICY_FILENAME = "permissions.yaml"
+POLICY_SCHEMA_FILENAME = "permissions.schema.json"
+
 CORE_ROOTS = {
     "inbox",
     "goals",
@@ -26,7 +31,17 @@ CORE_ROOTS = {
     "calendar",
     "archive",
 }
-ROUTES = {"task", "event", "decision", "idea", "research", "claim", "finance", "archive", "review"}
+ROUTES = {
+    "task",
+    "event",
+    "decision",
+    "idea",
+    "research",
+    "claim",
+    "finance",
+    "archive",
+    "review",
+}
 BRIEFING_CATEGORIES = {
     "calendar",
     "tasks",
@@ -38,7 +53,139 @@ BRIEFING_CATEGORIES = {
     "inbox",
     "extension",
 }
-PATH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$")
+PATH_PATTERN = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$"
+)
+
+DEFAULT_PERMISSIONS: dict[str, Any] = {
+    "version": 1,
+    "destructive": {
+        "delete_records": "ask",
+        "overwrite_records": "ask",
+    },
+    "external": {
+        "send_messages": "ask",
+        "modify_external_calendar": "ask",
+        "purchases": "ask",
+        "financial_transactions": "ask",
+    },
+    "scheduled_work": {
+        "enabled": True,
+        "report_destination": "inbox/daily-briefing",
+    },
+}
+
+_KNOWN_DOMAIN_METADATA: dict[str, dict[str, Any]] = {
+    "inbox": {
+        "kind": "core",
+        "label": "Inbox",
+        "purpose": "Captured items awaiting review or triage",
+        "route": "review",
+        "include_in_briefing": True,
+        "briefing_category": "inbox",
+    },
+    "inbox/daily-briefing": {
+        "kind": "extension",
+        "label": "Daily Briefings",
+        "purpose": "Generated daily briefing reports",
+        "include_in_briefing": False,
+    },
+    "goals": {
+        "kind": "core",
+        "label": "Goals",
+        "purpose": "Outcome-oriented personal and project goals",
+        "include_in_briefing": True,
+        "briefing_category": "goals",
+    },
+    "goals/decisions": {
+        "kind": "extension",
+        "label": "Decisions",
+        "purpose": "Decision records under goals",
+        "route": "decision",
+        "include_in_briefing": True,
+        "briefing_category": "decisions",
+    },
+    "decisions": {
+        "kind": "extension",
+        "label": "Decisions",
+        "purpose": "Decision records and trade-off analyses",
+        "route": "decision",
+        "include_in_briefing": True,
+        "briefing_category": "decisions",
+    },
+    "knowledge": {
+        "kind": "core",
+        "label": "Knowledge",
+        "purpose": "Durable notes, research, and claims",
+        "include_in_briefing": False,
+    },
+    "knowledge/claims": {
+        "kind": "extension",
+        "label": "Claims",
+        "purpose": "Atomic, evidence-backed claims and preferences",
+        "route": "claim",
+        "include_in_briefing": True,
+        "briefing_category": "claims",
+    },
+    "knowledge/research": {
+        "kind": "extension",
+        "label": "Research",
+        "purpose": "Research notes and source syntheses",
+        "route": "research",
+        "include_in_briefing": False,
+    },
+    "tasks": {
+        "kind": "core",
+        "label": "Tasks",
+        "purpose": "Actionable commitments and next steps",
+        "route": "task",
+        "include_in_briefing": True,
+        "briefing_category": "tasks",
+    },
+    "calendar": {
+        "kind": "core",
+        "label": "Calendar",
+        "purpose": "Scheduled events, reminders, and dated plans",
+        "route": "event",
+        "include_in_briefing": True,
+        "briefing_category": "calendar",
+    },
+    "archive": {
+        "kind": "core",
+        "label": "Archive",
+        "purpose": "Inactive or completed records preserved for reference",
+        "route": "archive",
+        "include_in_briefing": False,
+    },
+    "finance": {
+        "kind": "extension",
+        "label": "Finance",
+        "purpose": "Journals, budgets, and financial records",
+        "include_in_briefing": True,
+        "briefing_category": "finance",
+    },
+    "finance/intake": {
+        "kind": "extension",
+        "label": "Finance Intake",
+        "purpose": "Financial statements and receipts pending reconciliation",
+        "route": "finance",
+        "include_in_briefing": False,
+    },
+    "monitors": {
+        "kind": "extension",
+        "label": "Monitors",
+        "purpose": "Recurring watch topics and alert conditions",
+        "include_in_briefing": True,
+        "briefing_category": "monitors",
+    },
+    "ideas": {
+        "kind": "extension",
+        "label": "Ideas",
+        "purpose": "Exploratory concepts and possibilities",
+        "route": "idea",
+        "include_in_briefing": False,
+    },
+}
 
 
 class UniqueKeySafeLoader(yaml.SafeLoader):
@@ -108,8 +255,20 @@ def schema_path(workspace: Path) -> Path:
     return workspace / REGISTRY_SCHEMA_FILENAME
 
 
+def permissions_path(workspace: Path | None = None) -> Path:
+    configured = os.environ.get("OPENLIA_PERMISSIONS_FILE")
+    if configured:
+        return Path(configured).expanduser()
+    if workspace is not None:
+        root = Path(workspace).expanduser().resolve()
+        sibling = root.parent / PERMISSIONS_FILENAME
+        if sibling.exists() or root.parent != Path("/"):
+            return sibling
+    return DEFAULT_PERMISSIONS_PATH
+
+
 def policy_path(workspace: Path) -> Path:
-    return workspace / POLICY_FILENAME
+    return permissions_path(workspace)
 
 
 def policy_schema_path(workspace: Path) -> Path:
@@ -135,163 +294,256 @@ def _path_is_within(path: Any, parent: Any) -> bool:
     return path_parts[: len(parent_parts)] == parent_parts
 
 
-def _load_registry_schema(workspace: Path) -> dict[str, Any]:
-    path = schema_path(workspace)
+def _human_label(rel_path: str) -> str:
+    words = [
+        part.capitalize()
+        for segment in rel_path.split("/")
+        for part in re.split(r"[-_]+", segment)
+        if part
+    ]
+    return " ".join(words) or rel_path
+
+
+def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
+    """Discover workspace domains and collections from folders, templates, and manifests."""
+    root = Path(workspace).expanduser().resolve()
+    if not root.is_dir():
+        return []
+
+    discovered_paths: set[str] = set(CORE_ROOTS) | {"knowledge/claims"}
+    if (root / "goals/decisions").is_dir():
+        discovered_paths.add("goals/decisions")
+    else:
+        discovered_paths.add("decisions")
+
+    # 1. Top-level directories
     try:
-        schema = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(schema, dict):
-            raise ValueError("workspace registry schema must contain an object")
-        Draft202012Validator.check_schema(schema)
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise ValueError(f"invalid workspace registry schema: {exc}") from exc
-    return schema
+        for entry in sorted(root.iterdir()):
+            if entry.name.startswith(".") or entry.is_symlink() or not entry.is_dir():
+                continue
+            if entry.name in {"node_modules", "__pycache__"}:
+                continue
+            discovered_paths.add(entry.name)
+    except OSError:
+        pass
+
+    # 2. Directories containing a template, schema, project-manifest.toml, or nested Markdown collections
+    for pattern in ("*-template.md", "*.schema.json", "project-manifest.toml", "*.md"):
+        for match in sorted(root.rglob(pattern)):
+            try:
+                rel_parent = match.parent.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if rel_parent == "." or any(p.startswith(".") for p in rel_parent.split("/")):
+                continue
+            top_root = rel_parent.split("/", 1)[0]
+            if pattern == "*.md" and top_root in CORE_ROOTS and rel_parent not in _KNOWN_DOMAIN_METADATA:
+                continue
+            discovered_paths.add(rel_parent)
+
+    # 3. Well-known subdirectories if they exist on disk
+    for known_path in _KNOWN_DOMAIN_METADATA:
+        if (root / known_path).is_dir():
+            discovered_paths.add(known_path)
+
+    # Leaf custom directories (with no deeper discovered child) are included in briefing as extensions
+    custom_candidates = {
+        p
+        for p in discovered_paths
+        if p not in _KNOWN_DOMAIN_METADATA
+        and p.split("/", 1)[0] not in CORE_ROOTS
+        and p.split("/", 1)[0] != "sources"
+    }
+    leaf_custom_candidates = {
+        p
+        for p in custom_candidates
+        if not any(other != p and other.startswith(p + "/") for other in custom_candidates)
+    }
+
+    result: list[dict[str, Any]] = []
+    for rel_path in sorted(discovered_paths):
+        folder = root / rel_path
+        known = _KNOWN_DOMAIN_METADATA.get(rel_path, {})
+        kind = "core" if rel_path in CORE_ROOTS else "extension"
+        label = known.get("label") or _human_label(rel_path)
+        purpose = known.get("purpose") or f"Workspace collection in {rel_path}"
+        include_in_briefing = bool(known.get("include_in_briefing", False))
+        briefing_category = known.get("briefing_category")
+        route = known.get("route")
+
+        if rel_path not in _KNOWN_DOMAIN_METADATA and rel_path in leaf_custom_candidates:
+            if rel_path.startswith("finance/"):
+                include_in_briefing = True
+                briefing_category = "finance"
+            else:
+                include_in_briefing = True
+                briefing_category = "extension"
+        elif rel_path == "finance" and any(
+            p.startswith("finance/") and p in leaf_custom_candidates for p in discovered_paths
+        ):
+            # Avoid overlapping briefing paths when a finance/* leaf collection is present
+            include_in_briefing = False
+
+        template_rel: str | None = None
+        if folder.is_dir():
+            templates = sorted(
+                p for p in folder.glob("*-template.md") if p.is_file() and not p.is_symlink()
+            )
+            if len(templates) == 1:
+                template_rel = templates[0].relative_to(root).as_posix()
+
+            manifest_file = folder / "project-manifest.toml"
+            if manifest_file.is_file() and not manifest_file.is_symlink():
+                try:
+                    manifest = tomllib.loads(manifest_file.read_text(encoding="utf-8"))
+                    proj = manifest.get("project")
+                    if isinstance(proj, dict):
+                        if isinstance(proj.get("name"), str) and proj["name"].strip():
+                            label = proj["name"].strip()
+                        elif isinstance(proj.get("title"), str) and proj["title"].strip():
+                            label = proj["title"].strip()
+                        if isinstance(proj.get("description"), str) and proj["description"].strip():
+                            purpose = proj["description"].strip()
+                except Exception:
+                    pass
+
+        entry_dict: dict[str, Any] = {
+            "path": rel_path,
+            "kind": kind,
+            "label": label,
+            "purpose": purpose,
+            "include_in_briefing": include_in_briefing,
+        }
+        if briefing_category:
+            entry_dict["briefing_category"] = briefing_category
+        if route:
+            entry_dict["route"] = route
+        if template_rel:
+            entry_dict["template"] = template_rel
+        result.append(entry_dict)
+
+    return result
 
 
 def load_registry(workspace: str | Path, *, required: bool = False) -> dict[str, Any] | None:
-    """Load a registry and perform structural checks without writing files."""
+    """Return discovered workspace collections as a registry structure."""
     root = Path(workspace).expanduser().resolve()
-    path = registry_path(root)
-    if not path.exists():
+    if not root.is_dir():
         if required:
-            raise ValueError(f"workspace registry is missing: {REGISTRY_FILENAME}")
+            raise ValueError(f"workspace directory does not exist: {root}")
         return None
-    if path.is_symlink() or not path.is_file():
-        raise ValueError(f"workspace registry is not a regular file: {REGISTRY_FILENAME}")
-    try:
-        data = yaml.load(path.read_text(encoding="utf-8"), Loader=UniqueKeySafeLoader)
-        registry = _normalize(data)
-    except (OSError, UnicodeError, yaml.YAMLError, ValueError, RecursionError) as exc:
-        raise ValueError(f"invalid workspace registry: {exc}") from exc
-    if not isinstance(registry, dict):
-        raise ValueError("workspace registry must contain a mapping")
-    if set(registry) - {"$schema", "version", "domains"}:
-        raise ValueError("workspace registry contains unsupported top-level fields")
-    if registry.get("$schema") != f"./{REGISTRY_SCHEMA_FILENAME}":
-        raise ValueError(
-            f"workspace registry $schema must be ./{REGISTRY_SCHEMA_FILENAME}"
-        )
-    registry_schema = schema_path(root)
-    if registry_schema.is_symlink() or not registry_schema.is_file():
-        raise ValueError(
-            f"workspace registry schema is missing or not a regular file: {REGISTRY_SCHEMA_FILENAME}"
-        )
-    registry_schema_data = _load_registry_schema(root)
-    if registry.get("version") != REGISTRY_VERSION:
-        raise ValueError(f"workspace registry version must be {REGISTRY_VERSION}")
-    domains = registry.get("domains")
-    if not isinstance(domains, list):
-        raise ValueError("workspace registry domains must be a list")
-    schema_errors = sorted(
-        Draft202012Validator(registry_schema_data).iter_errors(registry),
-        key=lambda error: tuple(str(part) for part in error.absolute_path),
-    )
-    if schema_errors:
-        raise ValueError(f"workspace registry does not match its schema: {schema_errors[0].message}")
+    return {
+        "version": REGISTRY_VERSION,
+        "domains": discover_domains(root),
+    }
 
-    seen: set[str] = set()
-    for index, domain in enumerate(domains, start=1):
-        if not isinstance(domain, dict):
-            raise ValueError(f"workspace registry domain {index} must be a mapping")
-        path_value = _safe_relative_path(domain.get("path"), f"domain {index} path")
-        if path_value in seen:
-            raise ValueError(f"duplicate workspace registry path: {path_value}")
-        seen.add(path_value)
-        kind = domain.get("kind")
-        if kind not in {"core", "extension"}:
-            raise ValueError(f"domain {path_value} kind must be core or extension")
-        for field in ("label", "purpose"):
-            if not isinstance(domain.get(field), str) or not domain[field].strip():
-                raise ValueError(f"domain {path_value} {field} must be a non-empty string")
-        route = domain.get("route")
-        if route is not None and (not isinstance(route, str) or route not in ROUTES):
-            raise ValueError(f"domain {path_value} has unsupported route: {route}")
-        tags = domain.get("tags", [])
-        if not isinstance(tags, list) or any(not isinstance(tag, str) or not tag for tag in tags):
-            raise ValueError(f"domain {path_value} tags must be a list of non-empty strings")
-        if len(set(tags)) != len(tags):
-            raise ValueError(f"domain {path_value} tags must be unique")
-        if not isinstance(domain.get("include_in_briefing", False), bool):
-            raise ValueError(f"domain {path_value} include_in_briefing must be boolean")
-        category = domain.get("briefing_category")
-        if category is not None and (not isinstance(category, str) or category not in BRIEFING_CATEGORIES):
-            raise ValueError(f"domain {path_value} has unsupported briefing category: {category}")
-        if domain.get("include_in_briefing", False) and category is None:
+
+def _validate_and_normalize_permissions(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("permissions file must contain a YAML mapping")
+
+    # Support either top-level destructive/external or legacy delegation.destructive/external
+    delegation = raw.get("delegation") if isinstance(raw.get("delegation"), dict) else {}
+
+    raw_destructive = raw.get("destructive")
+    if raw_destructive is None and isinstance(delegation, dict):
+        raw_destructive = delegation.get("destructive")
+    if raw_destructive is None:
+        raw_destructive = {}
+    if not isinstance(raw_destructive, dict):
+        raise ValueError("permissions.destructive must be a mapping")
+
+    destructive: dict[str, str] = {}
+    for key, default_val in DEFAULT_PERMISSIONS["destructive"].items():
+        val = raw_destructive.get(key, default_val)
+        if val not in {"ask", "deny"}:
             raise ValueError(
-                f"domain {path_value} needs briefing_category when included in briefings"
+                f"invalid destructive permission for {key}: {val!r} (expected 'ask' or 'deny')"
             )
-        template = domain.get("template")
-        if template is not None:
-            template_path = root / _safe_relative_path(
-                template, f"domain {path_value} template"
-            )
-            if template_path.is_symlink() or not template_path.is_file():
-                raise ValueError(
-                    f"domain {path_value} template does not resolve to a regular workspace file"
-                )
-        lifecycle = domain.get("lifecycle")
-        if kind == "extension" and (not isinstance(lifecycle, str) or not lifecycle.strip()):
-            raise ValueError(f"extension domain {path_value} needs a lifecycle")
-        if kind == "extension" and route is not None and not tags:
+        destructive[key] = val
+
+    raw_external = raw.get("external")
+    if raw_external is None and isinstance(delegation, dict):
+        raw_external = delegation.get("external")
+    if raw_external is None:
+        raw_external = {}
+    if not isinstance(raw_external, dict):
+        raise ValueError("permissions.external must be a mapping")
+
+    external: dict[str, str] = {}
+    for key, default_val in DEFAULT_PERMISSIONS["external"].items():
+        val = raw_external.get(key, default_val)
+        if val not in {"ask", "allow", "deny"}:
             raise ValueError(
-                f"extension domain {path_value} needs tags when it declares a route"
+                f"invalid external permission for {key}: {val!r} (expected 'ask', 'allow', or 'deny')"
             )
-        skills = domain.get("skills", [])
-        if not isinstance(skills, list) or any(
-            not isinstance(skill, str) or not skill.strip() for skill in skills
-        ):
-            raise ValueError(f"domain {path_value} skills must be a list of non-empty strings")
-        if len(set(skills)) != len(skills):
-            raise ValueError(f"domain {path_value} skills must be unique")
-        feature = domain.get("feature")
-        if feature is not None and (not isinstance(feature, str) or not feature.strip()):
-            raise ValueError(f"domain {path_value} feature must be a non-empty string")
-    missing_core = sorted(CORE_ROOTS - {path for path in seen if "/" not in path})
-    if missing_core:
-        raise ValueError(f"workspace registry is missing core domains: {', '.join(missing_core)}")
-    core_kinds = {
-        domain["path"]: domain["kind"]
-        for domain in domains
-        if "/" not in domain["path"]
-    }
-    non_core_roots = sorted(
-        root_name for root_name in CORE_ROOTS if core_kinds.get(root_name) != "core"
+        external[key] = val
+
+    raw_scheduled = raw.get("scheduled_work")
+    if raw_scheduled is None:
+        raw_scheduled = {}
+    if not isinstance(raw_scheduled, dict):
+        raise ValueError("permissions.scheduled_work must be a mapping")
+
+    enabled = raw_scheduled.get("enabled", DEFAULT_PERMISSIONS["scheduled_work"]["enabled"])
+    if not isinstance(enabled, bool):
+        raise ValueError("permissions.scheduled_work.enabled must be a boolean")
+
+    report_dest = raw_scheduled.get(
+        "report_destination",
+        DEFAULT_PERMISSIONS["scheduled_work"]["report_destination"],
     )
-    if non_core_roots:
-        raise ValueError(
-            f"workspace registry core domains must remain kind core: {', '.join(non_core_roots)}"
-        )
-    extra_core = sorted(
-        domain["path"]
-        for domain in domains
-        if domain["kind"] == "core" and domain["path"] not in CORE_ROOTS
+    report_dest = _safe_relative_path(
+        report_dest, "permissions.scheduled_work.report_destination"
     )
-    if extra_core:
-        raise ValueError(
-            f"non-core domains must use kind extension: {', '.join(extra_core)}"
-        )
-    # Organizational ancestors need not be semantic domains. Register the
-    # extension contract, not every intermediate folder.
-    for path_value in seen:
-        root_name = path_value.split("/", 1)[0]
-        if root_name not in seen:
-            raise ValueError(
-                f"workspace registry path {path_value} has unregistered root {root_name}"
-            )
-    briefing_paths = {
-        domain["path"]
-        for domain in domains
-        if domain.get("include_in_briefing", False)
+
+    return {
+        "version": 1,
+        "destructive": destructive,
+        "external": external,
+        "scheduled_work": {
+            "enabled": enabled,
+            "report_destination": report_dest,
+        },
+        # Retain normalized delegation view for callers reading policy["delegation"]
+        "delegation": {
+            "destructive": destructive,
+            "external": external,
+        },
     }
-    for path_value in briefing_paths:
-        if any(
-            other != path_value
-            and path_value.startswith(other.rstrip("/") + "/")
-            for other in briefing_paths
-        ):
-            raise ValueError(
-                f"workspace registry briefing paths may not overlap: {path_value}"
-            )
-    return registry
+
+
+def load_permissions(
+    workspace_or_file: str | Path | None = None,
+    *,
+    required: bool = False,
+) -> dict[str, Any]:
+    """Load and validate consequential permissions from /opt/data/permissions.yaml."""
+    candidate: Path
+    if workspace_or_file is not None:
+        given = Path(workspace_or_file).expanduser()
+        if given.suffix in {".yaml", ".yml"}:
+            candidate = given
+        else:
+            candidate = permissions_path(given)
+    else:
+        candidate = permissions_path(None)
+
+    if not candidate.exists():
+        if required:
+            raise ValueError(f"permissions file is missing: {candidate}")
+        return _validate_and_normalize_permissions(DEFAULT_PERMISSIONS)
+
+    if candidate.is_symlink() or not candidate.is_file():
+        raise ValueError(f"permissions file is not a regular file: {candidate}")
+
+    try:
+        data = yaml.load(candidate.read_text(encoding="utf-8"), Loader=UniqueKeySafeLoader)
+        normalized = _normalize(data)
+    except (OSError, UnicodeError, yaml.YAMLError, ValueError, RecursionError) as exc:
+        raise ValueError(f"invalid permissions file: {exc}") from exc
+
+    return _validate_and_normalize_permissions(normalized)
 
 
 def load_policy(
@@ -300,79 +552,9 @@ def load_policy(
     registry: dict[str, Any] | None = None,
     required: bool = False,
 ) -> dict[str, Any] | None:
-    """Load the user-owned delegation policy without modifying the workspace."""
-    root = Path(workspace).expanduser().resolve()
-    path = policy_path(root)
-    if not path.exists():
-        if required:
-            raise ValueError(f"assistant policy is missing: {POLICY_FILENAME}")
-        return None
-    if path.is_symlink() or not path.is_file():
-        raise ValueError(f"assistant policy is not a regular file: {POLICY_FILENAME}")
-    try:
-        data = yaml.load(path.read_text(encoding="utf-8"), Loader=UniqueKeySafeLoader)
-        policy = _normalize(data)
-    except (OSError, UnicodeError, yaml.YAMLError, ValueError, RecursionError) as exc:
-        raise ValueError(f"invalid assistant policy: {exc}") from exc
-    if not isinstance(policy, dict):
-        raise ValueError("assistant policy must contain a mapping")
-    if policy.get("$schema") != f"./{POLICY_SCHEMA_FILENAME}":
-        raise ValueError(f"assistant policy $schema must be ./{POLICY_SCHEMA_FILENAME}")
-
-    schema_file = policy_schema_path(root)
-    if schema_file.is_symlink() or not schema_file.is_file():
-        raise ValueError(
-            f"assistant policy schema is missing or not a regular file: {POLICY_SCHEMA_FILENAME}"
-        )
-    try:
-        schema = json.loads(schema_file.read_text(encoding="utf-8"))
-        if not isinstance(schema, dict):
-            raise ValueError("assistant policy schema must contain an object")
-        Draft202012Validator.check_schema(schema)
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise ValueError(f"invalid assistant policy schema: {exc}") from exc
-    schema_errors = sorted(
-        Draft202012Validator(schema).iter_errors(policy),
-        key=lambda error: tuple(str(part) for part in error.absolute_path),
-    )
-    if schema_errors:
-        raise ValueError(
-            f"assistant policy does not match its schema: {schema_errors[0].message}"
-        )
-
-    active_registry = registry if registry is not None else load_registry(root)
-    registered = (
-        {domain["path"] for domain in domains(active_registry)}
-        if active_registry is not None
-        else set(CORE_ROOTS)
-    )
-    for configured in policy["delegation"]["workspace"]["allowed_domains"]:
-        if configured not in registered:
-            raise ValueError(
-                f"assistant policy allowed domain is not registered: {configured}"
-            )
-    workspace_policy = policy["delegation"]["workspace"]
-    scheduled_policy = policy["scheduled_work"]
-    if not set(scheduled_policy["allowed_actions"]).issubset(
-        set(workspace_policy["allowed_actions"])
-    ):
-        raise ValueError(
-            "assistant policy scheduled actions must be allowed by workspace delegation"
-        )
-    report_destination = scheduled_policy["report_destination"]
-    if not any(_path_is_within(report_destination, allowed) for allowed in registered):
-        raise ValueError(
-            "assistant policy scheduled report destination is outside registered workspace domains: "
-            f"{report_destination}"
-        )
-    if not any(
-        _path_is_within(report_destination, allowed)
-        for allowed in workspace_policy["allowed_domains"]
-    ):
-        raise ValueError(
-            "assistant policy scheduled report destination is outside allowed workspace domains"
-        )
-    return policy
+    """Compatibility wrapper that loads runtime permissions for a workspace."""
+    del registry
+    return load_permissions(workspace, required=required)
 
 
 def policy_allows(
@@ -382,35 +564,44 @@ def policy_allows(
     *,
     scheduled: bool = False,
 ) -> bool:
-    """Return whether a policy grants a local action in the requested scope."""
+    """Return whether runtime permissions allow a local workspace action."""
     if not policy:
         return False
+    effective = policy
+    if destination is not None:
+        try:
+            _safe_relative_path(destination.strip("/"), "destination")
+        except ValueError:
+            return False
+
     if scheduled:
-        section = policy.get("scheduled_work", {})
-        if not section.get("enabled") or action not in section.get("allowed_actions", []):
+        sched = effective.get("scheduled_work", {})
+        if not sched.get("enabled", True):
             return False
-        workspace_section = policy.get("delegation", {}).get("workspace", {})
-        if (
-            not workspace_section.get("enabled")
-            or action not in workspace_section.get("allowed_actions", [])
-        ):
-            return False
-    else:
-        section = policy.get("delegation", {}).get("workspace", {})
-        if not section.get("enabled") or action not in section.get("allowed_actions", []):
-            return False
-    if destination is None:
-        return True
-    allowed_paths = section.get(
-        "allowed_domains",
-        policy.get("delegation", {}).get("workspace", {}).get("allowed_domains", []),
-    )
-    if scheduled and action == "generate_reports":
-        allowed_paths = [section.get("report_destination")]
-    return any(
-        _path_is_within(destination, allowed)
-        for allowed in allowed_paths
-    )
+        if action == "generate_reports":
+            report_dest = sched.get("report_destination", "inbox/daily-briefing")
+            return destination is None or _path_is_within(destination, report_dest)
+        if action in {"capture", "triage_inbox"}:
+            return destination is None or (
+                _path_is_within(destination, "inbox")
+                or _path_is_within(destination, "sources")
+            )
+        return False
+
+    if action == "local_git_commits":
+        return False
+
+    # In interactive sessions, creating, updating, capturing, triaging, and archiving
+    # records or contracts in any safe workspace folder is allowed by default.
+    return action in {
+        "create_records",
+        "update_records",
+        "archive_records",
+        "capture",
+        "triage_inbox",
+        "generate_reports",
+        "record_financial_data",
+    }
 
 
 def domains(registry: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -420,7 +611,8 @@ def domains(registry: dict[str, Any] | None) -> list[dict[str, Any]]:
 
 
 def allowed_root_domains(registry: dict[str, Any] | None) -> set[str]:
-    return {domain["path"].split("/", 1)[0] for domain in domains(registry)}
+    discovered = {domain["path"].split("/", 1)[0] for domain in domains(registry)}
+    return discovered | set(CORE_ROOTS)
 
 
 def resolve_route_destination(
@@ -428,7 +620,7 @@ def resolve_route_destination(
     route: str,
     tags: list[str] | None = None,
 ) -> str | None:
-    """Resolve a route, preferring the most-specific matching registered tags."""
+    """Resolve a route to a discovered collection path."""
     if not registry:
         return None
     normalized_tags = {str(tag).strip().lower() for tag in tags or [] if str(tag).strip()}
@@ -439,7 +631,9 @@ def resolve_route_destination(
         required_tags = {str(tag).strip().lower() for tag in domain.get("tags", [])}
         if not required_tags.issubset(normalized_tags):
             continue
-        candidates.append((len(required_tags), domain.get("kind") == "core", domain["path"]))
+        candidates.append(
+            (len(required_tags), domain.get("kind") == "core", domain["path"])
+        )
     if not candidates:
         return None
     candidates.sort(key=lambda item: (-item[0], not item[1], item[2]))
@@ -447,7 +641,7 @@ def resolve_route_destination(
 
 
 def briefing_sources(registry: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """Return registered sources explicitly opted into daily briefings."""
+    """Return discovered collections included in daily briefings."""
     sources = []
     for domain in domains(registry):
         if not domain.get("include_in_briefing", False):

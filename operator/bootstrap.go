@@ -79,6 +79,7 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 	for _, path := range []string{
 		filepath.Join(config.DataRoot, "usage"),
 		filepath.Join(config.DataRoot, "usage", "reports"),
+		filepath.Join(config.DataRoot, "maintainer"),
 		filepath.Join(config.DataRoot, ".openlia"),
 		filepath.Join(config.DataRoot, ".openlia", "workspace-migrations"),
 	} {
@@ -88,6 +89,9 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 		if err := ensureRuntimeOwner(path, config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
 			return BootstrapResult{}, err
 		}
+	}
+	if err := EnsureDefaultPermissionsFile(config.DataRoot, config.RuntimeUID, config.RuntimeGID); err != nil {
+		return BootstrapResult{}, err
 	}
 	if config.WorkspaceUIHost != "" || isFirebase || config.WorkspaceUIAuthRequired {
 		sessionDir := filepath.Join(config.RuntimeRoot, "workspace-ui")
@@ -283,4 +287,36 @@ func seedMissingWorkspaceTemplates(templateDir, workspaceDir string) error {
 		}
 		return copyOnce(path, dest, 0o600)
 	})
+}
+
+const defaultPermissionsYAML = `version: 1
+permissions:
+  destructive:
+    delete_records: ask
+    overwrite_records: ask
+  external:
+    send_messages: ask
+    make_purchases: deny
+    modify_external_accounts: deny
+    ingest_external_content: allow
+  scheduled_work:
+    run_briefings: allow
+    run_audits: allow
+    run_monitors: allow
+`
+
+// EnsureDefaultPermissionsFile seeds DataRoot/permissions.yaml if it does not yet exist.
+func EnsureDefaultPermissionsFile(dataRoot string, uid, gid int) error {
+	if err := EnsureDir(dataRoot, 0o700); err != nil {
+		return err
+	}
+	permPath := filepath.Join(dataRoot, "permissions.yaml")
+	if _, err := os.Lstat(permPath); errors.Is(err, os.ErrNotExist) {
+		if err := AtomicWriteFile(permPath, []byte(defaultPermissionsYAML), 0o600); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	return ensureRuntimeOwner(permPath, uid, gid, 0o600)
 }

@@ -402,40 +402,15 @@ def _validate_unreferenced_schemas(
 
 
 def validate_workspace_registry(workspace_root: Path) -> tuple[list[str], set[Path]]:
-    """Validate the optional user-owned workspace registry and its local schema."""
-    root = workspace_root.expanduser().resolve()
-    path = registry_path(root)
-    if not path.exists():
-        return [], set()
-    relative = _relative(path, root)
-    referenced: set[Path] = set()
-    try:
-        registry = load_registry(root, required=True)
-        schema_reference = registry.get("$schema") if registry else None
-        registry_schema = _resolve_template_schema(schema_reference, path, root)
-        schema = load_schema(registry_schema)
-    except (OSError, UnicodeError, ValueError) as exc:
-        return [f"{relative}: {exc}"], referenced
-    referenced.add(registry_schema)
-    return [f"{relative}: {error}" for error in validate_frontmatter(registry, schema)], referenced
+    """Retained as no-op for caller compatibility; domain discovery is automatic."""
+    del workspace_root
+    return [], set()
 
 
 def validate_workspace_policy(workspace_root: Path) -> tuple[list[str], set[Path]]:
-    """Validate the optional user-owned delegation policy and its schema."""
-    root = workspace_root.expanduser().resolve()
-    path = policy_path(root)
-    referenced: set[Path] = set()
-    if not path.exists():
-        return [], referenced
-    schema_file = policy_schema_path(root)
-    if schema_file.exists():
-        referenced.add(schema_file.resolve())
-    relative = _relative(path, root)
-    try:
-        load_policy(root)
-    except (OSError, UnicodeError, ValueError) as exc:
-        return [f"{relative}: {exc}"], referenced
-    return [], referenced
+    """Retained as no-op for caller compatibility; permissions live in /opt/data/permissions.yaml."""
+    del workspace_root
+    return [], set()
 
 
 PROJECT_MANIFEST_FILENAME = "project-manifest.toml"
@@ -819,10 +794,11 @@ def validate_domain_skill_dependencies(
             )
             continue
         for req_domain in req_domains:
+            domain_dir = ws_root / req_domain
             spec = registered_by_path.get(req_domain)
-            if spec is None:
+            if spec is None or not domain_dir.is_dir():
                 errors.append(
-                    f"{skill_md.parent.name}/SKILL.md: skill requires unregistered workspace domain '{req_domain}'"
+                    f"{skill_md.parent.name}/SKILL.md: skill requires missing workspace domain '{req_domain}'"
                 )
                 continue
             template_rel = spec.get("template")
@@ -909,43 +885,6 @@ def self_test() -> None:
         claim.write_text("---\nstatus: active\n---\n# Claim Record\n\n## Claim\nA claim.\n", encoding="utf-8")
         unrelated_knowledge = root / "knowledge" / "reference.md"
         unrelated_knowledge.write_text("# A knowledge reference without frontmatter\n", encoding="utf-8")
-        (root / "workspace.schema.json").write_text(
-            json.dumps(
-                {
-                    "$schema": "https://json-schema.org/draft/2020-12/schema",
-                    "type": "object",
-                    "properties": {
-                        "$schema": {"const": "./workspace.schema.json"},
-                        "version": {"const": 1},
-                        "domains": {"type": "array", "minItems": 1},
-                    },
-                    "required": ["$schema", "version", "domains"],
-                    "additionalProperties": False,
-                }
-            ),
-            encoding="utf-8",
-        )
-        core_roots = (
-            "inbox",
-            "goals",
-            "knowledge",
-            "tasks",
-            "calendar",
-            "archive",
-        )
-        registry_lines = ["$schema: ./workspace.schema.json", "version: 1", "domains:"]
-        for root_name in core_roots:
-            registry_lines.extend(
-                [
-                    f"  - path: {root_name}",
-                    "    kind: core",
-                    f"    label: {root_name.title()}",
-                    f"    purpose: {root_name.title()} records",
-                ]
-            )
-        (root / "workspace.yaml").write_text(
-            "\n".join(registry_lines) + "\n", encoding="utf-8"
-        )
         assert load_registry(root) is not None
         assert validate_workspace(root) == []
 
@@ -965,9 +904,9 @@ def self_test() -> None:
         )
         dep_errors = validate_domain_skill_dependencies(root, skills_dir)
         assert any(
-            "broken-skill/SKILL.md" in err and "unregistered workspace domain 'finance'" in err
+            "broken-skill/SKILL.md" in err and "missing workspace domain 'finance'" in err
             for err in dep_errors
-        ), f"Expected unregistered domain error, got {dep_errors}"
+        ), f"Expected missing domain error, got {dep_errors}"
         (skills_dir / "broken-skill" / "SKILL.md").unlink()
         (skills_dir / "broken-skill").rmdir()
 

@@ -1208,6 +1208,7 @@ messages:
       "Ingestion",
       "Skills",
       "Shared Links",
+      "Maintainer",
       "MigrationsBeta",
       "Usage",
       "Schedule",
@@ -1781,5 +1782,24 @@ messages:
       await screen.findByRole("article", { name: "Markdown preview" }),
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/files/tasks/ship-ui.md");
+  });
+
+  test("navigates to Workspace Maintainer view and displays collections and audit controls", async () => {
+    window.history.replaceState(null, "", "/");
+    const mockApi = createMockWorkspaceApi();
+    render(<App api={mockApi} />);
+
+    const maintainerBtn = await screen.findByRole("button", {
+      name: "Maintainer",
+    });
+    fireEvent.click(maintainerBtn);
+
+    expect(window.location.pathname).toBe("/maintainer");
+    expect(
+      await screen.findByRole("button", { name: "Run Audit" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/All scanned files conform to their active contracts/),
+    ).toBeInTheDocument();
   });
 });

@@ -59,6 +59,11 @@ def rewrite_openlia_links(text: str) -> str:
     text = re.sub(r"openlia://projects/([^\s\)\]\"'`>]+)", repl_projects, text)
     text = re.sub(r"openlia://skills/([^\s\)\]\"'`>]+)", repl_skills, text)
     text = re.sub(r"openlia://sources?/([^\s\)\]\"'`>]+)", repl_source, text)
+    text = re.sub(
+        r"openlia://maintainer\b",
+        f"{origin}/maintainer" if origin else "/maintainer",
+        text,
+    )
     return text
 
 

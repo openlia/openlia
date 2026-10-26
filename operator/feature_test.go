@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -131,15 +130,15 @@ func TestFeatureListInstallAndRemove(t *testing.T) {
 		t.Fatalf("RegisteredDomainPaths after install: %v", err)
 	}
 	if !regAfter["finance"] || !regAfter["finance/intake"] || !regAfter["travel"] {
-		t.Fatalf("expected finance, finance/intake, and travel to be registered, got %v", regAfter)
+		t.Fatalf("expected finance, finance/intake, and travel to be discovered, got %v", regAfter)
 	}
 
-	policyBytes, err := os.ReadFile(filepath.Join(wsDir, "assistant-policy.yaml"))
-	if err != nil {
-		t.Fatalf("read assistant-policy.yaml: %v", err)
+	// Verify workspace.yaml and assistant-policy.yaml are not created in workspace
+	if _, err := os.Stat(filepath.Join(wsDir, "workspace.yaml")); !os.IsNotExist(err) {
+		t.Errorf("did not expect workspace.yaml to exist in workspace")
 	}
-	if !strings.Contains(string(policyBytes), "- finance") || !strings.Contains(string(policyBytes), "record_financial_data") {
-		t.Errorf("expected assistant-policy.yaml to include finance and record_financial_data:\n%s", string(policyBytes))
+	if _, err := os.Stat(filepath.Join(wsDir, "assistant-policy.yaml")); !os.IsNotExist(err) {
+		t.Errorf("did not expect assistant-policy.yaml to exist in workspace")
 	}
 
 	// 4. Write a user record in travel/ and remove the travel feature

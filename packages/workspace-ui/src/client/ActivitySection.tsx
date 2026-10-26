@@ -11,6 +11,7 @@ export interface ActivitySectionProps {
   loading: boolean;
   onOpenFile: (path: string) => void;
   onOpenGitActivity?: (() => void) | undefined;
+  onOpenMaintainer?: (() => void) | undefined;
   onRefresh?: (() => void) | undefined;
   totalDocuments?: number | undefined;
 }
@@ -49,6 +50,7 @@ export function ActivitySection({
   loading,
   onOpenFile,
   onOpenGitActivity,
+  onOpenMaintainer,
   onRefresh,
   totalDocuments,
 }: ActivitySectionProps) {
@@ -186,6 +188,15 @@ export function ActivitySection({
                     }`}
               </span>
             </div>
+            {onOpenMaintainer && (
+              <button
+                className="btn btn-ghost btn-xs text-primary"
+                onClick={onOpenMaintainer}
+                type="button"
+              >
+                Open Workspace Maintainer →
+              </button>
+            )}
           </div>
 
           {diagnostics.issues.length > 0 ? (

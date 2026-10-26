@@ -580,24 +580,49 @@ func RenderWorkspaceRegistry(domains []WorkspaceDomain) []byte {
 }
 
 func RegisteredDomainPaths(workspaceDir string) (map[string]bool, error) {
-	path := filepath.Join(workspaceDir, "workspace.yaml")
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
+	info, err := os.Stat(workspaceDir)
+	if errors.Is(err, os.ErrNotExist) || (err == nil && !info.IsDir()) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	domains, err := ParseWorkspaceDomains(data)
-	if err != nil {
-		return nil, err
+	out := make(map[string]bool)
+
+	// Include any LeanBaseAllDirs that exist in workspaceDir
+	for _, dirRel := range LeanBaseAllDirs {
+		if st, statErr := os.Stat(filepath.Join(workspaceDir, filepath.FromSlash(dirRel))); statErr == nil && st.IsDir() {
+			out[dirRel] = true
+		}
 	}
-	if len(domains) == 0 {
+
+	// Discover directories containing templates, schemas, or project manifests
+	_ = filepath.WalkDir(workspaceDir, func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if p != workspaceDir && strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := d.Name()
+		if strings.HasSuffix(name, "-template.md") || strings.HasSuffix(name, ".schema.json") || name == "project-manifest.toml" {
+			relDir, relErr := filepath.Rel(workspaceDir, filepath.Dir(p))
+			if relErr == nil && relDir != "." {
+				relSlash := filepath.ToSlash(relDir)
+				if relSlash == "sources/records" {
+					relSlash = "sources"
+				}
+				out[relSlash] = true
+			}
+		}
+		return nil
+	})
+
+	if len(out) == 0 {
 		return nil, nil
-	}
-	out := make(map[string]bool, len(domains))
-	for _, d := range domains {
-		out[d.Path] = true
 	}
 	return out, nil
 }
@@ -876,22 +901,9 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 		installedDomains = append(installedDomains, d.Path)
 	}
 
-	// 2. Register domains in workspace.yaml
-	if err := mergeFeatureDomainsIntoRegistry(workspaceDir, manifest.Domains); err != nil {
-		return FeatureInstallResult{}, fmt.Errorf("update workspace.yaml: %w", err)
-	}
-
-	// 3. Merge policy rules if approvePolicy is true
 	policyUpdated := false
-	if approvePolicy && (len(manifest.Policy.AllowedDomains) > 0 || len(manifest.Policy.AllowedActions) > 0) {
-		updated, err := mergeFeaturePolicy(workspaceDir, manifest.Policy)
-		if err != nil {
-			return FeatureInstallResult{}, fmt.Errorf("update assistant-policy.yaml: %w", err)
-		}
-		policyUpdated = updated
-	}
 
-	// 4. Install bundled skills into DataRoot/skills
+	// 2. Install bundled skills into DataRoot/skills
 	var installedSkills []string
 	if len(manifest.Skills) > 0 {
 		skillsRoot := filepath.Join(config.DataRoot, "skills")
@@ -1036,17 +1048,27 @@ func FeaturePackage(config Config, opts FeaturePackageOptions) (FeaturePackageRe
 	workspaceDir := featureWorkspaceDir(config)
 	skillsRoot := filepath.Join(config.DataRoot, "skills")
 
-	regBytes, err := os.ReadFile(filepath.Join(workspaceDir, "workspace.yaml"))
-	if err != nil {
-		return FeaturePackageResult{}, fmt.Errorf("read workspace.yaml: %w", err)
+	var allDomains []WorkspaceDomain
+	if regBytes, err := os.ReadFile(filepath.Join(workspaceDir, "workspace.yaml")); err == nil {
+		if parsed, parseErr := ParseWorkspaceDomains(regBytes); parseErr == nil {
+			allDomains = append(allDomains, parsed...)
+		}
 	}
-	allDomains, err := ParseWorkspaceDomains(regBytes)
-	if err != nil {
-		return FeaturePackageResult{}, fmt.Errorf("parse workspace.yaml: %w", err)
+	if installedRecs, err := loadInstalledFeatureRecords(config.MetaRoot); err == nil {
+		for _, rec := range installedRecs {
+			allDomains = append(allDomains, rec.Manifest.Domains...)
+		}
+	}
+	if catalog, _, err := LoadCatalogFeatures(config.RepositoryRoot); err == nil {
+		for _, m := range catalog {
+			allDomains = append(allDomains, m.Domains...)
+		}
 	}
 	domainMap := make(map[string]WorkspaceDomain, len(allDomains))
 	for _, d := range allDomains {
-		domainMap[d.Path] = d
+		if _, exists := domainMap[d.Path]; !exists {
+			domainMap[d.Path] = d
+		}
 	}
 
 	// If no explicit domains were passed, try resolving from an installed/catalog feature with opts.FeatureID
@@ -1346,34 +1368,12 @@ func FeatureRemove(config Config, featureID string, now time.Time) (FeatureRemov
 	}
 
 	workspaceDir := featureWorkspaceDir(config)
-	removeSet := make(map[string]bool)
 	var removedDomains []string
 	for _, d := range manifest.Domains {
-		removeSet[d.Path] = true
 		removedDomains = append(removedDomains, d.Path)
 	}
 
-	// 1. Remove domains from workspace.yaml
-	regPath := filepath.Join(workspaceDir, "workspace.yaml")
-	if regBytes, err := os.ReadFile(regPath); err == nil {
-		if existing, err := ParseWorkspaceDomains(regBytes); err == nil {
-			var kept []WorkspaceDomain
-			for _, d := range existing {
-				if removeSet[d.Path] || d.Feature == featureID {
-					continue
-				}
-				kept = append(kept, d)
-			}
-			_ = AtomicWriteFile(regPath, RenderWorkspaceRegistry(kept), 0o600)
-		}
-	}
-
-	// 2. Remove policy allowed_domains for removed top-level domains
-	if len(manifest.Policy.AllowedDomains) > 0 {
-		_ = removeFeaturePolicyDomains(workspaceDir, manifest.Policy.AllowedDomains)
-	}
-
-	// 3. Remove unmodified starter templates/schemas if no user records exist in those directories
+	// 1. Remove starter templates/schemas while preserving any user records
 	for i := len(manifest.Domains) - 1; i >= 0; i-- {
 		d := manifest.Domains[i]
 		domainDir := filepath.Join(workspaceDir, filepath.FromSlash(d.Path))
@@ -1722,21 +1722,22 @@ func cleanEmptyTemplateDomainDir(domainDir string) {
 	if err != nil {
 		return
 	}
+	hasUserFiles := false
 	for _, entry := range entries {
 		if entry.IsDir() {
-			return
-		}
-		name := entry.Name()
-		if name == ".gitkeep" || strings.HasSuffix(name, "-template.md") || strings.HasSuffix(name, ".schema.json") {
+			hasUserFiles = true
 			continue
 		}
-		// User record exists; preserve everything in this domain directory
-		return
+		name := entry.Name()
+		if name == ".gitkeep" || strings.HasSuffix(name, "-template.md") || strings.HasSuffix(name, ".schema.json") || name == "project-manifest.toml" || name == "ui.openui" {
+			_ = os.Remove(filepath.Join(domainDir, name))
+			continue
+		}
+		hasUserFiles = true
 	}
-	for _, entry := range entries {
-		_ = os.Remove(filepath.Join(domainDir, entry.Name()))
+	if !hasUserFiles {
+		_ = os.Remove(domainDir)
 	}
-	_ = os.Remove(domainDir)
 }
 
 func copyAndValidateFeatureDir(srcDir, dstDir string) error {

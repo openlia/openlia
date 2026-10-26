@@ -42,6 +42,13 @@ import { WorkspaceError, WorkspaceService } from "./workspace";
 import { UsageService } from "./usage";
 import { CronService, CronError } from "./cron";
 import { CheckpointService } from "./checkpoints";
+import {
+  applyDeterministicFix,
+  loadConsequentialPermissions,
+  previewFix,
+  saveConsequentialPermissions,
+  validatePermissionsInput,
+} from "./maintainer";
 
 export interface WorkspaceHandlerOptions {
   finance?: FinanceCheckOptions;
@@ -50,6 +57,8 @@ export interface WorkspaceHandlerOptions {
   memoriesRoot?: string;
   ingestionRoot?: string;
   migrationsRoot?: string;
+  maintainerDatabasePath?: string;
+  permissionsFilePath?: string;
   usageRoot?: string;
   skillsRoot?: string;
   featuresRoot?: string;
@@ -358,6 +367,7 @@ export function createWorkspaceHandler(
   const cronService = new CronService({
     cronRoot,
     workspaceRoot: options.workspaceRoot,
+    permissionsFilePath: options.permissionsFilePath,
     backupSchedule:
       options.backupSchedule ?? process.env.OPENLIA_BACKUP_SCHEDULE,
     backupScheduleEnabled:
@@ -432,6 +442,8 @@ export function createWorkspaceHandler(
           url.pathname === "/ingestion" ||
           url.pathname.startsWith("/migration/") ||
           url.pathname === "/migration" ||
+          url.pathname.startsWith("/maintainer/") ||
+          url.pathname === "/maintainer" ||
           url.pathname.startsWith("/git-activity/") ||
           url.pathname === "/git-activity" ||
           url.pathname === "/configuration" ||
@@ -564,6 +576,8 @@ export function createWorkspaceHandler(
           url.pathname === "/api/shares" ||
           url.pathname.startsWith("/api/shares/") ||
           url.pathname.startsWith("/api/cron/") ||
+          url.pathname.startsWith("/api/maintainer/") ||
+          url.pathname === "/api/permissions" ||
           url.pathname.startsWith("/api/system/")) &&
         !authenticator.isAuthenticated(request)
       ) {
@@ -1934,6 +1948,220 @@ export function createWorkspaceHandler(
         url.pathname === "/api/workspace/diagnostics"
       ) {
         return json(service.diagnostics());
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname === "/api/maintainer/overview"
+      ) {
+        return json(service.maintainer.getOverview());
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/maintainer/audit"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        return json(service.maintainer.runWorkspaceAudit());
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/maintainer/ignore"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 8192);
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        if (
+          !isObject(bodyResult.value) ||
+          typeof bodyResult.value.issue_id !== "string" ||
+          !bodyResult.value.issue_id.trim()
+        ) {
+          return json(
+            { schema: 1, ok: false, error: "issue_id_required" },
+            400,
+          );
+        }
+        const issueId = bodyResult.value.issue_id.trim();
+        const reason =
+          typeof bodyResult.value.reason === "string"
+            ? bodyResult.value.reason.trim()
+            : undefined;
+        let finding = service.maintainer.db.getFinding(issueId);
+        if (!finding) {
+          service.maintainer.runWorkspaceAudit();
+          finding = service.maintainer.db.getFinding(issueId);
+        }
+        if (!finding) {
+          return json(
+            { schema: 1, ok: false, error: "finding_not_found" },
+            404,
+          );
+        }
+        const updated = service.maintainer.db.ignoreIssue({
+          issueId,
+          actor: "user",
+          reason,
+        });
+        return json({
+          schema: 1,
+          ok: true,
+          issue_id: issueId,
+          state: updated?.state ?? "ignored",
+          finding: updated,
+        });
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/maintainer/restore"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 8192);
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        if (
+          !isObject(bodyResult.value) ||
+          typeof bodyResult.value.issue_id !== "string" ||
+          !bodyResult.value.issue_id.trim()
+        ) {
+          return json(
+            { schema: 1, ok: false, error: "issue_id_required" },
+            400,
+          );
+        }
+        const issueId = bodyResult.value.issue_id.trim();
+        const updated = service.maintainer.db.restoreIssue(issueId);
+        if (!updated) {
+          return json(
+            { schema: 1, ok: false, error: "finding_not_found" },
+            404,
+          );
+        }
+        return json({
+          schema: 1,
+          ok: true,
+          issue_id: issueId,
+          state: updated.state,
+          finding: updated,
+        });
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/maintainer/fix/preview"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 8192);
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        if (
+          !isObject(bodyResult.value) ||
+          typeof bodyResult.value.issue_id !== "string" ||
+          !bodyResult.value.issue_id.trim()
+        ) {
+          return json(
+            { schema: 1, ok: false, error: "issue_id_required" },
+            400,
+          );
+        }
+        const issueId = bodyResult.value.issue_id.trim();
+        if (!service.maintainer.db.getFinding(issueId)) {
+          service.maintainer.runWorkspaceAudit();
+        }
+        const preview = previewFix(service.maintainer, issueId);
+        return json(preview);
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/maintainer/fix/apply"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 8192);
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        if (
+          !isObject(bodyResult.value) ||
+          typeof bodyResult.value.issue_id !== "string" ||
+          !bodyResult.value.issue_id.trim() ||
+          typeof bodyResult.value.expected_revision !== "string" ||
+          !bodyResult.value.expected_revision.trim()
+        ) {
+          return json(
+            {
+              schema: 1,
+              ok: false,
+              error: "issue_id_and_expected_revision_required",
+            },
+            400,
+          );
+        }
+        const result = applyDeterministicFix(service.maintainer, {
+          issueId: bodyResult.value.issue_id.trim(),
+          expectedRevision: bodyResult.value.expected_revision.trim(),
+          actor: "user",
+        });
+        return json(result);
+      }
+      if (request.method === "GET" && url.pathname === "/api/permissions") {
+        const loaded = loadConsequentialPermissions(
+          service.workspaceRoot,
+          options.permissionsFilePath,
+        );
+        return json({
+          schema: 1,
+          ...loaded,
+        });
+      }
+      if (request.method === "PUT" && url.pathname === "/api/permissions") {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 16384);
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        const saved = saveConsequentialPermissions(
+          service.workspaceRoot,
+          bodyResult.value,
+          options.permissionsFilePath,
+        );
+        return json({
+          schema: 1,
+          ...saved,
+        });
       }
       if (
         request.method === "GET" &&

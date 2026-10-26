@@ -18,10 +18,12 @@ import type {
   UpdateCronJobInput,
 } from "../shared/cron";
 import { validateCronExpression } from "../shared/cron";
+import { loadConsequentialPermissions } from "./maintainer/permissions";
 
 export interface CronServiceOptions {
   cronRoot: string;
   workspaceRoot: string;
+  permissionsFilePath?: string | undefined;
   backupSchedule?: string | undefined;
   backupScheduleEnabled?: boolean | undefined;
   workspaceGitSchedule?: string | undefined;
@@ -48,6 +50,7 @@ interface JobsContainer {
 export class CronService {
   readonly cronRoot: string;
   readonly workspaceRoot: string;
+  readonly permissionsFilePath?: string | undefined;
   readonly backupSchedule: string;
   readonly backupScheduleEnabled: boolean;
   readonly workspaceGitSchedule: string;
@@ -56,6 +59,7 @@ export class CronService {
   constructor(options: CronServiceOptions) {
     this.cronRoot = resolve(options.cronRoot);
     this.workspaceRoot = resolve(options.workspaceRoot);
+    this.permissionsFilePath = options.permissionsFilePath;
     this.backupSchedule = options.backupSchedule || "20 4 * * *";
     this.backupScheduleEnabled = options.backupScheduleEnabled ?? true;
     this.workspaceGitSchedule = options.workspaceGitSchedule || "0 4 * * *";
@@ -342,44 +346,58 @@ export class CronService {
   }
 
   getPolicy(): ScheduledWorkPolicy {
-    const policyPath = join(this.workspaceRoot, "assistant-policy.yaml");
-    if (!existsSync(policyPath)) {
+    // Legacy fallback if assistant-policy.yaml exists directly in workspaceRoot
+    const legacyPolicyPath = join(this.workspaceRoot, "assistant-policy.yaml");
+    if (existsSync(legacyPolicyPath)) {
+      try {
+        const raw = readFileSync(legacyPolicyPath, "utf8");
+        const parsed: unknown = YAML.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          const obj = parsed as { scheduled_work?: unknown };
+          const scheduledWork = obj.scheduled_work;
+          if (scheduledWork && typeof scheduledWork === "object") {
+            const sw = scheduledWork as {
+              enabled?: unknown;
+              allowed_actions?: unknown;
+              report_destination?: unknown;
+            };
+            const destination = sw.report_destination
+              ? String(sw.report_destination)
+              : undefined;
+            return {
+              enabled: Boolean(sw.enabled),
+              allowed_actions: Array.isArray(sw.allowed_actions)
+                ? sw.allowed_actions.map(String)
+                : [],
+              ...(destination ? { report_destination: destination } : {}),
+            };
+          }
+        }
+      } catch {
+        // Fall through to consequential permissions
+      }
+    }
+
+    try {
+      const { permissions } = loadConsequentialPermissions(
+        this.workspaceRoot,
+        this.permissionsFilePath,
+      );
+      const sw = permissions.scheduled_work;
+      const allowed: string[] = [];
+      if (sw.run_briefings === "allow") allowed.push("run_briefings");
+      if (sw.run_audits === "allow") allowed.push("run_audits");
+      if (sw.run_monitors === "allow") allowed.push("run_monitors");
+      return {
+        enabled: allowed.length > 0,
+        allowed_actions: allowed,
+      };
+    } catch {
       return {
         enabled: false,
         allowed_actions: [],
       };
     }
-    try {
-      const raw = readFileSync(policyPath, "utf8");
-      const parsed: unknown = YAML.parse(raw);
-      if (parsed && typeof parsed === "object") {
-        const obj = parsed as { scheduled_work?: unknown };
-        const scheduledWork = obj.scheduled_work;
-        if (scheduledWork && typeof scheduledWork === "object") {
-          const sw = scheduledWork as {
-            enabled?: unknown;
-            allowed_actions?: unknown;
-            report_destination?: unknown;
-          };
-          const destination = sw.report_destination
-            ? String(sw.report_destination)
-            : undefined;
-          return {
-            enabled: Boolean(sw.enabled),
-            allowed_actions: Array.isArray(sw.allowed_actions)
-              ? sw.allowed_actions.map(String)
-              : [],
-            ...(destination ? { report_destination: destination } : {}),
-          };
-        }
-      }
-    } catch {
-      // Return conservative disabled policy if corrupted
-    }
-    return {
-      enabled: false,
-      allowed_actions: [],
-    };
   }
 
   getSystemSchedules(jobs: HermesCronJob[]): SystemSchedules {

@@ -34,12 +34,6 @@ class WorkspaceStructureTests(unittest.TestCase):
 
     def test_daily_menu_structure_and_requested_file_validate_without_schema(self):
         self.menu()
-        registry = self.workspace / "workspace.yaml"
-        registry.write_text(registry.read_text() + (
-            "  - path: goals/daily-menu\n    kind: extension\n    label: Daily Menu\n"
-            "    purpose: Family lunch and dinner plans.\n    lifecycle: Active until archived.\n"
-            "    template: goals/daily-menu/menu-template.md\n"
-        ))
         self.assertEqual(validator.validate_workspace(self.workspace), [])
 
     def test_template_boundary_does_not_disable_parent_contract(self):
@@ -53,12 +47,6 @@ class WorkspaceStructureTests(unittest.TestCase):
 
     def test_organizational_ancestors_need_no_registration(self):
         self.menu("goals/family/plans/daily-menu")
-        registry = self.workspace / "workspace.yaml"
-        registry.write_text(registry.read_text() + (
-            "  - path: goals/family/plans/daily-menu\n    kind: extension\n"
-            "    label: Daily Menu\n    purpose: Family menus.\n    lifecycle: Until archived.\n"
-            "    template: goals/family/plans/daily-menu/menu-template.md\n"
-        ))
         self.assertEqual(validator.validate_workspace(self.workspace), [])
 
     def test_invalid_nested_schema_remains_an_error(self):
@@ -83,12 +71,6 @@ class WorkspaceStructureTests(unittest.TestCase):
         nested = directory / "drafts"
         nested.mkdir()
         (nested / "next-week.md").write_text("Free-form supporting text\n")
-        registry = self.workspace / "workspace.yaml"
-        registry.write_text(registry.read_text() + (
-            "  - path: goals/daily-menu/drafts\n    kind: extension\n    label: Drafts\n"
-            "    purpose: Draft menus.\n    lifecycle: Until published.\n"
-            "    template: goals/daily-menu/menu-template.md\n"
-        ))
         self.assertEqual(validator.validate_workspace(self.workspace), [])
 
     def test_multiple_local_templates_are_an_error(self):
@@ -134,15 +116,13 @@ class WorkspaceStructureTests(unittest.TestCase):
         (directory / "menu-template.md").write_text("## No title\n")
         self.assertTrue(any("exactly one non-empty level-one title" in error for error in validator.validate_workspace(self.workspace)))
 
-    def test_routed_extension_still_requires_tags(self):
-        self.menu()
-        registry = self.workspace / "workspace.yaml"
-        registry.write_text(registry.read_text() + (
-            "  - path: goals/daily-menu\n    kind: extension\n    label: Daily Menu\n"
-            "    purpose: Menus.\n    lifecycle: Until archived.\n    route: review\n"
-        ))
-        with self.assertRaisesRegex(ValueError, "needs tags"):
-            validator.load_registry(self.workspace)
+    def test_top_level_unregistered_collection_is_discovered_automatically(self):
+        self.menu("family-menu")
+        reg = validator.load_registry(self.workspace)
+        self.assertIsNotNone(reg)
+        paths = {d["path"] for d in reg["domains"]}
+        self.assertIn("family-menu", paths)
+        self.assertEqual(validator.validate_workspace(self.workspace), [])
 
     def test_project_manifest_and_openui_query_validation(self):
         self.assertEqual(validator.validate_workspace(self.workspace), [])

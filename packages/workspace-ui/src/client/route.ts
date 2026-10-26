@@ -17,7 +17,8 @@ export type MainTab =
   | "configuration"
   | "schedule"
   | "usage"
-  | "migration";
+  | "migration"
+  | "maintainer";
 
 export type ProjectViewTab = "ui" | "files";
 
@@ -111,6 +112,8 @@ export function parseRoute(
     } else if (host === "migration") {
       if (raw) migrationId = safeDecodeURIComponent(raw);
       tab = "migration";
+    } else if (host === "maintainer") {
+      tab = "maintainer";
     } else if (host === "chat") {
       tab = "chat";
     } else if (host === "usage") {
@@ -171,6 +174,11 @@ export function parseRoute(
   } else if (pathname === "/migration") {
     tab = "migration";
   } else if (
+    pathname === "/maintainer" ||
+    pathname.startsWith("/maintainer/")
+  ) {
+    tab = "maintainer";
+  } else if (
     pathname === "/git-activity" ||
     pathname.startsWith("/git-activity/")
   ) {
@@ -197,7 +205,8 @@ export function parseRoute(
     tabParam === "configuration" ||
     tabParam === "schedule" ||
     tabParam === "usage" ||
-    tabParam === "migration"
+    tabParam === "migration" ||
+    tabParam === "maintainer"
   ) {
     tab = tabParam;
   }
@@ -313,6 +322,8 @@ export function buildRouteUrl(route: WorkspaceRoute): string {
     pathname = route.migrationId
       ? `/migration/${encodeURIComponent(route.migrationId)}`
       : "/migration";
+  } else if (route.tab === "maintainer") {
+    pathname = "/maintainer";
   } else if (route.path && isMemoryDocument(route.path)) {
     pathname = `/memory/${encodeURIComponent(memoryFilename(route.path))}`;
   } else if (route.path) {
