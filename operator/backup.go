@@ -101,7 +101,7 @@ func CreateScheduledBackup(ctx context.Context, config Config, reason string, no
 }
 
 // CreateRollback captures only the explicitly named runtime-relative paths for
-// an operation-scoped rollback. It never includes caches, Open WebUI, or
+// an operation-scoped rollback. It never includes caches or
 // unrelated Hermes state; auth rotation may explicitly include a protected
 // secret file.
 func CreateRollback(config Config, reason string, now time.Time, paths ...string) (BackupResult, error) {
@@ -347,7 +347,7 @@ func createBackupWithRestart(ctx context.Context, config Config, reason string, 
 		SecretValues: "excluded",
 		Capabilities: "excluded",
 		Components:   []string{"hermes", "meta"},
-		Exclusions:   []string{"open-webui", "secrets", "caches", "bundled-skills", "logs"},
+		Exclusions:   []string{"secrets", "caches", "bundled-skills", "logs"},
 	}
 	manifestData, err := json.Marshal(manifest)
 	if err != nil {
@@ -563,9 +563,6 @@ func restoreBackup(ctx context.Context, config Config, archivePath string, now t
 		}
 	}
 	restoreRoots := []string{"hermes", "meta", "locho"}
-	if info, rootErr := os.Stat(filepath.Join(staging, "open-webui")); rootErr == nil && info.IsDir() {
-		restoreRoots = append(restoreRoots, "open-webui")
-	}
 	oldRoots := make(map[string]string)
 	for _, root := range restoreRoots {
 		oldPath := filepath.Join(config.BackupRoot, fmt.Sprintf("pre-restore-%s-%s-%d", root, now.UTC().Format("20060102T150405Z"), os.Getpid()))

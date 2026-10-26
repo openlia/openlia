@@ -7,12 +7,11 @@ import (
 	"testing"
 )
 
-func TestWorkspaceUIEnablesPrivateHermesChatWithoutOpenWebUI(t *testing.T) {
+func TestWorkspaceUIEnablesPrivateHermesChat(t *testing.T) {
 	repo := t.TempDir()
 	config := testConfig(repo, filepath.Join(t.TempDir(), "runtime"))
 	config.WorkspaceUIHost = "127.0.0.1"
 	config.WorkspaceUIPort = 8089
-	config.OpenWebUIHost = ""
 	config.APIEnabled = false
 	if err := os.MkdirAll(filepath.Join(repo, "docker"), 0o755); err != nil {
 		t.Fatal(err)
@@ -41,6 +40,13 @@ func TestWorkspaceUIEnablesPrivateHermesChatWithoutOpenWebUI(t *testing.T) {
 	}
 	if strings.Contains(text, key) {
 		t.Fatal("chat API credential leaked into generated Compose")
+	}
+	if info, err := os.Stat(filepath.Join(config.SecretDir, "api-server.env")); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("chat API credential file must have mode 0600: %v", err)
+	}
+	serverKey, err := readSecretValue(config.SecretFile, "API_SERVER_KEY")
+	if err != nil || serverKey != key {
+		t.Fatalf("Hermes and Workspace UI credentials differ: %v", err)
 	}
 	if err := GenerateAttachments(config); err != nil {
 		t.Fatal(err)

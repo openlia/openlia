@@ -11,7 +11,7 @@ OpenLia uses a thin control plane architecture:
 - **Target Machine**: The machine where the Hermes Agent stack runs inside Docker containers (`/opt/<project>/`), managed over SSH (or locally with `--local`).
 - **Secure Communication**:
   - Outbound commands and chat arrive via messaging platforms (e.g. Telegram).
-  - Private Web UIs (Workspace UI, Open WebUI) are accessible over encrypted P2P or relayed tunnels via [Locho](https://github.com/trchopan/locho).
+  - Workspace UI (Chat and Editor) is accessible over encrypted P2P or relayed tunnels via [Locho](https://github.com/trchopan/locho).
 
 ```
 Operator Workstation                       Target Host (e.g. user@test-host)
@@ -19,7 +19,7 @@ Operator Workstation                       Target Host (e.g. user@test-host)
 │ ./openlia CLI           │ ──(SSH Init)─>│ /opt/openlia_dev/               │
 │ ~/.config/openlia/dev/  │               │   ├── hermes (Agent Container)  │
 │   ├── config.toml       │               │   ├── workspace-ui (Port 8089)  │
-│   └── openlia_dev.env   │               │   ├── open-webui (Port 8090)    │
+│   └── openlia_dev.env   │               │                                 │
 │                         │               │   └── locho-host (Sidecar)      │
 │ locho attach            │ <──(Locho)───>│                                 │
 └─────────────────────────┘               └─────────────────────────────────┘
@@ -182,7 +182,7 @@ OpenLia maintains the workspace (`/opt/data/workspace`) as a local Git repositor
 ---
 
 ### Drill 5: Locho Host & Web UI Verification
-When `[locho-host] enabled = true` is configured, you can expose Workspace UI and Open WebUI over an encrypted tunnel:
+When `[locho-host] enabled = true` is configured, you can expose Workspace UI over an encrypted tunnel:
 
 1. Generate client attachment credentials:
    ```bash
@@ -210,7 +210,7 @@ When `[locho-host] enabled = true` is configured, you can expose Workspace UI an
        - Test schema validation endpoint: `curl -i -X POST http://127.0.0.1:8089/api/workspace/validate -H "Content-Type: application/json" -d '{"path":"inbox/proof.md","content":"# Proof\nContent"}'`.
      - **Ingestion & Sources Inspection**: Inspect `inbox/ingestion/` records and `sources/records/` in the file tree.
      - **Document Archive Export**: Test workspace document zip export: `curl -i http://127.0.0.1:8089/api/workspace/export -o /tmp/export.zip`.
-   - **Open WebUI**: [http://127.0.0.1:8090](http://127.0.0.1:8090)
+     - **Chat**: Open [http://127.0.0.1:8089/chat](http://127.0.0.1:8089/chat), send a message, inspect streaming/tool activity, and verify the conversation survives a refresh.
 
 ---
 

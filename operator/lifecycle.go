@@ -26,13 +26,6 @@ type DeployResult struct {
 	Backup string `json:"backup"`
 }
 
-const openWebUIHealthProbe = `import sys, urllib.request
-try:
-    response = urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=5)
-    response.close()
-except Exception:
-    sys.exit(1)`
-
 func Deploy(ctx context.Context, config Config, compose Compose, options DeployOptions, now time.Time) (DeployResult, error) {
 	if err := config.ValidatePaths(); err != nil {
 		return DeployResult{}, err
@@ -52,8 +45,8 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 	if options.Action != "deploy" && options.Action != "start" && options.Action != "stop" && options.Action != "restart" {
 		return DeployResult{}, fmt.Errorf("unknown deploy action %s", options.Action)
 	}
-	if options.Component != "all" && options.Component != "hermes" && options.Component != "locho" && options.Component != "workspace-ui" && options.Component != "open-webui" {
-		return DeployResult{}, fmt.Errorf("component must be all, hermes, locho, workspace-ui, or open-webui")
+	if options.Component != "all" && options.Component != "hermes" && options.Component != "locho" && options.Component != "workspace-ui" {
+		return DeployResult{}, fmt.Errorf("component must be all, hermes, locho, or workspace-ui")
 	}
 	if info, err := os.Stat(config.ComposeFile); err != nil || !info.Mode().IsRegular() {
 		return DeployResult{}, fmt.Errorf("base Compose file is missing")
@@ -88,14 +81,8 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 		return DeployResult{}, fmt.Errorf("Compose configuration validation failed")
 	}
 	if options.Action == "deploy" {
-		if options.Component == "locho" && config.LochoHostEnabled && (!compose.ServiceRunning(ctx, "workspace-ui") || !compose.ServiceRunning(ctx, "open-webui")) {
-			return DeployResult{}, fmt.Errorf("locho-host requires running workspace-ui and open-webui services; run openlia deploy first")
-		}
-		if config.LochoHostEnabled && options.Component == "workspace-ui" && !compose.ServiceRunning(ctx, "open-webui") {
-			return DeployResult{}, fmt.Errorf("workspace-ui update requires running open-webui while locho-host is enabled; run openlia deploy first")
-		}
-		if config.LochoHostEnabled && options.Component == "open-webui" && !compose.ServiceRunning(ctx, "workspace-ui") {
-			return DeployResult{}, fmt.Errorf("open-webui update requires running workspace-ui while locho-host is enabled; run openlia deploy first")
+		if options.Component == "locho" && config.LochoHostEnabled && !compose.ServiceRunning(ctx, "workspace-ui") {
+			return DeployResult{}, fmt.Errorf("locho-host requires running workspace-ui; run openlia deploy first")
 		}
 		if options.Component == "all" || options.Component == "hermes" {
 			if _, err := compose.Run(ctx, "build", "hermes"); err != nil {
@@ -172,8 +159,6 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 			args = []string{"up", "-d", "--no-deps", "hermes"}
 		case options.Component == "workspace-ui":
 			args = []string{"up", "-d", "--no-deps", "--force-recreate", "workspace-ui"}
-		case options.Component == "open-webui":
-			args = []string{"up", "-d", "--no-deps", "--force-recreate", "open-webui"}
 		default:
 			services := composeServices(ctx, compose)
 			if len(services) == 0 {
@@ -186,11 +171,10 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 			args = append(args, append([]string{"--no-deps"}, services...)...)
 		}
 		lochoHostWasRunning := false
-		workspaceUIBefore, openWebUIBefore := "", ""
+		workspaceUIBefore := ""
 		if config.LochoHostEnabled {
 			lochoHostWasRunning = compose.ServiceRunning(ctx, "locho-host")
 			workspaceUIBefore = composeContainerID(ctx, compose, "workspace-ui")
-			openWebUIBefore = composeContainerID(ctx, compose, "open-webui")
 		}
 		if res, err := compose.Run(ctx, args...); err != nil {
 			msg := strings.TrimSpace(string(res.Stderr))
@@ -200,9 +184,9 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 			_ = RecordChange(config, options.Action, "failed", backup, "Compose start failed: "+msg, now)
 			return DeployResult{}, fmt.Errorf("Compose start failed (%s): %w", msg, err)
 		}
-		reconcileLochoHost := config.LochoHostEnabled && (options.Component == "workspace-ui" || options.Component == "open-webui")
+		reconcileLochoHost := config.LochoHostEnabled && options.Component == "workspace-ui"
 		if config.LochoHostEnabled && options.Component == "all" && lochoHostWasRunning && options.Action != "restart" {
-			reconcileLochoHost = workspaceUIBefore != composeContainerID(ctx, compose, "workspace-ui") || openWebUIBefore != composeContainerID(ctx, compose, "open-webui")
+			reconcileLochoHost = workspaceUIBefore != composeContainerID(ctx, compose, "workspace-ui")
 		}
 		if reconcileLochoHost {
 			if res, err := compose.Run(ctx, "up", "-d", "--no-deps", "--force-recreate", "locho-host"); err != nil {
@@ -249,7 +233,7 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 				}
 			}
 		}
-		if healthy && options.Component != "workspace-ui" && options.Component != "open-webui" {
+		if healthy && options.Component != "workspace-ui" {
 			health, healthErr := Healthcheck(ctx, config, compose, false, false)
 			healthy = healthErr == nil && health.OK
 		}
@@ -300,8 +284,6 @@ func deploymentReady(ctx context.Context, config Config, compose Compose, compon
 		required = append(required, composeServices(ctx, compose)...)
 	case "workspace-ui":
 		required = []string{"workspace-ui"}
-	case "open-webui":
-		required = []string{"open-webui"}
 	default:
 		configured, configErr := compose.Run(ctx, "config", "--services")
 		if configErr != nil {
@@ -323,18 +305,13 @@ func deploymentReady(ctx context.Context, config Config, compose Compose, compon
 			return false
 		}
 	}
-	if component == "open-webui" || (component == "all" && config.OpenWebUIHost != "") {
-		if !openWebUIHealthy(ctx, config, compose) {
-			return false
-		}
-	}
 	if component == "all" || component == "hermes" || component == "locho" {
 		command := "command -v hermes >/dev/null && hermes config check && command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null && command -v pdfinfo >/dev/null && command -v pdftoppm >/dev/null && command -v pdftotext >/dev/null && command -v yt-dlp >/dev/null && /opt/hermes/.venv/bin/python -c 'import PIL, openpyxl, xlrd, pypdfium2, jsonschema, msoffcrypto'"
 		if _, err := compose.Run(ctx, "exec", "-T", "hermes", "sh", "-c", command); err != nil {
 			return false
 		}
 	}
-	if config.LochoHostEnabled && (component == "all" || component == "locho" || component == "workspace-ui" || component == "open-webui") && !lochoHostHealthy(ctx, config, compose) {
+	if config.LochoHostEnabled && (component == "all" || component == "locho" || component == "workspace-ui") && !lochoHostHealthy(ctx, config, compose) {
 		return false
 	}
 	return true
@@ -344,7 +321,7 @@ func lochoHostHealthy(ctx context.Context, config Config, compose Compose) bool 
 	if !config.LochoHostEnabled || !compose.ServiceRunning(ctx, "locho-host") {
 		return false
 	}
-	command := fmt.Sprintf("set -eu; set -- $(getent ahostsv4 workspace-ui); workspace_ip=\"$1\"; set -- $(getent ahostsv4 open-webui); open_webui_ip=\"$1\"; grep -F \"endpoint = \\\"$workspace_ip:%d\\\"\" /var/lib/openlia-locho-host/locho.toml >/dev/null; grep -F \"endpoint = \\\"$open_webui_ip:8080\\\"\" /var/lib/openlia-locho-host/locho.toml >/dev/null; curl --fail --silent --show-error --max-time 5 http://workspace-ui:%d/health >/dev/null; curl --fail --silent --show-error --max-time 5 http://open-webui:8080/health >/dev/null", config.WorkspaceUIPort, config.WorkspaceUIPort)
+	command := fmt.Sprintf("set -eu; set -- $(getent ahostsv4 workspace-ui); workspace_ip=\"$1\"; grep -F \"endpoint = \\\"$workspace_ip:%d\\\"\" /var/lib/openlia-locho-host/locho.toml >/dev/null; curl --fail --silent --show-error --max-time 5 http://workspace-ui:%d/health >/dev/null", config.WorkspaceUIPort, config.WorkspaceUIPort)
 	_, err := compose.Run(ctx, "exec", "-T", "locho-host", "sh", "-c", command)
 	return err == nil
 }
@@ -362,22 +339,6 @@ func workspaceUIHealthy(ctx context.Context, config Config, compose Compose) boo
 		return false
 	}
 	_, err = compose.Run(ctx, "exec", "-T", "workspace-ui", "bun", "-e", fmt.Sprintf("fetch('http://127.0.0.1:%d/health').then(r => { if (!r.ok) process.exit(1) })", config.WorkspaceUIPort))
-	return err == nil
-}
-
-func openWebUIHealthy(ctx context.Context, config Config, compose Compose) bool {
-	if config.OpenWebUIHost == "" || !compose.ServiceRunning(ctx, "open-webui") {
-		return false
-	}
-	result, err := compose.Run(ctx, "port", "open-webui", "8080")
-	if err != nil {
-		return false
-	}
-	binding := strings.TrimSpace(string(result.Stdout))
-	if !strings.Contains(binding, fmt.Sprintf("%s:%d", config.OpenWebUIHost, config.OpenWebUIPort)) {
-		return false
-	}
-	_, err = compose.Run(ctx, "exec", "-T", "open-webui", "python3", "-c", openWebUIHealthProbe)
 	return err == nil
 }
 
@@ -493,23 +454,6 @@ func Healthcheck(ctx context.Context, config Config, compose Compose, allowStopp
 					} else {
 						add("listener:workspace-ui", false, "unexpected_endpoint")
 					}
-				} else if service == "open-webui" {
-					expectedHost, expectedPort := config.OpenWebUIHost, config.OpenWebUIPort
-					endpointErr := validateOpenWebUI(expectedHost, expectedPort, config.OpenWebUIGoogleClientID, config.OpenWebUIGoogleClientSecret, config.OpenWebUIURL, config.OpenWebUIAllowedDomains, config.OpenWebUIAllowedEmails, config.OpenWebUIEnableOAuthSignup)
-					published, portErr := compose.Run(ctx, "port", service, "8080")
-					binding := strings.TrimSpace(string(published.Stdout))
-					expectedBinding := fmt.Sprintf("%s:%d", expectedHost, expectedPort)
-					if endpointErr != nil || portErr != nil || binding == "" {
-						add("listener:open-webui", false, "missing_configured_port")
-					} else if strings.Contains(binding, expectedBinding) {
-						if _, probeErr := compose.Run(ctx, "exec", "-T", "open-webui", "python3", "-c", openWebUIHealthProbe); probeErr != nil {
-							add("listener:open-webui", false, "health_endpoint_unavailable")
-						} else {
-							add("listener:open-webui", true, "configured_endpoint")
-						}
-					} else {
-						add("listener:open-webui", false, "unexpected_endpoint")
-					}
 				}
 			} else if state == stateStopped && allowStopped {
 				add("service:"+service, true, "stopped")
@@ -522,7 +466,7 @@ func Healthcheck(ctx context.Context, config Config, compose Compose, allowStopp
 		if state == stateStopped && allowStopped {
 			add("locho_host_upstreams", true, "stopped")
 		} else if lochoHostHealthy(ctx, config, compose) {
-			add("locho_host_upstreams", true, "workspace-ui_and_open-webui_reachable")
+			add("locho_host_upstreams", true, "workspace-ui_reachable")
 		} else {
 			add("locho_host_upstreams", false, "unreachable_or_stale")
 		}

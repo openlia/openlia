@@ -147,10 +147,6 @@ func (c Compose) composeEnvironment() []string {
 	if lochoImage == "" {
 		lochoImage = releaseinfo.InternalImage("openlia-locho", releaseinfo.Default.Locho.Version)
 	}
-	openWebUIImage := c.Config.OpenWebUIImage
-	if openWebUIImage == "" {
-		openWebUIImage = releaseinfo.Default.OpenWebUI.Ref()
-	}
 	knownHosts := os.Getenv("OPENLIA_BACKUP_KNOWN_HOSTS_SOURCE")
 	if knownHosts == "" {
 		if home, err := os.UserHomeDir(); err == nil {
@@ -183,7 +179,6 @@ func (c Compose) composeEnvironment() []string {
 		"HERMES_BASE_TAG=" + hermesVersion,
 		"HERMES_BASE_DIGEST=" + hermesDigest,
 		"OPENLIA_LOCHO_IMAGE=" + lochoImage,
-		"OPENLIA_OPEN_WEBUI_IMAGE=" + openWebUIImage,
 		"OPENLIA_DATA_ROOT=" + c.Config.DataRoot,
 		"OPENLIA_SYSTEM_SKILLS_ROOT=" + c.Config.SystemSkillsRoot,
 		"OPENLIA_SECRET_DIR=" + c.Config.SecretDir,

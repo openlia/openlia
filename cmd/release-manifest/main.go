@@ -10,11 +10,10 @@ import (
 )
 
 type manifest struct {
-	Schema    int    `json:"schema"`
-	OpenLia   string `json:"openlia"`
-	Hermes    image  `json:"hermes"`
-	OpenWebUI image  `json:"open_webui"`
-	Locho     locho  `json:"locho"`
+	Schema  int    `json:"schema"`
+	OpenLia string `json:"openlia"`
+	Hermes  image  `json:"hermes"`
+	Locho   locho  `json:"locho"`
 }
 
 type image struct {
@@ -79,7 +78,7 @@ func validate(value manifest) error {
 	if value.Schema != 1 || value.OpenLia == "" {
 		return fmt.Errorf("release manifest has an unsupported schema or missing OpenLia version")
 	}
-	for name, pin := range map[string]image{"Hermes": value.Hermes, "Open WebUI": value.OpenWebUI} {
+	for name, pin := range map[string]image{"Hermes": value.Hermes} {
 		if pin.Image == "" || pin.Channel != "stable" || pin.Tag == "" || !validDigest(pin.Digest) {
 			return fmt.Errorf("%s release pin is incomplete", name)
 		}
@@ -144,19 +143,13 @@ var Default = Manifest{
 		Tag:     %q,
 		Digest:  %q,
 	},
-	OpenWebUI: ImagePin{
-		Image:   %q,
-		Channel: %q,
-		Tag:     %q,
-		Digest:  %q,
-	},
 	Locho: LochoPin{
 		Version:       %q,
 		LinuxX8664SHA: %q,
 		LinuxARM64SHA: %q,
 	},
 }
-`, value.Schema, value.OpenLia, value.Hermes.Image, value.Hermes.Channel, value.Hermes.Tag, value.Hermes.Digest, value.OpenWebUI.Image, value.OpenWebUI.Channel, value.OpenWebUI.Tag, value.OpenWebUI.Digest, value.Locho.Version, value.Locho.LinuxX8664SHA, value.Locho.LinuxARM64SHA)
+`, value.Schema, value.OpenLia, value.Hermes.Image, value.Hermes.Channel, value.Hermes.Tag, value.Hermes.Digest, value.Locho.Version, value.Locho.LinuxX8664SHA, value.Locho.LinuxARM64SHA)
 }
 
 func syncManagedFiles(root string, value manifest, check bool) error {
@@ -221,7 +214,6 @@ func syncManagedFiles(root string, value manifest, check bool) error {
 			path: filepath.Join(root, "THIRD_PARTY_NOTICES.md"),
 			replacements: map[string]string{
 				"| Hermes Agent |":     fmt.Sprintf("| Hermes Agent | `%s` at `%s` | MIT | [Upstream repository](https://github.com/NousResearch/hermes-agent) |", imageTagRef(value.Hermes), value.Hermes.Digest),
-				"| Open WebUI |":       fmt.Sprintf("| Open WebUI | `%s` at `%s` | MIT | [Upstream repository](https://github.com/open-webui/open-webui) |", imageTagRef(value.OpenWebUI), value.OpenWebUI.Digest),
 				"| Locho |":            fmt.Sprintf("| Locho | `v%s`; architecture-specific SHA-256 values are recorded in [`release/manifest.json`](release/manifest.json) | MIT | [Upstream repository](https://github.com/trchopan/locho) and [release downloads](https://github.com/trchopan/locho/releases/tag/v%s) |", value.Locho.Version, value.Locho.Version),
 				"- Hermes image base:": fmt.Sprintf("- Hermes image base: `%s` at the digest", imageTagRef(value.Hermes)),
 			},

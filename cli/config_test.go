@@ -19,16 +19,6 @@ func TestConfigRoundTrip(t *testing.T) {
 	want.WorkspaceUIHost = "127.0.0.1"
 	want.WorkspaceUIPort = 8089
 	want.WorkspaceUIPublicOrigin = "https://workspace.example.test"
-	want.OpenWebUIHost = "127.0.0.1"
-	want.OpenWebUIPort = 8090
-	want.OpenWebUIImage = "ghcr.io/open-webui/open-webui:v0.5.20"
-	want.OpenWebUIAuth = false
-	want.OpenWebUIGoogleClientID = "test-client-id.apps.googleusercontent.com"
-	want.OpenWebUIGoogleClientSecret = "test-client-secret"
-	want.OpenWebUIURL = "https://chat.example.test"
-	want.OpenWebUIAllowedDomains = []string{"example.test"}
-	want.OpenWebUIAllowedEmails = []string{"alice@example.test"}
-	want.OpenWebUIEnableOAuthSignup = true
 	want.LochoRelayConfigSource = filepath.Join(temporary, "relay.toml")
 	want.LochoRelaySecretsSource = filepath.Join(temporary, "relay.env")
 	want.Model = "test-model"
@@ -74,7 +64,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Target != want.Target || got.Model != want.Model || got.OutputLanguage != want.OutputLanguage || got.WorkspaceUIHost != want.WorkspaceUIHost || got.WorkspaceUIPort != want.WorkspaceUIPort || got.WorkspaceUIPublicOrigin != want.WorkspaceUIPublicOrigin || got.OpenWebUIHost != want.OpenWebUIHost || got.OpenWebUIPort != want.OpenWebUIPort || got.OpenWebUIImage != want.OpenWebUIImage || got.OpenWebUIAuth != want.OpenWebUIAuth || got.OpenWebUIGoogleClientID != want.OpenWebUIGoogleClientID || got.OpenWebUIGoogleClientSecret != want.OpenWebUIGoogleClientSecret || got.OpenWebUIURL != want.OpenWebUIURL || len(got.OpenWebUIAllowedDomains) != len(want.OpenWebUIAllowedDomains) || got.OpenWebUIAllowedDomains[0] != want.OpenWebUIAllowedDomains[0] || len(got.OpenWebUIAllowedEmails) != len(want.OpenWebUIAllowedEmails) || got.OpenWebUIAllowedEmails[0] != want.OpenWebUIAllowedEmails[0] || got.OpenWebUIEnableOAuthSignup != want.OpenWebUIEnableOAuthSignup || got.LochoRelayConfigSource != want.LochoRelayConfigSource || got.LochoRelaySecretsSource != want.LochoRelaySecretsSource || len(got.FallbackProviders) != 2 || got.FallbackProviders[0] != want.FallbackProviders[0] || got.FallbackProviders[1] != want.FallbackProviders[1] || got.Timezone != want.Timezone || got.SecretSource != want.SecretSource || len(got.EnabledSkills) != 2 || got.IngestionMaxConcurrentJobs != want.IngestionMaxConcurrentJobs || got.BackupIdentityFile != want.BackupIdentityFile || got.BackupKnownHosts != want.BackupKnownHosts || got.BackupRecipient != want.BackupRecipient || got.BackupSchedule != want.BackupSchedule || got.BackupScheduleEnabled != want.BackupScheduleEnabled || len(got.BackupDestinations) != len(want.BackupDestinations) || got.BackupDestinations[0] != want.BackupDestinations[0] || got.BackupDestinations[1] != want.BackupDestinations[1] || got.WorkspaceGitSchedule != want.WorkspaceGitSchedule || got.WorkspaceGitEnabled != want.WorkspaceGitEnabled || got.OpenLiaBrowser != want.OpenLiaBrowser {
+	if got.Target != want.Target || got.Model != want.Model || got.OutputLanguage != want.OutputLanguage || got.WorkspaceUIHost != want.WorkspaceUIHost || got.WorkspaceUIPort != want.WorkspaceUIPort || got.WorkspaceUIPublicOrigin != want.WorkspaceUIPublicOrigin || got.LochoRelayConfigSource != want.LochoRelayConfigSource || got.LochoRelaySecretsSource != want.LochoRelaySecretsSource || len(got.FallbackProviders) != 2 || got.FallbackProviders[0] != want.FallbackProviders[0] || got.FallbackProviders[1] != want.FallbackProviders[1] || got.Timezone != want.Timezone || got.SecretSource != want.SecretSource || len(got.EnabledSkills) != 2 || got.IngestionMaxConcurrentJobs != want.IngestionMaxConcurrentJobs || got.BackupIdentityFile != want.BackupIdentityFile || got.BackupKnownHosts != want.BackupKnownHosts || got.BackupRecipient != want.BackupRecipient || got.BackupSchedule != want.BackupSchedule || got.BackupScheduleEnabled != want.BackupScheduleEnabled || len(got.BackupDestinations) != len(want.BackupDestinations) || got.BackupDestinations[0] != want.BackupDestinations[0] || got.BackupDestinations[1] != want.BackupDestinations[1] || got.WorkspaceGitSchedule != want.WorkspaceGitSchedule || got.WorkspaceGitEnabled != want.WorkspaceGitEnabled || got.OpenLiaBrowser != want.OpenLiaBrowser {
 		t.Fatalf("round trip mismatch: got %#v want %#v", got, want)
 	}
 	if got.BackupLocalRetention != want.BackupLocalRetention || got.BackupLocalMaxBytes != want.BackupLocalMaxBytes || got.BackupRemoteRetentionDays != want.BackupRemoteRetentionDays {
@@ -367,7 +357,6 @@ func TestLochoHostConfigRoundTripRequiresProtectedLocalUIs(t *testing.T) {
 	config := defaultConfig()
 	config.LochoHostEnabled = true
 	config.WorkspaceUIHost = "127.0.0.1"
-	config.OpenWebUIHost = "127.0.0.1"
 	hash, err := hashWorkspaceUIPassword("correct horse battery staple")
 	if err != nil {
 		t.Fatal(err)
@@ -380,16 +369,13 @@ func TestLochoHostConfigRoundTripRequiresProtectedLocalUIs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !parsed.LochoHostEnabled || parsed.WorkspaceUIHost != "127.0.0.1" || parsed.OpenWebUIHost != "127.0.0.1" || parsed.WorkspaceUIPasswordHash != hash || parsed.LochoX8664SHA256 != config.LochoX8664SHA256 || parsed.LochoARM64SHA256 != config.LochoARM64SHA256 {
+	if !parsed.LochoHostEnabled || parsed.WorkspaceUIHost != "127.0.0.1" || parsed.WorkspaceUIPasswordHash != hash || parsed.LochoX8664SHA256 != config.LochoX8664SHA256 || parsed.LochoARM64SHA256 != config.LochoARM64SHA256 {
 		t.Fatalf("Locho host config did not round trip: %#v", parsed)
 	}
 
 	for _, edit := range []func(*Config){
 		func(candidate *Config) { candidate.WorkspaceUIHost = "0.0.0.0" },
-		func(candidate *Config) { candidate.OpenWebUIHost = "" },
 		func(candidate *Config) { candidate.WorkspaceUIPasswordHash = "" },
-		func(candidate *Config) { candidate.OpenWebUIPort = candidate.WorkspaceUIPort },
-		func(candidate *Config) { candidate.OpenWebUIAuth = false },
 	} {
 		candidate := config
 		edit(&candidate)
@@ -669,122 +655,12 @@ func TestConfigServicesRejectsDuplicateHost(t *testing.T) {
 	}
 }
 
-func TestOpenWebUIValidation(t *testing.T) {
-	config := defaultConfig()
-	config.OpenWebUIHost = "invalid-host"
-	if err := validateConfig(config); err == nil {
-		t.Fatal("expected error on invalid open-webui.host, got nil")
-	}
-
-	config = defaultConfig()
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIPort = 0
-	if err := validateConfig(config); err == nil {
-		t.Fatal("expected error on invalid open-webui.port, got nil")
-	}
-
-	config = defaultConfig()
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIPort = 8090
-	config.OpenWebUIGoogleClientID = "test-client-id.apps.googleusercontent.com"
-	config.OpenWebUIGoogleClientSecret = "test-client-secret"
-	config.OpenWebUIURL = "http://127.0.0.1:8090"
-	config.OpenWebUIAllowedDomains = []string{"example.com"}
-	config.OpenWebUIAllowedEmails = []string{"alice@example.com"}
-	config.OpenWebUIEnableOAuthSignup = false
-	if err := validateConfig(config); err != nil {
-		t.Fatalf("valid open-webui with Google OAuth rejected: %v", err)
-	}
-
-	// Missing secret
-	badConfig := config
-	badConfig.OpenWebUIGoogleClientSecret = ""
-	if err := validateConfig(badConfig); err == nil {
-		t.Fatal("expected error on missing open-webui.google_client_secret, got nil")
-	}
-
-	// Missing URL
-	badConfig = config
-	badConfig.OpenWebUIURL = ""
-	if err := validateConfig(badConfig); err == nil {
-		t.Fatal("expected error on missing open-webui.url, got nil")
-	}
-
-	// Invalid URL
-	badConfig = config
-	badConfig.OpenWebUIURL = "ftp://not-http.example.com"
-	if err := validateConfig(badConfig); err == nil {
-		t.Fatal("expected error on non-http open-webui.url, got nil")
-	}
-
-	// Invalid domain
-	badConfig = config
-	badConfig.OpenWebUIAllowedDomains = []string{"user@domain.com"}
-	if err := validateConfig(badConfig); err == nil {
-		t.Fatal("expected error on invalid domain in open-webui.allowed_domains, got nil")
-	}
-
-	// Invalid email
-	badConfig = config
-	badConfig.OpenWebUIAllowedEmails = []string{"not-an-email"}
-	if err := validateConfig(badConfig); err == nil {
-		t.Fatal("expected error on invalid email in open-webui.allowed_emails, got nil")
-	}
-
-	// Missing allowed_emails when enable_oauth_signup is false
-	badConfig = config
-	badConfig.OpenWebUIAllowedEmails = nil
-	badConfig.OpenWebUIEnableOAuthSignup = false
-	if err := validateConfig(badConfig); err == nil {
-		t.Fatal("expected error on empty allowed_emails with signup false, got nil")
-	}
-}
-
 func TestDevelopmentOverridesAllowExperimentalComponentPins(t *testing.T) {
 	config := defaultConfig()
 	config.HermesTag = "v0.23.0-rc.1"
 	config.HermesDigest = "sha256:" + strings.Repeat("a", 64)
-	config.OpenWebUIImage = "ghcr.io/open-webui/open-webui:v0.13.0-rc.1@sha256:" + strings.Repeat("b", 64)
 	if err := validateConfig(config); err != nil {
 		t.Fatalf("experimental development overrides rejected: %v", err)
-	}
-}
-
-func TestOpenWebUIRender(t *testing.T) {
-	config := defaultConfig()
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIPort = 8090
-	config.OpenWebUIAuth = true
-	rendered := renderConfig(config)
-	if !strings.Contains(rendered, "[open-webui]\nhost = \"127.0.0.1\"\nport = 8090\n") {
-		t.Fatalf("rendered config missing [open-webui]:\n%s", rendered)
-	}
-
-	config.OpenWebUIAuth = false
-	rendered = renderConfig(config)
-	if !strings.Contains(rendered, "auth = false\n") {
-		t.Fatalf("rendered config missing auth = false:\n%s", rendered)
-	}
-
-	// Render with Google OAuth
-	config.OpenWebUIGoogleClientID = "my-client.apps.googleusercontent.com"
-	config.OpenWebUIGoogleClientSecret = "my-secret"
-	config.OpenWebUIURL = "https://chat.example.com"
-	config.OpenWebUIAllowedDomains = []string{"example.com", "partner.org"}
-	config.OpenWebUIAllowedEmails = []string{"alice@example.com", "bob@partner.org"}
-	config.OpenWebUIEnableOAuthSignup = true
-	rendered = renderConfig(config)
-	for _, expected := range []string{
-		"google_client_id = \"my-client.apps.googleusercontent.com\"\n",
-		"google_client_secret = \"my-secret\"\n",
-		"url = \"https://chat.example.com\"\n",
-		"allowed_domains = [\"example.com\", \"partner.org\"]\n",
-		"allowed_emails = [\"alice@example.com\", \"bob@partner.org\"]\n",
-		"enable_oauth_signup = true\n",
-	} {
-		if !strings.Contains(rendered, expected) {
-			t.Fatalf("rendered config missing %q:\n%s", expected, rendered)
-		}
 	}
 }
 
@@ -822,8 +698,6 @@ func TestLochoHostStateDirConfigRoundTripAndValidation(t *testing.T) {
 	config.LochoHostStateDir = stateDir
 	config.WorkspaceUIHost = "127.0.0.1"
 	config.WorkspaceUIPasswordHash = "$argon2id$v=19$m=65536,t=3,p=1$eIwxVdNwGiP5tSdLEaAU3g$KeDL6pxY8F3jC/rifCbGti4bQDFzPjE6lI0uHhKQ6e8"
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIAuth = true
 
 	rendered := renderConfig(config)
 	if !strings.Contains(rendered, "state_dir = ") {

@@ -69,8 +69,6 @@ func Run(args []string, assets fs.FS) int {
 		return commandInstructions(options, remaining[1:])
 	case "workspace-ui":
 		return commandWorkspaceUI(options, remaining[1:])
-	case "open-webui":
-		return commandOpenWebUI(options, remaining[1:])
 	case "locho-host":
 		return commandLochoHost(options, remaining[1:])
 	case "browser":
@@ -148,10 +146,7 @@ func commandInit(options Options, args []string, assets fs.FS) int {
 	externalNetwork := set.String("external-network", "", "Existing Docker network for internal services")
 	apiEnabled := set.Bool("api", false, "enable the private API listener")
 	apiHost := set.String("api-host", "", "API bind address when --api is enabled")
-	openWebUI := set.Bool("open-webui", false, "enable Open WebUI chat interface")
-	openWebUIHost := set.String("open-webui-host", "", "Open WebUI host bind address")
-	openWebUIPort := set.Int("open-webui-port", 8090, "Open WebUI host port")
-	lochoHost := set.Bool("locho-host", false, "enable a Locho host for Workspace UI and Open WebUI")
+	lochoHost := set.Bool("locho-host", false, "enable a Locho host for Workspace UI Chat and Editor")
 	if err := set.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return ExitOK
@@ -210,25 +205,10 @@ func commandInit(options Options, args []string, assets fs.FS) int {
 	if *apiHost != "" {
 		config.APIHost = *apiHost
 	}
-	if hasArgument(args, "--open-webui") {
-		if *openWebUI {
-			config.OpenWebUIHost = "127.0.0.1"
-		} else {
-			config.OpenWebUIHost = ""
-		}
-	}
-	if *openWebUIHost != "" {
-		config.OpenWebUIHost = *openWebUIHost
-	}
-	if hasArgument(args, "--open-webui-port") {
-		config.OpenWebUIPort = *openWebUIPort
-	}
 	if hasArgument(args, "--locho-host") {
 		config.LochoHostEnabled = *lochoHost
 		if *lochoHost {
 			config.WorkspaceUIHost = "127.0.0.1"
-			config.OpenWebUIHost = "127.0.0.1"
-			config.OpenWebUIAuth = true
 		}
 	}
 	sourcePath := config.SecretSource
@@ -904,8 +884,8 @@ func commandUpdate(options Options, args []string, assets fs.FS) int {
 			"current":   map[string]string{"openlia": defaultVersion, "hermes": defaultHermesTag, "locho": defaultLochoVersion},
 		}, "No release index configured. No component was changed.")
 	}
-	if component != "openlia" && component != "hermes" && component != "locho" && component != "open-webui" {
-		return fail(options, ExitUsage, "component must be openlia, hermes, locho, or open-webui", nil)
+	if component != "openlia" && component != "hermes" && component != "locho" {
+		return fail(options, ExitUsage, "component must be openlia, hermes, or locho", nil)
 	}
 	config, code := configOrError(options)
 	if code != ExitOK {
@@ -984,17 +964,6 @@ func commandUpdate(options Options, args []string, assets fs.FS) int {
 	// The command does not silently change a tag or digest; operators update the
 	// desired pin in their operator config before invoking this boundary.
 	if component == "locho" {
-		if err := syncLochoSources(ctx, deployment, config); err != nil {
-			return fail(options, ExitFailure, "could not stage Locho relay configuration: "+err.Error(), nil)
-		}
-		if _, err := deployment.operation(ctx, "attachments", nil, "generate", "--json"); err != nil {
-			return fail(options, ExitFailure, "attachment Compose generation failed: "+err.Error(), nil)
-		}
-	}
-	if component == "open-webui" {
-		if config.OpenWebUIHost == "" {
-			return fail(options, ExitUsage, "open-webui is not configured in config.toml", nil)
-		}
 		if err := syncLochoSources(ctx, deployment, config); err != nil {
 			return fail(options, ExitFailure, "could not stage Locho relay configuration: "+err.Error(), nil)
 		}
@@ -1290,7 +1259,7 @@ func commandLochoHost(options Options, args []string) int {
 	}
 	attachmentConfig := string(raw)
 	hostID, err := attachmentHostID(attachmentConfig)
-	if err != nil || !strings.Contains(attachmentConfig, "capability = \"workspace-ui:tcp:") || !strings.Contains(attachmentConfig, "capability = \"open-webui:tcp:") {
+	if err != nil || !strings.Contains(attachmentConfig, "capability = \"workspace-ui:tcp:") {
 		return fail(options, ExitFailure, "Locho returned an invalid attachment configuration", nil)
 	}
 	if err := writeExclusiveFile(*output, []byte(attachmentConfig), 0o600); err != nil {
@@ -1302,7 +1271,7 @@ func commandLochoHost(options Options, args []string) int {
 		"action":   "locho-host-share",
 		"output":   *output,
 		"host_id":  hostID,
-		"services": []string{"workspace-ui", "open-webui"},
+		"services": []string{"workspace-ui"},
 	}
 	command := fmt.Sprintf("locho attach --config %s", *output)
 	if config.LochoRelayConfigSource != "" {

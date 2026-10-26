@@ -269,7 +269,7 @@ func allowedArchiveMember(name string) bool {
 	if !safeArchiveMember(name) {
 		return false
 	}
-	allowedRoots := []string{"hermes", "meta", "locho", "open-webui"}
+	allowedRoots := []string{"hermes", "meta", "locho"}
 	for _, root := range allowedRoots {
 		if name == root || strings.HasPrefix(name, root+"/") {
 			return true

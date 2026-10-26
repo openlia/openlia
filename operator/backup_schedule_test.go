@@ -48,14 +48,11 @@ func TestScheduleRuntimeConfigProjectsOptionalRuntimePaths(t *testing.T) {
 	runtimeConfig := scheduleRuntimeConfig(testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime")))
 	runtimeConfig.WorkspaceUIHost = "127.0.0.1"
 	runtimeConfig.WorkspaceUIAuthRequired = true
-	runtimeConfig.OpenWebUIHost = "127.0.0.1"
-	runtimeConfig.OpenWebUIAuth = true
 	runtimeConfig.LochoHostEnabled = true
 	if err := runtimeConfig.ValidatePaths(); err != nil {
 		t.Fatalf("projected scheduler config is invalid: %v", err)
 	}
 	for name, path := range map[string]string{
-		"Open WebUI":            runtimeConfig.OpenWebUIDataRoot,
 		"Locho root":            runtimeConfig.LochoHostRoot,
 		"Locho config":          runtimeConfig.LochoHostConfig,
 		"Locho state":           runtimeConfig.LochoHostStateRoot,

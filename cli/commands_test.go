@@ -321,14 +321,14 @@ func TestAttachmentsMapRejectsMissingArgs(t *testing.T) {
 	}
 }
 
-func TestUpdateOpenWebUIRejectsUnconfigured(t *testing.T) {
+func TestUpdateRejectsUnsupportedComponent(t *testing.T) {
 	temporary := t.TempDir()
 	t.Setenv("OPENLIA_CONFIG", filepath.Join(temporary, "config.toml"))
 	if err := saveConfig(defaultConfig()); err != nil {
 		t.Fatal(err)
 	}
-	if got := commandUpdate(Options{}, []string{"open-webui"}, fstest.MapFS{}); got != ExitUsage {
-		t.Fatalf("update open-webui exit code = %d, want %d", got, ExitUsage)
+	if got := commandUpdate(Options{}, []string{"unsupported"}, fstest.MapFS{}); got != ExitUsage {
+		t.Fatalf("update unsupported component exit code = %d, want %d", got, ExitUsage)
 	}
 }
 
@@ -345,8 +345,6 @@ func TestLochoHostStatePersistsInOperatorConfigAcrossUninstallReinit(t *testing.
 	config.LochoHostEnabled = true
 	config.WorkspaceUIHost = "127.0.0.1"
 	config.WorkspaceUIPasswordHash = "$argon2id$v=19$m=65536,t=3,p=1$eIwxVdNwGiP5tSdLEaAU3g$KeDL6pxY8F3jC/rifCbGti4bQDFzPjE6lI0uHhKQ6e8"
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIAuth = true
 	if err := saveConfig(config); err != nil {
 		t.Fatal(err)
 	}

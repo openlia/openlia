@@ -12,12 +12,6 @@ func TestValidateRequiresStableImmutableImagePins(t *testing.T) {
 			Tag:     "v0.22.4",
 			Digest:  "sha256:" + repeatedHex('a'),
 		},
-		OpenWebUI: image{
-			Image:   "ghcr.io/open-webui/open-webui",
-			Channel: "stable",
-			Tag:     "v0.12.3",
-			Digest:  "sha256:" + repeatedHex('b'),
-		},
 		Locho: locho{
 			Version:       "1.3.0-beta.2",
 			LinuxX8664SHA: repeatedHex('c'),
@@ -30,7 +24,7 @@ func TestValidateRequiresStableImmutableImagePins(t *testing.T) {
 
 	for name, edit := range map[string]func(*manifest){
 		"prerelease": func(value *manifest) { value.Hermes.Tag = "v0.23.0-rc.1" },
-		"floating":   func(value *manifest) { value.OpenWebUI.Tag = "latest" },
+		"floating":   func(value *manifest) { value.Hermes.Tag = "latest" },
 		"missing channel": func(value *manifest) {
 			value.Hermes.Channel = ""
 		},

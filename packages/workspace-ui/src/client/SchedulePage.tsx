@@ -472,8 +472,8 @@ export function SchedulePage({ api, onOpenDocument }: SchedulePageProps) {
                   </h3>
                   <p className="text-xs text-base-content/60 mt-1">
                     In OpenLia, scheduled tasks are composed and managed through
-                    conversation with your agent (via Telegram, Open WebUI, or
-                    chat session).
+                    conversation with your agent (via Telegram, Workspace UI
+                    Chat, or chat session).
                   </p>
                 </div>
                 <button
@@ -695,8 +695,8 @@ export function SchedulePage({ api, onOpenDocument }: SchedulePageProps) {
                     </button>
                   </div>
                   <p className="text-[11px] text-base-content/70">
-                    Ask Lia via Telegram or Open WebUI to adjust the prompt,
-                    change timing, or bind new skills.
+                    Ask Lia via Telegram or Workspace UI Chat to adjust the
+                    prompt, change timing, or bind new skills.
                   </p>
                 </div>
               </div>

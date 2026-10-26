@@ -19,7 +19,7 @@ To use and understand OpenLia, it is essential to distinguish between **two dist
 |  │        (Daily Companion)          │     │    (System Administrator)     │  |
 |  ├───────────────────────────────────┤     ├───────────────────────────────┤  |
 |  │ • Telegram (Bot DM / Home Channel)│     │ • Workstation `openlia` CLI   │  |
-|  │ • Open WebUI (Browser Chat)       │     │ • Deployment (Local / SSH VM) │  |
+|  │ • Workspace UI Chat (Browser)     │     │ • Deployment (Local / SSH VM) │  |
 |  │ • Workspace UI (Document Editor)  │     │ • Secret rotation & API keys  │  |
 |  │ • Morning briefings & quick-notes │     │ • Encrypted backups & restore │  |
 |  │ • Project, goal & finance reviews │     │ • System health & updates     │  |
@@ -36,7 +36,7 @@ To use and understand OpenLia, it is essential to distinguish between **two dist
 
 | Dimension            | The End User                                                                    | The Operator                                                                       |
 | :------------------- | :------------------------------------------------------------------------------ | :--------------------------------------------------------------------------------- |
-| **Primary Tool**     | Telegram, Open WebUI, Workspace Editor                                          | `openlia` CLI (terminal on workstation)                                            |
+| **Primary Tool**     | Telegram, Workspace UI Chat and Editor                                          | `openlia` CLI (terminal on workstation)                                            |
 | **Responsibilities** | Daily goals, quick capture, meeting prep, financial ledger, decision trade-offs | Deployment, VM setup, API keys, rotation, backups, updates, system health          |
 | **Data Handled**     | Personal journal, projects, health records, knowledge claims, calendar notes    | SSH credentials, LLM API keys, Docker containers, disk mounts, Age encryption keys |
 | **Policy Control**   | `assistant-policy.yaml` (delegated autonomy vs. explicit user confirmations)    | System resource limits, required ingestion dependencies, network topology            |
@@ -50,7 +50,7 @@ To use and understand OpenLia, it is essential to distinguish between **two dist
 
 ## Documentation Map
 
-- 📖 **[End User Guide](docs/USER_GUIDE.md)**: The complete guide for daily life with Lia—user interfaces (Telegram, Open WebUI, Workspace UI), personal workspace structure, review loops, claim ledger, and delegation policies.
+- 📖 **[End User Guide](docs/USER_GUIDE.md)**: The complete guide for daily life with Lia—user interfaces (Telegram, Workspace UI), personal workspace structure, review loops, claim ledger, and delegation policies.
 - 🛠️ **[Operator Guide](docs/OPERATOR_GUIDE.md)**: The operational handbook for administrators—`openlia` CLI reference, local vs. remote SSH deployments, secret rotation, encrypted backups, and system maintenance.
 - 🧪 **[End-to-End Drills](docs/E2E_DRILLS.md)**: Operational runbook for executing verification drills against disposable or remote environments.
 - 🧠 **[Skill Development](docs/SKILL_DEVELOPMENT.md)**: Guide for creating, testing, and customizing bundled workflow skills.
@@ -109,9 +109,8 @@ operations directly or uses SSH for a remote target. The default Compose stack
 contains only the Hermes and Locho runtime services. When a browser attachment
 is configured, Hermes connects to the host-local `openlia-browser` service for
 the supervised Playwright MCP proxy. The optional Workspace UI is disabled unless a
-`[workspace-ui]` section is present in `config.toml`. The optional Open WebUI
-chat interface is disabled unless an `[open-webui]` section is present in
-`config.toml` or `--open-webui` is provided during `openlia init`.
+`[workspace-ui]` section is present in `config.toml`. It includes browser Chat
+and document editing in the same platform.
 
 ### Machine Roles
 
@@ -684,57 +683,28 @@ exposes only the managed eager allowlist. Legacy `/sse` and `/messages` requests
 are rejected. This prevents two browser runtimes from competing for the same
 session; it is not a security boundary for clients that bypass the relay.
 
-### Open WebUI Chat Interface
+### Workspace UI Chat
 
 **For everyday chat, use the built-in Chat page in Workspace UI (`/chat`).** It
 uses Hermes' persistent sessions and private API, with no extra container or login.
 See [native chat](packages/workspace-ui/README.md#native-chat) for supported
-features, shared-history access, and upgrade instructions. Open WebUI remains an
-optional alternative for deployments that need its broader feature set.
+features, shared-history access, and upgrade instructions. Everyone allowed into
+the workspace shares its chat history. Workspace UI automatically enables the
+private Hermes API without publishing its port or exposing its credential to the browser.
 
-OpenLia supports [Open WebUI](https://openwebui.com/) as an integrated web chat interface for communicating with your Hermes Agent.
-
-Add an `[open-webui]` section to `config.toml`:
+Enable it in `config.toml`:
 
 ```toml
-[open-webui]
+[workspace-ui]
 host = "127.0.0.1"
-port = 8090
+port = 8089
 ```
-
-Or enable it directly during initialization:
-
-```sh
-./openlia init --local --root "$HOME/.openlia" --open-webui
-```
-
-Optional flags:
-
-- `--open-webui`: Enable the Open WebUI service.
-- `--open-webui-host <host>`: Bind host (default: `127.0.0.1`). Use `0.0.0.0` to expose on all interfaces.
-- `--open-webui-port <port>`: Host port mapping (default: `8090`).
-
-Key integration details:
-
-- **Hermes API Server**: Enabling Open WebUI automatically activates Hermes Agent's OpenAI-compatible API server (`API_SERVER_ENABLED=true`, `API_SERVER_HOST=0.0.0.0`) on container port `8642`.
-- **Zero-Config Secret Synchronization**: Secure random API keys (`API_SERVER_KEY` for Hermes and `OPENAI_API_KEY` / `WEBUI_SECRET_KEY` for Open WebUI) are automatically generated and synchronized into mode-`0600` secret files (`hermes.env` and `open-webui.env`). Secrets are never written to `compose.generated.yaml`.
-- **Internal Network**: Open WebUI communicates with Hermes over the private Docker network at `http://hermes:8642/v1`.
-- **Persistent Data**: Open WebUI's database, user profiles, and chat histories persist under `<root>/runtime/open-webui` (mounted to `/app/backend/data`). Open WebUI is intentionally excluded from the default OpenLia durable backup.
-- **Authentication**: Built-in authentication is enabled by default (`auth = true`). The first user created in Open WebUI is granted administrator privileges.
-- **Remote Access**: For remote VM deployments, access Open WebUI securely through an SSH tunnel:
-  ```sh
-  ssh -L 8090:127.0.0.1:8090 user@host
-  ```
-- **Updates**: Open WebUI can be updated independently:
-  ```sh
-  openlia update open-webui
-  ```
 
 Then initialize and deploy the runtime:
 
 ```sh
 # Run on the operator machine. Hermes runs on this same machine.
-./openlia init --local --root "$HOME/.openlia" --open-webui
+./openlia init --local --root "$HOME/.openlia"
 ./openlia deploy
 ```
 
@@ -742,8 +712,8 @@ Then initialize and deploy the runtime:
 
 Once the deployment is running:
 
-1. **Via Open WebUI (Web Chat)**:
-   Open [http://localhost:8090](http://localhost:8090) in your browser. Create your administrator account on first login and begin chatting with Lia.
+1. **Via Workspace UI Chat**:
+   Open [http://localhost:8089/chat](http://localhost:8089/chat) in your browser and use your Workspace UI login, if configured.
    - Try: `"Good morning! Run /daily-briefing."`
    - Try: `"Capture this idea: research local community solar options."`
 
@@ -760,25 +730,24 @@ Once the deployment is running:
 
 ### Locho Host Bundle
 
-To avoid configuring the two web services separately, initialize OpenLia with
-its built-in Locho host bundle:
+To access Workspace UI privately, initialize OpenLia with its built-in Locho host bundle:
 
 ```sh
 ./openlia init --target user@server --root /srv/openlia --locho-host
 ```
 
-The flag enables Workspace UI on the server's loopback interface at port `8089`,
-Open WebUI at port `8090`, and a private `locho-host` container. The Locho host
-exports only these two TCP services over the encrypted Locho connection; it does
+The flag enables Workspace UI on the server's loopback interface at port `8089`
+and a private `locho-host` container. The Locho host
+exports only Workspace UI over the encrypted Locho connection; it does
 not publish a Docker or Locho application port on the server. The host resolves
-the two private Compose service addresses at startup and allows no other service
+the private Workspace UI Compose address at startup and allows no other service
 endpoints. OpenLia prompts for the normal
 Workspace UI password and stores its Argon2id verifier in the existing protected
-configuration path. Open WebUI keeps its built-in account authentication.
+configuration path.
 Non-interactive initialization requires an existing valid `password_hash` in the
-operator config. Workspace UI and Open WebUI must use different host ports.
+operator config.
 
-After the deployment is running, create a combined client attachment file on the
+After the deployment is running, create a client attachment file on the
 operator machine:
 
 ```sh
@@ -787,7 +756,7 @@ operator machine:
 
 Install [Locho `1.3.0-beta.2`](https://github.com/trchopan/locho/releases/tag/v1.3.0-beta.2)
 on any client machine, transfer the generated
-mode-`0600` file through a trusted channel, and start both local listeners:
+mode-`0600` file through a trusted channel, and start the local listener:
 
 ```sh
 locho attach --config openlia-attachments.toml
@@ -802,8 +771,7 @@ OpenLia configuration. Clients must export matching `token_env` variables and
 use the same relay file with `--relay-config`. Attachment HTTP services may set
 `http_timeout_secs = 1..300` per service; the default remains 60 seconds.
 
-Then open `http://127.0.0.1:8089` for Workspace UI and
-`http://127.0.0.1:8090` for Open WebUI. The attachment file contains service
+Then open `http://127.0.0.1:8089` for Workspace UI, including Chat. The attachment file contains service
 capabilities equivalent to passwords. Do not commit it, email it, or place it in
 shared logs. OpenLia does not yet expose host-capability rotation; follow Locho's
 documented stop/rotate/start requirement before redistributing a newly generated
@@ -974,7 +942,7 @@ the target receives only its public recipient and can encrypt but cannot
 decrypt. `openlia init` creates the operator identity at
 `~/.config/openlia/backup-identity.txt`; `openlia backup keygen` creates it for
 an existing deployment. Keep a separate recovery copy of the private identity.
-The archive excludes Open WebUI, bundled image skills, rebuildable caches and
+The archive excludes bundled image skills, rebuildable caches and
 environments, logs, releases, Docker images, secrets, and Locho capability
 files. Manual capture stops the running Hermes gateway and optional Workspace
 UI while it creates and validates a consistent archive, then restarts them
@@ -1077,7 +1045,7 @@ operator machine so remote ciphertext remains recoverable.
 
 `openlia update` is read-only without a component. `openlia update openlia`
 synchronizes the Go operator, profile, templates, and bundled skills.
-The Hermes, Locho, and Open WebUI commands reconcile only their pinned runtime
+The Hermes and Locho commands reconcile only their pinned runtime
 boundaries; they do not silently replace desired digests.
 
 OpenLia tracks provenance for `profile/AGENTS.md`, `profile/SOUL.md`, and
@@ -1161,7 +1129,7 @@ development.
   used on a trusted private network.
 - Locho listeners use the private Compose network and are never published.
 - Workspace initialization is copy-once; later deployments preserve user files.
-- Durable backups exclude Open WebUI, secret files, OAuth state, bundled image
+- Durable backups exclude secret files, OAuth state, bundled image
   skills, rebuildable caches, and Locho capabilities. Protected
   durable archive files are encrypted to an operator-held age identity before
   retention or remote upload. Operation-scoped rollback snapshots contain only

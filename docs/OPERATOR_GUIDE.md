@@ -55,12 +55,7 @@ timezone = "America/New_York"
 [ingestion]
 max_concurrent_jobs = 1
 
-# Web chat interface
-[open-webui]
-host = "127.0.0.1"
-port = 8090
-
-# Personal workspace web editor
+# Personal workspace chat and editor
 [workspace-ui]
 host = "127.0.0.1"
 port = 8089
@@ -81,37 +76,13 @@ base_url = "http://locho-laptop:11434/v1"
 key_env = "OPENAI_GATEWAY_API_KEY"
 ```
 
-### Open WebUI password-admin setup
+### Workspace UI Chat authentication
 
-For automated login and chat tests, generate a bcrypt verifier interactively:
-
-```sh
-openlia open-webui password
-```
-
-The command prompts twice without echo and prints only the hash (bcrypt cost 12).
-Passwords must contain 1–72 bytes. Copy the full hash into your configuration:
-
-```toml
-[open-webui]
-host = "127.0.0.1"
-port = 8090
-auth = true
-admin_email = "e2e@example.com"
-admin_password_hash = "$2a$12$..." # Replace with the complete generated hash
-```
-
-Run `openlia deploy` to create or update this admin account. Both admin fields
-are required together; supported bcrypt costs are 10–14. Password login is
-enabled and public signup is disabled. This mode cannot be combined with Google
-OAuth; existing OAuth-only configurations are unchanged. Other users are not
-modified. Email addresses are normalized to lowercase.
-
-The configured hash is reapplied on deployment, so rotate the password by
-generating a new hash, updating the config, and deploying again. Protect the
-config file; password hashes are sensitive. Keep the plaintext password in the
-E2E runner's secret store so the browser can log in normally. The hash-generation
-command never edits configuration files or accepts plaintext command arguments.
+Chat uses the same authentication as the rest of Workspace UI. Generate a
+password verifier with `openlia workspace-ui password` and set
+`[workspace-ui].password_hash`, or configure Workspace UI's Firebase authentication.
+Locho access requires Workspace UI authentication. Chat history is shared by
+everyone allowed into the workspace, not isolated per user.
 
 ### Protected Secrets (`secrets.env`)
 Secrets are **never** committed to Git or stored in `config.toml`. The operator maintains a protected file on the operator machine:
@@ -169,19 +140,19 @@ To connect Lia to Telegram:
 
 **Local Deployment (Docker on same machine):**
 ```bash
-openlia init --local --open-webui
+openlia init --local
 ```
 
 **Remote VPS Deployment (over SSH):**
 ```bash
-openlia init --target user@server-ip --timezone America/New_York --open-webui
+openlia init --target user@server-ip --timezone America/New_York
 ```
 
 Key flags for `openlia init`:
 - `--target <user@host>`: Remote SSH destination (omit or use `--local` for local Docker).
 - `--root <path>`: Runtime directory on the target (default `/opt/openlia`).
 - `--timezone <tz>`: IANA timezone (e.g. `UTC`, `America/New_York`, `Asia/Ho_Chi_Minh`).
-- `--open-webui`: Automatically configure Open WebUI chat container.
+- `--locho-host`: Configure authenticated Workspace UI access over an encrypted Locho tunnel.
 - `--non-interactive`: Scriptable mode without terminal prompts.
 
 ### Deploying & Starting
@@ -243,7 +214,6 @@ openlia update openlia
 # Reconcile one pinned runtime component
 openlia update hermes
 openlia update locho
-openlia update open-webui
 
 # Inspect managed and forked skill provenance
 openlia skills status
@@ -482,13 +452,13 @@ openlia backup restore --file /path/to/backup-2026-10-09.tar.gz.age
 
 ## 8. Accessing Web Interfaces Remotely
 
-If OpenLia is running on a remote VPS with `host = "127.0.0.1"`, access the Web UIs securely through an SSH tunnel:
+If OpenLia is running on a remote VPS with `host = "127.0.0.1"`, access Workspace UI securely through an SSH tunnel:
 
 ```bash
-# Forward Open WebUI (8090) and Workspace Editor (8089)
-ssh -L 8090:127.0.0.1:8090 -L 8089:127.0.0.1:8089 user@server-ip
+# Forward Workspace UI Chat and Editor (8089)
+ssh -L 8089:127.0.0.1:8089 user@server-ip
 ```
 
 Then visit:
-- **Open WebUI**: [http://localhost:8090](http://localhost:8090)
+- **Chat**: [http://localhost:8089/chat](http://localhost:8089/chat)
 - **Workspace UI**: [http://localhost:8089](http://localhost:8089)

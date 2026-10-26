@@ -90,14 +90,11 @@ explicit local `config.toml` override instead, keeping the image immutable:
 [components]
 hermes_tag = "v0.23.0-rc.1"
 hermes_digest = "sha256:<Hermes image digest>"
-
-[open-webui]
-image = "ghcr.io/open-webui/open-webui:v0.13.0-rc.1@sha256:<Open WebUI image digest>"
 ```
 
 These overrides accept prerelease tags while retaining normal image-reference
 and digest validation. Keep experimental deployments isolated from production
-data, especially when testing Open WebUI migrations.
+data.
 
 Before submitting a change, review the complete staged file list and confirm
 that no local or generated files are included.

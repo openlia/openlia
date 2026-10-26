@@ -63,47 +63,26 @@ func ShareLochoHost(ctx context.Context, config Config, compose Compose) (LochoH
 		return LochoHostShareResult{}, fmt.Errorf("locho-host is not running; deploy the stack first")
 	}
 
-	hostID := ""
-	capabilities := make([]string, 0, 2)
-	services := []struct {
-		name string
-		port int
-	}{
-		{name: "workspace-ui", port: config.WorkspaceUIPort},
-		{name: "open-webui", port: config.OpenWebUIPort},
+	args := []string{"exec", "-T", "locho-host", "locho", "share", "workspace-ui", "--config", "/var/lib/openlia-locho-host/locho.toml"}
+	if config.LochoRelayConfig != "" {
+		args = append(args, "--relay-config", "/etc/locho/relay.toml")
 	}
-	for _, service := range services {
-		args := []string{"exec", "-T", "locho-host", "locho", "share", service.name, "--config", "/var/lib/openlia-locho-host/locho.toml"}
-		if config.LochoRelayConfig != "" {
-			args = append(args, "--relay-config", "/etc/locho/relay.toml")
-		}
-		result, err := compose.Run(ctx, args...)
-		if err != nil {
-			return LochoHostShareResult{}, fmt.Errorf("share %s capability: %w", service.name, err)
-		}
-		parsedHostID, capability, err := parseLochoShareOutput(string(result.Stdout), service.name)
-		if err != nil {
-			return LochoHostShareResult{}, err
-		}
-		if hostID == "" {
-			hostID = parsedHostID
-		} else if hostID != parsedHostID {
-			return LochoHostShareResult{}, fmt.Errorf("Locho returned inconsistent host identities")
-		}
-		capabilities = append(capabilities, fmt.Sprintf("%s\nlisten_port = %d", strconv.Quote(capability), service.port))
+	result, err := compose.Run(ctx, args...)
+	if err != nil {
+		return LochoHostShareResult{}, fmt.Errorf("share workspace-ui capability: %w", err)
+	}
+	hostID, capability, err := parseLochoShareOutput(string(result.Stdout), "workspace-ui")
+	if err != nil {
+		return LochoHostShareResult{}, err
 	}
 
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "host_id = %s\nlisten_host = \"127.0.0.1\"\n\n", strconv.Quote(hostID))
-	for _, capability := range capabilities {
-		builder.WriteString("[[services]]\ncapability = ")
-		builder.WriteString(capability)
-		builder.WriteString("\n\n")
-	}
+	fmt.Fprintf(&builder, "[[services]]\ncapability = %s\nlisten_port = %d\n\n", strconv.Quote(capability), config.WorkspaceUIPort)
 	return LochoHostShareResult{
 		HostID:           hostID,
 		AttachmentConfig: builder.String(),
-		Services:         []string{"workspace-ui", "open-webui"},
+		Services:         []string{"workspace-ui"},
 	}, nil
 }
 

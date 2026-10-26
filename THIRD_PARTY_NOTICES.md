@@ -11,7 +11,6 @@ replacement for the license files shipped by those projects or images.
 | Component | Version or pin | License | Source or notice |
 | --- | --- | --- | --- |
 | Hermes Agent | `nousresearch/hermes-agent:v0.22.4` at `sha256:7a69201726bc64db2072a1371557137c23312d29705cda2b8ea2a0214a50a4cf` | MIT | [Upstream repository](https://github.com/NousResearch/hermes-agent) |
-| Open WebUI | `ghcr.io/open-webui/open-webui:v0.12.3` at `sha256:a537bbe1e6b428820f52ed4a029d7fff97062e24d5cf32c365fba36fd0542def` | MIT | [Upstream repository](https://github.com/open-webui/open-webui) |
 | Locho | `v1.3.0-beta.2`; architecture-specific SHA-256 values are recorded in [`release/manifest.json`](release/manifest.json) | MIT | [Upstream repository](https://github.com/trchopan/locho) and [release downloads](https://github.com/trchopan/locho/releases/tag/v1.3.0-beta.2) |
 | Bun | `1.2.22`; architecture-specific SHA-256 values are recorded in [`docker/Dockerfile`](docker/Dockerfile) | MIT, with additional bundled component licenses | [Upstream licensing information](https://github.com/oven-sh/bun/blob/main/LICENSE.md) |
 | uv | `0.8.14`; architecture-specific SHA-256 values are recorded in [`docker/Dockerfile`](docker/Dockerfile) | MIT and Apache-2.0 | [MIT License](https://github.com/astral-sh/uv/blob/0.8.14/LICENSE-MIT) and [Apache License 2.0](https://github.com/astral-sh/uv/blob/0.8.14/LICENSE-APACHE) |
