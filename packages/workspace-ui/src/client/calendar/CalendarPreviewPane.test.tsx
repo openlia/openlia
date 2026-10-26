@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { CalendarPreviewPane } from "./CalendarPreviewPane";
 
 const SAMPLE_REM_CONTENT = `# OpenLia Calendar
@@ -14,6 +14,16 @@ REM Mon AT 09:00 DURATION 30 MSG Weekly Sync
 `;
 
 describe("CalendarPreviewPane", () => {
+  beforeEach(() => {
+    // Keep the calendar's current period aligned with the October fixtures.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 15, 12));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test("renders Month view by default and displays event cards", () => {
     render(
       <CalendarPreviewPane
