@@ -917,6 +917,34 @@ openlia workspace git status
 openlia workspace git setup
 ```
 
+### User-approved workspace checkpoints
+
+Ask Lia to “review my workspace changes and propose commits,” or select
+**Propose commits** in **Git Activity**. Hermes analyzes a frozen snapshot of the
+diffs and recommends coherent commit groups with messages, rationale, and excluded
+files. Use **Revise in chat** to change the recommendation. No agent tool creates
+commits: review the diffs and select **Review & confirm**, then **Confirm commits**
+in the UI. Approval applies only to that proposal revision and reviewed content.
+Changed files or a changed HEAD require a refreshed proposal and another review.
+
+The `[workspace_git]` schedule (default `0 4 * * *`) is now **reminder-only**;
+upgrades replace the old automatic-commit prompt. Clean workspaces need no reminder.
+Legacy `local_git_commits` delegation does not bypass checkpoint confirmation.
+Checkpoints stay local; encrypted backups remain the durable recovery mechanism.
+The executor preserves unrelated staging and never rewrites workspace files.
+Resolve partial staging on selected files before confirmation. File-level groups
+are supported; splitting one file across commits is not supported yet. Checkpoint
+review requires Python 3 and Git (bundled in the managed Workspace UI image).
+If you maintain a customized Hermes `config.yaml`, enable the bundled
+`openlia-workspace-git` plugin under `plugins.enabled`; managed configurations
+receive it automatically on deployment.
+Reviews are bounded to 500 changed paths, 8 MiB of file content, and 2 MiB of
+combined diffs. Individual files over 2 MiB are explicitly excluded rather than
+preventing review of smaller records. Symlinks and unresolved conflicts fail closed.
+Local review snapshots and proposal revisions are retained under
+`.git/openlia-checkpoints` (including dismissed reviews); inspecting changes may
+also write unreferenced Git blobs, but never advances HEAD or stages files.
+
 Use a separate operator config when managing another deployment:
 
 ```sh

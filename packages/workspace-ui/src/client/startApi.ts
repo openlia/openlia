@@ -74,6 +74,20 @@ async function request<T>(input: WorkspaceServerRequest): Promise<T> {
 
 export const startWorkspaceApi: WorkspaceApi = {
   ...httpWorkspaceApi,
+  loadCheckpointProposals: () =>
+    request({ path: "/api/workspace/git/proposals" }),
+  approveCheckpoint: (id, revision) =>
+    request({
+      path: `/api/workspace/git/proposals/${encodeURIComponent(id)}/approve`,
+      method: "POST",
+      body: { revision },
+    }),
+  dismissCheckpoint: (id, revision) =>
+    request({
+      path: `/api/workspace/git/proposals/${encodeURIComponent(id)}/dismiss`,
+      method: "POST",
+      body: { revision },
+    }),
   loadUsage: (reference) =>
     request<import("../shared/usage").UsageResponse>({
       path: `/api/workspace/usage${reference ? `?reference=${encodeURIComponent(reference)}` : ""}`,

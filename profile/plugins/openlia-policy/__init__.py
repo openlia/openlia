@@ -618,32 +618,10 @@ class PolicyEnforcer:
         if external_key:
             return self._external_decision(authority, external_key, "terminal")
 
-        if re.search(r"\bgit\s+(?:add|commit)\b", lowered):
-            explicit_cwd = args.get("cwd")
-            if isinstance(explicit_cwd, str) and explicit_cwd.strip():
-                cwd = Path(explicit_cwd).expanduser()
-                if not cwd.is_absolute():
-                    cwd = self.workspace_root / cwd
-                try:
-                    cwd.resolve(strict=False).relative_to(self.workspace_root)
-                except (OSError, ValueError):
-                    return _block("OpenLia policy blocked Git writes outside the workspace.")
-            policy = authority.policy
-            if policy is None:
-                return _approve(
-                    "No assistant policy delegates local Git commits; approval is required.",
-                    "openlia.policy.local_git_commits",
-                )
-            delegated = authority.helper.policy_allows(
-                policy, "local_git_commits", scheduled=scheduled
-            )
-            if scheduled and not policy.get("scheduled_work", {}).get("enabled"):
-                return _block("OpenLia policy blocked scheduled Git work: scheduled_work is disabled.")
-            if scheduled and "local_git_commits" not in policy.get("scheduled_work", {}).get("allowed_actions", []):
-                return _block("OpenLia policy blocked scheduled local Git commits.")
-            return None if delegated else _approve(
-                "OpenLia policy does not delegate local Git commits; approval is required.",
-                "openlia.policy.local_git_commits",
+        if self._git_checkpoint_write(command):
+            return _block(
+                "Workspace checkpoints require review and confirmation in Git Activity. "
+                "Use workspace_git_inspect and workspace_git_propose instead of Git write commands."
             )
 
         if re.search(r"\b(?:rm|rmdir)\b", lowered):
@@ -693,6 +671,22 @@ class PolicyEnforcer:
         )
 
     @staticmethod
+    def _git_checkpoint_write(command: str) -> bool:
+        try:
+            tokens = shlex.split(command)
+        except ValueError:
+            return False  # The general terminal gate still requires approval.
+        for index, token in enumerate(tokens):
+            if token.rsplit("/", 1)[-1] != "git":
+                continue
+            cursor = index + 1
+            while cursor < len(tokens) and tokens[cursor].startswith("-"):
+                cursor += 2 if tokens[cursor] in {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"} else 1
+            if cursor < len(tokens) and tokens[cursor] in {"add", "commit", "commit-tree", "update-ref", "update-index", "write-tree"}:
+                return True
+        return False
+
+    @staticmethod
     def _read_only_command(segment: str) -> bool:
         tokens = segment.split()
         if not tokens:
@@ -714,6 +708,12 @@ class PolicyEnforcer:
         session_id: str = "",
     ) -> dict[str, str] | None:
         args = args if isinstance(args, dict) else {}
+        if tool_name in {"workspace_git_inspect", "workspace_git_proposals"}:
+            return None
+        if tool_name == "workspace_git_propose":
+            if self._is_scheduled(session_id):
+                return _block("Scheduled workspace Git runs are reminder-only; do not create proposals or commits.")
+            return None
         if tool_name == "web_extract":
             raw_urls: list[str] = []
             if isinstance(args.get("url"), str):

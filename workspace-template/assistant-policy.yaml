@@ -12,7 +12,6 @@ delegation:
       - update_records
       - archive_records
       - generate_reports
-      - local_git_commits
     allowed_domains:
       - inbox
       - sources
@@ -44,7 +43,6 @@ scheduled_work:
     - update_records
     - archive_records
     - generate_reports
-    - local_git_commits
   report_destination: inbox/daily-briefing
 
 audit:

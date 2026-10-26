@@ -41,6 +41,7 @@ import { SkillService } from "./skills";
 import { WorkspaceError, WorkspaceService } from "./workspace";
 import { UsageService } from "./usage";
 import { CronService, CronError } from "./cron";
+import { CheckpointService } from "./checkpoints";
 
 export interface WorkspaceHandlerOptions {
   finance?: FinanceCheckOptions;
@@ -310,6 +311,7 @@ export function createWorkspaceHandler(
   options: WorkspaceHandlerOptions,
 ): (request: Request, clientKey?: string) => Promise<Response> {
   const service = new WorkspaceService(options);
+  const checkpointService = new CheckpointService(service.workspaceRoot);
   const financeService = new FinanceCheckService(
     service.workspaceRoot,
     options.finance,
@@ -796,6 +798,38 @@ export function createWorkspaceHandler(
             "Content-Type": "application/zip",
           },
         });
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname === "/api/workspace/git/proposals"
+      ) {
+        return json(await checkpointService.call({ action: "list" }));
+      }
+      const checkpointAction = url.pathname.match(
+        /^\/api\/workspace\/git\/proposals\/([a-f0-9]{32})\/(approve|dismiss)$/,
+      );
+      if (request.method === "POST" && checkpointAction) {
+        if (!sameOrigin(request, url, publicOrigin)) {
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        }
+        const body = await readJson(request, 4096);
+        const value = body.value as { revision?: unknown } | null;
+        if (body.tooLarge || !value || !Number.isSafeInteger(value.revision)) {
+          return json(
+            { schema: 1, ok: false, error: "invalid_proposal_revision" },
+            400,
+          );
+        }
+        return json(
+          await checkpointService.call({
+            action: checkpointAction[2],
+            id: checkpointAction[1],
+            revision: value.revision,
+          }),
+        );
       }
       if (
         request.method === "GET" &&

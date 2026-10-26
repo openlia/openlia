@@ -51,6 +51,7 @@ plugins:
     - openlia-policy
     - openlia-ingestion
     - openlia-usage
+    - openlia-workspace-git
   hook_callback_timeout: 30
   entries:
     openlia-ingestion:

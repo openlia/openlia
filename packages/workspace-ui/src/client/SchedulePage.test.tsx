@@ -16,7 +16,9 @@ describe("SchedulePage", () => {
     // Check system schedules
     expect(screen.getByText("Encrypted Backup Scheduler")).toBeInTheDocument();
     expect(screen.getByText("20 4 * * *")).toBeInTheDocument();
-    expect(screen.getByText("Workspace Git Automation")).toBeInTheDocument();
+    expect(
+      screen.getByText("Workspace Checkpoint Reminder"),
+    ).toBeInTheDocument();
 
     // Check policy banner
     expect(

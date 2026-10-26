@@ -64,6 +64,7 @@ import type {
 } from "../shared/cron";
 import type { ChatApi } from "../shared/chat";
 import { httpChatApi } from "./chatApi";
+import type { CheckpointProposal } from "../shared/checkpoints";
 import { isMemoryDocument, memoryFilename } from "../shared/memory";
 import {
   type FinanceCheckResponse,
@@ -149,6 +150,9 @@ export interface WorkspaceApi {
   loadSystemInfo(): Promise<WorkspaceSystemInfo>;
   loadGitStatus(): Promise<WorkspaceGitStatus>;
   loadActivity(): Promise<WorkspaceActivityResponse>;
+  loadCheckpointProposals(): Promise<{ proposals: CheckpointProposal[] }>;
+  approveCheckpoint(id: string, revision: number): Promise<CheckpointProposal>;
+  dismissCheckpoint(id: string, revision: number): Promise<CheckpointProposal>;
   loadIngestion(
     options?: { query?: string; status?: string; limit?: number } | undefined,
   ): Promise<IngestionOverviewResponse>;
@@ -715,6 +719,34 @@ function isSkillSuccessResponse(value: unknown): value is SkillSuccessResponse {
 }
 
 export const httpWorkspaceApi: WorkspaceApi = {
+  loadCheckpointProposals: () =>
+    requestJson(
+      "/api/workspace/git/proposals",
+      (value): value is { proposals: CheckpointProposal[] } =>
+        isObject(value) && Array.isArray(value.proposals),
+    ),
+  approveCheckpoint: (id, revision) =>
+    requestJson(
+      `/api/workspace/git/proposals/${encodeURIComponent(id)}/approve`,
+      (value): value is CheckpointProposal =>
+        isObject(value) && value.status === "applied",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision }),
+      },
+    ),
+  dismissCheckpoint: (id, revision) =>
+    requestJson(
+      `/api/workspace/git/proposals/${encodeURIComponent(id)}/dismiss`,
+      (value): value is CheckpointProposal =>
+        isObject(value) && value.status === "dismissed",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision }),
+      },
+    ),
   chat: httpChatApi,
   loadUsage: (reference) =>
     requestJson<UsageResponse>(

@@ -85,17 +85,20 @@ migration requires the host `openlia` CLI and explicit confirmation. The
 protected `workspace-template-customization` system skill may propose changes to
 user-owned workspace templates and schemas, but must not modify existing
 records without separate explicit approval. The
-bundled workspace Git pull is a no-agent cron job with no model or approval
-prompt; other cron jobs remain opt-in and must fail closed when a human
+bundled workspace Git schedule only reminds the user about uncommitted changes;
+it never stages or creates commits. Other cron jobs remain opt-in and must fail closed when a human
 approval is unavailable. Manage cron jobs through Hermes' cron interface
 rather than editing its generated state files directly.
 
 ## Workspace Git history
 
 - OpenLia maintains the workspace as a local Git repository for history only.
-- Workspace Git commits are recorded automatically in the background on schedule.
-  Routine interactive actions do not need to commit. Encrypted OpenLia backups are
-  the recovery mechanism.
+- Use the `workspace-git` skill and `workspace_git_inspect` / `workspace_git_propose`
+  tools when the user requests a checkpoint review. Analyze actual diffs and save
+  recommendations; revise them in chat when asked. Only explicit confirmation in
+  Git Activity creates commits. Never stage, commit, or call approval endpoints
+  from an agent tool. The daily schedule is reminder-only. Encrypted OpenLia
+  backups remain the recovery mechanism.
 - Do not configure Git remotes or use Git network operations.
 - Never use hard resets, `git clean`, or destructive conflict resolution.
 

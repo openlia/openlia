@@ -97,9 +97,10 @@ RUN /usr/local/bin/openlia-install-tools \
     && rm -f /tmp/openlia-ingestion-requirements.txt \
     && /opt/hermes/.venv/bin/python -c "import jsonschema, msoffcrypto, openpyxl, PIL, pypdfium2, xlrd"
 COPY profile/plugins/openlia-ingestion /opt/hermes/plugins/openlia-ingestion
+COPY profile/plugins/openlia-workspace-git /opt/hermes/plugins/openlia-workspace-git
 # Release archives protect source files with mode 0600; supervised Hermes runs
 # as an unprivileged user and must be able to read the bundled plugins.
-RUN chmod -R a+rX /opt/hermes/plugins/openlia-policy /opt/hermes/plugins/openlia-ingestion /opt/hermes/plugins/openlia-usage \
+RUN chmod -R a+rX /opt/hermes/plugins/openlia-policy /opt/hermes/plugins/openlia-ingestion /opt/hermes/plugins/openlia-usage /opt/hermes/plugins/openlia-workspace-git \
     && /opt/hermes/.venv/bin/python -c "import pathlib, site; pathlib.Path(site.getsitepackages()[0], 'openlia_usage.py').chmod(0o644)"
 LABEL org.openlia.project="${OPENLIA_PROJECT_NAME}" org.openlia.ingestion="required" org.openlia.debian-snapshot="${DEBIAN_SNAPSHOT}"
 
