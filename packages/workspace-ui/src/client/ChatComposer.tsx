@@ -55,16 +55,6 @@ export function ChatComposer({
           placeholder={active ? "Guide the running agent…" : "Message Lia…"}
           value={draft}
           onChange={(event) => onDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (
-              event.key === "Enter" &&
-              !event.shiftKey &&
-              !event.nativeEvent.isComposing
-            ) {
-              event.preventDefault();
-              if (!active && !busy && !disabled && draft.trim()) onSend();
-            }
-          }}
         />
         {active ? (
           <div className="chat-run-controls">
@@ -132,7 +122,7 @@ export function ChatComposer({
         <span className="chat-composer-hint">
           {run?.runtime?.model
             ? `Used: ${run.runtime.model}`
-            : "Enter to send · Shift+Enter for a new line"}
+            : "Enter for a new line · Click Send to submit"}
         </span>
       </div>
     </form>

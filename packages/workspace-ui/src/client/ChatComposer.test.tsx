@@ -22,14 +22,28 @@ function props() {
   };
 }
 describe("compact chat composer", () => {
-  it("sends on Enter but preserves Shift+Enter for multiline messages", () => {
+  it("allows Enter and Shift+Enter without sending and sends with the button", () => {
     const input = props();
     render(<ChatComposer {...input} />);
     const field = screen.getByRole("textbox", { name: "Message Lia" });
-    fireEvent.keyDown(field, { key: "Enter", shiftKey: true });
+    expect(fireEvent.keyDown(field, { key: "Enter", shiftKey: true })).toBe(
+      true,
+    );
+    expect(fireEvent.keyDown(field, { key: "Enter" })).toBe(true);
     expect(input.onSend).not.toHaveBeenCalled();
-    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(input.onSend).toHaveBeenCalledOnce();
+  });
+  it("preserves multiline drafts and explains how to submit", () => {
+    const input = props();
+    render(<ChatComposer {...input} />);
+    const field = screen.getByRole("textbox", { name: "Message Lia" });
+    fireEvent.change(field, { target: { value: "Hello\nLia" } });
+    expect(input.onDraft).toHaveBeenCalledWith("Hello\nLia");
+    expect(input.onSend).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("Enter for a new line · Click Send to submit"),
+    ).toBeVisible();
   });
   it("does not send during IME composition, loading, or an active run", () => {
     const input = props();

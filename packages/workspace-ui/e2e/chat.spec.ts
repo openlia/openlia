@@ -1,5 +1,31 @@
 import { expect, test } from "@playwright/test";
 
+test("chat allows multiline editing and submits only with Send", async ({
+  page,
+}) => {
+  await page.goto("/chat?conversation=demo-chat");
+  const input = page.getByRole("textbox", { name: "Message Lia" });
+  const transcript = page.getByRole("region", {
+    name: "Conversation messages",
+  });
+  await input.fill("First line");
+  await input.press("Enter");
+  await input.pressSequentially("Second line");
+  await input.press("Shift+Enter");
+  await input.pressSequentially("Third line");
+  await expect(input).toHaveValue("First line\nSecond line\nThird line");
+  await expect(transcript.getByRole("article")).toHaveCount(1);
+
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(input).toHaveValue("");
+  await expect(
+    transcript.getByRole("article", { name: "Your message", exact: true }),
+  ).toContainText("First line\nSecond line\nThird line");
+  await expect(
+    page.getByText("This is a mock reply.", { exact: false }),
+  ).toBeVisible({ timeout: 10000 });
+});
+
 test("native chat navigation, history, and conversation actions", async ({
   page,
 }) => {
