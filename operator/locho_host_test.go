@@ -12,7 +12,6 @@ import (
 type lochoShareRunner struct {
 	calls         []string
 	workspaceHost string
-	openWebUIHost string
 }
 
 func (r *lochoShareRunner) Run(_ context.Context, name string, args ...string) (CommandResult, error) {
@@ -22,10 +21,6 @@ func (r *lochoShareRunner) Run(_ context.Context, name string, args ...string) (
 	if workspaceHost == "" {
 		workspaceHost = "test-host"
 	}
-	openWebUIHost := r.openWebUIHost
-	if openWebUIHost == "" {
-		openWebUIHost = "test-host"
-	}
 	switch {
 	case strings.Contains(call, "config --services"):
 		return CommandResult{Stdout: []byte("locho-host\n")}, nil
@@ -33,14 +28,12 @@ func (r *lochoShareRunner) Run(_ context.Context, name string, args ...string) (
 		return CommandResult{Stdout: []byte("locho-host\n")}, nil
 	case strings.Contains(call, "share workspace-ui"):
 		return CommandResult{Stdout: []byte("locho attach " + workspaceHost + " workspace-ui:tcp:workspace-secret\n")}, nil
-	case strings.Contains(call, "share open-webui"):
-		return CommandResult{Stdout: []byte("locho attach " + openWebUIHost + " open-webui:tcp:webui-secret\n")}, nil
 	default:
 		return CommandResult{}, nil
 	}
 }
 
-func TestShareLochoHostBuildsCombinedAttachmentConfig(t *testing.T) {
+func TestShareLochoHostBuildsWorkspaceUIAttachmentConfig(t *testing.T) {
 	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
 	config.LochoHostEnabled = true
 	config.LochoHostRoot = filepath.Join(config.RuntimeRoot, "locho-host")
@@ -50,15 +43,13 @@ func TestShareLochoHostBuildsCombinedAttachmentConfig(t *testing.T) {
 	config.WorkspaceUIHost = "127.0.0.1"
 	config.WorkspaceUIAuthRequired = true
 	config.WorkspaceUIPasswordHashFile = filepath.Join(config.RuntimeRoot, "secrets", "workspace-ui-password.hash")
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIAuth = true
 
 	runner := &lochoShareRunner{}
 	result, err := ShareLochoHost(context.Background(), config, NewCompose(config, runner))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.HostID != "test-host" || len(result.Services) != 2 {
+	if result.HostID != "test-host" || len(result.Services) != 1 || result.Services[0] != "workspace-ui" {
 		t.Fatalf("unexpected share result: %+v", result)
 	}
 	for _, expected := range []string{
@@ -66,8 +57,6 @@ func TestShareLochoHostBuildsCombinedAttachmentConfig(t *testing.T) {
 		"listen_host = \"127.0.0.1\"",
 		"capability = \"workspace-ui:tcp:workspace-secret\"",
 		"listen_port = 8089",
-		"capability = \"open-webui:tcp:webui-secret\"",
-		"listen_port = 8090",
 	} {
 		if !strings.Contains(result.AttachmentConfig, expected) {
 			t.Fatalf("attachment config missing %q:\n%s", expected, result.AttachmentConfig)
@@ -82,25 +71,8 @@ func TestShareLochoHostBuildsCombinedAttachmentConfig(t *testing.T) {
 }
 
 func TestParseLochoShareOutputRejectsWrongService(t *testing.T) {
-	if _, _, err := parseLochoShareOutput("locho attach host open-webui:tcp:secret", "workspace-ui"); err == nil {
+	if _, _, err := parseLochoShareOutput("locho attach host other-service:tcp:secret", "workspace-ui"); err == nil {
 		t.Fatal("wrong service capability was accepted")
-	}
-}
-
-func TestShareLochoHostRejectsInconsistentHostIDs(t *testing.T) {
-	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
-	config.LochoHostEnabled = true
-	config.LochoHostRoot = filepath.Join(config.RuntimeRoot, "locho-host")
-	config.LochoHostConfig = filepath.Join(config.LochoHostRoot, "locho.toml")
-	config.LochoHostStateRoot = filepath.Join(config.LochoHostRoot, "state")
-	config.WorkspaceUIHost = "127.0.0.1"
-	config.WorkspaceUIAuthRequired = true
-	config.WorkspaceUIPasswordHashFile = filepath.Join(config.RuntimeRoot, "secrets", "workspace-ui-password.hash")
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIAuth = true
-	runner := &lochoShareRunner{workspaceHost: "host-a", openWebUIHost: "host-b"}
-	if _, err := ShareLochoHost(context.Background(), config, NewCompose(config, runner)); err == nil || !strings.Contains(err.Error(), "inconsistent") {
-		t.Fatalf("inconsistent host IDs were not rejected: %v", err)
 	}
 }
 

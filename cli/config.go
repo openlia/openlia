@@ -18,7 +18,6 @@ import (
 	"github.com/robfig/cron/v3"
 	"openlia/internal/releaseinfo"
 	"openlia/internal/toolcatalog"
-	"openlia/internal/webuiauth"
 )
 
 const (
@@ -29,16 +28,14 @@ const (
 	defaultOutputLanguage        = "en"
 	defaultTimezone              = "Asia/Ho_Chi_Minh"
 	defaultWorkspaceUIPort       = 8089
-	defaultOpenWebUIPort         = 8090
 	maxBackupRemoteRetentionDays = (1<<63 - 1) / int64(24*time.Hour)
 )
 
 var (
-	defaultVersion        = releaseinfo.Default.OpenLia
-	defaultHermesTag      = releaseinfo.Default.Hermes.Tag
-	defaultLochoVersion   = releaseinfo.Default.Locho.Version
-	defaultOpenWebUIImage = releaseinfo.Default.OpenWebUI.Ref()
-	defaultHermesImage    = "openlia-hermes:" + defaultHermesTag
+	defaultVersion      = releaseinfo.Default.OpenLia
+	defaultHermesTag    = releaseinfo.Default.Hermes.Tag
+	defaultLochoVersion = releaseinfo.Default.Locho.Version
+	defaultHermesImage  = "openlia-hermes:" + defaultHermesTag
 )
 
 var defaultSkills = []string{
@@ -99,18 +96,6 @@ type Config struct {
 	WorkspaceUIFirebaseAPIKey     string
 	WorkspaceUIFirebaseAuthDomain string
 	WorkspaceUIFirebaseAppID      string
-	OpenWebUIHost                 string
-	OpenWebUIPort                 int
-	OpenWebUIImage                string
-	OpenWebUIAuth                 bool
-	OpenWebUIAdminEmail           string
-	OpenWebUIAdminPasswordHash    string
-	OpenWebUIGoogleClientID       string
-	OpenWebUIGoogleClientSecret   string
-	OpenWebUIURL                  string
-	OpenWebUIAllowedDomains       []string
-	OpenWebUIAllowedEmails        []string
-	OpenWebUIEnableOAuthSignup    bool
 	LochoHostEnabled              bool
 	LochoHostStateDir             string
 	LochoRelayConfigSource        string
@@ -195,11 +180,6 @@ func defaultConfig() Config {
 		APIHost:                    "127.0.0.1",
 		WorkspaceUIHost:            "",
 		WorkspaceUIPort:            defaultWorkspaceUIPort,
-		OpenWebUIHost:              "",
-		OpenWebUIPort:              defaultOpenWebUIPort,
-		OpenWebUIImage:             defaultOpenWebUIImage,
-		OpenWebUIAuth:              true,
-		OpenWebUIEnableOAuthSignup: false,
 		LochoHostEnabled:           false,
 		EnabledSkills:              append([]string(nil), defaultSkills...),
 		BackupSchedule:             "20 4 * * *",
@@ -461,30 +441,6 @@ func parseConfigUnchecked(data string) (Config, error) {
 				config.WorkspaceUIFirebaseAuthDomain, err = parseString(value)
 			case "workspace-ui.firebase_app_id":
 				config.WorkspaceUIFirebaseAppID, err = parseString(value)
-			case "open-webui.host":
-				config.OpenWebUIHost, err = parseString(value)
-			case "open-webui.port":
-				config.OpenWebUIPort, err = parseInt(value)
-			case "open-webui.image":
-				config.OpenWebUIImage, err = parseString(value)
-			case "open-webui.auth":
-				config.OpenWebUIAuth, err = parseBool(value)
-			case "open-webui.admin_email":
-				config.OpenWebUIAdminEmail, err = parseString(value)
-			case "open-webui.admin_password_hash":
-				config.OpenWebUIAdminPasswordHash, err = parseString(value)
-			case "open-webui.google_client_id":
-				config.OpenWebUIGoogleClientID, err = parseString(value)
-			case "open-webui.google_client_secret":
-				config.OpenWebUIGoogleClientSecret, err = parseString(value)
-			case "open-webui.url":
-				config.OpenWebUIURL, err = parseString(value)
-			case "open-webui.allowed_domains":
-				config.OpenWebUIAllowedDomains, err = parseStringArray(value)
-			case "open-webui.allowed_emails":
-				config.OpenWebUIAllowedEmails, err = parseStringArray(value)
-			case "open-webui.enable_oauth_signup":
-				config.OpenWebUIEnableOAuthSignup, err = parseBool(value)
 			case "locho-host.enabled":
 				config.LochoHostEnabled, err = parseBool(value)
 			case "locho-host.state_dir":
@@ -512,8 +468,6 @@ func parseConfigUnchecked(data string) (Config, error) {
 				config.OpenLiaBrowser.Root, err = parseString(value)
 			case "openlia-browser.extension_token_file":
 				config.OpenLiaBrowser.ExtensionTokenFile, err = parseString(value)
-			case "components.open_webui_image":
-				config.OpenWebUIImage, err = parseString(value)
 			case "release.source":
 				config.ReleaseSource, err = parseString(value)
 			case "components.hermes_image":
@@ -782,9 +736,6 @@ func validateConfig(config Config) error {
 	if !safeImageRef(config.HermesImage) || !safeImageRef(config.LochoImage) {
 		return errors.New("component image references contain unsupported characters")
 	}
-	if config.OpenWebUIImage != "" && !safeImageRef(config.OpenWebUIImage) {
-		return errors.New("component image references contain unsupported characters")
-	}
 	if config.HermesTag == "" || !validDigest(config.HermesDigest) {
 		return errors.New("Hermes tag and digest are required")
 	}
@@ -800,23 +751,9 @@ func validateConfig(config Config) error {
 	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIPublicOrigin, config.WorkspaceUIPasswordHash, config.WorkspaceUIAllowedEmails, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain, config.LochoHostEnabled); err != nil {
 		return err
 	}
-	if err := webuiauth.ValidateAdmin(config.OpenWebUIAdminEmail, config.OpenWebUIAdminPasswordHash, config.OpenWebUIAuth, config.OpenWebUIGoogleClientID); err != nil {
-		return err
-	}
-	if config.OpenWebUIHost != "" {
-		if err := validateOpenWebUI(config.OpenWebUIHost, config.OpenWebUIPort, config.OpenWebUIGoogleClientID, config.OpenWebUIGoogleClientSecret, config.OpenWebUIURL, config.OpenWebUIAllowedDomains, config.OpenWebUIAllowedEmails, config.OpenWebUIEnableOAuthSignup); err != nil {
-			return err
-		}
-	}
 	if config.LochoHostEnabled {
-		if config.WorkspaceUIHost != "127.0.0.1" || config.OpenWebUIHost != "127.0.0.1" {
-			return errors.New("locho-host requires workspace-ui and open-webui to bind to 127.0.0.1")
-		}
-		if config.WorkspaceUIPort == config.OpenWebUIPort {
-			return errors.New("locho-host requires different workspace-ui and open-webui ports")
-		}
-		if !config.OpenWebUIAuth {
-			return errors.New("locho-host requires open-webui authentication")
+		if config.WorkspaceUIHost != "127.0.0.1" {
+			return errors.New("locho-host requires workspace-ui to bind to 127.0.0.1")
 		}
 	}
 	if config.LochoHostStateDir != "" {
@@ -1002,48 +939,6 @@ func validateWorkspaceUI(host string, port int, publicOrigin, passwordHash strin
 	}
 	if (host == "0.0.0.0" || authRequired) && passwordHash == "" {
 		return errors.New("workspace-ui.password_hash is required when Workspace UI authentication is enabled")
-	}
-	return nil
-}
-
-func validateOpenWebUI(host string, port int, googleClientID, googleClientSecret, openWebUIURL string, allowedDomains, allowedEmails []string, enableOAuthSignup bool) error {
-	if host == "" {
-		return nil
-	}
-	if net.ParseIP(host) == nil || host != "127.0.0.1" && host != "0.0.0.0" {
-		return errors.New("open-webui.host must be 127.0.0.1 or 0.0.0.0")
-	}
-	if port < 1 || port > 65535 {
-		return errors.New("open-webui.port must be between 1 and 65535")
-	}
-	isGoogleAuth := googleClientID != "" || googleClientSecret != "" || openWebUIURL != "" || len(allowedDomains) > 0 || len(allowedEmails) > 0
-	if isGoogleAuth {
-		if googleClientID == "" {
-			return errors.New("open-webui.google_client_id is required when Google OAuth is configured")
-		}
-		if googleClientSecret == "" {
-			return errors.New("open-webui.google_client_secret is required when Google OAuth is configured")
-		}
-		if openWebUIURL == "" {
-			return errors.New("open-webui.url is required when Google OAuth is configured")
-		}
-		parsedURL, err := url.Parse(openWebUIURL)
-		if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
-			return errors.New("open-webui.url must be a valid http or https URL")
-		}
-		for _, domain := range allowedDomains {
-			if strings.TrimSpace(domain) == "" || strings.Contains(domain, "@") || strings.Contains(domain, " ") {
-				return errors.New("open-webui.allowed_domains must contain valid domain names without '@'")
-			}
-		}
-		for _, email := range allowedEmails {
-			if strings.TrimSpace(email) == "" || !strings.Contains(email, "@") || strings.HasPrefix(email, "@") || strings.HasSuffix(email, "@") || strings.Contains(email, " ") {
-				return errors.New("open-webui.allowed_emails must contain valid email addresses")
-			}
-		}
-		if !enableOAuthSignup && len(allowedEmails) == 0 {
-			return errors.New("open-webui.allowed_emails must contain at least one email address when enable_oauth_signup is false")
-		}
 	}
 	return nil
 }
@@ -1348,54 +1243,6 @@ func renderConfig(config Config) string {
 		}
 		if config.LochoRelaySecretsSource != "" {
 			fmt.Fprintf(&builder, "relay_secrets = %q\n", config.LochoRelaySecretsSource)
-		}
-		builder.WriteString("\n")
-	}
-	if config.OpenWebUIHost != "" {
-		fmt.Fprintf(&builder, "[open-webui]\nhost = %q\nport = %d\n", config.OpenWebUIHost, config.OpenWebUIPort)
-		if config.OpenWebUIImage != "" && config.OpenWebUIImage != defaultOpenWebUIImage {
-			fmt.Fprintf(&builder, "image = %q\n", config.OpenWebUIImage)
-		}
-		if !config.OpenWebUIAuth {
-			builder.WriteString("auth = false\n")
-		}
-		if config.OpenWebUIAdminEmail != "" {
-			fmt.Fprintf(&builder, "admin_email = %q\n", config.OpenWebUIAdminEmail)
-		}
-		if config.OpenWebUIAdminPasswordHash != "" {
-			fmt.Fprintf(&builder, "admin_password_hash = %q\n", config.OpenWebUIAdminPasswordHash)
-		}
-		if config.OpenWebUIGoogleClientID != "" {
-			fmt.Fprintf(&builder, "google_client_id = %q\n", config.OpenWebUIGoogleClientID)
-		}
-		if config.OpenWebUIGoogleClientSecret != "" {
-			fmt.Fprintf(&builder, "google_client_secret = %q\n", config.OpenWebUIGoogleClientSecret)
-		}
-		if config.OpenWebUIURL != "" {
-			fmt.Fprintf(&builder, "url = %q\n", config.OpenWebUIURL)
-		}
-		if len(config.OpenWebUIAllowedDomains) > 0 {
-			builder.WriteString("allowed_domains = [")
-			for i, domain := range config.OpenWebUIAllowedDomains {
-				if i > 0 {
-					builder.WriteString(", ")
-				}
-				fmt.Fprintf(&builder, "%q", domain)
-			}
-			builder.WriteString("]\n")
-		}
-		if len(config.OpenWebUIAllowedEmails) > 0 {
-			builder.WriteString("allowed_emails = [")
-			for i, email := range config.OpenWebUIAllowedEmails {
-				if i > 0 {
-					builder.WriteString(", ")
-				}
-				fmt.Fprintf(&builder, "%q", email)
-			}
-			builder.WriteString("]\n")
-		}
-		if config.OpenWebUIGoogleClientID != "" && config.OpenWebUIEnableOAuthSignup {
-			builder.WriteString("enable_oauth_signup = true\n")
 		}
 		builder.WriteString("\n")
 	}

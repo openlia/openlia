@@ -36,9 +36,6 @@ func testConfig(repo, runtime string) Config {
 		OutputLanguage:    "en",
 		WorkspaceUIHost:   "",
 		WorkspaceUIPort:   8089,
-		OpenWebUIHost:     "",
-		OpenWebUIPort:     8090,
-		OpenWebUIDataRoot: filepath.Join(runtime, "open-webui"),
 		RuntimeUID:        os.Getuid(),
 		RuntimeGID:        os.Getgid(),
 	}
@@ -129,10 +126,6 @@ func TestLoadConfigFromEnv(t *testing.T) {
 		"OPENLIA_WORKSPACE_UI_PORT":             "8090",
 		"OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN":    "https://workspace.example.test",
 		"OPENLIA_WORKSPACE_UI_AUTH_REQUIRED":    "true",
-		"OPENLIA_OPEN_WEBUI_HOST":               "127.0.0.1",
-		"OPENLIA_OPEN_WEBUI_PORT":               "8090",
-		"OPENLIA_OPEN_WEBUI_IMAGE":              releaseinfo.Default.OpenWebUI.Ref(),
-		"OPENLIA_OPEN_WEBUI_AUTH":               "false",
 		"OPENLIA_LOCHO_VERSION":                 releaseinfo.Default.Locho.Version,
 		"OPENLIA_LOCHO_X86_64_SHA256":           "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"OPENLIA_LOCHO_ARM64_SHA256":            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -140,7 +133,7 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !config.LocalMode || !config.SkillsConfigured || config.OutputLanguage != "vi" || config.WorkspaceUIHost != "0.0.0.0" || config.WorkspaceUIPort != 8090 || config.WorkspaceUIPublicOrigin != "https://workspace.example.test" || config.OpenWebUIHost != "127.0.0.1" || config.OpenWebUIPort != 8090 || config.OpenWebUIImage != releaseinfo.Default.OpenWebUI.Ref() || config.OpenWebUIAuth != false || config.OpenLiaReleaseSHA256 != releaseDigest || config.LochoX8664SHA256 != strings.Repeat("a", 64) || config.LochoARM64SHA256 != strings.Repeat("b", 64) || len(config.EnabledSkills) != 2 || config.IngestionMaxConcurrentJobs != 2 || config.BackupRetention != 4 || config.BackupMaxBytes != 123456789 || config.BackupRemoteRetentionDays != 17 || config.NetworkName != "example-private" || config.Provider != "copilot" || len(config.FallbackProviders) != 2 || config.FallbackProviders[0].BaseURL != "https://gateway.example.test/v1" || config.FallbackProviders[1].Model != "official-model" {
+	if !config.LocalMode || !config.SkillsConfigured || config.OutputLanguage != "vi" || config.WorkspaceUIHost != "0.0.0.0" || config.WorkspaceUIPort != 8090 || config.WorkspaceUIPublicOrigin != "https://workspace.example.test" || config.OpenLiaReleaseSHA256 != releaseDigest || config.LochoX8664SHA256 != strings.Repeat("a", 64) || config.LochoARM64SHA256 != strings.Repeat("b", 64) || len(config.EnabledSkills) != 2 || config.IngestionMaxConcurrentJobs != 2 || config.BackupRetention != 4 || config.BackupMaxBytes != 123456789 || config.BackupRemoteRetentionDays != 17 || config.NetworkName != "example-private" || config.Provider != "copilot" || len(config.FallbackProviders) != 2 || config.FallbackProviders[0].BaseURL != "https://gateway.example.test/v1" || config.FallbackProviders[1].Model != "official-model" {
 		t.Fatalf("unexpected typed config: %+v", config)
 	}
 	wantImage := toolcatalog.ManagedHermesImage("example", releaseinfo.Default.Hermes.Tag, releaseinfo.Default.Hermes.Digest, toolcatalog.DefaultDebianSnapshot)
@@ -215,7 +208,6 @@ func TestLoadConfigFromEnvConfiguresLochoHostState(t *testing.T) {
 		"OPENLIA_LOCAL_MODE":                 "true",
 		"OPENLIA_WORKSPACE_UI_HOST":          "127.0.0.1",
 		"OPENLIA_WORKSPACE_UI_AUTH_REQUIRED": "true",
-		"OPENLIA_OPEN_WEBUI_HOST":            "127.0.0.1",
 		"OPENLIA_LOCHO_HOST_ENABLED":         "true",
 	})
 	if err != nil {
@@ -269,24 +261,6 @@ func TestWorkspaceUIHostValidation(t *testing.T) {
 	}
 }
 
-func TestOpenWebUIHostValidation(t *testing.T) {
-	for _, host := range []string{"localhost", "192.168.1.10", "127.0.0.2"} {
-		config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
-		config.OpenWebUIHost = host
-		if err := config.ValidatePaths(); err == nil {
-			t.Fatalf("open-webui host %q was accepted", host)
-		}
-	}
-	for _, port := range []int{0, 65536} {
-		config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
-		config.OpenWebUIHost = "127.0.0.1"
-		config.OpenWebUIPort = port
-		if err := config.ValidatePaths(); err == nil {
-			t.Fatalf("open-webui port %d was accepted", port)
-		}
-	}
-}
-
 func TestWorkspaceUIFirebaseAuthValidation(t *testing.T) {
 	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
 	config.WorkspaceUIHost = "0.0.0.0"
@@ -312,41 +286,6 @@ func TestWorkspaceUIFirebaseAuthValidation(t *testing.T) {
 		modify(&bad)
 		if err := bad.ValidatePaths(); err == nil {
 			t.Fatalf("invalid Firebase config case %d was unexpectedly accepted", i)
-		}
-	}
-}
-
-func TestOpenWebUIGoogleOAuthValidation(t *testing.T) {
-	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIPort = 8090
-	config.OpenWebUIGoogleClientID = "123-abc.apps.googleusercontent.com"
-	config.OpenWebUIGoogleClientSecret = "secret-xyz"
-	config.OpenWebUIURL = "https://chat.example.com"
-	config.OpenWebUIAllowedDomains = []string{"example.com", "corp.org"}
-	config.OpenWebUIAllowedEmails = []string{"alice@example.com", "bob@corp.org"}
-	config.OpenWebUIEnableOAuthSignup = false
-
-	if err := config.ValidatePaths(); err != nil {
-		t.Fatalf("valid Google OAuth config was rejected: %v", err)
-	}
-
-	invalidConfigs := []func(*Config){
-		func(c *Config) { c.OpenWebUIGoogleClientID = "" },
-		func(c *Config) { c.OpenWebUIGoogleClientSecret = "" },
-		func(c *Config) { c.OpenWebUIURL = "" },
-		func(c *Config) { c.OpenWebUIURL = "invalid-url" },
-		func(c *Config) { c.OpenWebUIAllowedDomains = []string{"user@domain.com"} },
-		func(c *Config) { c.OpenWebUIAllowedDomains = []string{"space domain.com"} },
-		func(c *Config) { c.OpenWebUIAllowedEmails = []string{"invalid-email"} },
-		func(c *Config) { c.OpenWebUIAllowedEmails = []string{"space in@email.com"} },
-		func(c *Config) { c.OpenWebUIAllowedEmails = nil; c.OpenWebUIEnableOAuthSignup = false },
-	}
-	for i, modify := range invalidConfigs {
-		bad := config
-		modify(&bad)
-		if err := bad.ValidatePaths(); err == nil {
-			t.Fatalf("invalid Google OAuth config case %d was unexpectedly accepted", i)
 		}
 	}
 }

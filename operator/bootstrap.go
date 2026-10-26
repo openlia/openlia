@@ -104,11 +104,6 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 			}
 		}
 	}
-	if config.OpenWebUIHost != "" {
-		if err := EnsureDir(config.OpenWebUIDataRoot, 0o700); err != nil {
-			return BootstrapResult{}, err
-		}
-	}
 	if _, err := os.Lstat(config.SecretFile); errors.Is(err, os.ErrNotExist) {
 		if err := AtomicWriteFile(config.SecretFile, []byte("# Add KEY=VALUE lines through the operator's secret rotation workflow.\n"), 0o600); err != nil {
 			return BootstrapResult{}, err

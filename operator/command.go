@@ -279,7 +279,7 @@ func runBackup(ctx context.Context, config Config, args []string, _ io.Reader, o
 	if err != nil {
 		return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 	}
-	return emit(output, result, jsonOutput, "openlia backup: restored "+result.Archive+"; secrets, attachments, and Open WebUI data remain destination-owned")
+	return emit(output, result, jsonOutput, "openlia backup: restored "+result.Archive+"; secrets and attachments remain destination-owned")
 }
 
 func runLochoHost(ctx context.Context, config Config, args []string, output, errorOutput io.Writer, jsonOutput bool) int {

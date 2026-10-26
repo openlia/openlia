@@ -11,12 +11,6 @@ var Default = Manifest{
 		Tag:     "v0.22.4",
 		Digest:  "sha256:7a69201726bc64db2072a1371557137c23312d29705cda2b8ea2a0214a50a4cf",
 	},
-	OpenWebUI: ImagePin{
-		Image:   "ghcr.io/open-webui/open-webui",
-		Channel: "stable",
-		Tag:     "v0.12.3",
-		Digest:  "sha256:a537bbe1e6b428820f52ed4a029d7fff97062e24d5cf32c365fba36fd0542def",
-	},
 	Locho: LochoPin{
 		Version:       "1.3.0-beta.2",
 		LinuxX8664SHA: "5efec3f6d1e6ac86017f86bb3dd6f60bb9234cbab223bc9028ee63161ad550a0",

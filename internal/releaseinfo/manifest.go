@@ -33,11 +33,10 @@ type LochoPin struct {
 }
 
 type Manifest struct {
-	Schema    int
-	OpenLia   string
-	Hermes    ImagePin
-	OpenWebUI ImagePin
-	Locho     LochoPin
+	Schema  int
+	OpenLia string
+	Hermes  ImagePin
+	Locho   LochoPin
 }
 
 func InternalImage(name, version string) string {

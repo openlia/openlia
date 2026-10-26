@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"openlia/internal/releaseinfo"
 )
 
 type recordedRunner struct {
@@ -47,10 +46,6 @@ func (r *workspaceUIRunner) Run(_ context.Context, name string, args ...string) 
 	return CommandResult{}, nil
 }
 
-type openWebUIRunner struct {
-	calls []string
-}
-
 type deployBuildRunner struct {
 	calls     []string
 	dataRoot  string
@@ -67,16 +62,13 @@ func (r *lochoLifecycleRunner) Run(_ context.Context, name string, args ...strin
 	call := strings.Join(append([]string{name}, args...), " ")
 	r.calls = append(r.calls, call)
 	if strings.Contains(call, "config --services") {
-		return CommandResult{Stdout: []byte("workspace-ui\nopen-webui\nlocho-host\n")}, nil
+		return CommandResult{Stdout: []byte("workspace-ui\nlocho-host\n")}, nil
 	}
 	if strings.Contains(call, "ps --services --filter status=running") {
 		return CommandResult{Stdout: []byte(r.runningServices)}, nil
 	}
 	if strings.Contains(call, "port workspace-ui 8089") {
 		return CommandResult{Stdout: []byte("127.0.0.1:8089\n")}, nil
-	}
-	if strings.Contains(call, "port open-webui 8080") {
-		return CommandResult{Stdout: []byte("127.0.0.1:8090\n")}, nil
 	}
 	if strings.Contains(call, "exec -T locho-host sh -c") && r.stale {
 		return CommandResult{ExitCode: 1}, fmt.Errorf("stale endpoint")
@@ -107,21 +99,6 @@ func (r *deployBuildRunner) Run(_ context.Context, name string, args ...string) 
 	}
 	if strings.Contains(call, "NetworkSettings.Networks") {
 		return CommandResult{Stdout: []byte("test-project-private \n")}, nil
-	}
-	return CommandResult{}, nil
-}
-
-func (r *openWebUIRunner) Run(_ context.Context, name string, args ...string) (CommandResult, error) {
-	call := strings.Join(append([]string{name}, args...), " ")
-	r.calls = append(r.calls, call)
-	if strings.Contains(call, "config --services") {
-		return CommandResult{Stdout: []byte("open-webui\n")}, nil
-	}
-	if strings.Contains(call, "ps --services --filter status=running") {
-		return CommandResult{Stdout: []byte("open-webui\n")}, nil
-	}
-	if strings.Contains(call, "port open-webui 8080") {
-		return CommandResult{Stdout: []byte("127.0.0.1:8090\n")}, nil
 	}
 	return CommandResult{}, nil
 }
@@ -348,49 +325,8 @@ func TestDeployWorkspaceUIComponentTargetsOnlyWorkspaceUI(t *testing.T) {
 	}
 }
 
-func TestDeployOpenWebUIComponentTargetsOnlyOpenWebUI(t *testing.T) {
-	repo := t.TempDir()
-	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
-	config := testConfig(repo, runtimeRoot)
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIPort = 8090
-	config.OpenWebUIAuth = true
-	if err := os.MkdirAll(filepath.Join(repo, "docker"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(config.ComposeFile, []byte("services: {}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(config.SecretDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(config.SecretFile, []byte("# test\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(config.MetaRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteState(config, stateNeverStarted); err != nil {
-		t.Fatal(err)
-	}
-	runner := &openWebUIRunner{}
-	if _, err := Deploy(context.Background(), config, NewCompose(config, runner), DeployOptions{Action: "start", Component: "open-webui", HealthAttempts: 1}, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	joined := strings.Join(runner.calls, "\n")
-	if !strings.Contains(joined, "up -d --no-deps --force-recreate open-webui") {
-		t.Fatalf("open-webui target was not started directly: %s", joined)
-	}
-	if !strings.Contains(joined, "except Exception:") || !strings.Contains(joined, "sys.exit(1)") {
-		t.Fatalf("open-webui health probe does not suppress expected startup failures: %s", joined)
-	}
-	if strings.Contains(joined, "hermes") || strings.Contains(joined, "locho") || strings.Contains(joined, "workspace-ui") {
-		t.Fatalf("targeted open-webui deploy touched another service: %s", joined)
-	}
-}
-
 func TestTargetedUIRecreationAlsoRecreatesLochoHost(t *testing.T) {
-	for _, component := range []string{"workspace-ui", "open-webui"} {
+	for _, component := range []string{"workspace-ui"} {
 		t.Run(component, func(t *testing.T) {
 			repo := t.TempDir()
 			runtimeRoot := filepath.Join(t.TempDir(), "runtime")
@@ -402,8 +338,6 @@ func TestTargetedUIRecreationAlsoRecreatesLochoHost(t *testing.T) {
 			config.WorkspaceUIHost = "127.0.0.1"
 			config.WorkspaceUIAuthRequired = true
 			config.WorkspaceUIPasswordHashFile = filepath.Join(config.SecretDir, "workspace-ui-password.hash")
-			config.OpenWebUIHost = "127.0.0.1"
-			config.OpenWebUIAuth = true
 			for _, directory := range []string{filepath.Dir(config.ComposeFile), config.SecretDir, config.MetaRoot, config.LochoHostRoot, config.LochoHostStateRoot} {
 				if err := os.MkdirAll(directory, 0o700); err != nil {
 					t.Fatal(err)
@@ -418,7 +352,7 @@ func TestTargetedUIRecreationAlsoRecreatesLochoHost(t *testing.T) {
 			if err := WriteState(config, stateNeverStarted); err != nil {
 				t.Fatal(err)
 			}
-			runner := &lochoLifecycleRunner{runningServices: "workspace-ui\nopen-webui\nlocho-host\n"}
+			runner := &lochoLifecycleRunner{runningServices: "workspace-ui\nlocho-host\n"}
 			if _, err := Deploy(context.Background(), config, NewCompose(config, runner), DeployOptions{Action: "start", Component: component, HealthAttempts: 1}, time.Now()); err != nil {
 				t.Fatalf("%v; calls=%v", err, runner.calls)
 			}
@@ -433,7 +367,7 @@ func TestTargetedUIRecreationAlsoRecreatesLochoHost(t *testing.T) {
 func TestLochoHostHealthRejectsStaleEndpoints(t *testing.T) {
 	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
 	config.LochoHostEnabled = true
-	runner := &lochoLifecycleRunner{runningServices: "workspace-ui\nopen-webui\nlocho-host\n", stale: true}
+	runner := &lochoLifecycleRunner{runningServices: "workspace-ui\nlocho-host\n", stale: true}
 	if lochoHostHealthy(context.Background(), config, NewCompose(config, runner)) {
 		t.Fatal("stale Locho endpoints were reported healthy")
 	}
@@ -450,8 +384,6 @@ func TestLochoOnlyDeployRejectsStoppedUIDependencies(t *testing.T) {
 	config.WorkspaceUIHost = "127.0.0.1"
 	config.WorkspaceUIAuthRequired = true
 	config.WorkspaceUIPasswordHashFile = filepath.Join(config.SecretDir, "workspace-ui-password.hash")
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIAuth = true
 	for _, directory := range []string{filepath.Dir(config.ComposeFile), config.SecretDir, config.MetaRoot, config.LochoHostRoot, config.LochoHostStateRoot} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatal(err)
@@ -472,13 +404,12 @@ func TestLochoOnlyDeployRejectsStoppedUIDependencies(t *testing.T) {
 	}
 }
 
-func TestTargetedUIUpdateRejectsStoppedPeer(t *testing.T) {
+func TestTargetedUIUpdateNeedsNoPeer(t *testing.T) {
 	for _, test := range []struct {
 		component string
 		running   string
 	}{
 		{component: "workspace-ui", running: "workspace-ui\nlocho-host\n"},
-		{component: "open-webui", running: "open-webui\nlocho-host\n"},
 	} {
 		t.Run(test.component, func(t *testing.T) {
 			repo := t.TempDir()
@@ -491,8 +422,6 @@ func TestTargetedUIUpdateRejectsStoppedPeer(t *testing.T) {
 			config.WorkspaceUIHost = "127.0.0.1"
 			config.WorkspaceUIAuthRequired = true
 			config.WorkspaceUIPasswordHashFile = filepath.Join(config.SecretDir, "workspace-ui-password.hash")
-			config.OpenWebUIHost = "127.0.0.1"
-			config.OpenWebUIAuth = true
 			for _, directory := range []string{filepath.Dir(config.ComposeFile), config.SecretDir, config.MetaRoot, config.LochoHostRoot, config.LochoHostStateRoot} {
 				if err := os.MkdirAll(directory, 0o700); err != nil {
 					t.Fatal(err)
@@ -508,13 +437,8 @@ func TestTargetedUIUpdateRejectsStoppedPeer(t *testing.T) {
 				t.Fatal(err)
 			}
 			runner := &lochoLifecycleRunner{runningServices: test.running}
-			if _, err := Deploy(context.Background(), config, NewCompose(config, runner), DeployOptions{Action: "deploy", Component: test.component, ForceStart: true, HealthAttempts: 1}, time.Now()); err == nil || !strings.Contains(err.Error(), "run openlia deploy first") {
-				t.Fatalf("stopped peer was not rejected: %v", err)
-			}
-			for _, call := range runner.calls {
-				if strings.Contains(call, " up -d") {
-					t.Fatalf("partial stack was started before rejection: %v", runner.calls)
-				}
+			if _, err := Deploy(context.Background(), config, NewCompose(config, runner), DeployOptions{Action: "deploy", Component: test.component, ForceStart: true, HealthAttempts: 1}, time.Now()); err != nil {
+				t.Fatalf("Workspace UI-only update failed: %v", err)
 			}
 		})
 	}
@@ -605,7 +529,6 @@ func TestDurableBackupExcludesRebuildableSkillsAndCaches(t *testing.T) {
 		filepath.Join(config.DataRoot, "skills", "weekly-review", "SKILL.md"):                            "managed",
 		filepath.Join(config.DataRoot, "skills", ".bundled_manifest"):                                    "ascii-video:hash\n",
 		filepath.Join(config.MetaRoot, ".cache", "generated.json"):                                       "generated",
-		filepath.Join(config.RuntimeRoot, "open-webui", "webui.db"):                                      "open-webui",
 	}
 	for path, contents := range files {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -632,7 +555,6 @@ func TestDurableBackupExcludesRebuildableSkillsAndCaches(t *testing.T) {
 		"hermes/skills/weekly-review/.venv/bin/python",
 		"hermes/skills/weekly-review/node_modules/package/index.js",
 		"meta/.cache/generated.json",
-		"open-webui/webui.db",
 		"locho",
 	} {
 		if names[excluded] {
@@ -905,8 +827,6 @@ func TestGeneratedAttachmentsContainLochoBuildAndHardening(t *testing.T) {
 	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
 	config := testConfig(repo, runtimeRoot)
 	config.ServiceRoles = map[string]string{"laptop.openlia-browser": "openlia-browser"}
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIPort = 8090
 	config.LochoRelayConfig = filepath.Join(runtimeRoot, "locho", "relay.toml")
 	config.LochoRelaySecrets = filepath.Join(runtimeRoot, "locho-relay-secrets", "relay.env")
 	if err := os.MkdirAll(filepath.Dir(config.LochoRelayConfig), 0o700); err != nil {
@@ -1033,8 +953,6 @@ func TestGeneratedLochoHostHasOneRelayEnvFile(t *testing.T) {
 	config.WorkspaceUIHost = "127.0.0.1"
 	config.WorkspaceUIAuthRequired = true
 	config.WorkspaceUIPasswordHashFile = filepath.Join(runtimeRoot, "secrets", "workspace-ui-password.hash")
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIAuth = true
 	config.LochoHostEnabled = true
 	config.LochoHostRoot = filepath.Join(runtimeRoot, "locho-host")
 	config.LochoHostConfig = filepath.Join(config.LochoHostRoot, "locho.toml")
@@ -1159,278 +1077,7 @@ func TestGeneratedAttachmentsContainWorkspaceUIWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestGeneratedAttachmentsContainOpenWebUI(t *testing.T) {
-	repo := t.TempDir()
-	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
-	config := testConfig(repo, runtimeRoot)
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIPort = 8090
-	config.OpenWebUIImage = releaseinfo.Default.OpenWebUI.Ref()
-	config.OpenWebUIAuth = true
-	if err := os.MkdirAll(filepath.Join(repo, "docker"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(config.SecretDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(config.SecretFile, []byte("COPILOT_GITHUB_TOKEN=gho_testtoken\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := GenerateAttachments(config); err != nil {
-		t.Fatal(err)
-	}
-	if info, err := os.Stat(config.OpenWebUIDataRoot); err != nil || info.Mode().Perm() != 0o700 {
-		t.Fatalf("Open WebUI data root permissions = %v, want 0700", err)
-	}
-	data, err := os.ReadFile(config.GeneratedCompose)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(data)
-	for _, expected := range []string{
-		"open-webui:",
-		releaseinfo.Default.OpenWebUI.Ref(),
-		"127.0.0.1:8090:8080",
-		"target: /app/backend/data",
-		"OPENAI_API_BASE_URL: \"http://hermes:8642/v1\"",
-		"ENABLE_OLLAMA_API: \"False\"",
-		"WEBUI_NAME: \"OpenLia\"",
-		"WEBUI_AUTH: \"True\"",
-		"except Exception:\\n    sys.exit(1)",
-		"API_SERVER_ENABLED: \"true\"",
-		"API_SERVER_HOST: \"0.0.0.0\"",
-	} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("generated Compose missing %q:\n%s", expected, text)
-		}
-	}
-
-	// Verify secrets were provisioned
-	openWebUIEnvPath := filepath.Join(config.SecretDir, "open-webui.env")
-	envData, err := os.ReadFile(openWebUIEnvPath)
-	if err != nil {
-		t.Fatalf("open-webui.env missing: %v", err)
-	}
-	envText := string(envData)
-	if !strings.Contains(envText, "OPENAI_API_KEY=sk-openlia-") || !strings.Contains(envText, "WEBUI_SECRET_KEY=") {
-		t.Fatalf("open-webui.env missing expected keys:\n%s", envText)
-	}
-
-	apiKey, err := readSecretValue(openWebUIEnvPath, "OPENAI_API_KEY")
-	if err != nil || apiKey == "" {
-		t.Fatalf("failed to read OPENAI_API_KEY: %v", err)
-	}
-	serverKey, err := readSecretValue(config.SecretFile, "API_SERVER_KEY")
-	if err != nil || serverKey == "" {
-		t.Fatalf("failed to read API_SERVER_KEY: %v", err)
-	}
-	if apiKey != serverKey {
-		t.Fatalf("key mismatch: open-webui=%q hermes=%q", apiKey, serverKey)
-	}
-
-	// Ensure secret token NEVER leaks into generated compose
-	if strings.Contains(text, apiKey) {
-		t.Fatalf("API key %q leaked into generated Compose file:\n%s", apiKey, text)
-	}
-	apiEnvPath := filepath.Join(config.SecretDir, "api-server.env")
-	apiEnv, err := os.ReadFile(apiEnvPath)
-	if err != nil {
-		t.Fatalf("api-server.env missing: %v", err)
-	}
-	if string(apiEnv) != "API_SERVER_KEY="+apiKey+"\n" {
-		t.Fatalf("api-server.env has unexpected contents: %q", apiEnv)
-	}
-	if info, err := os.Stat(apiEnvPath); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("api-server.env has unsafe mode: %v", err)
-	}
-}
-
-func TestGeneratedAttachmentsContainOpenWebUIGoogleOAuth(t *testing.T) {
-	repo := t.TempDir()
-	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
-	config := testConfig(repo, runtimeRoot)
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIPort = 8090
-	config.OpenWebUIImage = releaseinfo.Default.OpenWebUI.Ref()
-	config.OpenWebUIAuth = true
-	config.OpenWebUIGoogleClientID = "test-client-id.apps.googleusercontent.com"
-	config.OpenWebUIGoogleClientSecret = "test-client-secret-12345"
-	config.OpenWebUIURL = "http://127.0.0.1:8090"
-	config.OpenWebUIAllowedDomains = []string{"example.com", "company.org"}
-	config.OpenWebUIAllowedEmails = []string{"admin@example.com", "user@company.org"}
-	config.OpenWebUIEnableOAuthSignup = false
-
-	if err := os.MkdirAll(filepath.Join(repo, "docker"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(config.SecretDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(config.SecretFile, []byte("COPILOT_GITHUB_TOKEN=gho_testtoken\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := GenerateAttachments(config); err != nil {
-		t.Fatal(err)
-	}
-
-	data, err := os.ReadFile(config.GeneratedCompose)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(data)
-
-	for _, expected := range []string{
-		"ENABLE_OAUTH: \"True\"",
-		"GOOGLE_CLIENT_ID: \"test-client-id.apps.googleusercontent.com\"",
-		"WEBUI_URL: \"http://127.0.0.1:8090\"",
-		"ENABLE_OAUTH_SIGNUP: \"False\"",
-		"OAUTH_MERGE_ACCOUNTS_BY_EMAIL: \"True\"",
-		"ENABLE_LOGIN_FORM: \"False\"",
-		"OAUTH_ALLOWED_DOMAINS: \"example.com,company.org\"",
-	} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("generated Compose missing %q:\n%s", expected, text)
-		}
-	}
-
-	// Secret MUST NOT be leaked in Compose
-	if strings.Contains(text, "test-client-secret-12345") {
-		t.Fatalf("Google client secret leaked into generated compose file:\n%s", text)
-	}
-
-	// Secret MUST be present in open-webui.env with 0600 permissions
-	openWebUIEnvPath := filepath.Join(config.SecretDir, "open-webui.env")
-	envData, err := os.ReadFile(openWebUIEnvPath)
-	if err != nil {
-		t.Fatalf("open-webui.env missing: %v", err)
-	}
-	envText := string(envData)
-	if !strings.Contains(envText, "GOOGLE_CLIENT_SECRET=test-client-secret-12345") {
-		t.Fatalf("open-webui.env missing GOOGLE_CLIENT_SECRET:\n%s", envText)
-	}
-	if info, err := os.Stat(openWebUIEnvPath); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("open-webui.env has unsafe permissions: %v", err)
-	}
-
-	// Verify database users and auth credentials were seeded
-	dbPath := filepath.Join(config.OpenWebUIDataRoot, "webui.db")
-	verifyCmd := exec.Command("python3", "-c", fmt.Sprintf(`import sqlite3
-conn = sqlite3.connect(%q)
-c = conn.cursor()
-c.execute("SELECT email, role FROM \"user\" ORDER BY email")
-rows = c.fetchall()
-assert ("admin@example.com", "admin") in rows, f"missing admin: {rows}"
-assert ("user@company.org", "user") in rows, f"missing user: {rows}"
-
-c.execute("SELECT email, active FROM \"auth\" ORDER BY email")
-auth_rows = c.fetchall()
-assert ("admin@example.com", 1) in auth_rows, f"missing auth admin: {auth_rows}"
-assert ("user@company.org", 1) in auth_rows, f"missing auth user: {auth_rows}"
-conn.close()
-`, dbPath))
-	if output, err := verifyCmd.CombinedOutput(); err != nil {
-		t.Fatalf("webui user seeding verification failed: %v\nOutput: %s", err, string(output))
-	}
-}
-
-func TestOpenWebUILifecycleToggleOffAndReenable(t *testing.T) {
-	repo := t.TempDir()
-	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
-	config := testConfig(repo, runtimeRoot)
-	if err := os.MkdirAll(filepath.Join(repo, "docker"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(config.SecretDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(config.SecretFile, []byte("COPILOT_GITHUB_TOKEN=gho_testtoken\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	// 1. Initial deployment with Open WebUI enabled and Google OAuth
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIPort = 8090
-	config.OpenWebUIImage = releaseinfo.Default.OpenWebUI.Ref()
-	config.OpenWebUIAuth = true
-	config.OpenWebUIGoogleClientID = "client-id-1"
-	config.OpenWebUIGoogleClientSecret = "client-secret-1"
-	config.OpenWebUIURL = "http://127.0.0.1:8090"
-	config.OpenWebUIAllowedEmails = []string{"initial@example.com"}
-
-	if err := GenerateAttachments(config); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(config.GeneratedCompose)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), "open-webui:") {
-		t.Fatal("generated compose missing open-webui when enabled")
-	}
-
-	dbPath := filepath.Join(config.OpenWebUIDataRoot, "webui.db")
-	verifyInitial := exec.Command("python3", "-c", fmt.Sprintf(`import sqlite3
-conn = sqlite3.connect(%q)
-c = conn.cursor()
-c.execute("SELECT email, role FROM \"user\" WHERE email = 'initial@example.com'")
-row = c.fetchone()
-assert row == ("initial@example.com", "admin"), f"unexpected row: {row}"
-conn.close()
-`, dbPath))
-	if output, err := verifyInitial.CombinedOutput(); err != nil {
-		t.Fatalf("initial user verification failed: %v\nOutput: %s", err, string(output))
-	}
-
-	// 2. Turning feature off: host is empty
-	configDisabled := config
-	configDisabled.OpenWebUIHost = ""
-	if err := GenerateAttachments(configDisabled); err != nil {
-		t.Fatal(err)
-	}
-	dataDisabled, err := os.ReadFile(configDisabled.GeneratedCompose)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(dataDisabled), "open-webui:") {
-		t.Fatal("open-webui still present in generated compose when disabled")
-	}
-	// Verify persistent data directory remains intact
-	if _, err := os.Stat(dbPath); err != nil {
-		t.Fatalf("webui.db was unexpectedly deleted when feature turned off: %v", err)
-	}
-
-	// 3. Re-enabling with Google Sign In and updated allowed emails
-	configReenabled := config
-	configReenabled.OpenWebUIHost = "127.0.0.1"
-	configReenabled.OpenWebUIAllowedEmails = []string{"newowner@example.com", "initial@example.com", "family@example.com"}
-	if err := GenerateAttachments(configReenabled); err != nil {
-		t.Fatal(err)
-	}
-	dataReenabled, err := os.ReadFile(configReenabled.GeneratedCompose)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(dataReenabled), "open-webui:") {
-		t.Fatal("open-webui missing from compose when re-enabled")
-	}
-
-	// Verify database was reconciled: newowner is admin, initial and family are user
-	verifyReenabled := exec.Command("python3", "-c", fmt.Sprintf(`import sqlite3
-conn = sqlite3.connect(%q)
-c = conn.cursor()
-c.execute("SELECT email, role FROM \"user\" ORDER BY email")
-rows = dict(c.fetchall())
-assert rows.get("newowner@example.com") == "admin", f"newowner role incorrect: {rows}"
-assert rows.get("initial@example.com") == "user", f"initial role incorrect: {rows}"
-assert rows.get("family@example.com") == "user", f"family role incorrect: {rows}"
-conn.close()
-`, dbPath))
-	if output, err := verifyReenabled.CombinedOutput(); err != nil {
-		t.Fatalf("re-enabled user verification failed: %v\nOutput: %s", err, string(output))
-	}
-}
-
-func TestGeneratedAttachmentsContainLochoHostForBothUIs(t *testing.T) {
+func TestGeneratedAttachmentsContainLochoHostForWorkspaceUI(t *testing.T) {
 	repo := t.TempDir()
 	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
 	config := testConfig(repo, runtimeRoot)
@@ -1444,9 +1091,6 @@ func TestGeneratedAttachmentsContainLochoHostForBothUIs(t *testing.T) {
 	config.WorkspaceUIHost = "127.0.0.1"
 	config.WorkspaceUIAuthRequired = true
 	config.WorkspaceUIPasswordHashFile = filepath.Join(runtimeRoot, "secrets", "workspace-ui-password.hash")
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIPort = 8090
-	config.OpenWebUIAuth = true
 	if err := os.MkdirAll(filepath.Join(repo, "docker"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1466,8 +1110,6 @@ func TestGeneratedAttachmentsContainLochoHostForBothUIs(t *testing.T) {
 	for _, expected := range []string{
 		"name = \"workspace-ui\"",
 		"endpoint = \"127.0.0.1:8089\"",
-		"name = \"open-webui\"",
-		"endpoint = \"127.0.0.1:8090\"",
 	} {
 		if !strings.Contains(string(lochoConfig), expected) {
 			t.Fatalf("Locho host config missing %q:\n%s", expected, lochoConfig)
@@ -1494,7 +1136,10 @@ func TestGeneratedAttachmentsContainLochoHostForBothUIs(t *testing.T) {
 			t.Fatalf("generated Compose missing %q:\n%s", expected, text)
 		}
 	}
-	activeConfig := "[[services]]\nname = \"workspace-ui\"\ntype = \"tcp\"\nendpoint = \"172.30.0.2:8089\"\n\n[[services]]\nname = \"open-webui\"\ntype = \"tcp\"\nendpoint = \"172.30.0.3:8080\"\n"
+	if strings.Contains(text, "open-webui") || strings.Contains(string(lochoConfig), "open-webui") {
+		t.Fatal("Locho Compose or host config still exposes the retired service")
+	}
+	activeConfig := "[[services]]\nname = \"workspace-ui\"\ntype = \"tcp\"\nendpoint = \"172.30.0.2:8089\"\n"
 	if err := os.WriteFile(config.LochoHostConfig, []byte(activeConfig), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1509,9 +1154,8 @@ func TestGeneratedAttachmentsContainLochoHostForBothUIs(t *testing.T) {
 
 func TestLochoHostRuntimeConfigIsValidTOML(t *testing.T) {
 	contents := fmt.Sprintf(
-		strings.ReplaceAll(lochoHostConfigFormat(8089, 8080), `\n`, "\n"),
+		strings.ReplaceAll(lochoHostConfigFormat(8089), `\n`, "\n"),
 		"172.30.0.2",
-		"172.30.0.3",
 	)
 	if strings.Contains(contents, `\"`) {
 		t.Fatalf("Locho host config contains escaped quotes:\n%s", contents)
@@ -1534,7 +1178,6 @@ func TestLochoHostRuntimeConfigIsValidTOML(t *testing.T) {
 		endpoint string
 	}{
 		{name: "workspace-ui", typeName: "tcp", endpoint: "172.30.0.2:8089"},
-		{name: "open-webui", typeName: "tcp", endpoint: "172.30.0.3:8080"},
 	}
 	if len(config.Services) != len(expected) {
 		t.Fatalf("Locho host config has %d services, want %d", len(config.Services), len(expected))
@@ -1567,8 +1210,6 @@ func TestGeneratedLochoComposeValidates(t *testing.T) {
 	config.WorkspaceUIHost = "127.0.0.1"
 	config.WorkspaceUIAuthRequired = true
 	config.WorkspaceUIPasswordHashFile = filepath.Join(config.SecretDir, "workspace-ui-password.hash")
-	config.OpenWebUIHost = "127.0.0.1"
-	config.OpenWebUIAuth = true
 	if err := os.MkdirAll(config.SecretDir, 0o700); err != nil {
 		t.Fatal(err)
 	}

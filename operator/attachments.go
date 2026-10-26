@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -15,7 +14,6 @@ import (
 	"time"
 
 	"openlia/internal/releaseinfo"
-	"openlia/internal/webuiauth"
 )
 
 type LochoService struct {
@@ -233,29 +231,17 @@ func generateAttachmentsFile(config Config) error {
 	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIAuthRequired, config.WorkspaceUIPasswordHashFile, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIAllowedEmails, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain); err != nil {
 		return err
 	}
-	if err := validateOpenWebUI(config.OpenWebUIHost, config.OpenWebUIPort, config.OpenWebUIGoogleClientID, config.OpenWebUIGoogleClientSecret, config.OpenWebUIURL, config.OpenWebUIAllowedDomains, config.OpenWebUIAllowedEmails, config.OpenWebUIEnableOAuthSignup); err != nil {
-		return err
-	}
 	if config.LochoHostEnabled {
 		if err := writeLochoHostConfig(config); err != nil {
 			return err
 		}
-	}
-	openWebUIImage := config.OpenWebUIImage
-	if openWebUIImage == "" {
-		openWebUIImage = releaseinfo.Default.OpenWebUI.Ref()
 	}
 	lochoImage := config.LochoImage
 	if lochoImage == "" {
 		lochoImage = releaseinfo.InternalImage("openlia-locho", releaseinfo.Default.Locho.Version)
 	}
 	apiEnvPath := filepath.Join(config.SecretDir, "api-server.env")
-	if config.OpenWebUIHost != "" {
-		if err := EnsureOpenWebUISecrets(config); err != nil {
-			return err
-		}
-	}
-	if config.APIEnabled || config.OpenWebUIHost != "" || config.WorkspaceUIHost != "" {
+	if config.APIEnabled || config.WorkspaceUIHost != "" {
 		if err := ensureAPIServerEnv(config, apiEnvPath); err != nil {
 			return err
 		}
@@ -313,9 +299,9 @@ func generateAttachmentsFile(config Config) error {
 	}
 
 	var builder strings.Builder
-	hasHermesEnv := config.APIEnabled || config.OpenWebUIHost != "" || config.WorkspaceUIHost != "" || config.ExternalNetwork != "" || browserURL != "" || ingestionURL != "" || config.WorkspaceUIPublicOrigin != "" || len(allServices) > 0
+	hasHermesEnv := config.APIEnabled || config.WorkspaceUIHost != "" || config.ExternalNetwork != "" || browserURL != "" || ingestionURL != "" || config.WorkspaceUIPublicOrigin != "" || len(allServices) > 0
 	schedulerVolumes := append(backupSchedulerIdentityVolumes(config), backupSchedulerCredentialVolumes(config)...)
-	hasGeneratedServices := hasHermesEnv || config.WorkspaceUIHost != "" || config.OpenWebUIHost != "" || len(hosts.Hosts) > 0 || len(schedulerVolumes) > 0
+	hasGeneratedServices := hasHermesEnv || config.WorkspaceUIHost != "" || len(hosts.Hosts) > 0 || len(schedulerVolumes) > 0
 	if !hasGeneratedServices {
 		builder.WriteString("services: {}\n")
 	} else {
@@ -326,7 +312,7 @@ func generateAttachmentsFile(config Config) error {
 				fmt.Fprintf(&builder, "    ports:\n      - %q\n", config.APIHost+":8642:8642")
 			}
 			builder.WriteString("    environment:\n")
-			if config.APIEnabled || config.OpenWebUIHost != "" || config.WorkspaceUIHost != "" {
+			if config.APIEnabled || config.WorkspaceUIHost != "" {
 				builder.WriteString("      API_SERVER_ENABLED: \"true\"\n      API_SERVER_HOST: \"0.0.0.0\"\n")
 			}
 			if config.WorkspaceUIPublicOrigin != "" {
@@ -344,7 +330,7 @@ func generateAttachmentsFile(config Config) error {
 					fmt.Fprintf(&builder, "      %s: %q\n", envKey, svc.Endpoint)
 				}
 			}
-			if config.APIEnabled || config.OpenWebUIHost != "" || config.WorkspaceUIHost != "" {
+			if config.APIEnabled || config.WorkspaceUIHost != "" {
 				quotedAPIEnvPath, _ := json.Marshal(apiEnvPath)
 				builder.WriteString("    env_file:\n      - ")
 				builder.Write(quotedAPIEnvPath)
@@ -444,53 +430,9 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("\n        target: /var/lib/openlia")
 		builder.WriteString(fmt.Sprintf("\n    ports:\n      - %q\n    networks:\n      - openlia-private\n    healthcheck:\n      test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:%d/health').then(r => { if (!r.ok) process.exit(1) })\"]\n      interval: 10s\n      timeout: 3s\n      retries: 5\n    deploy:\n      resources:\n        limits:\n          cpus: \"0.5\"\n          memory: 256M\n    logging:\n      driver: \"json-file\"\n      options:\n        max-size: \"20m\"\n        max-file: \"5\"\n", fmt.Sprintf("%s:%d:%d", workspaceUIHost, workspaceUIPort, workspaceUIPort), workspaceUIPort))
 	}
-	if config.OpenWebUIHost != "" {
-		dataRoot, _ := json.Marshal(config.OpenWebUIDataRoot)
-		envFilePath, _ := json.Marshal(filepath.Join(config.SecretDir, "open-webui.env"))
-		builder.WriteString("  open-webui:\n")
-		fmt.Fprintf(&builder, "    image: %q\n", openWebUIImage)
-		builder.WriteString("    restart: unless-stopped\n")
-		fmt.Fprintf(&builder, "    ports:\n      - %q\n", fmt.Sprintf("%s:%d:8080", config.OpenWebUIHost, config.OpenWebUIPort))
-		builder.WriteString("    volumes:\n      - type: bind\n        source: ")
-		builder.Write(dataRoot)
-		builder.WriteString("\n        target: /app/backend/data\n")
-		builder.WriteString("    env_file:\n      - ")
-		builder.Write(envFilePath)
-		builder.WriteString("\n    environment:\n")
-		builder.WriteString("      OPENAI_API_BASE_URL: \"http://hermes:8642/v1\"\n")
-		builder.WriteString("      ENABLE_OLLAMA_API: \"False\"\n")
-		builder.WriteString("      WEBUI_NAME: \"OpenLia\"\n")
-		if config.OpenWebUIAuth {
-			builder.WriteString("      WEBUI_AUTH: \"True\"\n")
-		} else {
-			builder.WriteString("      WEBUI_AUTH: \"False\"\n")
-		}
-		if config.OpenWebUIAdminPasswordHash != "" {
-			builder.WriteString("      ENABLE_LOGIN_FORM: \"True\"\n      ENABLE_PASSWORD_AUTH: \"True\"\n      ENABLE_SIGNUP: \"False\"\n")
-		}
-		if config.OpenWebUIGoogleClientID != "" {
-			builder.WriteString("      ENABLE_OAUTH: \"True\"\n")
-			builder.WriteString(fmt.Sprintf("      GOOGLE_CLIENT_ID: %q\n", config.OpenWebUIGoogleClientID))
-			builder.WriteString(fmt.Sprintf("      WEBUI_URL: %q\n", config.OpenWebUIURL))
-			if config.OpenWebUIEnableOAuthSignup {
-				builder.WriteString("      ENABLE_OAUTH_SIGNUP: \"True\"\n")
-			} else {
-				builder.WriteString("      ENABLE_OAUTH_SIGNUP: \"False\"\n")
-			}
-			builder.WriteString("      OAUTH_MERGE_ACCOUNTS_BY_EMAIL: \"True\"\n")
-			builder.WriteString("      ENABLE_LOGIN_FORM: \"False\"\n")
-			if len(config.OpenWebUIAllowedDomains) > 0 {
-				builder.WriteString(fmt.Sprintf("      OAUTH_ALLOWED_DOMAINS: %q\n", strings.Join(config.OpenWebUIAllowedDomains, ",")))
-			}
-		}
-		builder.WriteString("    networks:\n      - openlia-private\n")
-		fmt.Fprintf(&builder, "    healthcheck:\n      test: [\"CMD\", \"python3\", \"-c\", %q]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n", openWebUIHealthProbe)
-		builder.WriteString("    deploy:\n      resources:\n        limits:\n          cpus: \"1.0\"\n          memory: 1G\n")
-		builder.WriteString("    logging:\n      driver: \"json-file\"\n      options:\n        max-size: \"20m\"\n        max-file: \"5\"\n")
-	}
 	if config.LochoHostEnabled {
 		lochoRoot, _ := json.Marshal(config.LochoHostRoot)
-		lochoCommand := "set -eu; set -- $(getent ahostsv4 workspace-ui); workspace_ip=\"$$1\"; set -- $(getent ahostsv4 open-webui); open_webui_ip=\"$$1\"; config=/var/lib/openlia-locho-host/locho.toml; temporary=\"$$config.tmp\"; trap 'rm -f \"$$temporary\"' EXIT; printf '" + lochoHostConfigFormat(config.WorkspaceUIPort, 8080) + "' \"$$workspace_ip\" \"$$open_webui_ip\" > \"$$temporary\"; chmod 600 \"$$temporary\"; mv -f \"$$temporary\" \"$$config\"; trap - EXIT; exec locho host --config \"$$config\""
+		lochoCommand := "set -eu; set -- $(getent ahostsv4 workspace-ui); workspace_ip=\"$$1\"; config=/var/lib/openlia-locho-host/locho.toml; temporary=\"$$config.tmp\"; trap 'rm -f \"$$temporary\"' EXIT; printf '" + lochoHostConfigFormat(config.WorkspaceUIPort) + "' \"$$workspace_ip\" > \"$$temporary\"; chmod 600 \"$$temporary\"; mv -f \"$$temporary\" \"$$config\"; trap - EXIT; exec locho host --config \"$$config\""
 		if config.LochoRelayConfig != "" {
 			lochoCommand += " --relay-config /etc/locho/relay.toml"
 		}
@@ -505,7 +447,7 @@ func generateAttachmentsFile(config Config) error {
 		if config.LochoRelaySecrets != "" {
 			fmt.Fprintf(&builder, "    env_file:\n      - %q\n", config.LochoRelaySecrets)
 		}
-		builder.WriteString("    depends_on:\n      - workspace-ui\n      - open-webui\n    networks:\n      - openlia-private\n    deploy:\n      resources:\n        limits:\n          cpus: \"0.5\"\n          memory: 512M\n    logging:\n      driver: \"json-file\"\n      options:\n        max-size: \"20m\"\n        max-file: \"5\"\n")
+		builder.WriteString("    depends_on:\n      - workspace-ui\n    networks:\n      - openlia-private\n    deploy:\n      resources:\n        limits:\n          cpus: \"0.5\"\n          memory: 512M\n    logging:\n      driver: \"json-file\"\n      options:\n        max-size: \"20m\"\n        max-file: \"5\"\n")
 	}
 	for _, host := range hosts.Hosts {
 		configPath := filepath.Join(config.LochoRoot, host.Host, "attachments.toml")
@@ -603,8 +545,8 @@ func backupSchedulerCredentialVolumes(config Config) []backupSchedulerIdentityVo
 	return volumes
 }
 
-func lochoHostConfigFormat(workspacePort, openWebUIPort int) string {
-	return fmt.Sprintf("[[services]]\\nname = \"workspace-ui\"\\ntype = \"tcp\"\\nendpoint = \"%%s:%d\"\\n\\n[[services]]\\nname = \"open-webui\"\\ntype = \"tcp\"\\nendpoint = \"%%s:%d\"\\n", workspacePort, openWebUIPort)
+func lochoHostConfigFormat(workspacePort int) string {
+	return fmt.Sprintf("[[services]]\\nname = \"workspace-ui\"\\ntype = \"tcp\"\\nendpoint = \"%%s:%d\"\\n", workspacePort)
 }
 
 func writeLochoHostConfig(config Config) error {
@@ -625,7 +567,7 @@ func writeLochoHostConfig(config Config) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	contents := "[[services]]\nname = \"workspace-ui\"\ntype = \"tcp\"\nendpoint = \"127.0.0.1:" + strconv.Itoa(config.WorkspaceUIPort) + "\"\n\n[[services]]\nname = \"open-webui\"\ntype = \"tcp\"\nendpoint = \"127.0.0.1:" + strconv.Itoa(config.OpenWebUIPort) + "\"\n"
+	contents := "[[services]]\nname = \"workspace-ui\"\ntype = \"tcp\"\nendpoint = \"127.0.0.1:" + strconv.Itoa(config.WorkspaceUIPort) + "\"\n"
 	if err := AtomicWriteFile(config.LochoHostConfig, []byte(contents), 0o600); err != nil {
 		return err
 	}
@@ -634,7 +576,7 @@ func writeLochoHostConfig(config Config) error {
 
 func ensureAPIServerEnv(config Config, path string) error {
 	apiKey, err := readSecretValue(config.SecretFile, "API_SERVER_KEY")
-	if config.WorkspaceUIHost != "" || config.OpenWebUIHost != "" {
+	if config.WorkspaceUIHost != "" {
 		apiKey, err = ensureHermesAPIKey(config)
 	}
 	if err != nil {
@@ -1027,28 +969,7 @@ func FormatAttachmentListHuman(result AttachmentListResult) string {
 	return strings.TrimRight(builder.String(), "\n")
 }
 
-func EnsureOpenWebUISecrets(config Config) error {
-	if config.OpenWebUIHost == "" {
-		return nil
-	}
-	if err := webuiauth.ValidateAdmin(config.OpenWebUIAdminEmail, config.OpenWebUIAdminPasswordHash, config.OpenWebUIAuth, config.OpenWebUIGoogleClientID); err != nil {
-		return err
-	}
-	if err := ensureSecretDirectory(config); err != nil {
-		return err
-	}
-	if err := EnsureDir(config.OpenWebUIDataRoot, 0o700); err != nil {
-		return err
-	}
-	openWebUIEnvPath := filepath.Join(config.SecretDir, "open-webui.env")
-	apiKey, err := ensureHermesAPIKey(config)
-	if err != nil {
-		return err
-	}
-	return writeOpenWebUIEnv(config, openWebUIEnvPath, apiKey)
-}
-
-// Shared by native Workspace UI chat and the optional Open WebUI service.
+// Reuse the Hermes credential for native Workspace UI chat across reconciliations.
 func ensureHermesAPIKey(config Config) (string, error) {
 	if err := ensureSecretDirectory(config); err != nil {
 		return "", err
@@ -1107,165 +1028,4 @@ func ensureHermesAPIKey(config Config) (string, error) {
 	}
 
 	return apiKey, nil
-}
-
-func writeOpenWebUIEnv(config Config, openWebUIEnvPath, apiKey string) error {
-	webuiSecret, _ := readSecretValue(openWebUIEnvPath, "WEBUI_SECRET_KEY")
-	if webuiSecret == "" {
-		buf := make([]byte, 16)
-		if _, randErr := rand.Read(buf); randErr != nil {
-			return fmt.Errorf("generate webui secret: %w", randErr)
-		}
-		webuiSecret = hex.EncodeToString(buf)
-	}
-
-	content := fmt.Sprintf("OPENAI_API_KEY=%s\nWEBUI_SECRET_KEY=%s\n", apiKey, webuiSecret)
-	if config.OpenWebUIGoogleClientSecret != "" {
-		content += fmt.Sprintf("GOOGLE_CLIENT_SECRET=%s\n", config.OpenWebUIGoogleClientSecret)
-	}
-	syncWebUIDatabaseKey(filepath.Join(config.OpenWebUIDataRoot, "webui.db"), apiKey)
-	if len(config.OpenWebUIAllowedEmails) > 0 {
-		syncWebUIAllowedUsers(filepath.Join(config.OpenWebUIDataRoot, "webui.db"), config.OpenWebUIAllowedEmails)
-	}
-	if config.OpenWebUIAdminPasswordHash != "" {
-		if err := syncWebUIAdmin(filepath.Join(config.OpenWebUIDataRoot, "webui.db"), config.OpenWebUIAdminEmail, config.OpenWebUIAdminPasswordHash); err != nil {
-			return err
-		}
-	}
-	if err := AtomicWriteFile(openWebUIEnvPath, []byte(content), 0o600); err != nil {
-		return err
-	}
-	if err := ensureRuntimeOwner(config.SecretFile, config.RuntimeUID, config.RuntimeGID, 0o600); err != nil {
-		return err
-	}
-	return ensureRuntimeOwner(openWebUIEnvPath, config.RuntimeUID, config.RuntimeGID, 0o600)
-}
-
-func syncWebUIDatabaseKey(dbPath, apiKey string) {
-	if _, err := os.Stat(dbPath); err != nil {
-		return
-	}
-	query := fmt.Sprintf("UPDATE config SET value = json_array(%q) WHERE key = 'openai.api_keys';", apiKey)
-	if _, lookErr := exec.LookPath("sqlite3"); lookErr == nil {
-		cmd := exec.Command("sqlite3", dbPath, query)
-		if cmd.Run() == nil {
-			return
-		}
-	}
-	pyScript := fmt.Sprintf("import sqlite3, json; conn = sqlite3.connect(%q); conn.execute('UPDATE config SET value = ? WHERE key = \"openai.api_keys\"', (json.dumps([%q]),)); conn.commit(); conn.close()", dbPath, apiKey)
-	_ = exec.Command("python3", "-c", pyScript).Run()
-}
-
-func syncWebUIAllowedUsers(dbPath string, allowedEmails []string) {
-	_ = syncWebUIUsers(dbPath, allowedEmails, "")
-}
-
-func syncWebUIAdmin(dbPath, email, passwordHash string) error {
-	return syncWebUIUsers(dbPath, []string{strings.ToLower(email)}, passwordHash)
-}
-
-// Password-admin mode updates only the configured account. OAuth mode retains
-// the allowlist role reconciliation used by existing deployments.
-func syncWebUIUsers(dbPath string, allowedEmails []string, passwordHash string) error {
-	if len(allowedEmails) == 0 {
-		return nil
-	}
-	encoded, err := json.Marshal(map[string]any{"db_path": dbPath, "allowed_emails": allowedEmails, "password_hash": passwordHash})
-	if err != nil {
-		return err
-	}
-	pyScript := `import sqlite3, json, time, uuid, sys
-
-payload = json.load(sys.stdin)
-db_path = payload["db_path"]
-allowed_emails = payload["allowed_emails"]
-password_hash = payload["password_hash"]
-
-conn = sqlite3.connect(db_path)
-cursor = conn.cursor()
-
-# Ensure user and auth tables exist
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS "user" (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    email TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'pending',
-    profile_image_url TEXT NOT NULL DEFAULT '/user.png',
-    api_key TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    last_active_at INTEGER NOT NULL,
-    settings TEXT,
-    info TEXT,
-    oauth_sub TEXT
-);
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS "auth" (
-    id VARCHAR NOT NULL PRIMARY KEY,
-    email VARCHAR,
-    password TEXT,
-    active BOOLEAN
-);
-""")
-
-now = int(time.time())
-
-for index, email in enumerate(allowed_emails):
-    clean_email = email.strip()
-    if not clean_email:
-        continue
-    target_role = "admin" if index == 0 else "user"
-    cursor.execute('SELECT id, role FROM "user" WHERE email = ?', (clean_email,))
-    existing = cursor.fetchone()
-    if existing:
-        user_id, current_role = existing
-        if current_role != target_role:
-            cursor.execute('UPDATE "user" SET role = ?, updated_at = ? WHERE id = ?', (target_role, now, user_id))
-    else:
-        user_id = str(uuid.uuid4())
-        name = clean_email.split("@")[0]
-        cursor.execute(
-            'INSERT INTO "user" (id, name, email, role, profile_image_url, created_at, updated_at, last_active_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            (user_id, name, clean_email, target_role, "/user.png", now, now, now),
-        )
-
-    # Ensure corresponding auth table row exists and is active
-    cursor.execute('SELECT id FROM "auth" WHERE id = ?', (user_id,))
-    if cursor.fetchone():
-        cursor.execute('UPDATE "auth" SET email = ?, active = 1 WHERE id = ?', (clean_email, user_id))
-    else:
-        cursor.execute('INSERT INTO "auth" (id, email, password, active) VALUES (?, ?, ?, ?)', (user_id, clean_email, password_hash, 1))
-    if password_hash:
-        # Newer WebUI versions use session_stamp to revoke prior sessions.
-        auth_columns = {row[1] for row in cursor.execute('PRAGMA table_info("auth")')}
-        if "session_stamp" in auth_columns:
-            cursor.execute('UPDATE "auth" SET session_stamp = ? WHERE id = ? AND password != ?', (str(uuid.uuid4()), user_id, password_hash))
-        cursor.execute('UPDATE "auth" SET password = ? WHERE id = ?', (password_hash, user_id))
-
-# Demote any users whose email is not in allowed_emails to pending
-if not password_hash:
-    placeholders = ",".join("?" for _ in allowed_emails)
-    cursor.execute(f'UPDATE "user" SET role = "pending", updated_at = ? WHERE email NOT IN ({placeholders}) AND role != "pending"', [now] + allowed_emails)
-else:
-    # Existing persisted settings take precedence over environment defaults.
-    # Reconcile only these two keys; leave all other WebUI preferences intact.
-    config_columns = {row[1] for row in cursor.execute('PRAGMA table_info("config")')}
-    if {"key", "value"}.issubset(config_columns):
-        for key, value in (("ui.enable_login_form", True), ("ui.enable_signup", False)):
-            cursor.execute('UPDATE "config" SET value = ? WHERE key = ?', (json.dumps(value), key))
-
-conn.commit()
-conn.close()
-`
-
-	cmd := exec.Command("python3", "-c", pyScript)
-	// Keep the verifier out of process arguments and error messages.
-	cmd.Stdin = strings.NewReader(string(encoded))
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("seed Open WebUI accounts: %w", err)
-	}
-	return nil
 }

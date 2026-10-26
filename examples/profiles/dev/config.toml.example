@@ -30,25 +30,9 @@ password_hash = ""
 # firebase_auth_domain = "your-firebase-project-id.firebaseapp.com"
 # firebase_app_id = "1:...:web:..." # optional
 
-[open-webui]
-host = "127.0.0.1"
-port = 8090
-auth = true
-# Optional password-admin setup (cannot be combined with Google OAuth).
-# Generate with: openlia open-webui password
-# admin_email = "e2e@example.com"
-# admin_password_hash = "$2a$12$..."
-# Google Sign-In (OAuth 2.0):
-# google_client_id = "your-google-client-id.apps.googleusercontent.com"
-# google_client_secret = "your-google-client-secret"
-# url = "http://127.0.0.1:8090"
-# allowed_emails = ["owner@example.com", "family@example.com"]
-# allowed_domains = ["example.com"] # optional domain restriction
-# enable_oauth_signup = false # false enforces only pre-seeded allowed_emails can login
-
 [locho-host]
 # Set to true to start the private locho-host sidecar container on the server
-# and allow encrypted peer-to-peer attachment tunnels for Workspace UI and Open WebUI.
+# and allow encrypted peer-to-peer attachment tunnels for Workspace UI, including Chat.
 enabled = true
 
 [locho]

@@ -88,13 +88,13 @@ Usage:
   openlia init [--local|--target user@host] [--root /path] [--project NAME]
                 [--timezone Asia/Ho_Chi_Minh] [--model MODEL] [--provider PROVIDER]
                 [--external-network NAME] [--api] [--api-host 127.0.0.1]
-                [--open-webui] [--open-webui-port 8090] [--locho-host]
+                [--locho-host]
   openlia status [--json]
   openlia doctor [--json]
   openlia deploy [--release] | start | stop | restart
   openlia uninstall [--local|--target user@host] [--project NAME] [--root /path]
   openlia logs [--follow]
-  openlia update [openlia|hermes|locho|open-webui]
+  openlia update [openlia|hermes|locho]
   openlia skills list|show|test
   openlia skills status|fork|migrate|enable|disable
   openlia auth list|setup|rotate
@@ -111,7 +111,6 @@ Usage:
   openlia instructions status [NAME]
   openlia instructions diff|merge|keep|reset NAME
   openlia workspace-ui password
-  openlia open-webui password
   openlia locho-host share [--output PATH]
   openlia browser configure --local|--target user@host --root PATH --extension-token-file PATH [--ssh-port PORT]
   openlia browser install|start|stop|restart|status|logs|uninstall
@@ -125,8 +124,6 @@ bundled in this CLI before applying configuration.
 
 workspace-ui password prompts without echo and prints only an Argon2id hash.
 Copy it into [workspace-ui].password_hash in config.toml, then run openlia deploy.
-open-webui password prompts without echo and prints only a bcrypt hash (cost 12).
-Copy it into [open-webui].admin_password_hash and set admin_email, then deploy.
 
 Secrets are accepted only through protected files or Hermes' configured secret source.`)
 }

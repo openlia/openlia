@@ -160,16 +160,11 @@ func generateLochoHostState(endpointID string) (lochoPersistedHostState, error) 
 	if err != nil {
 		return lochoPersistedHostState{}, err
 	}
-	openWebUISecret, err := generateLochoSecretHex()
-	if err != nil {
-		return lochoPersistedHostState{}, err
-	}
 	return lochoPersistedHostState{
 		SchemaVersion: lochoHostStateSchemaVersion,
 		EndpointID:    endpointID,
 		AttachSecret:  attachSecret,
 		ServiceSecrets: map[string]string{
-			"open-webui":   openWebUISecret,
 			"workspace-ui": workspaceSecret,
 		},
 	}, nil
@@ -252,15 +247,13 @@ func parseAndRepairLochoHostState(raw []byte, expectedEndpointID string) (lochoP
 		state.ServiceSecrets = make(map[string]string)
 		changed = true
 	}
-	for _, service := range []string{"workspace-ui", "open-webui"} {
-		if !validLochoHexSecret(state.ServiceSecrets[service]) {
-			secret, err := generateLochoSecretHex()
-			if err != nil {
-				return lochoPersistedHostState{}, false, err
-			}
-			state.ServiceSecrets[service] = secret
-			changed = true
+	if !validLochoHexSecret(state.ServiceSecrets["workspace-ui"]) {
+		secret, err := generateLochoSecretHex()
+		if err != nil {
+			return lochoPersistedHostState{}, false, err
 		}
+		state.ServiceSecrets["workspace-ui"] = secret
+		changed = true
 	}
 	return state, changed, nil
 }

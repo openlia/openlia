@@ -243,6 +243,6 @@ make compose-config
 `make compose-config` validates the guarded base Compose file. The default
 `backup create` archive is encrypted durable-state-only: it preserves the
 workspace, agent state, profile metadata, and customized skills while omitting
-Open WebUI, bundled image skills, caches, environments, secrets, and Locho
+Bundled image skills, caches, environments, secrets, and Locho
 capabilities. The operator machine holds the decryption identity; targets and
 remote stores retain only the public recipient and encrypted archive.

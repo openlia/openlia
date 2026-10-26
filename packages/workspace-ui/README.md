@@ -11,7 +11,7 @@ for browser-native binary uploads and downloads.
 
 ## Native chat
 
-Open **Chat** (`/chat`) to talk to Lia without a separate Open WebUI service.
+Open **Chat** (`/chat`) to talk to Lia in Workspace UI.
 Chat reuses Workspace UI authentication. **All people allowed into a workspace
 share its chat history**; this is not a multi-tenant, per-user chat service.
 
@@ -57,7 +57,6 @@ Generated Compose enables the private Hermes API whenever Workspace UI is enable
 and supplies only its API credential to the server through `api-server.env`.
 No new service or public Hermes API port is needed. Existing deployments must
 regenerate Compose and recreate **both Hermes and Workspace UI** after upgrading.
-Open WebUI remains optional and unchanged.
 
 For standalone `dev:real`/preview servers, set `OPENLIA_HERMES_API_URL` to the
 Hermes API base (without `/v1`) and `API_SERVER_KEY` on the **server**, never through
