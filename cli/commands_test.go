@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -328,5 +329,121 @@ func TestUpdateOpenWebUIRejectsUnconfigured(t *testing.T) {
 	}
 	if got := commandUpdate(Options{}, []string{"open-webui"}, fstest.MapFS{}); got != ExitUsage {
 		t.Fatalf("update open-webui exit code = %d, want %d", got, ExitUsage)
+	}
+}
+
+func TestLochoHostStatePersistsInOperatorConfigAcrossUninstallReinit(t *testing.T) {
+	operatorDir := t.TempDir()
+	cfgPath := filepath.Join(operatorDir, "config.toml")
+	t.Setenv("OPENLIA_CONFIG", cfgPath)
+
+	installRoot := filepath.Join(t.TempDir(), "openlia_dev")
+	config := defaultConfig()
+	config.Mode = "local"
+	config.Target = ""
+	config.InstallRoot = installRoot
+	config.LochoHostEnabled = true
+	config.WorkspaceUIHost = "127.0.0.1"
+	config.WorkspaceUIPasswordHash = "$argon2id$v=19$m=65536,t=3,p=1$eIwxVdNwGiP5tSdLEaAU3g$KeDL6pxY8F3jC/rifCbGti4bQDFzPjE6lI0uHhKQ6e8"
+	config.OpenWebUIHost = "127.0.0.1"
+	config.OpenWebUIAuth = true
+	if err := saveConfig(config); err != nil {
+		t.Fatal(err)
+	}
+
+	dep := newDeployment(config)
+	ctx := context.Background()
+
+	if err := syncLochoHostState(ctx, dep, &config); err != nil {
+		t.Fatalf("first syncLochoHostState failed: %v", err)
+	}
+	wantStateDir := filepath.Join(operatorDir, "locho-host")
+	if config.LochoHostStateDir != wantStateDir {
+		t.Fatalf("LochoHostStateDir = %q, want %q", config.LochoHostStateDir, wantStateDir)
+	}
+
+	operatorKey, err := os.ReadFile(filepath.Join(wantStateDir, "host.key"))
+	if err != nil || len(operatorKey) != 32 {
+		t.Fatalf("operator host.key len = %d, err = %v", len(operatorKey), err)
+	}
+	operatorState, err := os.ReadFile(filepath.Join(wantStateDir, "host_state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stagedKeyPath := filepath.Join(installRoot, "runtime", "locho-host", "state", "host.key")
+	stagedStatePath := filepath.Join(installRoot, "runtime", "locho-host", "state", "host_state.json")
+	stagedKey, err := os.ReadFile(stagedKeyPath)
+	if err != nil || string(stagedKey) != string(operatorKey) {
+		t.Fatalf("staged host.key mismatch: err=%v", err)
+	}
+	stagedState, err := os.ReadFile(stagedStatePath)
+	if err != nil || string(stagedState) != string(operatorState) {
+		t.Fatalf("staged host_state.json mismatch: err=%v", err)
+	}
+
+	// Simulate `openlia uninstall` wiping the target install root
+	if err := os.RemoveAll(installRoot); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate fresh `openlia init` re-staging from operator directory
+	if err := syncLochoHostState(ctx, dep, &config); err != nil {
+		t.Fatalf("second syncLochoHostState after uninstall failed: %v", err)
+	}
+	restagedKey, err := os.ReadFile(stagedKeyPath)
+	if err != nil || string(restagedKey) != string(operatorKey) {
+		t.Fatalf("restaged host.key changed after uninstall/init: err=%v", err)
+	}
+	restagedState, err := os.ReadFile(stagedStatePath)
+	if err != nil || string(restagedState) != string(operatorState) {
+		t.Fatalf("restaged host_state.json changed after uninstall/init: err=%v", err)
+	}
+}
+
+func TestLochoHostStateAdoptsExistingTargetStateWhenOperatorDirMissing(t *testing.T) {
+	operatorDir := t.TempDir()
+	cfgPath := filepath.Join(operatorDir, "config.toml")
+	t.Setenv("OPENLIA_CONFIG", cfgPath)
+
+	// Pre-populate a target deployment's locho-host state using a temporary state dir
+	seedDir := filepath.Join(t.TempDir(), "seed-locho-host")
+	seedCfg := defaultConfig()
+	seedCfg.LochoHostEnabled = true
+	seedCfg.LochoHostStateDir = seedDir
+	if err := ensureLochoHostState(context.Background(), nil, &seedCfg); err != nil {
+		t.Fatal(err)
+	}
+	wantKey, _ := os.ReadFile(filepath.Join(seedDir, "host.key"))
+	wantState, _ := os.ReadFile(filepath.Join(seedDir, "host_state.json"))
+
+	installRoot := filepath.Join(t.TempDir(), "existing_target")
+	targetStateDir := filepath.Join(installRoot, "runtime", "locho-host", "state")
+	if err := os.MkdirAll(targetStateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(targetStateDir, "host.key"), wantKey, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(targetStateDir, "host_state.json"), wantState, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	config := defaultConfig()
+	config.Mode = "local"
+	config.InstallRoot = installRoot
+	config.LochoHostEnabled = true
+	dep := newDeployment(config)
+
+	if err := ensureLochoHostState(context.Background(), dep, &config); err != nil {
+		t.Fatalf("adopt existing target state failed: %v", err)
+	}
+	gotKey, err := os.ReadFile(filepath.Join(config.LochoHostStateDir, "host.key"))
+	if err != nil || string(gotKey) != string(wantKey) {
+		t.Fatalf("adopted host.key mismatch: err=%v", err)
+	}
+	gotState, err := os.ReadFile(filepath.Join(config.LochoHostStateDir, "host_state.json"))
+	if err != nil || string(gotState) != string(wantState) {
+		t.Fatalf("adopted host_state.json mismatch: err=%v", err)
 	}
 }
