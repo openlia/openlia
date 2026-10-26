@@ -19,10 +19,13 @@ export type MainTab =
   | "usage"
   | "migration";
 
+export type ProjectViewTab = "ui" | "files";
+
 export interface WorkspaceRoute {
   tab?: MainTab | undefined;
   path?: string | undefined;
   projectPath?: string | undefined;
+  projectView?: ProjectViewTab | undefined;
   view?: WorkspaceView | undefined;
   filter?: string | undefined;
   scenario?: string | undefined;
@@ -34,9 +37,14 @@ export interface WorkspaceRoute {
 }
 
 const validViews: ReadonlySet<string> = new Set(["edit", "preview", "info"]);
+const validProjectViews: ReadonlySet<string> = new Set(["ui", "files"]);
 
 function isValidView(value: string | null): value is WorkspaceView {
   return value !== null && validViews.has(value);
+}
+
+function isValidProjectView(value: string | null): value is ProjectViewTab {
+  return value !== null && validProjectViews.has(value);
 }
 
 function safeDecodeURIComponent(value: string): string {
@@ -232,7 +240,11 @@ export function parseRoute(
   }
 
   const viewParam = url.searchParams.get("view");
-  const view = isValidView(viewParam) ? viewParam : undefined;
+  const isProjectsContext = tab === "projects" || Boolean(projectPath);
+  const view =
+    !isProjectsContext && isValidView(viewParam) ? viewParam : undefined;
+  const projectView =
+    isProjectsContext && isValidProjectView(viewParam) ? viewParam : undefined;
 
   const filterParam =
     url.searchParams.get("filter") ?? url.searchParams.get("q");
@@ -247,6 +259,7 @@ export function parseRoute(
     migrationId: migrationId || undefined,
     path: path || undefined,
     projectPath: projectPath || undefined,
+    projectView,
     scenario,
     shareId: shareId || undefined,
     skill: skill || undefined,
@@ -314,7 +327,9 @@ export function buildRouteUrl(route: WorkspaceRoute): string {
   if (route.scenario) {
     params.set("scenario", route.scenario);
   }
-  if (route.view) {
+  if ((route.tab === "projects" || route.projectPath) && route.projectView) {
+    params.set("view", route.projectView);
+  } else if (route.view) {
     params.set("view", route.view);
   }
   if (route.filter) {

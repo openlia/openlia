@@ -16,14 +16,10 @@ export interface OpenLiaRuntimeData {
   queries?: Record<string, unknown> | undefined;
 }
 
-let activeRuntimeData: OpenLiaRuntimeData = {
+const EMPTY_RUNTIME_DATA: Readonly<OpenLiaRuntimeData> = Object.freeze({
   records: [],
   queries: {},
-};
-
-export function setActiveOpenUIData(data: OpenLiaRuntimeData): void {
-  activeRuntimeData = data;
-}
+});
 
 function getFieldVal(
   record: WorkspaceDomainRecordSummary,
@@ -748,7 +744,7 @@ export function buildOpenLiaFunctions(getData: () => OpenLiaRuntimeData) {
 }
 
 export const [CountBy, GroupCount, FilterRecords, SumBy, GetQuery] =
-  buildOpenLiaFunctions(() => activeRuntimeData);
+  buildOpenLiaFunctions(() => EMPTY_RUNTIME_DATA);
 
 // --- Actions ---
 
