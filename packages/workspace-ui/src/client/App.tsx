@@ -1,3 +1,4 @@
+import { CheckpointProposals } from "./CheckpointProposals";
 import {
   lazy,
   Suspense,
@@ -3217,6 +3218,25 @@ export function App({
         <div className="workspace-layout xl:grid-cols-1">
           <GitActivitySection
             activity={activity}
+            proposals={
+              <CheckpointProposals
+                api={api}
+                onAskLia={(prompt) => {
+                  setChatDraftPrompt(prompt);
+                  requestTabChange("chat");
+                }}
+                onApplied={() => {
+                  void api
+                    .loadActivity()
+                    .then(setActivity)
+                    .catch(() => {});
+                  void api
+                    .loadGitStatus()
+                    .then(setGit)
+                    .catch(() => {});
+                }}
+              />
+            }
             git={git}
             loading={activityLoading}
             onOpenFile={requestOpenFile}

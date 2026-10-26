@@ -42,6 +42,19 @@ class PolicyPluginTests(unittest.TestCase):
         self.assertIsNone(policy.pre_tool_call("web_search", {"query": "Kyoto itinerary"}))
         self.assertIsNone(policy.pre_tool_call("read_file", {"path": "travel/trip.md"}))
 
+    def test_checkpoint_proposals_are_interactive_and_commits_are_ui_only(self):
+        self.assertIsNone(self.policy.pre_tool_call("workspace_git_inspect", {}))
+        self.assertIsNone(self.policy.pre_tool_call("workspace_git_proposals", {}))
+        self.assertIsNone(self.policy.pre_tool_call("workspace_git_propose", {}))
+        self.policy.on_session_start(session_id="scheduled", platform="cron")
+        decision = self.policy.pre_tool_call("workspace_git_propose", {}, session_id="scheduled")
+        self.assertEqual(decision["action"], "block")
+        for command in ("git add note.md", "git commit -m backup", "git -C /opt/data/workspace commit -m backup", "git update-ref refs/heads/main HEAD"):
+            decision = self.policy.pre_tool_call("terminal", {"command": command})
+            self.assertEqual(decision["action"], "block")
+            self.assertIn("Git Activity", decision["message"])
+        self.assertIsNone(self.policy.pre_tool_call("terminal", {"command": "git diff -- tasks/add.md"}))
+
     def test_delegated_tasks_create_is_allowed(self):
         policy = self.policy
 

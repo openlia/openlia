@@ -15,6 +15,9 @@ type localWorkspaceGitRunner struct {
 	workspace   string
 	cronCalls   int
 	remoteCalls int
+	cronArgs    []string
+	cronError   error
+	cronMissing bool
 }
 
 func (runner *localWorkspaceGitRunner) Run(ctx context.Context, name string, args ...string) (CommandResult, error) {
@@ -59,7 +62,11 @@ func (runner *localWorkspaceGitRunner) Run(ctx context.Context, name string, arg
 				return CommandResult{}, nil
 			case "cron":
 				runner.cronCalls++
-				return CommandResult{}, nil
+				runner.cronArgs = append(runner.cronArgs, args[commandIndex+1:]...)
+				if runner.cronMissing && commandIndex+1 < len(args) && args[commandIndex+1] == "edit" {
+					return CommandResult{Stdout: []byte("Job not found: openlia-workspace-git")}, errors.New("not found")
+				}
+				return CommandResult{}, runner.cronError
 			}
 		}
 	}
@@ -88,7 +95,7 @@ func TestWorkspaceGitMaintainsLocalHistoryWithoutRemote(t *testing.T) {
 	if got := runWorkspaceGitCommand(t, workspace, "remote"); got != "" {
 		t.Fatalf("local workspace has unexpected remote %q", got)
 	}
-	if runner.cronCalls != 0 || runner.remoteCalls != 0 {
+	if runner.cronCalls != 1 || runner.remoteCalls != 0 {
 		t.Fatalf("local setup used remote synchronization: cron=%d remote=%d", runner.cronCalls, runner.remoteCalls)
 	}
 
@@ -126,7 +133,7 @@ func TestWorkspaceGitEnsureInitializesEmptyLocalRepository(t *testing.T) {
 	if got := runWorkspaceGitCommand(t, workspace, "log", "-1", "--format=%s"); got != "chore: initialize OpenLia workspace" {
 		t.Fatalf("initial commit subject = %q", got)
 	}
-	if runner.cronCalls != 0 || runner.remoteCalls != 0 {
+	if runner.cronCalls != 1 || runner.remoteCalls != 0 {
 		t.Fatalf("local ensure used remote synchronization: cron=%d remote=%d", runner.cronCalls, runner.remoteCalls)
 	}
 }
@@ -185,10 +192,39 @@ func TestWorkspaceGitConfiguresHermesCronSchedule(t *testing.T) {
 	if !result.OK {
 		t.Fatalf("unexpected setup result: %+v", result)
 	}
-	if runner.cronCalls != 1 {
-		t.Fatalf("expected 1 cron call, got %d", runner.cronCalls)
+	if runner.cronCalls != 2 {
+		t.Fatalf("expected edit and resume cron calls, got %d", runner.cronCalls)
 	}
 	if result.Cron != "scheduled: 0 4 * * *" {
 		t.Fatalf("expected result.Cron 'scheduled: 0 4 * * *', got %q", result.Cron)
+	}
+	args := strings.Join(runner.cronArgs, " ")
+	if !strings.Contains(args, "--prompt Workspace checkpoint reminder only.") || !strings.Contains(args, "Do not propose, stage, approve, or create commits") {
+		t.Fatalf("existing cron prompt was not migrated to reminder-only: %s", args)
+	}
+}
+
+func TestWorkspaceGitReportsReminderSchedulingFailure(t *testing.T) {
+	workspace := t.TempDir()
+	runner := &localWorkspaceGitRunner{workspace: workspace, cronError: errors.New("cron unavailable")}
+	compose := NewCompose(Config{ProjectName: "test", ComposeProjectDir: t.TempDir(), ComposeFile: filepath.Join(t.TempDir(), "compose.yaml")}, runner)
+	_, err := WorkspaceGit(context.Background(), compose, WorkspaceGitOptions{Action: "setup", Enabled: true})
+	if err == nil || !strings.Contains(err.Error(), "reminder scheduling failed") {
+		t.Fatalf("expected visible reminder failure, got %v", err)
+	}
+	if runner.cronCalls != 1 {
+		t.Fatalf("must not create a duplicate job after an ambiguous edit failure: %v", runner.cronArgs)
+	}
+}
+
+func TestWorkspaceGitCreatesReminderOnlyWhenAbsent(t *testing.T) {
+	runner := &localWorkspaceGitRunner{workspace: t.TempDir(), cronMissing: true}
+	compose := NewCompose(Config{ProjectName: "test", ComposeProjectDir: t.TempDir(), ComposeFile: filepath.Join(t.TempDir(), "compose.yaml")}, runner)
+	_, err := WorkspaceGit(context.Background(), compose, WorkspaceGitOptions{Action: "setup", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runner.cronCalls != 2 || !strings.Contains(strings.Join(runner.cronArgs, " "), "create 0 4 * * * Workspace checkpoint reminder only.") {
+		t.Fatalf("expected missing-job edit then reminder creation: %v", runner.cronArgs)
 	}
 }

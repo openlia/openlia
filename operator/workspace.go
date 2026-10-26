@@ -99,10 +99,12 @@ func WorkspaceGit(ctx context.Context, compose Compose, options WorkspaceGitOpti
 	}
 
 	cronResult := ""
-	if (options.Action == "setup" || options.Action == "ensure") && options.Enabled {
-		if res, err := reconcileWorkspaceGitCron(ctx, compose, options.Schedule, options.Enabled); err == nil {
-			cronResult = res
+	if options.Action == "setup" || options.Action == "ensure" {
+		res, err := reconcileWorkspaceGitCron(ctx, compose, options.Schedule, options.Enabled)
+		if err != nil {
+			return WorkspaceGitResult{}, fmt.Errorf("workspace Git reminder scheduling failed: %w", err)
 		}
+		cronResult = res
 	}
 
 	return WorkspaceGitResult{
@@ -120,15 +122,29 @@ func reconcileWorkspaceGitCron(ctx context.Context, compose Compose, schedule st
 		return compose.Run(ctx, append([]string{"exec", "-T", "-u", "10000", "hermes", "hermes"}, args...)...)
 	}
 	if !enabled {
-		_, _ = runHermes("cron", "pause", cronName)
+		result, err := runHermes("cron", "pause", cronName)
+		if err != nil && !strings.Contains(string(result.Stdout), "Job not found: "+cronName) {
+			return "", fmt.Errorf("could not pause the workspace Git reminder")
+		}
 		return "disabled", nil
 	}
 	if schedule == "" {
 		schedule = "0 4 * * *"
 	}
-	prompt := "Run the workspace-git skill to review workspace changes and create appropriate structured Git commits for each changed area. If there are no changes, make no commit."
-	if _, err := runHermes("cron", "edit", cronName, "--schedule", schedule); err == nil {
+	prompt := "Workspace checkpoint reminder only. Call workspace_git_inspect with summary_only=true to check for uncommitted changes without reading diffs. If clean, remain silent. Otherwise remind the user to ask Lia for a commit proposal or review pending proposals at openlia://git-activity. Do not propose, stage, approve, or create commits during this scheduled run."
+	// Reconcile the prompt as well as the schedule so existing automatic-commit
+	// jobs become reminder-only when a deployment is upgraded.
+	result, editErr := runHermes("cron", "edit", cronName, "--schedule", schedule, "--prompt", prompt)
+	if editErr == nil {
+		if _, err := runHermes("cron", "resume", cronName); err != nil {
+			return "", fmt.Errorf("could not resume the workspace Git reminder")
+		}
 		return "scheduled: " + schedule, nil
+	}
+	// An update failure is not evidence that the job is absent. Creating another
+	// job here could leave the old automatic-commit job active alongside it.
+	if !strings.Contains(string(result.Stdout), "Job not found: "+cronName) {
+		return "", fmt.Errorf("could not update the workspace Git reminder")
 	}
 	if _, err := runHermes("cron", "create", schedule, prompt, "--name", cronName, "--skill", "workspace-git"); err != nil {
 		return "", err

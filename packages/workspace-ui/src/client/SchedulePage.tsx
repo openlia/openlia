@@ -271,7 +271,7 @@ export function SchedulePage({ api, onOpenDocument }: SchedulePageProps) {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-semibold text-base flex items-center gap-2">
-                    <span>📦</span> Workspace Git Automation
+                    <span>📦</span> Workspace Checkpoint Reminder
                   </span>
                   <span
                     className={`badge badge-sm font-medium ${
@@ -286,8 +286,9 @@ export function SchedulePage({ api, onOpenDocument }: SchedulePageProps) {
                   </span>
                 </div>
                 <p className="text-xs text-base-content/70 leading-relaxed">
-                  Scheduled background commits tracking changes in your local
-                  workspace Git repository for audit history.
+                  Reminds you to review uncommitted workspace changes. Lia
+                  proposes checkpoints on request; only confirmation in Git
+                  Activity creates commits.
                 </p>
               </div>
               <div className="mt-4 pt-3 border-t border-base-content/10 flex items-center justify-between text-xs">

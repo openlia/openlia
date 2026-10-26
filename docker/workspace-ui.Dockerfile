@@ -12,7 +12,7 @@ ARG BUN_AARCH64_SHA256=a97c687fb5e54de4e2fb0869a7ac9a2d9c3af75ac182e2b68138c1dd8
 
 USER root
 RUN apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 update \
-    && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates curl git unzip \
+    && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates curl git python3 unzip \
     && rm -rf /var/lib/apt/lists/* \
     && set -eu; \
     case "${TARGETARCH:-amd64}" in \
@@ -30,6 +30,7 @@ RUN apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquir
     && useradd --system --uid 10000 --gid 10000 --home-dir /nonexistent --shell /usr/sbin/nologin openlia
 
 COPY packages/workspace-ui/dist/ /opt/openlia/workspace-ui/
+COPY profile/plugins/openlia-workspace-git/git_proposals.py /opt/openlia/git_proposals.py
 ARG OPENLIA_RELEASE_SHA256
 RUN if [ -n "${OPENLIA_RELEASE_SHA256:-}" ]; then printf '%s\n' "${OPENLIA_RELEASE_SHA256}" > /opt/openlia/release.sha256; fi \
     && find /opt/openlia/workspace-ui -type d -exec chmod 0755 {} + \

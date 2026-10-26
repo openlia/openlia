@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import type {
   WorkspaceActivityResponse,
   WorkspaceGitStatus,
@@ -10,6 +11,7 @@ export interface GitActivitySectionProps {
   loading: boolean;
   onOpenFile: (path: string) => void;
   onRefresh?: (() => void) | undefined;
+  proposals?: ReactNode;
 }
 
 function formatRelativeTime(dateString: string): string {
@@ -70,6 +72,7 @@ export function GitActivitySection({
   loading,
   onOpenFile,
   onRefresh,
+  proposals,
 }: GitActivitySectionProps) {
   const [search, setSearch] = useState("");
   const [expandedCommits, setExpandedCommits] = useState<Set<string>>(
@@ -138,7 +141,7 @@ export function GitActivitySection({
             Git History & Activity
           </h2>
           <p className="mt-1 text-xs text-base-content/60">
-            Background version control records and chronological commit history.
+            User-approved checkpoints and chronological commit history.
           </p>
         </div>
 
@@ -184,6 +187,7 @@ export function GitActivitySection({
         </div>
       </div>
 
+      {proposals}
       {/* Overview Stat Cards */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-base-content/10 bg-base-200/40 p-4">

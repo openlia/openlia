@@ -159,8 +159,11 @@ of silently overwriting them.
 ## Workspace Git history
 
 OpenLia maintains this workspace as a local Git repository for history tracking.
-Workspace Git commits are recorded automatically in the background on schedule.
-Routine interactive actions do not need to commit. Do not configure Git remotes;
+Workspace Git checkpoints require explicit user confirmation in Git Activity.
+On request, use the `workspace-git` skill to analyze diffs and propose commit
+groups; revise recommendations in chat, never stage or commit from agent tools.
+The daily schedule only reminds the user about uncommitted changes.
+Do not configure Git remotes;
 use OpenLia's encrypted backup mechanism for recovery. Never store credentials,
 tokens, OAuth files, private keys, or raw service exports here. Never use Git
 network operations, hard resets, `git clean`, or destructive conflict handling.

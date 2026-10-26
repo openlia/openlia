@@ -1326,6 +1326,15 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         schema: 1,
       };
     },
+    async loadCheckpointProposals() {
+      return { proposals: [] };
+    },
+    async approveCheckpoint() {
+      throw new Error("Checkpoint confirmation is unavailable in preview");
+    },
+    async dismissCheckpoint() {
+      throw new Error("Checkpoint dismissal is unavailable in preview");
+    },
     async loadActivity(): Promise<WorkspaceActivityResponse> {
       requireAuthentication();
       if (scenario === "empty") {

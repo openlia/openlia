@@ -1,0 +1,9 @@
+name: openlia-workspace-git
+version: 1.0.0
+description: Review local workspace changes and propose checkpoints for user confirmation in Git Activity.
+manifest_version: 2
+api_version: 1
+provides_tools:
+  - workspace_git_inspect
+  - workspace_git_propose
+  - workspace_git_proposals
