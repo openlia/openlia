@@ -3,6 +3,7 @@ package operator
 import (
 	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -108,5 +109,37 @@ func TestLochoHostShareRejectsJSONOutput(t *testing.T) {
 	code := runLochoHost(context.Background(), Config{}, []string{"share"}, &output, &errors, true)
 	if code != ExitUsage || strings.Contains(output.String(), ":tcp:") || !strings.Contains(output.String(), "does not expose capabilities") {
 		t.Fatalf("unexpected JSON rejection: code=%d output=%q errors=%q", code, output.String(), errors.String())
+	}
+}
+
+func TestEnsureLochoHostStateFilesSecuresPermissionsAndRejectsSymlinks(t *testing.T) {
+	stateRoot := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(stateRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	keyPath := filepath.Join(stateRoot, "host.key")
+	statePath := filepath.Join(stateRoot, "host_state.json")
+	if err := os.WriteFile(keyPath, make([]byte, 32), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureLochoHostStateFiles(stateRoot, os.Getuid(), os.Getgid()); err != nil {
+		t.Fatalf("ensureLochoHostStateFiles failed: %v", err)
+	}
+	for _, path := range []string{keyPath, statePath} {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("file %s mode = %v, want 0600 (err=%v)", path, info.Mode().Perm(), err)
+		}
+	}
+
+	_ = os.Remove(keyPath)
+	if err := os.Symlink(statePath, keyPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureLochoHostStateFiles(stateRoot, os.Getuid(), os.Getgid()); err == nil {
+		t.Fatal("expected symlink host.key to be rejected")
 	}
 }

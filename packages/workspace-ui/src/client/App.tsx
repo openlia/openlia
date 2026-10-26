@@ -79,7 +79,12 @@ import {
   buildSkillLink,
   resolveLinkTarget,
 } from "./openliaLinks";
-import { type MainTab, navigateRoute, parseRoute } from "./route";
+import {
+  type MainTab,
+  type ProjectViewTab,
+  navigateRoute,
+  parseRoute,
+} from "./route";
 import { SkillDetailPane, type SkillSubTab } from "./SkillDetailPane";
 import { SkillsNavigator } from "./SkillsNavigator";
 import "./styles.css";
@@ -427,6 +432,7 @@ export function App({
           filter: undefined,
           path: undefined,
           projectPath: undefined,
+          projectView: undefined,
           scenario: undefined,
           shareId: undefined,
           skill: undefined,
@@ -465,6 +471,8 @@ export function App({
   const [selectedProjectPath, setSelectedProjectPath] = useState<
     string | undefined
   >(() => initialRoute.current.projectPath);
+  const [selectedProjectView, setSelectedProjectView] =
+    useState<ProjectViewTab>(() => initialRoute.current.projectView ?? "ui");
   const [chatDraftPrompt, setChatDraftPrompt] = useState<string>("");
   const [artifact, setArtifact] = useState<WorkspaceFileMetadata | null>(null);
   const [draft, setDraft] = useState("");
@@ -909,6 +917,7 @@ export function App({
           } else if (route.tab === "projects" || route.projectPath) {
             setActiveTab("projects");
             setSelectedProjectPath(route.projectPath);
+            if (route.projectView) setSelectedProjectView(route.projectView);
           } else if (route.tab === "shares") {
             setActiveTab("shares");
           } else if (route.tab === "usage") {
@@ -1293,6 +1302,7 @@ export function App({
       } else if (route.tab === "projects" || route.projectPath) {
         setActiveTab("projects");
         setSelectedProjectPath(route.projectPath);
+        setSelectedProjectView(route.projectView ?? "ui");
       } else if (route.tab === "shares") {
         setActiveTab("shares");
       } else if (route.tab === "git-activity") {
@@ -1756,6 +1766,8 @@ export function App({
     navigateRoute(
       {
         projectPath,
+        projectView:
+          selectedProjectView !== "ui" ? selectedProjectView : undefined,
         tab: "projects",
       },
       options,
@@ -2935,11 +2947,28 @@ export function App({
           }
         >
           <ProjectPage
+            activeView={selectedProjectView}
             api={api}
             selectedProjectPath={selectedProjectPath}
             onSelectProject={(projectPath, options) =>
               requestOpenProject(projectPath, options)
             }
+            onViewChange={(nextProjectView) => {
+              setSelectedProjectView(nextProjectView);
+              const currentRoute =
+                typeof window !== "undefined"
+                  ? parseRoute(window.location)
+                  : {};
+              navigateRoute(
+                {
+                  projectPath: selectedProjectPath ?? currentRoute.projectPath,
+                  projectView: nextProjectView,
+                  scenario: currentRoute.scenario,
+                  tab: "projects",
+                },
+                { replace: true },
+              );
+            }}
             onOpenFile={(filePath) => requestOpenFile(filePath)}
             onCreateFile={(domain) => {
               setCreateFileError("");

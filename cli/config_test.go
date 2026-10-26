@@ -814,3 +814,31 @@ func TestWorkspaceGitConfigDefaults(t *testing.T) {
 		t.Fatalf("rendered config missing [workspace_git]:\n%s", rendered)
 	}
 }
+
+func TestLochoHostStateDirConfigRoundTripAndValidation(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "locho-host")
+	config := defaultConfig()
+	config.LochoHostEnabled = true
+	config.LochoHostStateDir = stateDir
+	config.WorkspaceUIHost = "127.0.0.1"
+	config.WorkspaceUIPasswordHash = "$argon2id$v=19$m=65536,t=3,p=1$eIwxVdNwGiP5tSdLEaAU3g$KeDL6pxY8F3jC/rifCbGti4bQDFzPjE6lI0uHhKQ6e8"
+	config.OpenWebUIHost = "127.0.0.1"
+	config.OpenWebUIAuth = true
+
+	rendered := renderConfig(config)
+	if !strings.Contains(rendered, "state_dir = ") {
+		t.Fatalf("rendered config missing state_dir:\n%s", rendered)
+	}
+	parsed, err := parseConfig(rendered)
+	if err != nil {
+		t.Fatalf("parseConfig failed: %v", err)
+	}
+	if parsed.LochoHostStateDir != stateDir {
+		t.Fatalf("parsed LochoHostStateDir = %q, want %q", parsed.LochoHostStateDir, stateDir)
+	}
+
+	config.LochoHostStateDir = "relative/path"
+	if err := validateConfig(config); err == nil {
+		t.Fatal("expected error for relative locho-host.state_dir")
+	}
+}

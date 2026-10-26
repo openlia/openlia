@@ -11,28 +11,34 @@ import { OpenLiaOpenUIProvider } from "../../openui/context";
 import {
   createOpenLiaLibrary,
   normalizeOpenUIProgram,
-  setActiveOpenUIData,
 } from "../../openui/library";
 import { OpenUIDiagnostics } from "../../openui/OpenUIDiagnostics";
+import { OpenUIErrorBoundary } from "../../openui/OpenUIErrorBoundary";
 import { mutateRecordFrontmatter } from "../../openui/recordMutator";
 import { createOpenLiaToolProvider } from "../../openui/toolProvider";
+import type { ProjectViewTab } from "../../route";
+import { ConfirmChatPromptModal } from "./ConfirmChatPromptModal";
 
-export type ProjectViewTab = "ui" | "files";
+export type { ProjectViewTab } from "../../route";
 
 export function ProjectPage({
   api,
   selectedProjectPath,
+  activeView: controlledView,
   onSelectProject,
+  onViewChange,
   onOpenFile,
   onCreateFile,
   onAskLia,
 }: {
   api: WorkspaceApi;
   selectedProjectPath?: string | undefined;
+  activeView?: ProjectViewTab | undefined;
   onSelectProject: (
     projectPath: string,
     options?: { replace?: boolean },
   ) => void;
+  onViewChange?: ((view: ProjectViewTab) => void) | undefined;
   onOpenFile: (path: string) => void;
   onCreateFile?: ((domainPath?: string) => void) | undefined;
   onAskLia?: ((prompt: string) => void) | undefined;
@@ -43,11 +49,36 @@ export function ProjectPage({
     useState<WorkspaceProjectResponse | null>(null);
   const [projectLoading, setProjectLoading] = useState(false);
   const [error, setError] = useState("");
-  const [activeView, setActiveView] = useState<ProjectViewTab>("ui");
+  const [internalView, setInternalView] = useState<ProjectViewTab>(
+    controlledView ?? "ui",
+  );
+  const [pendingPrompt, setPendingPrompt] = useState<{
+    title: string;
+    projectName: string;
+    prompt: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (controlledView) {
+      setInternalView(controlledView);
+    }
+  }, [controlledView]);
+
+  const activeView = controlledView ?? internalView;
+
+  const handleViewChange = useCallback(
+    (nextView: ProjectViewTab) => {
+      setInternalView(nextView);
+      onViewChange?.(nextView);
+    },
+    [onViewChange],
+  );
+
   const onSelectProjectRef = useRef(onSelectProject);
   onSelectProjectRef.current = onSelectProject;
   const selectedProjectPathRef = useRef(selectedProjectPath);
   selectedProjectPathRef.current = selectedProjectPath;
+  const loadRequestSeqRef = useRef(0);
 
   const loadProjectsList = useCallback(async () => {
     setProjectsLoading(true);
@@ -74,21 +105,24 @@ export function ProjectPage({
 
   const loadSelectedProject = useCallback(
     async (path: string, silent = false) => {
+      const seq = ++loadRequestSeqRef.current;
       if (!silent) {
         setProjectLoading(true);
         setError("");
       }
       try {
         const data = await api.loadProject(path);
+        if (seq !== loadRequestSeqRef.current) return;
         setProjectData(data);
       } catch (err) {
+        if (seq !== loadRequestSeqRef.current) return;
         if (!silent) {
           setError(
             err instanceof Error ? err.message : "Failed to load project",
           );
         }
       } finally {
-        if (!silent) {
+        if (!silent && seq === loadRequestSeqRef.current) {
           setProjectLoading(false);
         }
       }
@@ -106,9 +140,10 @@ export function ProjectPage({
 
   const handleUpdateRecordFrontmatter = useCallback(
     async (recordPath: string, updates: Record<string, unknown>) => {
-      // Optimistically update local state so UI feels instant
+      let previousRecords: WorkspaceProjectResponse["records"] | undefined;
       setProjectData((prev) => {
         if (!prev) return prev;
+        previousRecords = prev.records;
         return {
           ...prev,
           records: prev.records.map((r) =>
@@ -119,14 +154,36 @@ export function ProjectPage({
         };
       });
 
-      const file = await api.loadFile(recordPath);
-      const updatedContent = mutateRecordFrontmatter(file.content, updates);
-      await api.saveFile(recordPath, updatedContent, file.revision);
-      if (activePath) {
-        await loadSelectedProject(activePath, true);
+      try {
+        const file = await api.loadFile(recordPath);
+        const updatedContent = mutateRecordFrontmatter(file.content, updates);
+        await api.saveFile(recordPath, updatedContent, file.revision);
+        if (activePath) {
+          await loadSelectedProject(activePath, true);
+        }
+      } catch (err) {
+        if (previousRecords !== undefined) {
+          const snapshot = previousRecords;
+          setProjectData((prev) =>
+            prev ? { ...prev, records: snapshot } : prev,
+          );
+        }
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to update record frontmatter",
+        );
       }
     },
     [api, activePath, loadSelectedProject],
+  );
+
+  const requestPromptConfirmation = useCallback(
+    (title: string, projectName: string, prompt: string) => {
+      if (!onAskLia) return;
+      setPendingPrompt({ title, projectName, prompt });
+    },
+    [onAskLia],
   );
 
   const handleImproveUI = useCallback(() => {
@@ -136,15 +193,14 @@ export function ProjectPage({
       `Help me improve the "${project.name}" mini-project UI in \`${project.path}/\`.`,
       `Please review \`${project.manifest_path}\` and \`${project.ui_path}\`${project.schema_path ? ` (schema: \`${project.schema_path}\`)` : ""} using the workspace-template-customization skill.`,
     ].join(" ");
-    onAskLia(prompt);
-  }, [projectData, onAskLia]);
+    requestPromptConfirmation("Improve UI with Lia", project.name, prompt);
+  }, [projectData, onAskLia, requestPromptConfirmation]);
 
   const scopedLibrary = useMemo(() => {
     const runtimeData = {
       records: projectData?.records ?? [],
       queries: projectData?.queries ?? {},
     };
-    setActiveOpenUIData(runtimeData);
     return createOpenLiaLibrary(runtimeData);
   }, [projectData?.records, projectData?.queries]);
 
@@ -152,8 +208,9 @@ export function ProjectPage({
     return createOpenLiaToolProvider({
       api,
       domainPath: projectData?.project.path,
+      onOpenFile,
     });
-  }, [api, projectData?.project.path]);
+  }, [api, projectData?.project.path, onOpenFile]);
 
   return (
     <section
@@ -191,7 +248,9 @@ export function ProjectPage({
               <button
                 className="btn btn-primary btn-xs w-full"
                 onClick={() =>
-                  onAskLia(
+                  requestPromptConfirmation(
+                    "Create Project with Lia",
+                    "Workspace",
                     "Help me create a new mini-project with a project-manifest.toml and ui.openui.",
                   )
                 }
@@ -320,7 +379,7 @@ export function ProjectPage({
                     className={`btn btn-xs join-item ${
                       activeView === "ui" ? "btn-primary" : "btn-ghost"
                     }`}
-                    onClick={() => setActiveView("ui")}
+                    onClick={() => handleViewChange("ui")}
                     type="button"
                   >
                     Project UI
@@ -330,7 +389,7 @@ export function ProjectPage({
                     className={`btn btn-xs join-item ${
                       activeView === "files" ? "btn-primary" : "btn-ghost"
                     }`}
-                    onClick={() => setActiveView("files")}
+                    onClick={() => handleViewChange("files")}
                     type="button"
                   >
                     Project Files
@@ -342,7 +401,13 @@ export function ProjectPage({
                   <button
                     key={p.id}
                     className="btn btn-outline btn-xs"
-                    onClick={() => onAskLia?.(p.prompt)}
+                    onClick={() =>
+                      requestPromptConfirmation(
+                        p.label,
+                        projectData.project.name,
+                        p.prompt,
+                      )
+                    }
                     title={p.prompt}
                     type="button"
                   >
@@ -565,42 +630,61 @@ export function ProjectPage({
               >
                 <div className="flex-1 overflow-y-auto p-4 sm:p-6 flex flex-col gap-4">
                   <OpenUIDiagnostics content={projectData.ui_content} />
-                  <Renderer
-                    library={scopedLibrary}
-                    response={normalizeOpenUIProgram(projectData.ui_content)}
-                    toolProvider={toolProvider}
-                    onAction={(event) => {
-                      if (event.type === "OpenRecord" && event.params?.path) {
-                        onOpenFile(String(event.params.path));
-                      } else if (
-                        event.type === "CreateDomainRecord" &&
-                        onCreateFile
-                      ) {
-                        onCreateFile(
-                          String(
-                            event.params?.domain ?? projectData.project.path,
-                          ),
-                        );
-                      } else if (
-                        event.type === "UpdateFrontmatter" &&
-                        event.params?.path &&
-                        event.params?.field
-                      ) {
-                        void handleUpdateRecordFrontmatter(
-                          String(event.params.path),
-                          {
-                            [String(event.params.field)]: event.params.value,
-                          },
-                        );
-                      }
-                    }}
-                  />
+                  <OpenUIErrorBoundary
+                    key={projectData.project.ui_path}
+                    onEditUI={() => onOpenFile(projectData.project.ui_path)}
+                    uiPath={projectData.project.ui_path}
+                  >
+                    <Renderer
+                      library={scopedLibrary}
+                      response={normalizeOpenUIProgram(projectData.ui_content)}
+                      toolProvider={toolProvider}
+                      onAction={(event) => {
+                        if (event.type === "OpenRecord" && event.params?.path) {
+                          onOpenFile(String(event.params.path));
+                        } else if (
+                          event.type === "CreateDomainRecord" &&
+                          onCreateFile
+                        ) {
+                          onCreateFile(
+                            String(
+                              event.params?.domain ?? projectData.project.path,
+                            ),
+                          );
+                        } else if (
+                          event.type === "UpdateFrontmatter" &&
+                          event.params?.path &&
+                          event.params?.field
+                        ) {
+                          void handleUpdateRecordFrontmatter(
+                            String(event.params.path),
+                            {
+                              [String(event.params.field)]: event.params.value,
+                            },
+                          );
+                        }
+                      }}
+                    />
+                  </OpenUIErrorBoundary>
                 </div>
               </OpenLiaOpenUIProvider>
             )}
           </>
         ) : null}
       </main>
+
+      {pendingPrompt && (
+        <ConfirmChatPromptModal
+          initialPrompt={pendingPrompt.prompt}
+          onCancel={() => setPendingPrompt(null)}
+          onConfirm={(confirmedPrompt) => {
+            setPendingPrompt(null);
+            onAskLia?.(confirmedPrompt);
+          }}
+          projectName={pendingPrompt.projectName}
+          title={pendingPrompt.title}
+        />
+      )}
     </section>
   );
 }

@@ -297,6 +297,9 @@ func commandInit(options Options, args []string, assets fs.FS) int {
 			return fail(options, ExitFailure, "could not stage secret source: "+err.Error(), nil)
 		}
 	}
+	if err := ensureLochoHostState(ctx, deployment, &config); err != nil {
+		return fail(options, ExitFailure, "locho-host state setup failed: "+err.Error(), nil)
+	}
 	if err := syncLochoSources(ctx, deployment, config); err != nil {
 		return fail(options, ExitFailure, "could not stage Locho relay configuration: "+err.Error(), nil)
 	}
@@ -1271,7 +1274,17 @@ func commandLochoHost(options Options, args []string) int {
 	}
 	ctx, cancel := remoteContext()
 	defer cancel()
-	raw, err := newDeployment(config).operation(ctx, "locho-host", nil, "share")
+	deployment := newDeployment(config)
+	hadStateDir := config.LochoHostStateDir != ""
+	if err := ensureLochoHostState(ctx, deployment, &config); err != nil {
+		return fail(options, ExitFailure, "could not persist Locho host state: "+err.Error(), nil)
+	}
+	if !hadStateDir && config.LochoHostStateDir != "" {
+		if err := saveConfig(config); err != nil {
+			return fail(options, ExitFailure, "could not save Locho host state directory: "+err.Error(), nil)
+		}
+	}
+	raw, err := deployment.operation(ctx, "locho-host", nil, "share")
 	if err != nil {
 		return fail(options, ExitFailure, "could not generate Locho attachment configuration: "+err.Error(), nil)
 	}
@@ -1493,6 +1506,9 @@ func syncLochoSources(ctx context.Context, deployment deployment, config Config)
 	legacySecrets := deployment.rootPath("runtime", "secrets", "locho-relay.env")
 	if err := deployment.removeFile(ctx, legacySecrets); err != nil {
 		return fmt.Errorf("remove legacy Locho relay secrets: %w", err)
+	}
+	if err := syncLochoHostState(ctx, deployment, &config); err != nil {
+		return err
 	}
 	return nil
 }

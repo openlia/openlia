@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -29,6 +30,26 @@ func ensureLochoHostDirectory(path string, uid, gid int) error {
 		return fmt.Errorf("Locho host path must be a real directory: %s", path)
 	}
 	return ensureRuntimeOwner(path, uid, gid, 0o700)
+}
+
+func ensureLochoHostStateFiles(stateRoot string, uid, gid int) error {
+	for _, name := range []string{"host.key", "host_state.json"} {
+		filePath := filepath.Join(stateRoot, name)
+		info, err := os.Lstat(filePath)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("Locho host state file must be a regular non-symlink file: %s", filePath)
+		}
+		if err := ensureRuntimeOwner(filePath, uid, gid, 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ShareLochoHost(ctx context.Context, config Config, compose Compose) (LochoHostShareResult, error) {

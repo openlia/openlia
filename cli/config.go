@@ -112,6 +112,7 @@ type Config struct {
 	OpenWebUIAllowedEmails        []string
 	OpenWebUIEnableOAuthSignup    bool
 	LochoHostEnabled              bool
+	LochoHostStateDir             string
 	LochoRelayConfigSource        string
 	LochoRelaySecretsSource       string
 	SecretSource                  string
@@ -486,6 +487,11 @@ func parseConfigUnchecked(data string) (Config, error) {
 				config.OpenWebUIEnableOAuthSignup, err = parseBool(value)
 			case "locho-host.enabled":
 				config.LochoHostEnabled, err = parseBool(value)
+			case "locho-host.state_dir":
+				config.LochoHostStateDir, err = parseString(value)
+				if err == nil {
+					config.LochoHostStateDir = expandTilde(config.LochoHostStateDir)
+				}
 			case "locho.relay_config":
 				config.LochoRelayConfigSource, err = parseString(value)
 				if err == nil {
@@ -811,6 +817,14 @@ func validateConfig(config Config) error {
 		}
 		if !config.OpenWebUIAuth {
 			return errors.New("locho-host requires open-webui authentication")
+		}
+	}
+	if config.LochoHostStateDir != "" {
+		if err := validateAbsoluteRoot(config.LochoHostStateDir, "locho-host.state_dir"); err != nil {
+			return err
+		}
+		if isInsideWorkingTree(config.LochoHostStateDir) {
+			return errors.New("locho-host.state_dir must be outside the OpenLia checkout")
 		}
 	}
 	if config.LochoRelayConfigSource != "" {
@@ -1315,8 +1329,17 @@ func renderConfig(config Config) string {
 		}
 		builder.WriteString("\n")
 	}
-	if config.LochoHostEnabled {
-		builder.WriteString("[locho-host]\nenabled = true\n\n")
+	if config.LochoHostEnabled || config.LochoHostStateDir != "" {
+		builder.WriteString("[locho-host]\n")
+		if config.LochoHostEnabled {
+			builder.WriteString("enabled = true\n")
+		} else {
+			builder.WriteString("enabled = false\n")
+		}
+		if config.LochoHostStateDir != "" {
+			fmt.Fprintf(&builder, "state_dir = %q\n", config.LochoHostStateDir)
+		}
+		builder.WriteString("\n")
 	}
 	if config.LochoRelayConfigSource != "" || config.LochoRelaySecretsSource != "" {
 		builder.WriteString("[locho]\n")

@@ -614,6 +614,9 @@ func writeLochoHostConfig(config Config) error {
 	if err := ensureLochoHostDirectory(config.LochoHostStateRoot, config.RuntimeUID, config.RuntimeGID); err != nil {
 		return err
 	}
+	if err := ensureLochoHostStateFiles(config.LochoHostStateRoot, config.RuntimeUID, config.RuntimeGID); err != nil {
+		return err
+	}
 	if info, err := os.Lstat(config.LochoHostConfig); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return fmt.Errorf("Locho host config must be a regular non-symlink file")

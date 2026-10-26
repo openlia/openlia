@@ -1,0 +1,65 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { describe, expect, it, vi } from "vitest";
+import { OpenUIErrorBoundary } from "./OpenUIErrorBoundary";
+
+function ThrowingWidget({ shouldThrow }: { shouldThrow: boolean }) {
+  if (shouldThrow) {
+    throw new Error("Invalid OpenUI AST node: UnknownTable");
+  }
+  return <div>Rendered OpenUI Dashboard</div>;
+}
+
+describe("OpenUIErrorBoundary", () => {
+  it("isolates OpenUI render errors, offers edit action, and recovers on retry", () => {
+    const onEditUI = vi.fn();
+    const onReset = vi.fn();
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    function TestHarness() {
+      const [shouldThrow, setShouldThrow] = useState(true);
+      return (
+        <div>
+          <h1>Host Shell</h1>
+          <OpenUIErrorBoundary
+            onEditUI={onEditUI}
+            onReset={() => {
+              setShouldThrow(false);
+              onReset();
+            }}
+            uiPath="tasks/ui.openui"
+          >
+            <ThrowingWidget shouldThrow={shouldThrow} />
+          </OpenUIErrorBoundary>
+        </div>
+      );
+    }
+
+    render(<TestHarness />);
+
+    // Host shell stays intact
+    expect(screen.getByText("Host Shell")).toBeInTheDocument();
+
+    // Error boundary displays localized error card
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Failed to render tasks\/ui\.openui/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Invalid OpenUI AST node: UnknownTable/i),
+    ).toBeInTheDocument();
+
+    // Edit button works
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit tasks/ui.openui" }),
+    );
+    expect(onEditUI).toHaveBeenCalledTimes(1);
+
+    // Retry button resets boundary and renders child
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onReset).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Rendered OpenUI Dashboard")).toBeInTheDocument();
+
+    consoleSpy.mockRestore();
+  });
+});

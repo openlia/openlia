@@ -62,6 +62,9 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 				return BootstrapResult{}, err
 			}
 		}
+		if err := ensureLochoHostStateFiles(config.LochoHostStateRoot, config.RuntimeUID, config.RuntimeGID); err != nil {
+			return BootstrapResult{}, err
+		}
 	}
 	if err := ensureSecretDirectory(config); err != nil {
 		return BootstrapResult{}, err
