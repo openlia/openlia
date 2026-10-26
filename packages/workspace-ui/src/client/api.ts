@@ -1,12 +1,18 @@
 import type {
   AuthLoginResponse,
   AuthSessionResponse,
+  ConsequentialPermissionsResponse,
   DocumentPasswordDeleteResponse,
   DocumentPasswordListResponse,
   DocumentPasswordProfile,
   DocumentPasswordSuggestResponse,
   IngestionDetailResponse,
   IngestionOverviewResponse,
+  MaintainerFinding,
+  MaintainerFixApplyResponse,
+  MaintainerFixPreviewResponse,
+  MaintainerIssueState,
+  MaintainerOverviewResponse,
   MigrationActionResponse,
   MigrationDetailResponse,
   MigrationFeedbackRequest,
@@ -298,6 +304,35 @@ export interface WorkspaceApi {
   publicShareRawUrl(id: string, filePath?: string | undefined): string;
   publicShareDownloadUrl(id: string, filePath?: string | undefined): string;
   publicShareSkillDownloadUrl(id: string): string;
+
+  loadMaintainerOverview(): Promise<MaintainerOverviewResponse>;
+  runMaintainerAudit(): Promise<MaintainerOverviewResponse>;
+  ignoreMaintainerIssue(
+    issueId: string,
+    reason?: string | undefined,
+  ): Promise<{
+    schema: 1;
+    ok: true;
+    issue_id: string;
+    state: MaintainerIssueState;
+    finding: MaintainerFinding | null;
+  }>;
+  restoreMaintainerIssue(issueId: string): Promise<{
+    schema: 1;
+    ok: true;
+    issue_id: string;
+    state: MaintainerIssueState;
+    finding: MaintainerFinding;
+  }>;
+  previewMaintainerFix(issueId: string): Promise<MaintainerFixPreviewResponse>;
+  applyMaintainerFix(
+    issueId: string,
+    expectedRevision: string,
+  ): Promise<MaintainerFixApplyResponse>;
+  loadPermissions(): Promise<ConsequentialPermissionsResponse>;
+  updatePermissions(
+    permissions: ConsequentialPermissionsResponse["permissions"],
+  ): Promise<ConsequentialPermissionsResponse>;
 }
 
 type ResponseValidator<T> = (value: unknown) => value is T;
@@ -1479,6 +1514,129 @@ export const httpWorkspaceApi: WorkspaceApi = {
   },
   publicShareSkillDownloadUrl: (id) =>
     `/api/public/share/skill/${encodeURIComponent(id)}/download`,
+
+  loadMaintainerOverview: () =>
+    requestJson<MaintainerOverviewResponse>(
+      "/api/maintainer/overview",
+      (v): v is MaintainerOverviewResponse =>
+        isObject(v) &&
+        v.schema === 1 &&
+        isObject(v.counts) &&
+        Array.isArray(v.open_findings),
+    ),
+  runMaintainerAudit: () =>
+    requestJson<MaintainerOverviewResponse>(
+      "/api/maintainer/audit",
+      (v): v is MaintainerOverviewResponse =>
+        isObject(v) &&
+        v.schema === 1 &&
+        isObject(v.counts) &&
+        Array.isArray(v.open_findings),
+      {
+        body: JSON.stringify({}),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  ignoreMaintainerIssue: (issueId, reason) =>
+    requestJson<{
+      schema: 1;
+      ok: true;
+      issue_id: string;
+      state: MaintainerIssueState;
+      finding: MaintainerFinding | null;
+    }>(
+      "/api/maintainer/ignore",
+      (
+        v,
+      ): v is {
+        schema: 1;
+        ok: true;
+        issue_id: string;
+        state: MaintainerIssueState;
+        finding: MaintainerFinding | null;
+      } => isObject(v) && v.schema === 1 && v.ok === true,
+      {
+        body: JSON.stringify({
+          issue_id: issueId,
+          ...(reason ? { reason } : {}),
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  restoreMaintainerIssue: (issueId) =>
+    requestJson<{
+      schema: 1;
+      ok: true;
+      issue_id: string;
+      state: MaintainerIssueState;
+      finding: MaintainerFinding;
+    }>(
+      "/api/maintainer/restore",
+      (
+        v,
+      ): v is {
+        schema: 1;
+        ok: true;
+        issue_id: string;
+        state: MaintainerIssueState;
+        finding: MaintainerFinding;
+      } => isObject(v) && v.schema === 1 && v.ok === true,
+      {
+        body: JSON.stringify({ issue_id: issueId }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  previewMaintainerFix: (issueId) =>
+    requestJson<MaintainerFixPreviewResponse>(
+      "/api/maintainer/fix/preview",
+      (v): v is MaintainerFixPreviewResponse =>
+        isObject(v) &&
+        v.schema === 1 &&
+        typeof v.issue_id === "string" &&
+        typeof v.current_revision === "string",
+      {
+        body: JSON.stringify({ issue_id: issueId }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  applyMaintainerFix: async (issueId, expectedRevision) => {
+    const res = await requestJson<MaintainerFixApplyResponse>(
+      "/api/maintainer/fix/apply",
+      (v): v is MaintainerFixApplyResponse =>
+        isObject(v) && v.schema === 1 && v.ok === true,
+      {
+        body: JSON.stringify({
+          issue_id: issueId,
+          expected_revision: expectedRevision,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    );
+    notifyWorkspaceFileChange(res.path);
+    return res;
+  },
+  loadPermissions: () =>
+    requestJson<ConsequentialPermissionsResponse>(
+      "/api/permissions",
+      (v): v is ConsequentialPermissionsResponse =>
+        isObject(v) && v.schema === 1 && isObject(v.permissions),
+    ),
+  updatePermissions: (permissions) =>
+    requestJson<ConsequentialPermissionsResponse>(
+      "/api/permissions",
+      (v): v is ConsequentialPermissionsResponse =>
+        isObject(v) && v.schema === 1 && isObject(v.permissions),
+      {
+        body: JSON.stringify({ version: 1, permissions }),
+        headers: { "Content-Type": "application/json" },
+        method: "PUT",
+      },
+    ),
 };
 
 export const api = httpWorkspaceApi;

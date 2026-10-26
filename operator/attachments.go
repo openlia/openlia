@@ -133,6 +133,7 @@ func GenerateAttachmentsContext(ctx context.Context, config Config, composers ..
 		filepath.Join(config.DataRoot, "usage"),
 		filepath.Join(config.DataRoot, "usage", "reports"),
 		filepath.Join(config.DataRoot, "cron"),
+		filepath.Join(config.DataRoot, "maintainer"),
 		filepath.Join(config.DataRoot, ".openlia"),
 		filepath.Join(config.DataRoot, ".openlia", "workspace-migrations"),
 	} {
@@ -142,6 +143,9 @@ func GenerateAttachmentsContext(ctx context.Context, config Config, composers ..
 		if err := ensureRuntimeOwner(path, config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
 			return err
 		}
+	}
+	if err := EnsureDefaultPermissionsFile(config.DataRoot, config.RuntimeUID, config.RuntimeGID); err != nil {
+		return err
 	}
 	if err := EnsureDir(ingestionDir, 0o700); err != nil {
 		return err
@@ -349,6 +353,8 @@ func generateAttachmentsFile(config Config) error {
 		ingestion, _ := json.Marshal(filepath.Join(config.DataRoot, "ingestion"))
 		migrations, _ := json.Marshal(filepath.Join(config.DataRoot, ".openlia", "workspace-migrations"))
 		cronDir, _ := json.Marshal(filepath.Join(config.DataRoot, "cron"))
+		maintainerDir, _ := json.Marshal(filepath.Join(config.DataRoot, "maintainer"))
+		permissionsFile, _ := json.Marshal(filepath.Join(config.DataRoot, "permissions.yaml"))
 		sessionDir, _ := json.Marshal(filepath.Join(config.RuntimeRoot, "workspace-ui"))
 		passwordHashFile, _ := json.Marshal(config.WorkspaceUIPasswordHashFile)
 		builder.WriteString("  workspace-ui:\n    image: \"${OPENLIA_WORKSPACE_UI_IMAGE:-openlia-workspace-ui:v0.1.0}\"\n")
@@ -363,6 +369,8 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("      OPENLIA_INGESTION_ROOT: /ingestion\n")
 		builder.WriteString("      OPENLIA_USAGE_ROOT: /usage\n")
 		builder.WriteString("      OPENLIA_CRON_ROOT: /cron\n")
+		builder.WriteString("      OPENLIA_MAINTAINER_ROOT: /maintainer\n")
+		builder.WriteString("      OPENLIA_PERMISSIONS_FILE: /permissions.yaml\n")
 		if config.BackupSchedule != "" {
 			builder.WriteString(fmt.Sprintf("      OPENLIA_BACKUP_SCHEDULE: %q\n", config.BackupSchedule))
 			builder.WriteString(fmt.Sprintf("      OPENLIA_BACKUP_SCHEDULE_ENABLED: %q\n", fmt.Sprintf("%t", config.BackupScheduleEnabled)))
@@ -420,6 +428,12 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("\n      - type: bind\n        source: ")
 		builder.Write(cronDir)
 		builder.WriteString("\n        target: /cron")
+		builder.WriteString("\n      - type: bind\n        source: ")
+		builder.Write(maintainerDir)
+		builder.WriteString("\n        target: /maintainer")
+		builder.WriteString("\n      - type: bind\n        source: ")
+		builder.Write(permissionsFile)
+		builder.WriteString("\n        target: /permissions.yaml")
 		if !isFirebase && config.WorkspaceUIAuthRequired {
 			builder.WriteString("\n      - type: bind\n        source: ")
 			builder.Write(passwordHashFile)

@@ -88,6 +88,42 @@ export const startWorkspaceApi: WorkspaceApi = {
       method: "POST",
       body: { revision },
     }),
+  loadMaintainerOverview: () =>
+    request({ path: "/api/maintainer/overview" }),
+  runMaintainerAudit: () =>
+    request({ path: "/api/maintainer/audit", method: "POST" }),
+  ignoreMaintainerIssue: (issueId, reason) =>
+    request({
+      path: "/api/maintainer/ignore",
+      method: "POST",
+      body: reason ? { issue_id: issueId, reason } : { issue_id: issueId },
+    }),
+  restoreMaintainerIssue: (issueId) =>
+    request({
+      path: "/api/maintainer/restore",
+      method: "POST",
+      body: { issue_id: issueId },
+    }),
+  previewMaintainerFix: (issueId) =>
+    request({
+      path: "/api/maintainer/fix/preview",
+      method: "POST",
+      body: { issue_id: issueId },
+    }),
+  applyMaintainerFix: (issueId, expectedRevision) =>
+    request({
+      path: "/api/maintainer/fix/apply",
+      method: "POST",
+      body: { issue_id: issueId, expected_revision: expectedRevision },
+    }),
+  loadPermissions: () =>
+    request({ path: "/api/permissions" }),
+  updatePermissions: (permissions) =>
+    request({
+      path: "/api/permissions",
+      method: "PUT",
+      body: { permissions },
+    }),
   loadUsage: (reference) =>
     request<import("../shared/usage").UsageResponse>({
       path: `/api/workspace/usage${reference ? `?reference=${encodeURIComponent(reference)}` : ""}`,

@@ -27,6 +27,7 @@ import type {
   WorkspaceDomainRecordSummary,
   WorkspaceFile,
   WorkspaceFileMetadata,
+  WorkspaceFileValidation,
   WorkspaceGitStatus,
   WorkspaceMoveResponse,
   WorkspaceProjectResponse,
@@ -50,10 +51,16 @@ import {
   parseProjectManifest,
   parseRecordFrontmatter,
   validateEntireWorkspace,
+  validateOpenUIContent,
+  validateProjectManifest,
   validateRecordContent,
 } from "./validator";
 import YAML from "yaml";
 import { MEMORY_DOCUMENT_PREFIX } from "../shared/memory";
+import {
+  evaluateFileFindings,
+  MaintainerService,
+} from "./maintainer/engine";
 
 export const DEFAULT_MAX_EDITABLE_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
@@ -161,6 +168,9 @@ export interface WorkspaceServiceOptions {
   maxEditableBytes?: number;
   maxDownloadBytes?: number;
   maxTreeEntries?: number;
+  maintainer?: MaintainerService | undefined;
+  maintainerRoot?: string | undefined;
+  maintainerDatabasePath?: string | undefined;
 }
 
 export class WorkspaceError extends Error {
@@ -405,6 +415,7 @@ export class WorkspaceService {
   readonly maxEditableBytes: number;
   readonly maxDownloadBytes: number;
   readonly maxTreeEntries: number;
+  readonly maintainer: MaintainerService;
 
   constructor(options: WorkspaceServiceOptions) {
     this.workspaceRoot = resolve(options.workspaceRoot);
@@ -414,6 +425,86 @@ export class WorkspaceService {
       options.maxDownloadBytes ?? DEFAULT_MAX_DOWNLOAD_BYTES;
     this.maxTreeEntries = options.maxTreeEntries ?? DEFAULT_MAX_TREE_ENTRIES;
     mkdirSync(this.workspaceRoot, { recursive: true, mode: 0o700 });
+
+    if (options.maintainer) {
+      this.maintainer = options.maintainer;
+    } else if (options.maintainerDatabasePath) {
+      this.maintainer = new MaintainerService({
+        workspaceRoot: this.workspaceRoot,
+        dbPath: options.maintainerDatabasePath,
+      });
+    } else if (options.maintainerRoot || process.env.OPENLIA_MAINTAINER_ROOT) {
+      this.maintainer = new MaintainerService({
+        workspaceRoot: this.workspaceRoot,
+        maintainerRoot:
+          options.maintainerRoot ?? process.env.OPENLIA_MAINTAINER_ROOT,
+      });
+    } else {
+      const wsBase = this.workspaceRoot.split(sep).at(-1) ?? "workspace";
+      const defaultDbPath =
+        wsBase === "workspace"
+          ? join(dirname(this.workspaceRoot), "maintainer", "maintainer.sqlite")
+          : join(
+              dirname(this.workspaceRoot),
+              ".openlia-maintainer",
+              `${createHash("sha256").update(this.workspaceRoot).digest("hex").slice(0, 12)}.sqlite`,
+            );
+      this.maintainer = new MaintainerService({
+        workspaceRoot: this.workspaceRoot,
+        dbPath: defaultDbPath,
+      });
+    }
+  }
+
+  private validateWithMaintainer(
+    relativePath: string,
+    content: string,
+    checkedRev?: string,
+  ): WorkspaceFileValidation {
+    const rawVal = validateRecordContent(
+      this.workspaceRoot,
+      relativePath,
+      content,
+    );
+    const rev =
+      checkedRev ?? revision(new TextEncoder().encode(content));
+    const candidates = evaluateFileFindings(
+      this.workspaceRoot,
+      this.maintainer.workspaceId,
+      relativePath,
+      content,
+      rev,
+    );
+    const reconciled = this.maintainer.db.reconcileFileFindings(
+      this.maintainer.workspaceId,
+      relativePath,
+      rev,
+      candidates,
+    );
+    const presentFindings = reconciled.filter((f) => f.present);
+    const openFindings = presentFindings.filter((f) => f.state === "open");
+    const ignoredFindings = presentFindings.filter(
+      (f) => f.state === "ignored",
+    );
+
+    if (presentFindings.length > 0) {
+      return {
+        valid: openFindings.length === 0,
+        errors: openFindings.map((f) => f.message),
+        ...(rawVal.schema_path ? { schema_path: rawVal.schema_path } : {}),
+        ...(rawVal.template_path
+          ? { template_path: rawVal.template_path }
+          : {}),
+        findings: presentFindings,
+        ignored_count: ignoredFindings.length,
+      };
+    }
+
+    return {
+      ...rawVal,
+      findings: [],
+      ignored_count: 0,
+    };
   }
 
   settings(): WorkspaceSettings {
@@ -598,11 +689,12 @@ export class WorkspaceService {
     } catch {
       throw new WorkspaceError("file is not valid UTF-8", 415, "invalid_utf8");
     }
-    const validation = validateRecordContent(this.workspaceRoot, path, text);
+    const fileRev = revision(contents);
+    const validation = this.validateWithMaintainer(path, text, fileRev);
     return {
       schema: 1,
       content: text,
-      revision: revision(contents),
+      revision: fileRev,
       validation,
       ...this.fileMetadata(absolute, path),
     };
@@ -713,15 +805,16 @@ export class WorkspaceService {
       if (existsSync(temporary)) unlinkSync(temporary);
       throw error;
     }
-    const validation = validateRecordContent(
-      this.workspaceRoot,
-      path,
-      contentValue,
-    );
+    const nextRev = revision(contents);
+    const validation = this.validateWithMaintainer(path, contentValue, nextRev);
+    // Revalidate dependent records/views in the same folder when a contract changes
+    if (isTemplateOrSchemaPath(path)) {
+      this.maintainer.validateAndReconcilePaths([path]);
+    }
     return {
       schema: 1,
       ok: true,
-      revision: revision(contents),
+      revision: nextRev,
       validation,
       ...this.fileMetadata(absolute, path),
     };
@@ -786,6 +879,7 @@ export class WorkspaceService {
       throw this.mapFilesystemError(error, "workspace file was not found");
     }
 
+    this.maintainer.db.markFileDeleted(this.maintainer.workspaceId, path);
     return { schema: 1, ok: true, path };
   }
 
@@ -879,10 +973,71 @@ export class WorkspaceService {
   }
 
   diagnostics(): WorkspaceDiagnosticsResponse {
-    return validateEntireWorkspace(this.workspaceRoot);
+    const overview = this.maintainer.runWorkspaceAudit();
+    const rawDiag = validateEntireWorkspace(this.workspaceRoot);
+    const byPath = new Map<
+      string,
+      {
+        errors: string[];
+        schema_path?: string | undefined;
+        template_path?: string | undefined;
+      }
+    >();
+
+    for (const f of overview.open_findings) {
+      const existing = byPath.get(f.relative_path) ?? { errors: [] };
+      existing.errors.push(f.message);
+      if (f.contract_path) {
+        if (f.contract_path.endsWith(".schema.json")) {
+          existing.schema_path = f.contract_path;
+        } else if (f.contract_path.endsWith("-template.md")) {
+          existing.template_path = f.contract_path;
+        }
+      }
+      byPath.set(f.relative_path, existing);
+    }
+
+    // Preserve any legacy configuration file diagnostics not handled by Maintainer
+    for (const issue of rawDiag.issues) {
+      if (isConfigurationPath(issue.path) && !byPath.has(issue.path)) {
+        byPath.set(issue.path, {
+          errors: issue.errors,
+          ...(issue.schema_path ? { schema_path: issue.schema_path } : {}),
+          ...(issue.template_path
+            ? { template_path: issue.template_path }
+            : {}),
+        });
+      }
+    }
+
+    const issues = [...byPath.entries()]
+      .map(([path, val]) => ({
+        path,
+        errors: val.errors,
+        ...(val.schema_path ? { schema_path: val.schema_path } : {}),
+        ...(val.template_path ? { template_path: val.template_path } : {}),
+      }))
+      .sort((a, b) => a.path.localeCompare(b.path));
+
+    return {
+      schema: 1,
+      valid: issues.length === 0,
+      issues,
+    };
   }
 
   creatableDomains(): WorkspaceDomainInfo[] {
+    const byPath = new Map<string, WorkspaceDomainInfo>();
+
+    const isDisallowed = (domainPath: string): boolean =>
+      !domainPath ||
+      creationDisallowedDomains.has(domainPath) ||
+      domainPath.startsWith("sources/") ||
+      domainPath.startsWith("inbox/") ||
+      domainPath.startsWith("archive/") ||
+      protectedPath(domainPath);
+
+    // 1. Legacy workspace.yaml if present
     const workspaceYamlPath = join(this.workspaceRoot, "workspace.yaml");
     if (existsSync(workspaceYamlPath)) {
       try {
@@ -893,7 +1048,6 @@ export class WorkspaceService {
           typeof parsed === "object" &&
           Array.isArray(parsed.domains)
         ) {
-          const list: WorkspaceDomainInfo[] = [];
           for (const item of parsed.domains) {
             if (
               !item ||
@@ -905,17 +1059,8 @@ export class WorkspaceService {
               .replaceAll("\\", "/")
               .replace(/^\/+/, "")
               .replace(/\/+$/, "");
-            if (!domainPath || creationDisallowedDomains.has(domainPath))
-              continue;
-            if (
-              domainPath.startsWith("sources/") ||
-              domainPath.startsWith("inbox/") ||
-              domainPath.startsWith("archive/")
-            )
-              continue;
-            if (protectedPath(domainPath)) continue;
+            if (isDisallowed(domainPath)) continue;
 
-            // Must have a template
             let templateRel =
               typeof item.template === "string"
                 ? item.template.replaceAll("\\", "/")
@@ -930,8 +1075,7 @@ export class WorkspaceService {
             if (!templateRel) continue;
 
             const openuiPaths = this.findDomainOpenUIPaths(domainPath);
-
-            list.push({
+            byPath.set(domainPath, {
               path: domainPath,
               label: typeof item.label === "string" ? item.label : domainPath,
               purpose:
@@ -958,11 +1102,35 @@ export class WorkspaceService {
               ...(Array.isArray(item.skills) ? { skills: item.skills } : {}),
             });
           }
-          if (list.length > 0) {
-            return list;
-          }
         }
       } catch {}
+    }
+
+    // 2. Discover collections from filesystem via Maintainer
+    for (const col of this.maintainer.discoverCollections()) {
+      if (isDisallowed(col.path) || byPath.has(col.path)) continue;
+      if (!col.template_path && !col.manifest_path && col.record_count === 0) {
+        continue;
+      }
+      const openuiPaths = this.findDomainOpenUIPaths(col.path);
+      byPath.set(col.path, {
+        path: col.path,
+        label: col.label,
+        purpose: col.inferred_purpose,
+        ...(col.template_path ? { template_path: col.template_path } : {}),
+        ...(col.schema_path ? { schema_path: col.schema_path } : {}),
+        ...(openuiPaths.dashboard_openui_path
+          ? { dashboard_openui_path: openuiPaths.dashboard_openui_path }
+          : {}),
+        ...(openuiPaths.record_openui_path
+          ? { record_openui_path: openuiPaths.record_openui_path }
+          : {}),
+        kind: col.kind === "core" ? "core" : "extension",
+      });
+    }
+
+    if (byPath.size > 0) {
+      return [...byPath.values()];
     }
 
     return DEFAULT_CREATABLE_DOMAINS;
@@ -1174,10 +1342,11 @@ export class WorkspaceService {
           );
         const excerpt = excerptLines.slice(0, 2).join(" ").slice(0, 220);
 
-        const validation = validateRecordContent(
-          this.workspaceRoot,
+        const recRev = revision(rawBytes);
+        const validation = this.validateWithMaintainer(
           relPath,
           content,
+          recRev,
         );
         if (!validation.valid) {
           invalidCount++;
@@ -1196,7 +1365,7 @@ export class WorkspaceService {
           title,
           modified_at: info.mtime.toISOString(),
           size: info.size,
-          revision: revision(rawBytes),
+          revision: recRev,
           frontmatter: fm,
           sections,
           excerpt,
@@ -1291,8 +1460,40 @@ export class WorkspaceService {
     if (!existsSync(manifestAbs)) return null;
 
     const raw = readFileSync(manifestAbs, "utf-8");
-    const { manifest } = parseProjectManifest(raw);
-    if (!manifest) return null;
+    const parsedManifest = parseProjectManifest(raw);
+    const fallbackName =
+      (projectPath.split("/").at(-1) ?? projectPath)
+        .replace(/[-_]+/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase()) || projectPath;
+    const manifest: ProjectManifest = parsedManifest.manifest ?? {
+      version: 1,
+      project: {
+        id: projectPath.split("/").at(-1) ?? projectPath,
+        name: fallbackName,
+      },
+      data: {},
+      ui: { entry: DEFAULT_PROJECT_UI_ENTRY },
+    };
+
+    const renderErrors: string[] = [...parsedManifest.errors];
+    const uiEntry = manifest.ui.entry || DEFAULT_PROJECT_UI_ENTRY;
+    const uiRel = `${projectPath}/${uiEntry}`;
+    const uiAbs = resolve(dirAbs, uiEntry);
+    if (!uiAbs.startsWith(dirAbs + sep) || !existsSync(uiAbs)) {
+      renderErrors.push(
+        `UI entry '${uiEntry}' is missing in '${projectPath}'`,
+      );
+    } else {
+      try {
+        const uiRaw = readFileSync(uiAbs, "utf8");
+        const uiVal = validateOpenUIContent(this.workspaceRoot, uiRel, uiRaw);
+        for (const err of uiVal.errors) {
+          if (err.startsWith("openui")) {
+            renderErrors.push(err);
+          }
+        }
+      } catch {}
+    }
 
     const dirEntries =
       entries ??
@@ -1325,8 +1526,7 @@ export class WorkspaceService {
       recordCount++;
       try {
         const content = readFileSync(join(dirAbs, fname), "utf-8");
-        const v = validateRecordContent(
-          this.workspaceRoot,
+        const v = this.validateWithMaintainer(
           `${projectPath}/${fname}`,
           content,
         );
@@ -1354,12 +1554,14 @@ export class WorkspaceService {
         : {}),
       ...(manifest.project.icon ? { icon: manifest.project.icon } : {}),
       manifest_path: manifestRel,
-      ui_path: `${projectPath}/${manifest.ui.entry || DEFAULT_PROJECT_UI_ENTRY}`,
+      ui_path: uiRel,
       ...(templatePath ? { template_path: templatePath } : {}),
       ...(schemaPath ? { schema_path: schemaPath } : {}),
       skills: manifest.logic?.skills ?? [],
       record_count: recordCount,
       invalid_record_count: invalidCount,
+      renderable: renderErrors.length === 0,
+      ...(renderErrors.length > 0 ? { render_errors: renderErrors } : {}),
     };
   }
 
@@ -1405,13 +1607,36 @@ export class WorkspaceService {
     }
 
     const manifestRaw = readFileSync(manifestAbs, "utf-8");
-    const { manifest } = parseProjectManifest(manifestRaw);
-    if (!manifest) {
-      throw new WorkspaceError(
-        `invalid ${PROJECT_MANIFEST_FILENAME} in "${projectPath}"`,
-        400,
-        "invalid_manifest",
-      );
+    const parsedManifest = parseProjectManifest(manifestRaw);
+    const fallbackName =
+      (projectPath.split("/").at(-1) ?? projectPath)
+        .replace(/[-_]+/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase()) || projectPath;
+    const manifest: ProjectManifest = parsedManifest.manifest ?? {
+      version: 1,
+      project: {
+        id: projectPath.split("/").at(-1) ?? projectPath,
+        name: fallbackName,
+      },
+      data: {},
+      ui: { entry: DEFAULT_PROJECT_UI_ENTRY },
+    };
+
+    const renderErrors: string[] = [];
+    const manifestVal = validateProjectManifest(
+      this.workspaceRoot,
+      manifestRel,
+      manifestRaw,
+    );
+    this.validateWithMaintainer(manifestRel, manifestRaw);
+    for (const err of parsedManifest.errors) {
+      renderErrors.push(`manifest: ${err}`);
+    }
+    for (const err of manifestVal.errors) {
+      const formatted = `manifest: ${err}`;
+      if (!renderErrors.includes(formatted)) {
+        renderErrors.push(formatted);
+      }
     }
 
     const uiEntry = manifest.ui.entry || DEFAULT_PROJECT_UI_ENTRY;
@@ -1421,8 +1646,20 @@ export class WorkspaceService {
     if (uiAbs.startsWith(dirAbs + sep) && existsSync(uiAbs)) {
       try {
         uiContent = readFileSync(uiAbs, "utf-8");
+        const uiVal = this.validateWithMaintainer(uiRel, uiContent);
+        for (const err of uiVal.errors) {
+          if (err.startsWith("openui") || err.includes("must not be empty")) {
+            renderErrors.push(`ui: ${err}`);
+          }
+        }
       } catch {}
+    } else {
+      renderErrors.push(
+        `ui: entry file '${uiEntry}' is missing in '${projectPath}'`,
+      );
     }
+    const renderable =
+      renderErrors.length === 0 && Boolean(uiContent.trim());
 
     const templateInfo = findDomainTemplate(
       this.workspaceRoot,
@@ -1539,10 +1776,11 @@ export class WorkspaceService {
           );
         const excerpt = excerptLines.slice(0, 2).join(" ").slice(0, 220);
 
-        const validation = validateRecordContent(
-          this.workspaceRoot,
+        const recRev = revision(rawBytes);
+        const validation = this.validateWithMaintainer(
           relPath,
           content,
+          recRev,
         );
         if (!validation.valid) {
           invalidCount++;
@@ -1561,7 +1799,7 @@ export class WorkspaceService {
           title,
           modified_at: info.mtime.toISOString(),
           size: info.size,
-          revision: revision(rawBytes),
+          revision: recRev,
           frontmatter: fm,
           sections,
           excerpt,
@@ -1603,6 +1841,8 @@ export class WorkspaceService {
       skills: manifest.logic?.skills ?? [],
       record_count: records.length,
       invalid_record_count: invalidCount,
+      renderable,
+      ...(renderErrors.length > 0 ? { render_errors: renderErrors } : {}),
     };
 
     return {
@@ -1616,6 +1856,8 @@ export class WorkspaceService {
       ...(schemaJson ? { schema_json: schemaJson } : {}),
       ...(templateHeadings ? { template_headings: templateHeadings } : {}),
       project_files: projectFiles,
+      renderable,
+      ...(renderErrors.length > 0 ? { render_errors: renderErrors } : {}),
     };
   }
 
@@ -1632,9 +1874,28 @@ export class WorkspaceService {
       .replaceAll("\\", "/")
       .replace(/^\/+/, "")
       .replace(/\/+$/, "");
+    if (
+      domain.includes("..") ||
+      domain
+        .split("/")
+        .some((seg) => !seg || seg.startsWith(".") || seg === ".openlia")
+    ) {
+      throw new WorkspaceError(
+        `domain "${domain}" does not allow file creation`,
+        403,
+        "domain_not_allowed",
+      );
+    }
+    if (creationDisallowedDomains.has(domain)) {
+      throw new WorkspaceError(
+        `domain "${domain}" does not allow file creation`,
+        403,
+        "domain_not_allowed",
+      );
+    }
     const allowed = this.creatableDomains();
     let matchedDomain = allowed.find((d) => d.path === domain);
-    if (!matchedDomain && !creationDisallowedDomains.has(domain)) {
+    if (!matchedDomain) {
       const manifestAbs = resolve(
         this.workspaceRoot,
         domain,
@@ -1658,11 +1919,15 @@ export class WorkspaceService {
       }
     }
     if (!matchedDomain) {
-      throw new WorkspaceError(
-        `domain "${domain}" does not allow file creation`,
-        403,
-        "domain_not_allowed",
+      const tplInfo = findDomainTemplate(
+        this.workspaceRoot,
+        `${domain}/placeholder.md`,
       );
+      matchedDomain = {
+        path: domain,
+        label: domain.split("/").at(-1) ?? domain,
+        ...(tplInfo ? { template_path: tplInfo.templateRelativePath } : {}),
+      };
     }
 
     if (typeof nameValue !== "string" || !nameValue.trim()) {
@@ -1816,10 +2081,14 @@ export class WorkspaceService {
       textContent = new TextDecoder("utf-8").decode(contents);
     } catch {}
 
-    const validation = validateRecordContent(
-      this.workspaceRoot,
+    this.maintainer.db.markFileDeleted(
+      this.maintainer.workspaceId,
+      sourcePath,
+    );
+    const validation = this.validateWithMaintainer(
       destinationPath,
       textContent,
+      currentRevision,
     );
 
     return {

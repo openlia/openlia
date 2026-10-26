@@ -29,9 +29,27 @@ class PolicyPluginTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.workspace = Path(self.tempdir.name) / "workspace"
+        self.permissions_file = Path(self.tempdir.name) / "permissions.yaml"
         shutil.copytree(TEMPLATE_ROOT, self.workspace)
+        self.permissions_file.write_text(
+            "version: 1\n"
+            "destructive:\n"
+            "  delete_records: ask\n"
+            "  overwrite_records: ask\n"
+            "external:\n"
+            "  send_messages: ask\n"
+            "  modify_external_calendar: ask\n"
+            "  purchases: ask\n"
+            "  financial_transactions: ask\n"
+            "scheduled_work:\n"
+            "  enabled: true\n"
+            "  report_destination: inbox/daily-briefing\n",
+            encoding="utf-8",
+        )
         self.module = load_plugin()
-        self.policy = self.module.PolicyEnforcer(self.workspace, HELPER_PATH)
+        self.policy = self.module.PolicyEnforcer(
+            self.workspace, HELPER_PATH, permissions_file=self.permissions_file
+        )
 
     def tearDown(self):
         self.tempdir.cleanup()
@@ -55,7 +73,7 @@ class PolicyPluginTests(unittest.TestCase):
             self.assertIn("Git Activity", decision["message"])
         self.assertIsNone(self.policy.pre_tool_call("terminal", {"command": "git diff -- tasks/add.md"}))
 
-    def test_delegated_tasks_create_is_allowed(self):
+    def test_tasks_and_new_top_level_domains_create_freely_without_registration(self):
         policy = self.policy
 
         self.assertIsNone(
@@ -63,14 +81,16 @@ class PolicyPluginTests(unittest.TestCase):
                 "write_file", {"path": "tasks/kyoto-trip.md", "content": "draft"}
             )
         )
-
-    def test_uninstalled_feature_domain_is_blocked_without_registry_batch(self):
-        policy = self.policy
-        decision = policy.pre_tool_call(
-            "write_file", {"path": "travel/kyoto-trip.md", "content": "draft"}
+        self.assertIsNone(
+            policy.pre_tool_call(
+                "write_file", {"path": "travel/kyoto-trip.md", "content": "draft"}
+            )
         )
-        self.assertEqual(decision["action"], "block")
-        self.assertIn("outside registered domains", decision["message"])
+        self.assertIsNone(
+            policy.pre_tool_call(
+                "write_file", {"path": "family-menu/2026-10-26.md", "content": "# Menu"}
+            )
+        )
 
     def test_ordinary_nested_folder_does_not_need_registration(self):
         self.assertIsNone(
@@ -79,105 +99,74 @@ class PolicyPluginTests(unittest.TestCase):
             )
         )
 
-    def test_structure_is_approved_as_one_exact_batch_not_delegated(self):
+    def test_family_menu_mini_project_scaffolding_succeeds_without_structural_approval(self):
         args = {
             "mode": "patch",
             "patch": (
-                "*** Update File: workspace.yaml\n@@\n+  # proposed menu extension\n"
-                "*** Add File: goals/daily-menu/menu-template.md\n+# Menu\n+## Lunch\n"
-                "*** Add File: goals/daily-menu/2026-10-23.md\n+# Friday\n+## Lunch\n"
+                "*** Add File: family-menu/menu-template.md\n+# Menu\n+## Lunch\n"
+                "*** Add File: family-menu/menu.schema.json\n+{\"type\": \"object\"}\n"
+                "*** Add File: family-menu/project-manifest.toml\n+[project]\n+id = \"family-menu\"\n"
+                "*** Add File: family-menu/ui.openui\n+root = Stack([])\n"
+                "*** Add File: family-menu/2026-10-26.md\n+# Monday\n+## Lunch\n"
             ),
         }
-        decision = self.policy.pre_tool_call("patch", args)
-        self.assertEqual(decision["action"], "approve")
-        self.assertTrue(decision["rule_key"].startswith("openlia.policy.workspace_structure."))
-        changed = {**args, "patch": args["patch"].replace("Friday", "Saturday")}
-        self.assertNotEqual(
-            decision["rule_key"], self.policy.pre_tool_call("patch", changed)["rule_key"]
-        )
-        # Model-supplied approval cannot bypass the trusted Hermes gate.
-        self.assertEqual(
-            self.policy.pre_tool_call("patch", {**args, "approved": True})["action"], "approve"
-        )
-        directory = self.workspace / "goals/daily-menu"
-        self.assertFalse(directory.exists())  # Proposing never applies changes.
-        directory.mkdir()
-        (directory / "2026-10-23.md").write_text("newer user work")
-        self.assertNotEqual(
-            decision["rule_key"], self.policy.pre_tool_call("patch", args)["rule_key"]
-        )
+        self.assertIsNone(self.policy.pre_tool_call("patch", args))
 
-    def test_template_and_schema_changes_require_approval(self):
-        for path in (
-            "goals/goal-template.md", "goals/goal-template.schema.json",
-            "goals/AGENTS.md", "workspace.yaml",
-        ):
+    def test_template_and_schema_updates_are_allowed_while_agents_md_is_protected(self):
+        for path in ("goals/goal-template.md", "goals/goal-template.schema.json"):
             decision = self.policy.pre_tool_call(
-                "patch", {
-                    "mode": "patch", "patch": f"*** Update File: {path}\n@@\n+reviewed change\n"
-                }
+                "patch",
+                {
+                    "mode": "patch",
+                    "patch": f"*** Update File: {path}\n@@\n+updated contract\n",
+                },
             )
-            self.assertEqual(decision["action"], "approve", path)
+            self.assertIsNone(decision, path)
 
-    def test_new_top_level_extension_needs_registry_batch(self):
-        path = "menus/2026-10-23.md"
-        decision = self.policy.pre_tool_call("write_file", {"path": path, "content": "# Menu"})
-        self.assertEqual(decision["action"], "block")
-        args = {
-            "mode": "patch",
-            "patch": (
-                "*** Update File: workspace.yaml\n@@\n+  # proposed extension\n"
-                f"*** Add File: {path}\n+# Menu\n"
-            ),
-        }
-        self.assertEqual(self.policy.pre_tool_call("patch", args)["action"], "approve")
-        # No follow-on capability was granted by requesting or approving a batch.
-        follow_on = self.policy.pre_tool_call(
-            "write_file", {"path": "menus/other.md", "content": "other"}
+        for protected in ("AGENTS.md", "goals/AGENTS.md", "SOUL.md", "permissions.yaml"):
+            decision = self.policy.pre_tool_call(
+                "patch",
+                {
+                    "mode": "patch",
+                    "patch": f"*** Update File: {protected}\n@@\n+blocked change\n",
+                },
+            )
+            self.assertIsNotNone(decision, protected)
+            self.assertEqual(decision["action"], "block", protected)
+
+    def test_safety_boundaries_and_symlinks_are_blocked(self):
+        (self.workspace / "goals/escape").symlink_to(
+            self.workspace.parent, target_is_directory=True
         )
-        self.assertEqual(follow_on["action"], "block")
-
-    def test_structural_batch_preserves_safety_boundaries(self):
-        prefix = "*** Update File: workspace.yaml\n@@\n+  # extension\n"
-        (self.workspace / "goals/escape").symlink_to(self.workspace.parent, target_is_directory=True)
         for path in (
-            "../outside.md", ".git/config", "assistant-policy.yaml", "goals/escape/outside.md"
+            "../outside.md",
+            ".git/config",
+            ".env",
+            "sources/document-passwords.toml",
+            "goals/escape/outside.md",
         ):
             decision = self.policy.pre_tool_call(
-                "patch", {"mode": "patch", "patch": prefix + f"*** Add File: {path}\n+no\n"}
+                "patch", {"mode": "patch", "patch": f"*** Add File: {path}\n+no\n"}
             )
             self.assertEqual(decision["action"], "block", path)
-        self.policy.on_session_start(session_id="scheduled", platform="cron")
-        decision = self.policy.pre_tool_call(
-            "patch", {"mode": "patch", "patch": prefix}, session_id="scheduled"
-        )
-        self.assertEqual(decision["action"], "block")
 
-    def test_structural_batch_cannot_override_destructive_deny(self):
-        path = self.workspace / "assistant-policy.yaml"
-        path.write_text(path.read_text().replace("delete_records: ask", "delete_records: deny"))
+    def test_destructive_deny_blocks_delete_and_overwrite(self):
+        self.permissions_file.write_text(
+            self.permissions_file.read_text(encoding="utf-8")
+            .replace("delete_records: ask", "delete_records: deny")
+            .replace("overwrite_records: ask", "overwrite_records: deny"),
+            encoding="utf-8",
+        )
         decision = self.policy.pre_tool_call(
-            "patch", {
+            "patch",
+            {
                 "mode": "patch",
-                "patch": (
-                    "*** Update File: workspace.yaml\n@@\n+  # extension\n"
-                    "*** Delete File: goals/goal-template.md\n"
-                ),
-            }
+                "patch": "*** Delete File: goals/goal-template.md\n",
+            },
         )
         self.assertEqual(decision["action"], "block")
-        path.write_text(path.read_text().replace("overwrite_records: ask", "overwrite_records: deny"))
         decision = self.policy.pre_tool_call(
             "write_file", {"path": "goals/goal-template.md", "content": "replacement"}
-        )
-        self.assertEqual(decision["action"], "block")
-
-    def test_move_cannot_bypass_structural_approval(self):
-        decision = self.policy.pre_tool_call(
-            "patch", {
-                "mode": "patch",
-                "patch": "*** Move File: goals/note.md -> goals/menu-template.md\n",
-            }
         )
         self.assertEqual(decision["action"], "block")
 
@@ -220,10 +209,13 @@ class PolicyPluginTests(unittest.TestCase):
         directory = self.workspace / "goals/daily-menu"
         directory.mkdir()
         (directory / "2026-10-24.md").write_text("---\nstatus: draft\n---\n# Menu\n")
-        decision = self.policy.pre_tool_call("patch", {
-            "mode": "patch",
-            "patch": "*** Update File: goals/daily-menu/2026-10-24.md\n@@\n----\n-status: draft\n----\n # Menu\n",
-        })
+        decision = self.policy.pre_tool_call(
+            "patch",
+            {
+                "mode": "patch",
+                "patch": "*** Update File: goals/daily-menu/2026-10-24.md\n@@\n----\n-status: draft\n----\n # Menu\n",
+            },
+        )
         self.assertIsNone(decision)
 
     def test_path_escape_is_blocked(self):
@@ -247,6 +239,12 @@ class PolicyPluginTests(unittest.TestCase):
                 session_id="cron-session",
             )
         )
+        outside = policy.pre_tool_call(
+            "write_file",
+            {"path": str(self.workspace / "tasks/cron-task.md"), "content": "no"},
+            session_id="cron-session",
+        )
+        self.assertEqual(outside["action"], "block")
 
     def test_external_message_requires_approval(self):
         policy = self.policy
@@ -257,19 +255,24 @@ class PolicyPluginTests(unittest.TestCase):
         self.assertEqual(decision["action"], "approve")
         self.assertEqual(decision["rule_key"], "openlia.policy.send_messages")
 
-    def test_missing_policy_falls_back_to_approval(self):
+    def test_missing_permissions_file_uses_safe_defaults(self):
         policy = self.policy
-        (self.workspace / "assistant-policy.yaml").unlink()
+        self.permissions_file.unlink()
 
-        decision = policy.pre_tool_call(
-            "write_file", {"path": "tasks/new-trip.md", "content": "draft"}
+        self.assertIsNone(
+            policy.pre_tool_call(
+                "write_file", {"path": "tasks/new-trip.md", "content": "draft"}
+            )
         )
-        self.assertEqual(decision["action"], "approve")
-        self.assertEqual(decision["rule_key"], "openlia.policy.missing")
+        del_decision = policy.pre_tool_call(
+            "patch",
+            {"mode": "patch", "patch": "*** Delete File: tasks/new-trip.md\n"},
+        )
+        self.assertEqual(del_decision["action"], "approve")
 
-    def test_invalid_policy_fails_closed(self):
+    def test_invalid_permissions_file_fails_closed(self):
         policy = self.policy
-        (self.workspace / "assistant-policy.yaml").write_text("not: [valid", encoding="utf-8")
+        self.permissions_file.write_text("not: [valid", encoding="utf-8")
 
         decision = policy.pre_tool_call(
             "write_file", {"path": "tasks/new-trip.md", "content": "draft"}
@@ -289,10 +292,31 @@ class PolicyPluginTests(unittest.TestCase):
         script = HELPER_PATH.parent / "validate_workspace.py"
         command = f"/opt/hermes/.venv/bin/python {script} --workspace-root {self.workspace} --json"
         self.assertIsNone(self.policy.pre_tool_call("terminal", {"command": command}))
-        for unsafe in (command + "; touch bad", command + " > output.json", command.replace(str(script), "other.py"), command + " --self-test"):
-            self.assertIsNotNone(self.policy.pre_tool_call("terminal", {"command": unsafe}), unsafe)
-        (self.workspace / "workspace.yaml").write_text("not: [valid")
-        self.assertIsNone(self.policy.pre_tool_call("terminal", {"command": command}))
+        for unsafe in (
+            command + "; touch bad",
+            command + " > output.json",
+            command.replace(str(script), "other.py"),
+            command + " --self-test",
+        ):
+            self.assertIsNotNone(
+                self.policy.pre_tool_call("terminal", {"command": unsafe}), unsafe
+            )
+
+    def test_maintainer_tools_permissions(self):
+        self.assertIsNone(self.policy.pre_tool_call("maintainer_status", {}))
+        self.assertIsNone(self.policy.pre_tool_call("maintainer_audit", {}))
+        self.assertIsNone(
+            self.policy.pre_tool_call(
+                "maintainer_triage_issue",
+                {"action": "restore", "issue_id": "iss_1", "path": "tasks/a.md"},
+            )
+        )
+        ignore_decision = self.policy.pre_tool_call(
+            "maintainer_triage_issue",
+            {"action": "ignore", "issue_id": "iss_1", "path": "tasks/a.md"},
+        )
+        self.assertEqual(ignore_decision["action"], "approve")
+        self.assertEqual(ignore_decision["rule_key"], "openlia.policy.maintainer_ignore")
 
     def test_unclassified_mutating_tool_requires_approval(self):
         decision = self.policy.pre_tool_call("skill_manage", {"action": "patch"})
@@ -323,7 +347,6 @@ class PolicyPluginTests(unittest.TestCase):
         self.assertIn("delete_records on sources", del_decision["message"])
 
     def test_youtube_bypass_is_blocked_while_ingestion_is_allowed(self):
-        # 1. ingestion_capture with kind="youtube" is allowed under delegated capture
         self.assertIsNone(
             self.policy.pre_tool_call(
                 "ingestion_capture",
@@ -335,7 +358,6 @@ class PolicyPluginTests(unittest.TestCase):
             )
         )
 
-        # 2. web_extract on YouTube URLs is blocked
         for yt_url in (
             "https://www.youtube.com/watch?v=jNQXAC9IVRw",
             "https://youtu.be/jNQXAC9IVRw",
@@ -346,12 +368,10 @@ class PolicyPluginTests(unittest.TestCase):
             self.assertEqual(web_decision["action"], "block")
             self.assertIn("ingestion_capture", web_decision["message"])
 
-        # Non-YouTube web_extract remains allowed
         self.assertIsNone(
             self.policy.pre_tool_call("web_extract", {"url": "https://example.com/article"})
         )
 
-        # 3. Terminal YouTube transcript helpers or package installs are blocked
         for cmd in (
             "yt-dlp --write-subs https://www.youtube.com/watch?v=jNQXAC9IVRw",
             "pip install youtube-transcript-api",
@@ -361,4 +381,82 @@ class PolicyPluginTests(unittest.TestCase):
             term_decision = self.policy.pre_tool_call("terminal", {"command": cmd})
             self.assertIsNotNone(term_decision)
             self.assertEqual(term_decision["action"], "block")
-            self.assertIn("ingestion_capture", term_decision["message"])
+
+    def test_post_mutation_advisory_feedback_and_ignore_suppression(self):
+        menu_dir = self.workspace / "family-menu"
+        menu_dir.mkdir(parents=True, exist_ok=True)
+        (menu_dir / "menu-template.md").write_text(
+            "---\nweek_of: 2026-10-26\n---\n\n# Family Menu\n\n## Meals\n\n## Shopping\n",
+            encoding="utf-8",
+        )
+        menu_file = menu_dir / "2026-10-26.md"
+        menu_file.write_text(
+            "---\nweek_of: 2026-10-26\n---\n\n# Family Menu\n\n## Meals\n- Pho\n",
+            encoding="utf-8",
+        )
+
+        # Post-tool call returns non-blocking advisory warning for missing Shopping section
+        post_res = self.policy.post_tool_call(
+            "write_file",
+            args={"path": str(menu_file)},
+            status="ok",
+        )
+        self.assertIsNotNone(post_res)
+        self.assertIn("Saved successfully. 1 structural warning:", post_res["advisory"])
+        self.assertIn("Missing template section '## Shopping'", post_res["advisory"])
+
+        # Inspect via maintainer_status tool
+        import json
+
+        status_payload = json.loads(
+            self.policy.tool_maintainer_status(path="family-menu/2026-10-26.md")
+        )
+        self.assertEqual(status_payload["counts"]["open"], 1)
+        issue_id = status_payload["open_findings"][0]["issue_id"]
+
+        # Ignore the exact issue in this file
+        triage_payload = json.loads(
+            self.policy.tool_maintainer_triage_issue(
+                issue_id=issue_id,
+                action="ignore",
+                reason="No shopping list this week",
+            )
+        )
+        self.assertTrue(triage_payload["ok"])
+        self.assertEqual(triage_payload["finding"]["state"], "ignored")
+
+        # Subsequent post-tool call does NOT re-inject the ignored warning
+        suppressed = self.policy.post_tool_call(
+            "write_file",
+            args={"path": str(menu_file)},
+            status="ok",
+        )
+        self.assertIsNone(suppressed)
+
+        # Tomorrow's menu with the same missing section still surfaces the warning
+        tomorrow_file = menu_dir / "2026-10-27.md"
+        tomorrow_file.write_text(
+            "---\nweek_of: 2026-10-27\n---\n\n# Family Menu\n\n## Meals\n- Bun Cha\n",
+            encoding="utf-8",
+        )
+        tomorrow_res = self.policy.post_tool_call(
+            "write_file",
+            args={"path": str(tomorrow_file)},
+            status="ok",
+        )
+        self.assertIsNotNone(tomorrow_res)
+        self.assertIn("family-menu/2026-10-27.md", tomorrow_res["advisory"])
+
+        # Restoring the ignored warning makes it active again
+        restore_payload = json.loads(
+            self.policy.tool_maintainer_triage_issue(
+                issue_id=issue_id,
+                action="restore",
+            )
+        )
+        self.assertTrue(restore_payload["ok"])
+        self.assertEqual(restore_payload["finding"]["state"], "open")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -6,11 +6,15 @@ user-owned delegation policy authorizes the scoped update.
 
 ## Organization
 
-- Read `workspace.yaml` before classifying a record. It is the source of truth
-  for semantic domains and routing contracts, not an inventory of every folder.
-- Read `assistant-policy.yaml` before deciding whether a workspace write,
-  scheduled action, or external action is authorized. It is user-owned and
-  controls delegation; a missing policy means use ask-before-write behavior.
+- Workspace Maintainer discovers collections automatically from folders, local
+  `*-template.md` files, referenced `*.schema.json` schemas, and
+  `project-manifest.toml` manifests. Folders do not require registration before
+  they can be created or used.
+- Consequential permissions live in `/opt/data/permissions.yaml` and govern
+  destructive actions (`delete_records`, `overwrite_records`), external side
+  effects (`send_messages`, `modify_external_calendar`, `purchases`,
+  `financial_transactions`), and scheduled work (`scheduled_work`). Ordinary
+  local workspace creation and record updates are allowed by default.
 - Use `inbox/` as the universal intake point when classification is uncertain.
 - Keep goals, areas, tasks, and resources distinct.
 - Record important reasoning in `decisions/` instead of leaving it only in chat.
@@ -20,11 +24,10 @@ user-owned delegation policy authorizes the scoped update.
   `$schema` frontmatter property.
 - Use `monitors/` for conditions to watch, not for one-off tasks.
 - Use `archive/` for inactive records rather than destructive deletion.
-- Ordinary nested folders and supporting artifacts within an authorized domain
-  do not need registration. A scoped file request includes necessary parent
-  folders. For a recurring use case needing reusable organization, act as the
-  workspace architect: inspect, design, propose, obtain scoped approval, apply,
-  validate, then continue the user's original task without another prompt.
+- New top-level and nested folders are normal workspace content. For a recurring
+  use case needing reusable organization or a Mini-Project UI, design the
+  smallest useful folder, template, optional schema, and `project-manifest.toml` /
+  `ui.openui` directly alongside the user's requested artifact.
 
 ## File handling
 
@@ -41,7 +44,7 @@ user-owned delegation policy authorizes the scoped update.
     - `inbox/daily-briefing/briefing-template.md`: dated morning briefing reports.
     - `inbox/ingestion/ingestion-template.md`: durable capture and processing records.
     - `sources/records/source-template.md`: retained source provenance and extraction metadata.
-  - **Optional À La Carte Feature Templates** (present when the corresponding feature package is installed and registered in `workspace.yaml`):
+  - **Optional À La Carte Feature Templates** (present when the corresponding feature package is installed):
     - `areas/area-template.md`: enduring life domains, standards, and active projects (`areas` feature).
     - `decisions/decision-template.md`: questions, options, trade-offs, and outcomes (`decision-analysis` feature).
     - `knowledge/research/research-template.md`: bounded, source-backed research briefs (`deep-research` feature).
@@ -94,25 +97,17 @@ user-owned delegation policy authorizes the scoped update.
   ingestion. Finance intake records must still avoid credentials, account
   numbers, and unrelated raw authentication data.
 
-## Workspace Extensions
+## Workspace Extensions & Maintainer
 
-- Prefer an existing core domain before proposing an extension.
-- A semantic extension may be nested under a core domain or be a new top-level
-  domain. Register it when it introduces a reusable template contract, routing,
-  or lifecycle. It must have a stable path, purpose, and lifecycle; ordinary
-  organizational ancestors do not each need registration.
-- A routed extension must declare context tags in `workspace.yaml`; this keeps a
-  specialized destination from silently replacing a core route.
-- Read the extension's template and schema, if any, before creating records.
-- The agent drafts the proposed folders, template, optional schema, and necessary
-  `workspace.yaml`/routing edits. Explain the outcome, placement, format, and
-  effect on existing content; offer Confirm, Adjust, or Cancel. Keep exact file
-  changes reviewable without requiring the user to design or edit infrastructure.
-- Use the protected `workspace-template-customization` flow. Approval covers
-  only the specific proposed batch, including the original requested artifact;
-  it is not permission to reorganize other content or alter delegation policy.
-  Validate after applying and continue the original task automatically. A
-  changed proposal needs renewed approval. Do not apply a proposal unattended.
+- Prefer an existing core folder when it fits naturally, or create a new
+  top-level or nested folder when the user's request calls for one (e.g.,
+  `family-menu/`).
+- Read the folder's local template and schema, if any, before creating records.
+- Workspace Maintainer validates edits automatically after save. Structural
+  findings are advisory and do not block saving content.
+- You may fix structural warnings caused by your own edits within the current
+  request, or disclose material warnings clearly to the user. Never mark a
+  warning as ignored unless the user explicitly asks to ignore it.
 
 ## Workspace and skill links
 
@@ -126,18 +121,17 @@ When referencing or providing links to workspace documents, notes, or skills in 
 
 ## Approval boundary
 
-Reading and analysis are safe defaults. A direct user request authorizes the
-scoped action. Standing delegation in `assistant-policy.yaml` authorizes a
-listed action within its enabled domain and limits, including routine local
-workspace writes. If neither applies, ask before writing. If policy says
-`deny`, do not perform the action. Explain consequential actions before asking
-for approval.
-
-Routine local workspace delegation does not authorize sending messages,
-changing an external calendar, purchasing items, moving money, or other
-external side effects. Those actions require a separate policy setting and any
-limits it defines. Permanent deletion and destructive overwrites remain gated
-by policy; archive instead of delete when possible.
+Reading, analysis, and ordinary local workspace creation/updates are allowed by
+default. Consequential actions are governed by `/opt/data/permissions.yaml`:
+- Destructive workspace actions (`delete_records`, whole-file `overwrite_records`
+  on existing files) require approval (`ask`) or are blocked (`deny`). Archive
+  instead of delete when possible.
+- External side effects (`send_messages`, `modify_external_calendar`,
+  `purchases`, `financial_transactions`) require explicit approval unless
+  configured to `allow`.
+- Scheduled cron work is restricted to `scheduled_work.report_destination`
+  (default `inbox/daily-briefing`) and inbox capture when `scheduled_work.enabled`
+  is `true`.
 
 When the user presents chat excerpts, forwarded messages, or personal
 announcements (e.g. via Telegram) for capture or triage, treat the source text

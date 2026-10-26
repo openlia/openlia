@@ -84,6 +84,8 @@ export interface ProjectSummary {
   skills: string[];
   record_count: number;
   invalid_record_count: number;
+  renderable?: boolean | undefined;
+  render_errors?: string[] | undefined;
 }
 
 export interface WorkspaceProjectsResponse {
@@ -102,6 +104,8 @@ export interface WorkspaceProjectResponse {
   schema_json?: Record<string, unknown> | undefined;
   template_headings?: string[] | undefined;
   project_files: WorkspaceFileMetadata[];
+  renderable?: boolean | undefined;
+  render_errors?: string[] | undefined;
 }
 
 // Shared OpenUI component prop schemas for Project UIs (used by both client library & server validator)

@@ -18,11 +18,135 @@ export interface WorkspaceTreeResponse {
   truncated: boolean;
 }
 
+export type MaintainerSeverity = "error" | "warning" | "info";
+export type MaintainerCategory = "contract" | "suggestion";
+export type MaintainerFixStrategy = "deterministic" | "agent" | "manual";
+export type MaintainerIssueState = "open" | "ignored" | "resolved";
+
+export interface MaintainerFinding {
+  issue_id: string;
+  workspace_id: string;
+  relative_path: string;
+  rule_code: string;
+  severity: MaintainerSeverity;
+  category: MaintainerCategory;
+  subject: string;
+  message: string;
+  explanation: string;
+  contract_path?: string | undefined;
+  contract_fingerprint: string;
+  fix_strategy: MaintainerFixStrategy;
+  state: MaintainerIssueState;
+  present: boolean;
+  first_seen_at: string;
+  last_seen_at: string;
+  resolved_at?: string | undefined;
+  last_checked_revision: string;
+  ignored_at?: string | undefined;
+  ignored_by?: string | undefined;
+  ignore_reason?: string | undefined;
+  restored_at?: string | undefined;
+}
+
+export interface MaintainerDiscoveredCollection {
+  path: string;
+  label: string;
+  kind: "core" | "project" | "template" | "freeform";
+  template_path?: string | undefined;
+  schema_path?: string | undefined;
+  manifest_path?: string | undefined;
+  ui_path?: string | undefined;
+  inferred_purpose: string;
+  record_count: number;
+  open_finding_count: number;
+  ignored_finding_count: number;
+}
+
+export interface MaintainerScanState {
+  workspace_id: string;
+  last_scan_at: string;
+  coverage_status: "complete" | "partial";
+  files_scanned: number;
+  files_skipped: number;
+  scan_errors: string[];
+}
+
+export interface MaintainerOverviewResponse {
+  schema: 1;
+  workspace_id: string;
+  counts: {
+    open: number;
+    ignored: number;
+    resolved: number;
+    suggestions: number;
+    collections: number;
+  };
+  scan_state: MaintainerScanState;
+  collections: MaintainerDiscoveredCollection[];
+  open_findings: MaintainerFinding[];
+  ignored_findings: MaintainerFinding[];
+  resolved_findings: MaintainerFinding[];
+  suggestions: MaintainerFinding[];
+}
+
+export interface MaintainerFixPreviewResponse {
+  schema: 1;
+  issue_id: string;
+  path: string;
+  rule_code: string;
+  subject: string;
+  fix_strategy: MaintainerFixStrategy;
+  deterministically_fixable: boolean;
+  current_revision: string;
+  before_content: string;
+  after_content: string;
+  summary: string;
+  agent_prompt: string;
+}
+
+export interface MaintainerFixApplyResponse {
+  schema: 1;
+  ok: true;
+  issue_id: string;
+  path: string;
+  before_revision: string;
+  after_revision: string;
+  summary: string;
+  finding: MaintainerFinding | null;
+  file_findings: MaintainerFinding[];
+}
+
+export type PermissionMode = "allow" | "ask" | "deny";
+
+export interface ConsequentialPermissionsResponse {
+  schema: 1;
+  version: 1;
+  permissions: {
+    destructive: {
+      delete_records: PermissionMode;
+      overwrite_records: PermissionMode;
+    };
+    external: {
+      send_messages: PermissionMode;
+      make_purchases: PermissionMode;
+      modify_external_accounts: PermissionMode;
+      ingest_external_content: PermissionMode;
+    };
+    scheduled_work: {
+      run_briefings: PermissionMode;
+      run_audits: PermissionMode;
+      run_monitors: PermissionMode;
+    };
+  };
+}
+
 export interface WorkspaceFileValidation {
   valid: boolean;
   schema_path?: string;
   template_path?: string;
   errors: string[];
+  findings?: MaintainerFinding[] | undefined;
+  ignored_count?: number | undefined;
 }
 
 export interface WorkspaceFile extends WorkspaceFileMetadata {

@@ -13,30 +13,27 @@ installation may contain only starter data.
 - Edit existing records with targeted `patch` updates, not whole-file
   `write_file` replacements or terminal workarounds. Removing optional
   frontmatter is an ordinary update; preserve the body and unrelated content.
-- Read the workspace-owned `workspace.yaml` registry when present. It describes
-  semantic domains and routing contracts, not every ordinary folder. A scoped
-  request to create a file includes its necessary parent folders within an
-  authorized domain; ordinary folders do not need registry entries.
+- **Create freely. Validate automatically. Fix when useful. Ignore intentionally.**
+  Folders, collections, templates, schemas, and Mini-Projects do not require
+  registration in `workspace.yaml` or domain allowlists before creation.
+  Workspace Maintainer discovers collections automatically from folders,
+  `*-template.md`, `*.schema.json`, and `project-manifest.toml`.
 - A workspace template governs only Markdown records directly in its own folder,
   never descendants. Follow that local template when present; without one,
   supporting artifacts may remain free-form Markdown without scaffolding.
 - When the local template's frontmatter declares `$schema`, new or updated
-  records in that folder must conform to the referenced schema. Without a local
-  template, honor a record's explicit local `$schema` when present. Use the
-  `workspace-template-customization` system skill to validate the active
-  workspace or propose template changes.
+  records in that folder should conform to the referenced schema. Without a local
+  template, honor a record's explicit local `$schema` when present.
 - Act as the workspace architect for new recurring use cases. Inspect existing
-  organization, design the smallest useful folder/template contract, and use
-  `workspace-template-customization` to propose it at a product level. Offer
-  Confirm, Adjust, or Cancel, not an infrastructure questionnaire. Draft the
-  exact files and any necessary registry/routing edits yourself. Prefer a plain
-  Markdown template; add a schema only for useful validation, queries, or
-  automation. After scoped approval, apply, validate, and resume the original
-  task automatically, including its requested file. Use inbox when genuinely
-  uncertain, not merely because a requested nested folder is new.
-- Validate after record edits. Permission to write does not imply valid content;
-  report failures honestly, distinguish unrelated existing errors, and never
-  weaken a contract or repair unrelated records without authorization.
+  organization, design the smallest useful folder/template/Mini-Project contract,
+  and create the requested artifact directly. Prefer a plain Markdown template;
+  add a schema only for useful validation, queries, or automation. Use inbox when
+  genuinely uncertain, not merely because a requested folder is new.
+- Workspace Maintainer delivers advisory findings after edits. Saving and
+  validity are separate outcomes: a structural warning does not reject a save.
+  Fix issues within the user's request when helpful, or disclose material
+  findings honestly without flooding the user with low-impact noise. Never mark
+  an issue as ignored without explicit user instruction.
 - Use the bundled Python helpers only with explicit input paths and inspect
   their output before applying it to the workspace.
 - Do not fetch network data from helper scripts; research tools may be used by

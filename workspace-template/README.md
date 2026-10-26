@@ -1,23 +1,22 @@
 # Personal OS Workspace
 
-This directory is a small, file-based model of a personal operating system. It
-is copied into an empty runtime workspace; later profile syncs seed missing
-starter files without replacing existing workspace files.
+This directory is a file-based model of a personal operating system. It is
+copied into an empty runtime workspace; later profile syncs seed missing starter
+files without replacing existing workspace files.
 
-`workspace.yaml` is the user-owned registry for this workspace. It records the
-core domains seeded by OpenLia and any approved nested or top-level extensions.
-Hermes must read it before proposing a destination. The registry is descriptive:
-it does not create directories or authorize writes by itself.
+**Workspace Maintainer** discovers collections automatically from workspace
+folders, local `*-template.md` templates, referenced `*.schema.json` schemas,
+and `project-manifest.toml` manifests. Structural findings are advisory and
+never block saving content.
 
-`assistant-policy.yaml` is the user-owned authority policy. The starter policy
-enables routine local workspace management automatically, including clear
-capture, filing, record updates, reports, and local Git history. It does not
-authorize external side effects or destructive operations. Edit the policy to
-narrow or expand delegation; existing user edits survive profile sync.
+Consequential runtime permissions live in `/opt/data/permissions.yaml` and
+control destructive actions (`delete_records`, `overwrite_records`), external
+side effects (`send_messages`, `modify_external_calendar`, `purchases`,
+`financial_transactions`), and scheduled work (`scheduled_work`).
 
 ## Canonical base directories
 
-Every workspace starts with the **Lean Productivity Base** (`workspace.yaml`):
+Every workspace starts with the **Lean Productivity Base**:
 
 - `inbox/`: uncategorized captures waiting for review.
 - `inbox/ingestion/`: durable ingestion intake records that survive runtime queue

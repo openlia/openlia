@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { isMemoryDocument, memoryFilename } from "../../../shared/memory";
 import type {
+  MaintainerFinding,
   WorkspaceActivityResponse,
   WorkspaceDiagnosticsResponse,
   WorkspaceFile,
@@ -350,6 +351,9 @@ export function DocumentPane({
   onLoadInclude,
   onFixTemplate,
   fixingTemplate,
+  onFixFinding,
+  onIgnoreFinding,
+  onOpenMaintainer,
   onShare,
 }: {
   conflict: string;
@@ -381,6 +385,7 @@ export function DocumentPane({
   diagnosticsLoading?: boolean | undefined;
   onOpenFile?: ((path: string) => void) | undefined;
   onOpenGitActivity?: (() => void) | undefined;
+  onOpenMaintainer?: (() => void) | undefined;
   onRefreshActivity?: (() => void) | undefined;
   rawUrl?: ((path: string) => string) | undefined;
   downloadUrl?: ((path: string) => string) | undefined;
@@ -400,6 +405,8 @@ export function DocumentPane({
     | undefined;
   onFixTemplate?: (() => void) | undefined;
   fixingTemplate?: boolean | undefined;
+  onFixFinding?: ((finding: MaintainerFinding) => void) | undefined;
+  onIgnoreFinding?: ((finding: MaintainerFinding) => void) | undefined;
   onShare?: (() => void) | undefined;
 }) {
   const dirty = file !== null && file.content !== draft;
@@ -803,6 +810,10 @@ export function DocumentPane({
                     )}
                   </p>
                   {onFixTemplate &&
+                    (!onFixFinding ||
+                      !file.validation.findings ||
+                      file.validation.findings.filter((f) => f.state === "open")
+                        .length === 0) &&
                     !file.path.endsWith(".openui") &&
                     !file.path.endsWith("project-manifest.toml") && (
                       <button
@@ -817,11 +828,51 @@ export function DocumentPane({
                       </button>
                     )}
                 </div>
-                <ul className="list-disc list-inside mt-1 max-h-16 sm:max-h-24 overflow-y-auto space-y-0.5 opacity-90">
-                  {file.validation.errors.map((err: string) => (
-                    <li key={err}>{err}</li>
-                  ))}
-                </ul>
+                {file.validation.findings &&
+                file.validation.findings.filter((f) => f.state === "open")
+                  .length > 0 ? (
+                  <ul className="mt-1.5 max-h-28 overflow-y-auto space-y-1.5">
+                    {file.validation.findings
+                      .filter((f) => f.state === "open")
+                      .map((finding) => (
+                        <li
+                          className="flex flex-wrap items-center justify-between gap-2 rounded bg-base-100/20 px-2 py-1"
+                          key={finding.issue_id}
+                        >
+                          <span className="min-w-0 flex-1">
+                            {finding.message}
+                          </span>
+                          <span className="flex items-center gap-1 shrink-0">
+                            {onFixFinding && (
+                              <button
+                                className="btn btn-warning btn-xs h-5 min-h-0 px-2"
+                                onClick={() => onFixFinding(finding)}
+                                type="button"
+                              >
+                                Fix
+                              </button>
+                            )}
+                            {onIgnoreFinding && (
+                              <button
+                                className="btn btn-ghost btn-xs h-5 min-h-0 px-2"
+                                onClick={() => onIgnoreFinding(finding)}
+                                title="Ignore this finding in this file"
+                                type="button"
+                              >
+                                Ignore
+                              </button>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                ) : (
+                  <ul className="list-disc list-inside mt-1 max-h-16 sm:max-h-24 overflow-y-auto space-y-0.5 opacity-90">
+                    {file.validation.errors.map((err: string) => (
+                      <li key={err}>{err}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
           )}
@@ -933,6 +984,7 @@ export function DocumentPane({
           loading={activityLoading ?? false}
           onOpenFile={onOpenFile ?? (() => {})}
           onOpenGitActivity={onOpenGitActivity}
+          onOpenMaintainer={onOpenMaintainer}
           onRefresh={onRefreshActivity}
           totalDocuments={totalDocuments}
         />

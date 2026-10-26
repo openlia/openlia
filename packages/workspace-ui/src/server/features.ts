@@ -102,24 +102,48 @@ export class FeatureService {
   private readRegisteredDomains(): Map<string, RawFeatureDomain> {
     const map = new Map<string, RawFeatureDomain>();
     const wsYamlPath = join(this.workspaceRoot, "workspace.yaml");
-    if (!existsSync(wsYamlPath)) return map;
-    try {
-      const parsed = YAML.parse(readFileSync(wsYamlPath, "utf8"));
-      if (
-        parsed &&
-        typeof parsed === "object" &&
-        Array.isArray(parsed.domains)
-      ) {
-        for (const d of parsed.domains) {
-          if (d && typeof d === "object" && typeof d.path === "string") {
-            const cleanPath = d.path
-              .replaceAll("\\", "/")
-              .replace(/^\/+|\/+$/g, "");
-            map.set(cleanPath, { ...d, path: cleanPath });
+    if (existsSync(wsYamlPath)) {
+      try {
+        const parsed = YAML.parse(readFileSync(wsYamlPath, "utf8"));
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          Array.isArray(parsed.domains)
+        ) {
+          for (const d of parsed.domains) {
+            if (d && typeof d === "object" && typeof d.path === "string") {
+              const cleanPath = d.path
+                .replaceAll("\\", "/")
+                .replace(/^\/+|\/+$/g, "");
+              map.set(cleanPath, { ...d, path: cleanPath });
+            }
           }
         }
+      } catch {}
+    }
+
+    // Discover installed feature domains from the filesystem without requiring workspace.yaml
+    const catalog = this.loadCatalogManifests();
+    for (const [featureId, { manifest }] of catalog.entries()) {
+      for (const d of manifest.domains ?? []) {
+        const cleanPath = d.path
+          .replaceAll("\\", "/")
+          .replace(/^\/+|\/+$/g, "");
+        if (map.has(cleanPath)) continue;
+        const absDir = join(this.workspaceRoot, cleanPath);
+        if (!existsSync(absDir)) continue;
+        try {
+          if (statSync(absDir).isDirectory()) {
+            map.set(cleanPath, {
+              ...d,
+              path: cleanPath,
+              kind: d.kind || "extension",
+              feature: featureId,
+            });
+          }
+        } catch {}
       }
-    } catch {}
+    }
     return map;
   }
 
@@ -260,82 +284,10 @@ export class FeatureService {
       installedDomains.push(d.path);
     }
 
-    // 3. Merge into workspace.yaml
-    const wsYamlPath = join(this.workspaceRoot, "workspace.yaml");
-    if (existsSync(wsYamlPath) && (manifest.domains?.length ?? 0) > 0) {
-      try {
-        const parsed = YAML.parse(readFileSync(wsYamlPath, "utf8")) ?? {};
-        const domains: RawFeatureDomain[] = Array.isArray(parsed.domains)
-          ? parsed.domains
-          : [];
-        const byPath = new Map<string, number>();
-        domains.forEach((d, idx) => {
-          if (d?.path) byPath.set(d.path, idx);
-        });
-        for (const d of manifest.domains ?? []) {
-          const item: RawFeatureDomain = {
-            ...d,
-            kind: d.kind || "extension",
-            feature: featureId,
-          };
-          const existingIdx = byPath.get(d.path);
-          if (existingIdx !== undefined) {
-            domains[existingIdx] = item;
-          } else {
-            domains.push(item);
-          }
-        }
-        parsed.domains = domains;
-        writeFileSync(wsYamlPath, YAML.stringify(parsed), {
-          encoding: "utf8",
-          mode: 0o600,
-        });
-      } catch {}
-    }
+    // 3. Legacy workspace.yaml / assistant-policy.yaml updates are retired under Workspace Maintainer.
+    const policyUpdated = false;
 
-    // 4. Update assistant-policy.yaml if approvePolicy
-    let policyUpdated = false;
-    const policyPath = join(this.workspaceRoot, "assistant-policy.yaml");
-    if (
-      approvePolicy &&
-      existsSync(policyPath) &&
-      ((manifest.policy?.allowed_domains?.length ?? 0) > 0 ||
-        (manifest.policy?.allowed_actions?.length ?? 0) > 0)
-    ) {
-      try {
-        const parsed = YAML.parse(readFileSync(policyPath, "utf8")) ?? {};
-        const wsDel = parsed?.delegation?.workspace;
-        if (wsDel && typeof wsDel === "object") {
-          const allowedDomains: string[] = Array.isArray(wsDel.allowed_domains)
-            ? wsDel.allowed_domains
-            : [];
-          for (const dom of manifest.policy?.allowed_domains ?? []) {
-            if (!allowedDomains.includes(dom)) {
-              allowedDomains.push(dom);
-              policyUpdated = true;
-            }
-          }
-          wsDel.allowed_domains = allowedDomains;
-
-          const allowedActions: string[] = Array.isArray(wsDel.allowed_actions)
-            ? wsDel.allowed_actions
-            : [];
-          for (const act of manifest.policy?.allowed_actions ?? []) {
-            if (!allowedActions.includes(act)) {
-              allowedActions.push(act);
-              policyUpdated = true;
-            }
-          }
-          wsDel.allowed_actions = allowedActions;
-          writeFileSync(policyPath, YAML.stringify(parsed), {
-            encoding: "utf8",
-            mode: 0o600,
-          });
-        }
-      } catch {}
-    }
-
-    // 5. Copy bundled skills
+    // 4. Copy bundled skills
     const installedSkills: string[] = [];
     for (const sk of manifest.skills ?? []) {
       const srcSkillDir = join(dir, sk.path);
@@ -369,6 +321,7 @@ export class FeatureService {
       (entry?.manifest.domains ?? []).map((d) => d.path),
     );
 
+    // Clean up legacy workspace.yaml if present, and remove empty starter domain directories
     const wsYamlPath = join(this.workspaceRoot, "workspace.yaml");
     if (existsSync(wsYamlPath)) {
       try {
@@ -382,6 +335,26 @@ export class FeatureService {
             encoding: "utf8",
             mode: 0o600,
           });
+        }
+      } catch {}
+    }
+
+    for (const dp of removePaths) {
+      const domDir = join(this.workspaceRoot, dp);
+      if (!existsSync(domDir)) continue;
+      try {
+        const entries = readdirSync(domDir, { withFileTypes: true });
+        const hasUserRecords = entries.some(
+          (e) =>
+            e.isDirectory() ||
+            (!e.name.startsWith(".") &&
+              !e.name.endsWith("-template.md") &&
+              !e.name.endsWith(".schema.json") &&
+              e.name !== "project-manifest.toml" &&
+              !e.name.endsWith(".openui")),
+        );
+        if (!hasUserRecords) {
+          rmSync(domDir, { recursive: true, force: true });
         }
       } catch {}
     }

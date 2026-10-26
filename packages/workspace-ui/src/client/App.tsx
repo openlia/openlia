@@ -19,6 +19,7 @@ import type {
   SkillSummary,
   IngestionDetailResponse,
   IngestionOverviewResponse,
+  MaintainerFinding,
   MigrationDetailResponse,
   MigrationSummary,
   WorkspaceActivityResponse,
@@ -72,6 +73,8 @@ import {
   type WorkspaceView,
 } from "./components";
 import { MigrationSection } from "./migration/MigrationSection";
+import { MaintainerFixModal } from "./MaintainerFixModal";
+import { MaintainerPage } from "./MaintainerPage";
 import { GoToModal } from "./GoToModal";
 import { diffLines } from "./markdown";
 import {
@@ -591,6 +594,8 @@ export function App({
   const [creatingFile, setCreatingFile] = useState(false);
   const [createFileError, setCreateFileError] = useState("");
   const [fixingTemplate, setFixingTemplate] = useState(false);
+  const [inlineFixFinding, setInlineFixFinding] =
+    useState<MaintainerFinding | null>(null);
   const [creatableDomains, setCreatableDomains] = useState<
     WorkspaceDomainInfo[]
   >([]);
@@ -929,6 +934,8 @@ export function App({
             setActiveTab("schedule");
           } else if (route.tab === "configuration") {
             setActiveTab("configuration");
+          } else if (route.tab === "maintainer") {
+            setActiveTab("maintainer");
           } else if (route.tab === "migration" || route.migrationId) {
             setActiveTab("migration");
             if (route.migrationId) {
@@ -1273,6 +1280,8 @@ export function App({
           setPendingAction({ kind: "switchTab", tab: "schedule" });
         } else if (route.tab === "configuration") {
           setPendingAction({ kind: "switchTab", tab: "configuration" });
+        } else if (route.tab === "maintainer") {
+          setPendingAction({ kind: "switchTab", tab: "maintainer" });
         } else {
           setPendingAction({
             kind: "open",
@@ -1341,6 +1350,8 @@ export function App({
         setActiveTab("schedule");
       } else if (route.tab === "configuration") {
         setActiveTab("configuration");
+      } else if (route.tab === "maintainer") {
+        setActiveTab("maintainer");
       } else if (route.path) {
         setActiveTab("documents");
         if (route.path !== file?.path && route.path !== artifact?.path) {
@@ -1385,6 +1396,8 @@ export function App({
       document.title = "Usage - OpenLia Workspace";
     } else if (activeTab === "configuration") {
       document.title = "Configuration - OpenLia Workspace";
+    } else if (activeTab === "maintainer") {
+      document.title = "Maintainer - OpenLia Workspace";
     } else {
       const selectedPath = file?.path ?? artifact?.path;
       if (selectedPath) {
@@ -2797,6 +2810,7 @@ export function App({
         />
       ) : activeTab === "configuration" ? (
         <ConfigurationPage
+          api={api}
           usagePricing={<UsagePricingOverrides api={api} />}
           error={configurationError}
           exporting={exporting}
@@ -2812,6 +2826,18 @@ export function App({
           settings={settings}
           systemInfo={systemInfo}
         />
+      ) : activeTab === "maintainer" ? (
+        <div className="workspace-layout xl:grid-cols-1">
+          <MaintainerPage
+            api={api}
+            onOpenFile={(docPath) => requestOpenFile(docPath)}
+            onOpenProject={(projPath) => requestOpenProject(projPath)}
+            onAskLia={(prompt) => {
+              setChatDraftPrompt(prompt);
+              requestTabChange("chat");
+            }}
+          />
+        </div>
       ) : activeTab === "documents" ? (
         <div
           className={`workspace-layout ${
@@ -2880,6 +2906,25 @@ export function App({
             onRename={() => requestRename()}
             onFixTemplate={handleFixTemplateIssues}
             fixingTemplate={fixingTemplate}
+            onFixFinding={(finding) => setInlineFixFinding(finding)}
+            onIgnoreFinding={async (finding) => {
+              try {
+                await api.ignoreMaintainerIssue(finding.issue_id);
+                if (file) {
+                  const reloaded = await api.loadFile(file.path);
+                  setFile((prev) =>
+                    prev && prev.path === file.path
+                      ? { ...reloaded, content: prev.content }
+                      : prev,
+                  );
+                }
+                const nextDiag = await api.loadDiagnostics().catch(() => null);
+                if (nextDiag) setDiagnostics(nextDiag);
+              } catch {
+                // ignore
+              }
+            }}
+            onOpenMaintainer={() => requestTabChange("maintainer")}
             onRefreshActivity={() => {
               setActivityLoading(true);
               setDiagnosticsLoading(true);
@@ -3352,6 +3397,27 @@ export function App({
           title={shareModalTarget.title}
         />
       )}
+
+      <MaintainerFixModal
+        api={api}
+        finding={inlineFixFinding}
+        onClose={() => setInlineFixFinding(null)}
+        onApplied={(appliedPath) => {
+          if (file && file.path === appliedPath) {
+            void openFile(appliedPath, { requestedView: view });
+          }
+          void api
+            .loadDiagnostics()
+            .then((nextDiag) => {
+              if (nextDiag) setDiagnostics(nextDiag);
+            })
+            .catch(() => {});
+        }}
+        onAskLia={(prompt) => {
+          setChatDraftPrompt(prompt);
+          requestTabChange("chat");
+        }}
+      />
     </main>
   );
 }
