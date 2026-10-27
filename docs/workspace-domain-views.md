@@ -1,5 +1,7 @@
 # Workspace Mini-Projects (`project-manifest.toml` + `ui.openui`)
 
+[← Back to Documentation Index](README.md) · [End User Guide](user-guide.md) · [Skill & Feature Development](skill-and-feature-development.md)
+
 Curated workspace folders (`tasks`, `goals`, and optional features `finance`,
 `travel`, `shopping`, `monitors`, `decisions`, `people`) include a
 `project-manifest.toml` and `ui.openui` file that power the dedicated

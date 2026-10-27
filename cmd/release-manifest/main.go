@@ -198,7 +198,7 @@ func syncManagedFiles(root string, value manifest, check bool) error {
 			},
 		},
 		{
-			path: filepath.Join(root, "README.md"),
+			path: filepath.Join(root, "docs", "operator-guide.md"),
 			replacements: map[string]string{
 				"Install [Locho ": fmt.Sprintf("Install [Locho `%s`](https://github.com/trchopan/locho/releases/tag/v%s)", value.Locho.Version, value.Locho.Version),
 				"Locho `":         fmt.Sprintf("Locho `%s` also supports custom relay transports and configurable HTTP", value.Locho.Version),

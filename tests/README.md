@@ -8,7 +8,7 @@ The smoke runner has three documented purposes:
   and removes the disposable installation.
 - `--mode live` deploys the current checkout to an explicitly named disposable
   target and waits for manual Telegram confirmation. Add `--local` to use the
-  local CLI backend. See [`docs/E2E_DRILLS.md`](../docs/E2E_DRILLS.md) for a
+  local CLI backend. See [`docs/e2e-drills.md`](../docs/e2e-drills.md) for a
   step-by-step operational runbook using `openlia_dev`.
 
 The runner reports `PASS`, `FAIL`, or `N/A`. `N/A` means a prerequisite or

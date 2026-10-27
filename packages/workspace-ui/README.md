@@ -82,7 +82,7 @@ The **Usage** page combines Hermes, ingestion, and migration estimates. Automati
 pricing comes from Hermes; custom prices are optional under **Configuration →
 Advanced · Pricing overrides**. The mock includes sample usage and stateful pricing
 overrides. For a real backend, set `OPENLIA_USAGE_ROOT` to the runtime's `usage`
-directory. See [usage monitoring](../../docs/USAGE_MONITORING.md) for collection,
+directory. See [usage monitoring](../../docs/usage-monitoring.md) for collection,
 estimate limitations, and upgrade instructions.
 Overrides are provider/model-wide, not endpoint-specific. Missing token reports
 are displayed as Unknown; provider-reported costs and Hermes estimates remain

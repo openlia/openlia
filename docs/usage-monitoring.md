@@ -1,6 +1,10 @@
-# Estimated LLM usage
+# Estimated LLM Usage Monitoring
 
-Workspace UI's **Usage** page shows estimated model usage across **Hermes**,
+> Reference for Workspace UI's LLM token and cost estimation across Hermes, Ingestion, and Migration.
+
+[← Back to Documentation Index](README.md) · [Operator Guide](operator-guide.md)
+
+Workspace UI's **Usage** page (`/usage`) shows estimated model usage across **Hermes**,
 **Ingestion**, and **Migration**. It is a monitoring tool, not an invoice or billing
 ledger. No prompts, model responses, document content, or credentials are stored.
 
