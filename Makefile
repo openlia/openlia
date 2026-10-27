@@ -1,13 +1,15 @@
 BUILD_DIR ?= dist
+BIN_DIR ?= $(HOME)/.local/bin
 GO ?= go
 VENV ?= .venv
 PYTHON ?= $(shell if [ -f "$(VENV)/bin/python3" ]; then echo "$(VENV)/bin/python3"; else echo "python3"; fi)
 
-.PHONY: help build build-host build-cli build-operator build-operator-linux-amd64 build-operator-linux-arm64 test test-go lint lint-go format-go compose-config versions-generate versions-check venv bun-install bun-check bun-build skills-test skills-verify workspace-templates-test clean-logs smoke smoke-local smoke-local-live
+.PHONY: help build install build-host build-cli build-operator build-operator-linux-amd64 build-operator-linux-arm64 test test-go lint lint-go format-go compose-config versions-generate versions-check venv bun-install bun-check bun-build skills-test skills-verify workspace-templates-test clean-logs smoke smoke-local smoke-local-live
 
 help:
 	@printf '%s\n' \
 		'build              Build the host CLI and Linux operator artifacts' \
+		'install            Build and install CLI and operator artifacts to ~/.local/bin (override BIN_DIR)' \
 		'build-host         Build the host openlia CLI' \
 		'build-cli          Alias for build-host' \
 		'build-operator     Build Linux amd64 and arm64 operator artifacts' \
@@ -34,6 +36,13 @@ help:
 
 build: versions-check
 	$(MAKE) bun-install bun-build build-host build-operator
+
+install: build
+	mkdir -p "$(BIN_DIR)/dist"
+	install -m 755 openlia "$(BIN_DIR)/openlia"
+	install -m 755 "$(BUILD_DIR)/openlia-operator-linux-amd64" "$(BIN_DIR)/dist/openlia-operator-linux-amd64"
+	install -m 755 "$(BUILD_DIR)/openlia-operator-linux-arm64" "$(BIN_DIR)/dist/openlia-operator-linux-arm64"
+	@printf '%s\n' 'Installed openlia and operator artifacts to $(BIN_DIR).' 'Ensure $(BIN_DIR) is on your PATH; add it to your shell configuration if needed.'
 
 versions-generate:
 	$(GO) run ./cmd/release-manifest

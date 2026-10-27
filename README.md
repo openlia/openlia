@@ -148,10 +148,18 @@ Operator Machine (macOS / Linux Workstation)
 
 ### Step 1: Build & Configure (Operator Step)
 
-1. **Build the release artifacts and `openlia` CLI**:
+1. **Build and install the release artifacts and `openlia` CLI**:
    ```bash
-   make build
+   make install
    ```
+
+   This builds everything and installs `openlia` to `~/.local/bin/`, with the Linux operator binaries in `~/.local/bin/dist/` so deployment works from any directory. No `sudo` is needed. To choose another location, use `make install BIN_DIR=/your/bin`.
+
+   Add this line once to your shell configuration (`~/.zshrc` for zsh or `~/.bashrc` for bash), then restart your shell or run it in your current terminal:
+   ```bash
+   export PATH="$HOME/.local/bin:$PATH"
+   ```
+   Verify with `openlia --help`. Rerun `make install` after source updates. For a build without installation, use `make build`.
 
 2. **Create your protected secrets file (`0600`) outside the repository**:
    ```bash
@@ -189,15 +197,15 @@ Operator Machine (macOS / Linux Workstation)
 4. **Initialize, deploy, and install optional templates**:
    ```bash
    # Local deployment on this machine:
-   ./openlia init --local --root "$HOME/.openlia"
-   ./openlia deploy
+   openlia init --local --root "$HOME/.openlia"
+   openlia deploy
 
    # Optional: browse and install profiles/features/skills from openlia/templates
-   ./openlia features sync
-   ./openlia features install --profile personal-os
+   openlia features sync
+   openlia features install --profile personal-os
    # Or install individual features & skills:
-   # ./openlia features install tasks
-   # ./openlia skills install workspace-git
+   # openlia features install tasks
+   # openlia skills install workspace-git
    ```
 
 ### Step 2: Connect & Use Lia (End User Step)
