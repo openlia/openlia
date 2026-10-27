@@ -15,7 +15,7 @@ release before reporting an issue when possible.
 ## Reporting a Vulnerability
 
 Report suspected vulnerabilities privately through [GitHub's private
-vulnerability reporting form](https://github.com/trchopan/openlia/security/advisories/new).
+vulnerability reporting form](https://github.com/openlia/openlia/security/advisories/new).
 Include:
 
 - A short description of the vulnerability and its potential impact.
