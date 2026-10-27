@@ -445,3 +445,95 @@ func TestLochoHostStateAdoptsExistingTargetStateWhenOperatorDirMissing(t *testin
 		t.Fatalf("adopted host_state.json mismatch: err=%v", err)
 	}
 }
+
+func TestFeaturesAndSkillsInstallFromTemplatesCatalog(t *testing.T) {
+	operatorDir := t.TempDir()
+	cfgPath := filepath.Join(operatorDir, "config.toml")
+	t.Setenv("OPENLIA_CONFIG", cfgPath)
+
+	installRoot := filepath.Join(t.TempDir(), "local_install")
+	templatesDir := filepath.Join(t.TempDir(), "templates_catalog")
+
+	// Seed a feature, standalone skill, and profile in templatesDir
+	if err := os.MkdirAll(filepath.Join(templatesDir, "features", "tasks", "workspace", "tasks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tasksYAML := `schema: 1
+id: tasks
+name: Tasks
+version: 0.1.0
+description: Task tracking
+domains:
+  - path: tasks
+    kind: extension
+    label: Tasks
+    purpose: Task tracking
+    lifecycle: active -> completed
+`
+	if err := os.WriteFile(filepath.Join(templatesDir, "features", "tasks", "feature.yaml"), []byte(tasksYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(templatesDir, "features", "tasks", "workspace", "tasks", "task-template.md"), []byte("# Task\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(templatesDir, "skills", "weekly-review"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(templatesDir, "skills", "weekly-review", "SKILL.md"), []byte("---\nname: weekly-review\n---\n# Weekly Review\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(templatesDir, "profiles", "personal-os"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	profileYAML := `schema: 1
+id: personal-os
+name: Personal OS
+version: 0.1.0
+description: Starter profile
+features:
+  - tasks
+skills:
+  - weekly-review
+`
+	if err := os.WriteFile(filepath.Join(templatesDir, "profiles", "personal-os", "profile.yaml"), []byte(profileYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create release root directory expected by Local deployment
+	config := defaultConfig()
+	config.Mode = "local"
+	config.InstallRoot = installRoot
+	config.TemplatesRepo = templatesDir
+	if err := os.MkdirAll(filepath.Join(installRoot, "releases", config.Version), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveConfig(config); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := Run([]string{"--json", "features", "sync"}, nil); code != ExitOK {
+		t.Fatalf("features sync exited with %d", code)
+	}
+	if code := Run([]string{"--json", "features", "install", "--profile", "personal-os"}, nil); code != ExitOK {
+		t.Fatalf("features install --profile personal-os exited with %d", code)
+	}
+	if code := Run([]string{"--json", "features", "status", "tasks"}, nil); code != ExitOK {
+		t.Fatalf("features status tasks exited with %d", code)
+	}
+	if code := Run([]string{"--json", "skills", "install", "weekly-review"}, nil); code != ExitOK {
+		t.Fatalf("skills install weekly-review exited with %d", code)
+	}
+
+	// Also verify relative path resolution for `features import`
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(templatesDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	if code := Run([]string{"--json", "features", "import", "./features/tasks"}, nil); code != ExitOK {
+		t.Fatalf("features import ./features/tasks exited with %d", code)
+	}
+}

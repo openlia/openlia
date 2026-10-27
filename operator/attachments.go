@@ -355,6 +355,7 @@ func generateAttachmentsFile(config Config) error {
 		cronDir, _ := json.Marshal(filepath.Join(config.DataRoot, "cron"))
 		maintainerDir, _ := json.Marshal(filepath.Join(config.DataRoot, "maintainer"))
 		permissionsFile, _ := json.Marshal(filepath.Join(config.DataRoot, "permissions.yaml"))
+		templatesCacheDir, _ := json.Marshal(filepath.Join(config.MetaRoot, "templates-cache"))
 		sessionDir, _ := json.Marshal(filepath.Join(config.RuntimeRoot, "workspace-ui"))
 		passwordHashFile, _ := json.Marshal(config.WorkspaceUIPasswordHashFile)
 		builder.WriteString("  workspace-ui:\n    image: \"${OPENLIA_WORKSPACE_UI_IMAGE:-openlia-workspace-ui:v0.1.0}\"\n")
@@ -371,6 +372,7 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("      OPENLIA_CRON_ROOT: /cron\n")
 		builder.WriteString("      OPENLIA_MAINTAINER_ROOT: /maintainer\n")
 		builder.WriteString("      OPENLIA_PERMISSIONS_FILE: /permissions.yaml\n")
+		builder.WriteString("      OPENLIA_TEMPLATES_ROOT: /templates-cache\n")
 		if config.BackupSchedule != "" {
 			builder.WriteString(fmt.Sprintf("      OPENLIA_BACKUP_SCHEDULE: %q\n", config.BackupSchedule))
 			builder.WriteString(fmt.Sprintf("      OPENLIA_BACKUP_SCHEDULE_ENABLED: %q\n", fmt.Sprintf("%t", config.BackupScheduleEnabled)))
@@ -434,6 +436,9 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("\n      - type: bind\n        source: ")
 		builder.Write(permissionsFile)
 		builder.WriteString("\n        target: /permissions.yaml")
+		builder.WriteString("\n      - type: bind\n        source: ")
+		builder.Write(templatesCacheDir)
+		builder.WriteString("\n        target: /templates-cache\n        read_only: true")
 		if !isFirebase && config.WorkspaceUIAuthRequired {
 			builder.WriteString("\n      - type: bind\n        source: ")
 			builder.Write(passwordHashFile)

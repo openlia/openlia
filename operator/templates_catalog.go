@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -31,6 +32,43 @@ type TemplatesSyncResult struct {
 	SkillsCount   int    `json:"skills_count"`
 }
 
+type ProfileInstructionsSpec struct {
+	Soul            string `json:"soul,omitempty"`
+	ProfileAgents   string `json:"profile_agents,omitempty"`
+	WorkspaceAgents string `json:"workspace_agents,omitempty"`
+}
+
+type TemplateProfileManifest struct {
+	Schema       int                     `json:"schema"`
+	ID           string                  `json:"id"`
+	Name         string                  `json:"name"`
+	Version      string                  `json:"version"`
+	Description  string                  `json:"description"`
+	Author       string                  `json:"author,omitempty"`
+	License      string                  `json:"license,omitempty"`
+	Features     []string                `json:"features,omitempty"`
+	Skills       []string                `json:"skills,omitempty"`
+	Requires     FeatureRequirements     `json:"requires,omitempty"`
+	Instructions ProfileInstructionsSpec `json:"instructions,omitempty"`
+}
+
+type ProfileInstallResult struct {
+	OK                bool     `json:"ok"`
+	Action            string   `json:"action"`
+	ProfileID         string   `json:"profile_id"`
+	InstalledFeatures []string `json:"installed_features"`
+	InstalledSkills   []string `json:"installed_skills"`
+	ProvisionedTools  []string `json:"provisioned_tools,omitempty"`
+}
+
+type SkillInstallResult struct {
+	OK               bool     `json:"ok"`
+	Action           string   `json:"action"`
+	SkillID          string   `json:"skill_id"`
+	Source           string   `json:"source"`
+	ProvisionedTools []string `json:"provisioned_tools,omitempty"`
+}
+
 type RebaseResult struct {
 	OK               bool     `json:"ok"`
 	Action           string   `json:"action"`
@@ -40,6 +78,18 @@ type RebaseResult struct {
 	AutoForked       bool     `json:"auto_forked"`
 	Conflicts        []string `json:"conflicts,omitempty"`
 	MigrationContext string   `json:"migration_context,omitempty"`
+}
+
+func isCatalogDirectory(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	for _, sub := range []string{"features", "profiles", "skills"} {
+		if info, err := os.Stat(filepath.Join(dir, sub)); err == nil && info.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 // ResolveTemplatesRoot returns the directory containing the templates catalog
@@ -60,23 +110,330 @@ func ResolveTemplatesRoot(config Config) string {
 
 	if config.MetaRoot != "" {
 		cacheDir := filepath.Join(config.MetaRoot, "templates-cache")
-		if info, err := os.Stat(filepath.Join(cacheDir, "features")); err == nil && info.IsDir() {
+		if isCatalogDirectory(cacheDir) {
 			return cacheDir
 		}
 	}
 
 	if config.RepositoryRoot != "" {
-		repoFeatures := filepath.Join(config.RepositoryRoot, "features")
-		if info, err := os.Stat(repoFeatures); err == nil && info.IsDir() {
+		if isCatalogDirectory(config.RepositoryRoot) {
 			return config.RepositoryRoot
 		}
 		sibling := filepath.Join(filepath.Dir(config.RepositoryRoot), "openlia_templates")
-		if info, err := os.Stat(filepath.Join(sibling, "features")); err == nil && info.IsDir() {
+		if isCatalogDirectory(sibling) {
 			return sibling
 		}
 	}
 
 	return config.RepositoryRoot
+}
+
+func ensureTemplatesCatalogIfNeeded(config Config) {
+	if isCatalogDirectory(ResolveTemplatesRoot(config)) {
+		return
+	}
+	if config.MetaRoot == "" {
+		return
+	}
+	_, _ = SyncTemplatesCatalog(context.Background(), config)
+}
+
+// ParseProfileManifest parses a profiles/<id>/profile.yaml manifest.
+func ParseProfileManifest(data []byte) (TemplateProfileManifest, error) {
+	var m TemplateProfileManifest
+	m.Schema = 1
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+
+	section := ""
+	subSection := ""
+	for _, rawLine := range lines {
+		trimmed := strings.TrimSpace(rawLine)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := len(rawLine) - len(strings.TrimLeft(rawLine, " "))
+
+		if indent == 0 {
+			subSection = ""
+			key, val, ok := splitYAMLKeyValue(trimmed)
+			if !ok {
+				continue
+			}
+			switch key {
+			case "schema":
+				if v, err := strconv.Atoi(val); err == nil {
+					m.Schema = v
+				}
+				section = ""
+			case "id":
+				m.ID = unquoteYAMLScalar(val)
+				section = ""
+			case "name":
+				m.Name = unquoteYAMLScalar(val)
+				section = ""
+			case "version":
+				m.Version = unquoteYAMLScalar(val)
+				section = ""
+			case "description":
+				m.Description = unquoteYAMLScalar(val)
+				section = ""
+			case "author":
+				m.Author = unquoteYAMLScalar(val)
+				section = ""
+			case "license":
+				m.License = unquoteYAMLScalar(val)
+				section = ""
+			case "features":
+				section = "features"
+				if val != "" {
+					m.Features = append(m.Features, parseInlineYAMLList(val)...)
+				}
+			case "skills":
+				section = "skills"
+				if val != "" {
+					m.Skills = append(m.Skills, parseInlineYAMLList(val)...)
+				}
+			case "requires", "instructions":
+				section = key
+			default:
+				section = ""
+			}
+			continue
+		}
+
+		switch section {
+		case "features":
+			if strings.HasPrefix(trimmed, "- ") {
+				item := unquoteYAMLScalar(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
+				if item != "" {
+					m.Features = append(m.Features, item)
+				}
+			}
+		case "skills":
+			if strings.HasPrefix(trimmed, "- ") {
+				item := unquoteYAMLScalar(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
+				if item != "" {
+					m.Skills = append(m.Skills, item)
+				}
+			}
+		case "requires":
+			if indent == 2 && !strings.HasPrefix(trimmed, "- ") {
+				key, val, ok := splitYAMLKeyValue(trimmed)
+				if !ok {
+					continue
+				}
+				subSection = key
+				if val != "" && key == "tools" {
+					m.Requires.Tools = append(m.Requires.Tools, parseInlineYAMLList(val)...)
+				}
+			} else if strings.HasPrefix(trimmed, "- ") && subSection == "tools" {
+				item := unquoteYAMLScalar(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
+				if item != "" {
+					m.Requires.Tools = append(m.Requires.Tools, item)
+				}
+			}
+		case "instructions":
+			if indent >= 2 && !strings.HasPrefix(trimmed, "- ") {
+				key, val, ok := splitYAMLKeyValue(trimmed)
+				if !ok {
+					continue
+				}
+				switch key {
+				case "soul":
+					m.Instructions.Soul = unquoteYAMLScalar(val)
+				case "profile_agents":
+					m.Instructions.ProfileAgents = unquoteYAMLScalar(val)
+				case "workspace_agents":
+					m.Instructions.WorkspaceAgents = unquoteYAMLScalar(val)
+				}
+			}
+		}
+	}
+
+	if err := ValidateFeatureID(m.ID); err != nil {
+		return TemplateProfileManifest{}, fmt.Errorf("invalid profile id %q: %w", m.ID, err)
+	}
+	return m, nil
+}
+
+// InstallTemplateProfile installs all features, skills, required tools, and starter instructions
+// declared in profiles/<profileID>/profile.yaml from the templates catalog.
+func InstallTemplateProfile(config Config, profileID string, approvePolicy bool, now time.Time) (ProfileInstallResult, error) {
+	if err := normalizeAndValidateFeatureConfig(&config); err != nil {
+		return ProfileInstallResult{}, err
+	}
+	if err := ValidateFeatureID(profileID); err != nil {
+		return ProfileInstallResult{}, fmt.Errorf("invalid profile id %q: %w", profileID, err)
+	}
+
+	ensureTemplatesCatalogIfNeeded(config)
+	templatesRoot := ResolveTemplatesRoot(config)
+	profileDir := filepath.Join(templatesRoot, "profiles", profileID)
+	manifestBytes, err := os.ReadFile(filepath.Join(profileDir, "profile.yaml"))
+	if err != nil {
+		return ProfileInstallResult{}, fmt.Errorf("profile not found in templates catalog: %s", profileID)
+	}
+
+	manifest, err := ParseProfileManifest(manifestBytes)
+	if err != nil {
+		return ProfileInstallResult{}, err
+	}
+
+	var installedFeatures []string
+	skillSet := make(map[string]bool)
+	var installedSkills []string
+	toolSet := make(map[string]bool)
+	var provisionedTools []string
+
+	addSkill := func(id string) {
+		if !skillSet[id] {
+			skillSet[id] = true
+			installedSkills = append(installedSkills, id)
+		}
+	}
+	addTool := func(t string) {
+		if !toolSet[t] {
+			toolSet[t] = true
+			provisionedTools = append(provisionedTools, t)
+		}
+	}
+
+	for _, featID := range manifest.Features {
+		res, err := FeatureInstall(config, featID, approvePolicy, now)
+		if err != nil {
+			return ProfileInstallResult{}, fmt.Errorf("install profile feature %s: %w", featID, err)
+		}
+		installedFeatures = append(installedFeatures, res.FeatureID)
+		for _, sk := range res.InstalledSkills {
+			addSkill(sk)
+		}
+		for _, tl := range res.ProvisionedTools {
+			addTool(tl)
+		}
+	}
+
+	for _, skillID := range manifest.Skills {
+		res, err := SkillInstall(config, skillID, now)
+		if err != nil {
+			return ProfileInstallResult{}, fmt.Errorf("install profile skill %s: %w", skillID, err)
+		}
+		addSkill(res.SkillID)
+		for _, tl := range res.ProvisionedTools {
+			addTool(tl)
+		}
+	}
+
+	if len(manifest.Requires.Tools) > 0 {
+		tools, err := ProvisionRequiredTools(config, manifest.Requires.Tools, "profile:"+manifest.ID)
+		if err != nil {
+			return ProfileInstallResult{}, fmt.Errorf("provision profile tools for %s: %w", manifest.ID, err)
+		}
+		for _, tl := range tools {
+			addTool(tl)
+		}
+	}
+
+	// Seed profile instruction files if present and target does not exist yet
+	prof := NewProfileOperator(config)
+	if !now.IsZero() {
+		prof.Now = func() time.Time { return now.UTC() }
+	}
+	managedRoot := filepath.Join(config.MetaRoot, "managed")
+	_ = EnsureDir(managedRoot, 0o700)
+	if manifest.Instructions.Soul != "" {
+		soulSrc := filepath.Join(profileDir, filepath.FromSlash(manifest.Instructions.Soul))
+		if info, err := os.Stat(soulSrc); err == nil && info.Mode().IsRegular() {
+			_ = prof.syncSoul(soulSrc, filepath.Join(config.DataRoot, "SOUL.md"), filepath.Join(managedRoot, "SOUL.md.sha256"), 0o600)
+		}
+	}
+	if manifest.Instructions.ProfileAgents != "" {
+		agentsSrc := filepath.Join(profileDir, filepath.FromSlash(manifest.Instructions.ProfileAgents))
+		if info, err := os.Stat(agentsSrc); err == nil && info.Mode().IsRegular() {
+			_ = copyOnce(agentsSrc, filepath.Join(config.DataRoot, "AGENTS.md"), 0o600)
+		}
+	}
+	if manifest.Instructions.WorkspaceAgents != "" {
+		wsAgentsSrc := filepath.Join(profileDir, filepath.FromSlash(manifest.Instructions.WorkspaceAgents))
+		if info, err := os.Stat(wsAgentsSrc); err == nil && info.Mode().IsRegular() {
+			wsDir := featureWorkspaceDir(config)
+			_ = EnsureDir(wsDir, 0o700)
+			_ = copyOnce(wsAgentsSrc, filepath.Join(wsDir, "AGENTS.md"), 0o600)
+		}
+	}
+
+	_ = RecordChange(config, "profile-install", "ok", manifest.ID, fmt.Sprintf("installed template profile %s", manifest.ID), now)
+	return ProfileInstallResult{
+		OK:                true,
+		Action:            "profile-install",
+		ProfileID:         manifest.ID,
+		InstalledFeatures: installedFeatures,
+		InstalledSkills:   installedSkills,
+		ProvisionedTools:  provisionedTools,
+	}, nil
+}
+
+// SkillInstall installs a standalone or feature-bundled skill from the templates catalog
+// into <DataRoot>/skills/<skillID>, records its base snapshot, and provisions its dependencies.
+func SkillInstall(config Config, skillID string, now time.Time) (SkillInstallResult, error) {
+	if err := normalizeAndValidateFeatureConfig(&config); err != nil {
+		return SkillInstallResult{}, err
+	}
+	if err := ValidateSafeComponent(skillID, "skill"); err != nil {
+		return SkillInstallResult{}, err
+	}
+
+	ensureTemplatesCatalogIfNeeded(config)
+	catalogSkills, err := LoadCatalogSkills(config)
+	if err != nil {
+		return SkillInstallResult{}, err
+	}
+	srcSkillDir, ok := catalogSkills[skillID]
+	if !ok {
+		return SkillInstallResult{}, fmt.Errorf("skill %s not found in templates catalog", skillID)
+	}
+
+	skillsRoot := filepath.Join(config.DataRoot, "skills")
+	managedSkillsRoot := filepath.Join(config.MetaRoot, "managed", "skills")
+	if err := EnsureDir(skillsRoot, 0o700); err != nil {
+		return SkillInstallResult{}, err
+	}
+	if err := EnsureDir(managedSkillsRoot, 0o700); err != nil {
+		return SkillInstallResult{}, err
+	}
+
+	disabledDir := filepath.Join(skillsRoot, ".openlia-disabled", skillID)
+	if _, err := os.Lstat(disabledDir); err == nil {
+		_ = os.RemoveAll(disabledDir)
+	}
+
+	prof := NewProfileOperator(config)
+	if !now.IsZero() {
+		prof.Now = func() time.Time { return now.UTC() }
+	}
+	distVer, distSource := prof.distributionInfo()
+	dstSkillDir := filepath.Join(skillsRoot, skillID)
+	metaPath := filepath.Join(managedSkillsRoot, skillID+".json")
+	if _, err := prof.syncSkill(srcSkillDir, dstSkillDir, metaPath, skillID, distVer, distSource); err != nil {
+		return SkillInstallResult{}, fmt.Errorf("install skill %s: %w", skillID, err)
+	}
+	if err := ProvisionSkillEnvironment(config, skillID, dstSkillDir, "", ""); err != nil {
+		return SkillInstallResult{}, fmt.Errorf("provision skill environment for %s: %w", skillID, err)
+	}
+	skTools, _, _ := ParseSkillRequirements(dstSkillDir)
+
+	if config.RuntimeUID > 0 && config.RuntimeGID > 0 && os.Geteuid() == 0 {
+		_ = ensureRuntimeTreeOwner(skillsRoot, config.RuntimeUID, config.RuntimeGID)
+		_ = ensureRuntimeTreeOwner(config.MetaRoot, config.RuntimeUID, config.RuntimeGID)
+	}
+
+	_ = RecordChange(config, "skill-install", "ok", skillID, fmt.Sprintf("installed skill %s", skillID), now)
+	return SkillInstallResult{
+		OK:               true,
+		Action:           "skill-install",
+		SkillID:          skillID,
+		Source:           "catalog",
+		ProvisionedTools: skTools,
+	}, nil
 }
 
 // SyncTemplatesCatalog clones or updates the templates catalog in <MetaRoot>/templates-cache.
@@ -132,6 +489,9 @@ func SyncTemplatesCatalog(ctx context.Context, config Config) (TemplatesSyncResu
 	profilesCount := countSubdirs(filepath.Join(cacheDir, "profiles"))
 	featuresCount := countSubdirs(filepath.Join(cacheDir, "features"))
 	skillsCount := countSubdirs(filepath.Join(cacheDir, "skills"))
+	if config.RuntimeUID > 0 && config.RuntimeGID > 0 && os.Geteuid() == 0 {
+		_ = ensureRuntimeTreeOwner(cacheDir, config.RuntimeUID, config.RuntimeGID)
+	}
 
 	return TemplatesSyncResult{
 		OK:            true,

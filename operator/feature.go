@@ -872,6 +872,7 @@ func FeatureShow(config Config, featureID string) (FeatureShowResult, error) {
 }
 
 func resolveFeatureManifest(config Config, featureID string) (FeatureManifest, string, string, *InstalledFeatureRecord, error) {
+	ensureTemplatesCatalogIfNeeded(config)
 	_, paths, err := LoadCatalogFeaturesForConfig(config)
 	if err != nil {
 		return FeatureManifest{}, "", "", nil, err
