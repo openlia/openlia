@@ -1,10 +1,10 @@
 # OpenLia Workspace
 
-This directory is the minimal starter workspace for OpenLia — an Autonomous AI
-Agent Workspace & Operations Platform combining **Hermes Agent**, **Workspace UI**,
-**Mini-Projects**, **OpenUI**, and **Locho**. It is copied into an empty runtime
-workspace; later profile syncs seed missing starter files without replacing
-existing workspace files.
+This directory is the minimal starter workspace for OpenLia — a self-hosted,
+AI-native workspace for turning personal context into organized knowledge,
+decisions, and action, with **Hermes Agent** as its agent runtime. It is copied
+into an empty runtime workspace; later profile syncs seed missing starter files
+without replacing existing workspace files.
 
 **Workspace Maintainer** discovers collections automatically from workspace
 folders, local `*-template.md` templates, referenced `*.schema.json` schemas,

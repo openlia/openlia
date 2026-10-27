@@ -1,7 +1,8 @@
 # Security Policy
 
-OpenLia is an early-stage operations and setup layer for Hermes Agent. This
-policy covers vulnerabilities in OpenLia's source code, CLI, operations
+OpenLia is an early-stage, self-hosted AI workspace with Hermes Agent as its
+agent runtime. This policy covers vulnerabilities in OpenLia's source code,
+including its CLI, Workspace UI, browser services, runtime plugins, operations
 scripts, Docker build files, release metadata, profile, and generated runtime
 configuration.
 

@@ -1,4 +1,4 @@
-# Conservative, secret-free defaults for the OpenLia Personal OS profile.
+# Conservative, secret-free defaults for the OpenLia runtime profile.
 # Set HERMES_WRITE_SAFE_ROOT=/opt/data in the runtime environment.
 
 model:

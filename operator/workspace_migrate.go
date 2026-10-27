@@ -430,7 +430,7 @@ func IndexWorkspace(workspaceRoot string) (map[string]string, error) {
 	return index, err
 }
 
-// Starter template references in OpenLia Personal OS
+// Starter template references in the OpenLia workspace
 var CanonicalDomains = []string{
 	"calendar",
 	"areas",

@@ -1,6 +1,6 @@
 # Contributing to OpenLia
 
-Thank you for your interest in contributing to OpenLia! OpenLia is an opinionated personal operating system and operations layer for [Hermes Agent](https://hermes-agent.nousresearch.com/).
+Thank you for your interest in contributing to OpenLia! OpenLia is a **self-hosted, AI-native workspace** for turning personal context into organized knowledge, decisions, and action—with [Hermes Agent](https://hermes-agent.nousresearch.com/) as its agent runtime. Profiles, features, and skills extend the workspace; `personal-os` is an optional starter profile, not a fixed product layout.
 
 We value changes that are **small, reviewable, deterministic to test, and explicit about their operational and security boundaries**.
 
@@ -150,4 +150,4 @@ Use concise [Conventional Commits](https://www.conventionalcommits.org/) for rep
 - Common types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `ci`.
 - Use a lowercase type, imperative mood, and no trailing period.
 - Keep one logical change per commit and include a commit body when operational impact or design trade-offs are not obvious from the diff.
-- *(Note: The user's runtime Personal OS workspace at `/opt/data/workspace` uses a separate commit convention—`backup: <description>` for snapshots, `chore:` for setup, and `docs:` for structural updates).*
+- *(Note: The user's runtime OpenLia workspace at `/opt/data/workspace` uses a separate commit convention—`backup: <description>` for snapshots, `chore:` for setup, and `docs:` for structural updates).*

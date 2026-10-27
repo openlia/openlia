@@ -1,8 +1,10 @@
 # Workspace UI
 
-The Workspace UI is a React client and Bun HTTP server for browsing and editing
-workspace documents. The client has an explicit `WorkspaceApi` boundary so
-frontend work does not require OpenLia, Hermes, Go, or Docker.
+The Workspace UI is OpenLia's web interface for chatting with Lia, browsing and
+editing documents, using interactive Mini-Projects, reviewing Git checkpoints,
+and managing the workspace. Its React client and Bun HTTP server share an
+explicit `WorkspaceApi` boundary so frontend work does not require OpenLia,
+Hermes, Go, or Docker.
 
 The client is built on TanStack Start, TanStack Router, and TanStack Query.
 TanStack Start owns the SSR request, typed route tree, and server-function

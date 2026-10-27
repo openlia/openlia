@@ -1,8 +1,10 @@
 # OpenLia
 
-> An Autonomous AI Agent Workspace & Operations Platform built on [Hermes Agent](https://hermes-agent.nousresearch.com/).
+> A self-hosted, AI-native workspace for turning personal context into organized knowledge, decisions, and action—with [Hermes Agent](https://hermes-agent.nousresearch.com/) as its agent runtime.
 
-OpenLia combines **Hermes Agent**, **Workspace UI**, **Mini-Projects**, **OpenUI**, and **[Locho](https://github.com/trchopan/locho)** to deploy and manage the interrelated needs of a single user. Rather than locking your context inside proprietary app silos or hardcoding a fixed domain layout, OpenLia provides an **ultra-minimal, Git-versioned plain-text workspace**, **durable multi-format ingestion**, **interactive OpenUI Mini-Projects**, an **on-demand dependency store**, and a **decoupled operator control plane**—while workspace profiles, domain features, and workflow skills live in the public templates catalog at **[`https://github.com/openlia/templates.git`](https://github.com/openlia/templates.git)**.
+OpenLia helps you organize documents, connect projects and daily context, and act with a clear human approval boundary. Your information lives in a **Git-versioned plain-text workspace**, not proprietary app silos or a fixed domain layout. Start small and extend it with profiles, domain features, and workflow skills from the public **[`openlia/templates`](https://github.com/openlia/templates.git)** catalog.
+
+**Hermes Agent** powers Lia, the assistant you collaborate with through chat and **Workspace UI**. **Durable multi-format ingestion** retains your sources, while **OpenUI Mini-Projects** provide interactive views over workspace records. An **on-demand dependency store**, private connectivity through **[Locho](https://github.com/trchopan/locho)**, and a **separate operator control plane** support deployment and ongoing operations.
 
 ---
 
@@ -113,7 +115,7 @@ When `[workspace-ui]` is enabled, a single Bun service provides:
 
 ## Architecture & Deployment Shape
 
-OpenLia is not a fork of Hermes Agent; it is a thin, reproducible operations and workspace platform around Hermes.
+OpenLia is not a fork of Hermes Agent. It uses Hermes as its agent runtime and adds a durable workspace, interactive apps, extensible workflows, and human approval boundaries. A separate operator control plane handles deployment, updates, credentials, and backups.
 
 ```text
 Operator Machine (macOS / Linux Workstation)
