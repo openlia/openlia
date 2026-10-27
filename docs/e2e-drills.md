@@ -1,6 +1,8 @@
 # OpenLia End-to-End (E2E) Development Drills
 
-This document provides a battle-tested, repeatable operational runbook for executing end-to-end (E2E) verification drills against disposable or remote development environments using the `openlia_dev` profile.
+> A repeatable operational runbook for executing end-to-end verification drills against disposable or remote development environments using the `openlia_dev` profile.
+
+[← Back to Documentation Index](README.md) · [Operator Guide](operator-guide.md) · [Smoke Tests (`tests/README.md`)](../tests/README.md)
 
 ---
 
@@ -13,7 +15,7 @@ OpenLia uses a thin control plane architecture:
   - Outbound commands and chat arrive via messaging platforms (e.g. Telegram).
   - Workspace UI (Chat and Editor) is accessible over encrypted P2P or relayed tunnels via [Locho](https://github.com/trchopan/locho).
 
-```
+```text
 Operator Workstation                       Target Host (e.g. user@test-host)
 ┌─────────────────────────┐               ┌─────────────────────────────────┐
 │ ./openlia CLI           │ ──(SSH Init)─>│ /opt/openlia_dev/               │
@@ -30,14 +32,14 @@ Operator Workstation                       Target Host (e.g. user@test-host)
 ## Prerequisites
 
 On your operator machine:
-- Go 1.24+
-- Bun (`bun --version`)
-- Python 3 (`python3 --version`)
+- Go 1.26+
+- Bun (`bun --version`, 1.2.22+)
+- Python 3 (`python3 --version`, 3.9+)
 - SSH access with public-key authentication to the target machine (`ssh root@<target-ip>`)
 - [Locho](https://github.com/trchopan/locho) CLI installed (`which locho`)
 
 On the target machine:
-- Linux (x86_64 or aarch64)
+- Linux (`x86_64` or `aarch64`)
 - Docker Engine with Compose v2 (`docker compose version`)
 
 ---
@@ -83,7 +85,7 @@ Before deploying any release, compile both the host CLI and the cross-compiled L
 ```bash
 make build-cli build-operator-linux-amd64
 ```
-*(Use `make build-operator-linux-arm64` if your target is an ARM64/Raspberry Pi host).*
+*(Use `make build-operator-linux-arm64` if your target is an ARM64/Raspberry Pi host, or simply run `make build` to build both).*
 
 Verify the compiled version:
 ```bash
@@ -108,7 +110,7 @@ Verify the compiled version:
    OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia deploy
    ```
    If you rebuilt the OpenLia CLI and target operator and need to transfer
-   those release assets to the target, use `./openlia update openlia` instead:
+   those release assets to the target, use `./openlia update openlia` (or `./openlia deploy --release`):
    ```bash
    OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia update openlia
    ```
@@ -125,16 +127,17 @@ Verify the compiled version:
    ```
    **Pass Criteria**: All checks report `ok: true`, `hermes_doctor` reports `healthy`, and `provider_request` reports `completed`.
 
-5. Verify bundled skills catalog including new health and calendar skills:
+5. Verify bundled skills and installed features:
    ```bash
    OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia skills list --json
+   OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia features list
    ```
-   **Pass Criteria**: Lists `personal-health`, `calendar`, `personal-finance`, and all standard bundled skills as enabled.
+   **Pass Criteria**: Lists bundled skills (`calendar`, `daily-briefing`, `document-intelligence`, `inbox-triage`, `weekly-review`, `workspace-git`, `workspace-organize`) and available/installed features (`personal-finance`, `personal-health`, etc.).
 
 ---
 
-### Drill 3: Local Workspace Git & Scheduled Batch Commits
-OpenLia maintains the workspace (`/opt/data/workspace`) as a local Git repository for history tracking without network remotes, with scheduled daily batch commits:
+### Drill 3: Local Workspace Git & Scheduled Reminder
+OpenLia maintains the workspace (`/opt/data/workspace`) as a local Git repository for history tracking without network remotes:
 
 1. Check workspace git status:
    ```bash
@@ -142,11 +145,11 @@ OpenLia maintains the workspace (`/opt/data/workspace`) as a local Git repositor
    ```
    **Pass Criteria**: Returns `{"ok":true,"workspace":"/opt/data/workspace","branch":"main","status":"## main"}`.
 
-2. Inspect the scheduled workspace git cron batch job:
+2. Inspect the scheduled workspace git cron reminder entry:
    ```bash
    ssh user@test-host "docker exec openlia_dev-hermes-1 crontab -l 2>/dev/null || true"
    ```
-   Look for the scheduled daily commit entry configured by `[workspace_git] schedule`.
+   Look for the scheduled daily reminder entry configured by `[workspace_git] schedule`.
 
 ---
 
@@ -161,7 +164,7 @@ OpenLia maintains the workspace (`/opt/data/workspace`) as a local Git repositor
    - **Persona & Language Check**:
      > `Xin chào, bạn là ai?`
      *Expected*: Agent responds in Vietnamese (or configured language), identifying as OpenLia.
-   - **Safe Personal Finance Workflow & Journal Creation**:
+   - **Safe Personal Finance Workflow & Journal Creation** *(with `personal-finance` feature installed)*:
      > `I spent 15,000 VND on a Banh Mi today`
      *Expected*: Agent invokes the `personal-finance` skill and asks for confirmation or journal category, rather than blindly writing to disk. Upon approval, it initializes/appends to the financial journal (`finance/journal.journal`).
    - **Remind-backed Calendar Scheduling & Agenda Check**:
@@ -169,7 +172,7 @@ OpenLia maintains the workspace (`/opt/data/workspace`) as a local Git repositor
      *Expected*: Agent uses the `calendar` skill and Remind syntax to record the event into `calendar/reminders.rem`.
      > `Kiểm tra lịch hôm nay`
      *Expected*: Agent queries today's agenda with native `remind` and returns scheduled items.
-   - **Personal Health Record Workflow**:
+   - **Personal Health Record Workflow** *(with `personal-health` feature installed)*:
      > `Ghi nhận hồ sơ sức khỏe: cân nặng 65kg, huyết áp 120/80`
      *Expected*: Agent recognizes the health workflow, validates against `health/` schemas, and safely logs or confirms the entry.
    - **Durable Ingestion Runtime & Tool Check**:
@@ -241,7 +244,7 @@ When testing is complete, tear down all resources to leave both local and target
 | Symptom / Error | Root Cause | Solution |
 | :--- | :--- | :--- |
 | `unsupported config schema 1` | OpenLia bumped configuration schema to `2`. | Ensure `schema = 2` is set under `[openlia]` in `config.toml`. |
-| `[workspace_git] invalid schedule` | Workspace Git batch tracking requires a valid cron expression. | Set `schedule = "0 4 * * *"` in `[workspace_git]` in `config.toml`. |
+| `[workspace_git] invalid schedule` | Workspace Git reminder tracking requires a valid cron expression. | Set `schedule = "0 4 * * *"` in `[workspace_git]` in `config.toml`. |
 | `[secrets:command] helper failed; resolving no value: code=1` | An environment variable in `hermes.env` failed `secret-source.sh` regex validation. | Verify `COPILOT_GITHUB_TOKEN` starts with `gho_`, `ghu_`, or `github_pat_`. Comment out any unused or malformed token variables. |
 | `locho-host is disabled` | Running `locho-host share` when `locho-host.enabled = false`. | Set `[locho-host] enabled = true` in `config.toml` and run `./openlia deploy` before sharing. |
 | `backup encryption key setup failed: operator recovery identity is not ready` | `backup.recipient` is set in `config.toml` but the matching private key file does not exist on disk. | Clear `recipient = ""` in `config.toml` so `openlia init` automatically generates a matching pair at `backup.identity_file`. |
