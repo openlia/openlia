@@ -59,7 +59,7 @@ func NewHermesRunner(cfg HermesRunnerConfig) *HermesRunner {
 // BuildPrompt constructs the prompt following the workspace migration request contract.
 func BuildPrompt(job migration.Job, source migration.SourceEntry, sourcePathInContainer string, previewContent string) string {
 	var builder strings.Builder
-	builder.WriteString("You are OpenLia's Personal OS Migration Assistant.\n")
+	builder.WriteString("You are OpenLia's Workspace Migration Assistant.\n")
 	builder.WriteString(fmt.Sprintf("Your task is to import the source file %q into the current proposal workspace.\n", source.RelativePath))
 	builder.WriteString(fmt.Sprintf("The source file is available read-only at %q (type: %s, size: %d bytes).\n\n", sourcePathInContainer, source.DetectedType, source.ByteSize))
 	if previewContent != "" {
@@ -230,7 +230,7 @@ func (h *HermesRunner) runHost(ctx context.Context, prompt string, proposalWorks
 // BuildRevisionPrompt constructs the prompt for addressing operator review comments.
 func BuildRevisionPrompt(revisionNum int, feedback []migration.FeedbackItem, priorDiff string) string {
 	var builder strings.Builder
-	builder.WriteString("You are OpenLia's Personal OS Migration Assistant.\n")
+	builder.WriteString("You are OpenLia's Workspace Migration Assistant.\n")
 	builder.WriteString(fmt.Sprintf("The operator has reviewed proposal Revision %d and requested changes.\n\n", revisionNum))
 	builder.WriteString("OPERATOR FEEDBACK COMMENTS:\n")
 	for i, f := range feedback {

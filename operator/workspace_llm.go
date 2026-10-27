@@ -91,7 +91,7 @@ func SystemPromptForMigration(profile TargetWorkspaceProfile) string {
 		templatesSummary = "Discovered living templates (for style guidance only, do NOT enforce rigidly):\n" + strings.Join(tmplLines, "\n") + "\n"
 	}
 
-	return fmt.Sprintf(`You are OpenLia's Personal OS Migration Assistant.
+	return fmt.Sprintf(`You are OpenLia's Workspace Migration Assistant.
 Your task is to analyze user notes and determine their best placement within the user's living OpenLia workspace.
 
 CORE PRINCIPLES:

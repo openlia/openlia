@@ -8,7 +8,7 @@
 
 ## Overview & Architecture
 
-OpenLia uses a thin control plane architecture:
+OpenLia separates its operator control plane from the workspace and agent runtime:
 - **Operator Machine**: Your local workstation where you run the `./openlia` CLI and manage profile configurations (`~/.config/openlia/<profile>/`).
 - **Target Machine**: The machine where the Hermes Agent stack runs inside Docker containers (`/opt/<project>/`), managed over SSH (or locally with `--local`).
 - **Secure Communication**:

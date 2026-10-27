@@ -1,6 +1,6 @@
 name: openlia
 version: 0.1.0
-description: Autonomous AI Agent workspace and operations runtime built on Hermes Agent.
+description: Self-hosted AI workspace with Hermes Agent as its agent runtime.
 hermes_requires: ">=0.12.0"
 author: OpenLia maintainers
 license: MIT

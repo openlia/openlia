@@ -4,7 +4,7 @@
 
 [← Back to Documentation Index](README.md)
 
-OpenLia is an **Autonomous AI Agent Workspace & Operations Platform** combining **Hermes Agent**, **Workspace UI**, **Mini-Projects**, **OpenUI**, and **Locho** to help you turn documents, projects, and daily context into clear decisions and deliberate action.
+OpenLia is a **self-hosted, AI-native workspace** for turning personal context into organized knowledge, decisions, and action—with **Hermes Agent** as its agent runtime. Chat, document editing, and interactive Mini-Projects share the same Git-versioned workspace. Profiles, features, and skills extend your workflows, while human approval boundaries keep consequential actions under your control.
 
 ---
 

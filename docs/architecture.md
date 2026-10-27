@@ -4,7 +4,7 @@
 
 [← Back to Documentation Index](README.md)
 
-Welcome to the OpenLia codebase! OpenLia is an **Autonomous AI Agent Workspace & Operations Platform** built around [Hermes Agent](https://hermes-agent.nousresearch.com/). It combines a **Go control plane**, **TypeScript/Bun web and browser services**, **Python Hermes plugins and system skills**, an **on-demand persistent dependency store (`/opt/data/.local`)**, and a **schema-validated Markdown & OpenUI workspace** extensible via [`https://github.com/openlia/templates.git`](https://github.com/openlia/templates.git).
+Welcome to the OpenLia codebase! OpenLia is a **self-hosted, AI-native workspace** for turning personal context into organized knowledge, decisions, and action—with [Hermes Agent](https://hermes-agent.nousresearch.com/) as its agent runtime. It combines a **Go operator control plane**, **TypeScript/Bun web and browser services**, **Python Hermes plugins and system skills**, an **on-demand persistent dependency store (`/opt/data/.local`)**, and a **Git-versioned, schema-validated Markdown & OpenUI workspace** extensible via [`https://github.com/openlia/templates.git`](https://github.com/openlia/templates.git).
 
 ---
 
