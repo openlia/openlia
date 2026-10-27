@@ -871,7 +871,7 @@ func runWorkspaceMigrate(ctx context.Context, config Config, args []string, outp
 
 func runSkillMigration(config Config, args []string, output, errorOutput io.Writer, jsonOutput bool, now time.Time) int {
 	if len(args) == 0 {
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("skill-migration requires prepare, show, apply, reject, or update"))
+		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("skill-migration requires prepare, show, apply, reject, install, or update"))
 	}
 	action := args[0]
 	if len(args) != 2 {
@@ -884,6 +884,12 @@ func runSkillMigration(config Config, args []string, output, errorOutput io.Writ
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
 		return emit(output, result, jsonOutput, "openlia skill-migration: context staged for Hermes")
+	case "install":
+		result, err := SkillInstall(config, args[1], now)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, result, jsonOutput, fmt.Sprintf("openlia skill-migration: installed %s", result.SkillID))
 	case "update":
 		result, err := RebaseInstalledSkill(config, args[1], now)
 		if err != nil {
@@ -915,7 +921,7 @@ func runSkillMigration(config Config, args []string, output, errorOutput io.Writ
 
 func runFeatures(config Config, args []string, output, errorOutput io.Writer, jsonOutput bool, now time.Time) int {
 	if len(args) == 0 {
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features requires list, show, sync, install, update, import, package, or remove"))
+		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features requires list, show, status, sync, install, update, import, package, or remove"))
 	}
 	action := args[0]
 	args = args[1:]
@@ -927,6 +933,23 @@ func runFeatures(config Config, args []string, output, errorOutput io.Writer, js
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
 		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: %d feature(s)", len(res.Features)))
+
+	case "status":
+		if len(args) == 0 {
+			res, err := FeatureList(config)
+			if err != nil {
+				return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+			}
+			return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: %d feature(s)", len(res.Features)))
+		}
+		if len(args) != 1 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features status accepts at most one FEATURE_ID"))
+		}
+		res, err := FeatureShow(config, args[0])
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, res, jsonOutput, fmt.Sprintf("feature %s (%s): %s", res.Status.ID, res.Status.State, res.Status.Description))
 
 	case "sync":
 		res, err := SyncTemplatesCatalog(context.Background(), config)
@@ -957,8 +980,22 @@ func runFeatures(config Config, args []string, output, errorOutput io.Writer, js
 
 	case "install":
 		withPolicy, args := removeFlag(args, "--with-policy")
+		profileID, args, flagErr := stringFlag(args, "--profile")
+		if flagErr != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, flagErr)
+		}
+		if profileID != "" {
+			if len(args) != 0 {
+				return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features install --profile takes no positional FEATURE_ID"))
+			}
+			res, err := InstallTemplateProfile(config, profileID, withPolicy, now)
+			if err != nil {
+				return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+			}
+			return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: installed profile %s (%d features, %d skills)", res.ProfileID, len(res.InstalledFeatures), len(res.InstalledSkills)))
+		}
 		if len(args) != 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features install requires FEATURE_ID"))
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features install requires FEATURE_ID or --profile PROFILE_ID"))
 		}
 		res, err := FeatureInstall(config, args[0], withPolicy, now)
 		if err != nil {

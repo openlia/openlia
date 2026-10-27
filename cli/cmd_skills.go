@@ -16,11 +16,32 @@ import (
 
 func commandSkills(options Options, args []string, assets fs.FS) int {
 	if len(args) == 0 {
-		return fail(options, ExitUsage, "skills requires list, show, test, status, fork, update, migrate, enable, or disable", nil)
+		return fail(options, ExitUsage, "skills requires list, show, test, status, install, fork, update, migrate, enable, or disable", nil)
 	}
 	action := args[0]
 	args = args[1:]
 	switch action {
+	case "install":
+		if len(args) != 1 || !safeComponent(args[0]) {
+			return fail(options, ExitUsage, "skills install requires a safe skill name", nil)
+		}
+		config, code := configOrError(options)
+		if code != ExitOK {
+			return code
+		}
+		if !(!config.SkillsConfigured && contains(config.EnabledSkills, args[0])) {
+			config.EnabledSkills = setSkill(config.EnabledSkills, args[0], true)
+		}
+		if err := saveConfig(config); err != nil {
+			return fail(options, ExitFailure, err.Error(), nil)
+		}
+		ctx, cancel := remoteContext()
+		defer cancel()
+		raw, err := newDeployment(config).operation(ctx, "skill-migration", nil, "install", args[0], "--json")
+		if err != nil {
+			return fail(options, ExitFailure, err.Error(), nil)
+		}
+		return renderRemote(options, raw, fmt.Sprintf("openlia skills install: installed %s", args[0]))
 	case "list":
 		if len(args) != 0 {
 			return fail(options, ExitUsage, "skills list takes no positional arguments", nil)

@@ -51,6 +51,7 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 		{config.BackupRoot, 0o700},
 		{config.MetaRoot, 0o700},
 		{filepath.Join(config.MetaRoot, "locks"), 0o700},
+		{filepath.Join(config.MetaRoot, "templates-cache"), 0o755},
 	} {
 		if err := EnsureDir(item.path, item.mode); err != nil {
 			return BootstrapResult{}, err

@@ -99,8 +99,9 @@ Usage:
   openlia uninstall [--local|--target user@host] [--project NAME] [--root /path]
   openlia logs [--follow]
   openlia update [openlia|hermes|locho]
+  openlia features sync|list|show|status|install|update|import|package|remove
   openlia skills list|show|test
-  openlia skills status|fork|migrate|enable|disable
+  openlia skills status|install|update|fork|migrate|enable|disable
   openlia auth list|setup|rotate
   openlia attachments list
   openlia attachments map <host> <service> --role <role>
