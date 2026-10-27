@@ -93,6 +93,9 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 	if err := EnsureDefaultPermissionsFile(config.DataRoot, config.RuntimeUID, config.RuntimeGID); err != nil {
 		return BootstrapResult{}, err
 	}
+	if err := EnsureLocalToolDirs(config.DataRoot, config.RuntimeUID, config.RuntimeGID); err != nil {
+		return BootstrapResult{}, err
+	}
 	if config.WorkspaceUIHost != "" || isFirebase || config.WorkspaceUIAuthRequired {
 		sessionDir := filepath.Join(config.RuntimeRoot, "workspace-ui")
 		if err := EnsureDir(sessionDir, 0o700); err != nil {
@@ -251,7 +254,18 @@ func directoryEmpty(path string) (bool, error) {
 // starter template files that do not yet exist in workspaceDir. Existing user files
 // and customizations are strictly preserved.
 func seedMissingWorkspaceTemplates(templateDir, workspaceDir string) error {
-	registered, _ := RegisteredDomainPaths(workspaceDir)
+	return seedMissingWorkspaceTemplatesFiltered(templateDir, workspaceDir, false)
+}
+
+func seedMissingFeatureWorkspaceTemplates(templateDir, workspaceDir string) error {
+	return seedMissingWorkspaceTemplatesFiltered(templateDir, workspaceDir, true)
+}
+
+func seedMissingWorkspaceTemplatesFiltered(templateDir, workspaceDir string, requireRegistered bool) error {
+	var registered map[string]bool
+	if requireRegistered {
+		registered, _ = RegisteredDomainPaths(workspaceDir)
+	}
 	return filepath.Walk(templateDir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -269,7 +283,7 @@ func seedMissingWorkspaceTemplates(templateDir, workspaceDir string) error {
 			return nil
 		}
 		relSlash := filepath.ToSlash(rel)
-		if len(registered) > 0 && strings.Contains(relSlash, "/") {
+		if requireRegistered && strings.Contains(relSlash, "/") {
 			dirSlash := filepath.ToSlash(filepath.Dir(rel))
 			rootDomain := strings.Split(relSlash, "/")[0]
 			if !registered[dirSlash] && !registered[rootDomain] {

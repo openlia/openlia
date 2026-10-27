@@ -42,12 +42,7 @@ import {
   subscribeToFirebaseAuth,
   type FirebaseAccount,
 } from "./firebase";
-import {
-  isJournalPath,
-  isMarkdownPath,
-  isOpenUIPath,
-  isRemindPath,
-} from "./CodeEditor";
+import { isMarkdownPath, isOpenUIPath } from "./CodeEditor";
 import { CreateSkillModal } from "./CreateSkillModal";
 import { ConfigurationPage } from "./ConfigurationPage";
 import { SchedulePage } from "./SchedulePage";
@@ -114,11 +109,7 @@ type PendingAction =
   | null;
 
 function defaultView(path?: string): WorkspaceView {
-  return path &&
-    !isMarkdownPath(path) &&
-    !isJournalPath(path) &&
-    !isRemindPath(path) &&
-    !isOpenUIPath(path)
+  return path && !isMarkdownPath(path) && !isOpenUIPath(path)
     ? "edit"
     : "preview";
 }
@@ -128,14 +119,7 @@ function viewForPath(
   requested: WorkspaceView | undefined,
 ): WorkspaceView {
   if (requested === "info") return "info";
-  if (
-    path &&
-    !isMarkdownPath(path) &&
-    !isJournalPath(path) &&
-    !isRemindPath(path) &&
-    !isOpenUIPath(path)
-  )
-    return "edit";
+  if (path && !isMarkdownPath(path) && !isOpenUIPath(path)) return "edit";
   return requested ?? defaultView(path);
 }
 
@@ -2597,15 +2581,6 @@ export function App({
 
   function handleViewChange(nextView: WorkspaceView) {
     const normalizedView = viewForPath(file?.path ?? artifact?.path, nextView);
-    if (
-      normalizedView === "preview" &&
-      view === "edit" &&
-      isRemindPath(file?.path ?? "") &&
-      docDirty
-    ) {
-      setPendingAction({ kind: "switchView", view: normalizedView });
-      return;
-    }
     setView(normalizedView);
     if (normalizedView === "info") setDetailsOpen(true);
     const currentRoute =
@@ -2785,7 +2760,6 @@ export function App({
         git={git}
         onOpenFiles={() => setFilesOpen(true)}
         onOpenDocuments={requestOpenDocuments}
-        onOpenCalendar={() => requestOpenFile("calendar/reminders.rem")}
         onOpenGoTo={() => setIsGoToOpen(true)}
         onSignOut={requestSignOut}
         onTabChange={requestTabChange}

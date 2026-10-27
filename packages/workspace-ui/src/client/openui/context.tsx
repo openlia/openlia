@@ -8,9 +8,6 @@ import type {
 } from "../../shared/api";
 
 export interface OpenLiaOpenUIContextValue {
-  financeApi?:
-    | Pick<WorkspaceApi, "checkFinanceJournal" | "checkFinanceJournalFreshness">
-    | undefined;
   loadFile?: WorkspaceApi["loadFile"] | undefined;
   project?: ProjectSummary | undefined;
   manifest?: ProjectManifest | undefined;

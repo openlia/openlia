@@ -49,16 +49,6 @@ export function isMarkdownPath(path: string): boolean {
   return lower.endsWith(".md") || lower.endsWith(".markdown");
 }
 
-export function isJournalPath(path: string): boolean {
-  const lower = path.toLowerCase();
-  return lower.endsWith(".journal") || lower.endsWith(".hledger");
-}
-
-export function isRemindPath(path: string): boolean {
-  const lower = path.toLowerCase();
-  return lower.endsWith(".rem") || lower.endsWith(".remind");
-}
-
 export function isOpenUIPath(path: string): boolean {
   return path.toLowerCase().endsWith(".openui");
 }
@@ -66,9 +56,6 @@ export function isOpenUIPath(path: string): boolean {
 export function detectLanguage(path: string): { id: string; name: string } {
   const ext = path.toLowerCase().split(".").pop() ?? "";
   switch (ext) {
-    case "rem":
-    case "remind":
-      return { id: "remind", name: "Remind" };
     case "py":
       return { id: "python", name: "Python" };
     case "sh":
@@ -91,9 +78,6 @@ export function detectLanguage(path: string): { id: string; name: string } {
       return { id: "javascript", name: "JavaScript" };
     case "toml":
       return { id: "toml", name: "TOML" };
-    case "journal":
-    case "hledger":
-      return { id: "ledger", name: "Ledger" };
     case "openui":
       return { id: "openui", name: "OpenUI" };
     default:

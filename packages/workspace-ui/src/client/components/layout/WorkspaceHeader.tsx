@@ -4,7 +4,6 @@ import type {
   WorkspaceFileMetadata,
   WorkspaceGitStatus,
 } from "../../../shared/api";
-import { isRemindPath } from "../../CodeEditor";
 import { CopyLinkButton } from "../common/CopyLinkButton";
 
 export function WorkspaceHeader({
@@ -16,7 +15,6 @@ export function WorkspaceHeader({
   git,
   onOpenFiles,
   onOpenDocuments,
-  onOpenCalendar,
   onOpenGoTo,
   onSignOut,
   onTabChange,
@@ -42,7 +40,6 @@ export function WorkspaceHeader({
   git: WorkspaceGitStatus | null;
   onOpenFiles: () => void;
   onOpenDocuments?: (() => void) | undefined;
-  onOpenCalendar?: (() => void) | undefined;
   onOpenGoTo?: (() => void) | undefined;
   onSignOut: () => void;
   onTabChange?:
@@ -66,9 +63,6 @@ export function WorkspaceHeader({
   const gitText = git?.configured
     ? `${git.branch ?? "Git"}${git.dirty ? " / changes" : " / clean"}`
     : "Version control unavailable";
-
-  const isCalendarActive =
-    activeTab === "documents" && file !== null && isRemindPath(file.path);
 
   return (
     <header className="workspace-header">
@@ -117,13 +111,9 @@ export function WorkspaceHeader({
           )}
           {(onOpenDocuments || onTabChange) && (
             <button
-              aria-current={
-                activeTab === "documents" && !isCalendarActive
-                  ? "page"
-                  : undefined
-              }
+              aria-current={activeTab === "documents" ? "page" : undefined}
               className={`btn btn-xs join-item shrink-0 ${
-                activeTab === "documents" && !isCalendarActive
+                activeTab === "documents"
                   ? "btn-primary shadow-xs"
                   : "btn-ghost text-base-content/70"
               }`}
@@ -150,21 +140,6 @@ export function WorkspaceHeader({
               type="button"
             >
               Projects
-            </button>
-          )}
-          {onOpenCalendar && (
-            <button
-              aria-current={isCalendarActive ? "page" : undefined}
-              className={`btn btn-xs join-item shrink-0 ${
-                isCalendarActive
-                  ? "btn-primary shadow-xs"
-                  : "btn-ghost text-base-content/70"
-              }`}
-              onClick={onOpenCalendar}
-              title="Open Calendar (reminders.rem)"
-              type="button"
-            >
-              Calendar
             </button>
           )}
           {onTabChange && (

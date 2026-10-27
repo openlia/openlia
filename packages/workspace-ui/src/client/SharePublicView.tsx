@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { PublicShareResponse } from "../shared/api";
 import { ApiError, httpWorkspaceApi, type WorkspaceApi } from "./api";
-import { CalendarPreviewPane } from "./calendar/CalendarPreviewPane";
-import { isJournalPath, isMarkdownPath, isRemindPath } from "./CodeEditor";
+import { isMarkdownPath } from "./CodeEditor";
 import { MarkdownPreview } from "./components/editor/MarkdownPreview";
-import { JournalPreviewPane } from "./journal/JournalPreviewPane";
 import { copyToClipboard } from "./openliaLinks";
 import {
   formatByteSize,
@@ -145,53 +143,6 @@ export function SharePublicView({
     };
   }, [api, shareId]);
 
-  const filesByPath = useMemo(() => {
-    const map = new Map<
-      string,
-      PublicShareResponse["share"]["files"][number]
-    >();
-    if (!data) return map;
-    for (const f of data.files) {
-      map.set(f.path, f);
-      map.set(f.path.replace(/^\/+/, ""), f);
-    }
-    return map;
-  }, [data]);
-
-  const handleLoadSnapshotInclude = useCallback(
-    async (resolvedPath: string): Promise<string | null> => {
-      const clean = resolvedPath.replace(/^\/+/, "");
-      const direct = filesByPath.get(clean);
-      if (direct?.content !== undefined) return direct.content;
-      const base = clean.split("/").at(-1);
-      if (base) {
-        for (const [key, entry] of filesByPath.entries()) {
-          if (key.endsWith(`/${base}`) || key === base) {
-            if (entry.content !== undefined) return entry.content;
-          }
-        }
-      }
-      return null;
-    },
-    [filesByPath],
-  );
-
-  const handleLoadSnapshotCalendarFile = useCallback(
-    async (
-      resolvedPath: string,
-    ): Promise<{ content: string; revision: string }> => {
-      const content = await handleLoadSnapshotInclude(resolvedPath);
-      if (content === null) {
-        throw new Error("Included calendar file not in snapshot");
-      }
-      return {
-        content,
-        revision: data?.snapshot_revision ?? "sha256:snapshot",
-      };
-    },
-    [handleLoadSnapshotInclude, data?.snapshot_revision],
-  );
-
   async function handleCopyText(text: string) {
     const ok = await copyToClipboard(text);
     if (ok) {
@@ -247,10 +198,7 @@ export function SharePublicView({
 
   if (data.kind === "workspace") {
     const isMarkdown = isMarkdownPath(data.target_path);
-    const isJournal = isJournalPath(data.target_path);
-    const isRemind = isRemindPath(data.target_path);
-    const hasRichPreview =
-      data.editable && (isMarkdown || isJournal || isRemind);
+    const hasRichPreview = data.editable && isMarkdown;
     const primaryContent = data.content ?? "";
     const rawUrl = api.publicShareRawUrl(data.id, data.target_path);
     const downloadUrl = api.publicShareDownloadUrl(data.id, data.target_path);
@@ -316,16 +264,8 @@ export function SharePublicView({
                     }`}
                     onClick={() => setDocViewMode("preview")}
                   >
-                    {isJournal ? (
-                      "Visual Journal"
-                    ) : isRemind ? (
-                      "Calendar View"
-                    ) : (
-                      <>
-                        <span className="hidden sm:inline">Rendered </span>
-                        Preview
-                      </>
-                    )}
+                    <span className="hidden sm:inline">Rendered </span>
+                    Preview
                   </button>
                   <button
                     type="button"
@@ -376,23 +316,6 @@ export function SharePublicView({
                   content={primaryContent}
                   currentFilePath={data.target_path}
                 />
-              ) : docViewMode === "preview" && isJournal ? (
-                <div className="h-full min-h-[36rem]">
-                  <JournalPreviewPane
-                    content={primaryContent}
-                    filePath={data.target_path}
-                    onLoadInclude={handleLoadSnapshotInclude}
-                  />
-                </div>
-              ) : docViewMode === "preview" && isRemind ? (
-                <div className="h-full min-h-[36rem]">
-                  <CalendarPreviewPane
-                    content={primaryContent}
-                    filePath={data.target_path}
-                    fileRevision={data.snapshot_revision}
-                    onLoadCalendarFile={handleLoadSnapshotCalendarFile}
-                  />
-                </div>
               ) : (
                 <pre className="overflow-x-auto p-3.5 font-mono text-xs leading-relaxed text-base-content sm:p-6">
                   <code>{primaryContent}</code>

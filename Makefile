@@ -73,7 +73,7 @@ test: versions-check
 	$(PYTHON) -m py_compile tests/smoke.py
 	$(PYTHON) -m unittest tests.test_openlia_policy_plugin
 	$(PYTHON) -m unittest tests.test_openlia_ingestion
-	for script in profile/skills/*/scripts/*.py features/*/skills/*/scripts/*.py; do $(PYTHON) "$$script" --self-test; done
+	$(PYTHON) tests/verify_skills.py --offline
 
 test-go:
 	$(GO) test -race ./...

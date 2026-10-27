@@ -13,9 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_ROOT = ROOT / "workspace-template"
 FEATURES_ROOT = ROOT / "features"
 SKILLS_ROOT = ROOT / "profile" / "skills"
-CLAIM_TEMPLATE = BUNDLE_ROOT / "knowledge" / "claims" / "claim-template.md"
-MONITOR_WS_ROOT = FEATURES_ROOT / "monitors" / "workspace"
-MONITOR_TEMPLATE = MONITOR_WS_ROOT / "monitors" / "monitor-template.md"
+INGESTION_TEMPLATE = BUNDLE_ROOT / "inbox" / "ingestion" / "ingestion-template.md"
+SOURCE_TEMPLATE = BUNDLE_ROOT / "sources" / "records" / "source-template.md"
 RUNTIME_VALIDATOR = (
     ROOT
     / "profile"
@@ -32,60 +31,30 @@ sys.modules[_spec.name] = validator
 _spec.loader.exec_module(validator)
 
 
-def _claim_schema_errors() -> list[str]:
+def _core_schema_errors() -> list[str]:
     errors: list[str] = []
-    try:
-        metadata, _ = validator.parse_frontmatter(CLAIM_TEMPLATE.read_text(encoding="utf-8"))
-        schema_path = validator._resolve_template_schema(
-            metadata.get("$schema"), CLAIM_TEMPLATE, BUNDLE_ROOT
-        )
-        schema = validator.load_schema(schema_path)
-    except (OSError, ValueError) as exc:
-        return [f"knowledge/claims/claim-template.md: {exc}"]
+    for rel_name, tpl_path in (
+        ("inbox/ingestion/ingestion-template.md", INGESTION_TEMPLATE),
+        ("sources/records/source-template.md", SOURCE_TEMPLATE),
+    ):
+        try:
+            metadata, _ = validator.parse_frontmatter(tpl_path.read_text(encoding="utf-8"))
+            schema_path = validator._resolve_template_schema(
+                metadata.get("$schema"), tpl_path, BUNDLE_ROOT
+            )
+            schema = validator.load_schema(schema_path)
+        except (OSError, ValueError) as exc:
+            errors.append(f"{rel_name}: {exc}")
+            continue
 
-    inferred = validator._without_schema_directive(metadata)
-    inferred["kind"] = "inferred"
-    inferred["confidence"] = "medium"
-    inferred["confidence_basis"] = "Supported by repeated observations."
-    if validator.validate_frontmatter(inferred, schema):
-        errors.append("claim schema rejected an inferred candidate with confidence and basis")
+        base = validator._without_schema_directive(metadata)
+        if validator.validate_frontmatter(base, schema):
+            errors.append(f"{rel_name}: template frontmatter did not validate against its own schema")
 
-    inferred["status"] = "active"
-    if not validator.validate_frontmatter(inferred, schema):
-        errors.append("claim schema accepted an active inference without review metadata")
-    inferred["reviewed_at"] = "2026-10-06"
-    inferred["reviewed_by"] = "user"
-    if validator.validate_frontmatter(inferred, schema):
-        errors.append("claim schema rejected an active inference with review metadata")
-
-    unsupported = validator._without_schema_directive(metadata)
-    unsupported["legacy_field"] = "not allowed"
-    if not validator.validate_frontmatter(unsupported, schema):
-        errors.append("claim schema accepted an unsupported frontmatter field")
-    return errors
-
-
-def _monitor_schema_errors() -> list[str]:
-    errors: list[str] = []
-    try:
-        metadata, _ = validator.parse_frontmatter(MONITOR_TEMPLATE.read_text(encoding="utf-8"))
-        schema_path = validator._resolve_template_schema(
-            metadata.get("$schema"), MONITOR_TEMPLATE, MONITOR_WS_ROOT
-        )
-        schema = validator.load_schema(schema_path)
-    except (OSError, ValueError) as exc:
-        return [f"monitors/monitor-template.md: {exc}"]
-
-    for frequency in ("hourly", "daily", "weekly", "monthly"):
-        candidate = validator._without_schema_directive(metadata)
-        candidate["check_frequency"] = frequency
-        if validator.validate_frontmatter(candidate, schema):
-            errors.append(f"monitor schema rejected check_frequency: {frequency}")
-
-    unsupported = validator._without_schema_directive(metadata)
-    unsupported["check_frequency"] = "yearly"
-    if not validator.validate_frontmatter(unsupported, schema):
-        errors.append("monitor schema accepted unsupported check_frequency: yearly")
+        unsupported = dict(base)
+        unsupported["legacy_field"] = "not allowed"
+        if not validator.validate_frontmatter(unsupported, schema):
+            errors.append(f"{rel_name}: schema accepted an unsupported frontmatter field")
     return errors
 
 
@@ -127,7 +96,8 @@ def _policy_errors() -> list[str]:
 
 def validate_bundle() -> list[str]:
     errors = validator.validate_workspace(BUNDLE_ROOT)
-    errors.extend(validator.validate_skill_templates(SKILLS_ROOT))
+    if SKILLS_ROOT.is_dir():
+        errors.extend(validator.validate_skill_templates(SKILLS_ROOT))
     errors.extend(_policy_errors())
     try:
         registry = validator.load_registry(BUNDLE_ROOT, required=True)
@@ -177,6 +147,11 @@ def validate_bundle() -> list[str]:
         if unregistered:
             errors.append(f"unregistered template schemas: {', '.join(unregistered)}")
 
+    try:
+        validator.load_schema(BUNDLE_ROOT / "feature.schema.json")
+    except Exception as exc:
+        errors.append(f"feature.schema.json: {exc}")
+
     if FEATURES_ROOT.is_dir():
         feature_schema = validator.load_schema(BUNDLE_ROOT / "feature.schema.json")
         for feature_dir in sorted(p for p in FEATURES_ROOT.iterdir() if p.is_dir()):
@@ -212,24 +187,7 @@ def validate_bundle() -> list[str]:
                     )
                     errors.extend(tpl_errors)
 
-    discovered_skill_templates = {
-        path.relative_to(SKILLS_ROOT).as_posix()
-        for path in SKILLS_ROOT.glob("*/templates/*.md")
-    }
-    for relative in sorted(discovered_skill_templates):
-        path = SKILLS_ROOT / relative
-        try:
-            _, body = validator.parse_optional_frontmatter(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            errors.append(f"{relative}: {exc}")
-            continue
-        if relative == "daily-briefing/templates/briefing.md" and ("{{" in body or "}}" in body):
-            errors.append(
-                f"{relative}: renderer-style placeholders are not allowed in direct-write templates"
-            )
-
-    errors.extend(_claim_schema_errors())
-    errors.extend(_monitor_schema_errors())
+    errors.extend(_core_schema_errors())
     return sorted(set(errors))
 
 
@@ -250,7 +208,11 @@ def main(argv: list[str] | None = None) -> int:
     workspace_template_count = sum(
         1 for _ in BUNDLE_ROOT.rglob("*-template.md")
     )
-    skill_template_count = sum(1 for _ in SKILLS_ROOT.glob("*/templates/*.md"))
+    skill_template_count = (
+        sum(1 for _ in SKILLS_ROOT.glob("*/templates/*.md"))
+        if SKILLS_ROOT.is_dir()
+        else 0
+    )
     print(
         f"Validated {workspace_template_count} bundled workspace templates and "
         f"{skill_template_count} bundled skill templates."

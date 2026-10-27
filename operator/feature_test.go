@@ -73,16 +73,16 @@ func TestFeatureListInstallAndRemove(t *testing.T) {
 	cfg, wsDir := setupLeanWorkspaceForTest(t)
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 
-	// 1. Verify initial Lean Base has 10 domains (6 core + 4 system extensions)
+	// 1. Verify initial Lean Base has 3 domains (2 core + 1 system extension)
 	regPaths, err := RegisteredDomainPaths(wsDir)
 	if err != nil {
 		t.Fatalf("RegisteredDomainPaths: %v", err)
 	}
-	if len(regPaths) != 10 {
-		t.Fatalf("expected 10 lean base domains, got %d: %v", len(regPaths), regPaths)
+	if len(regPaths) != 3 {
+		t.Fatalf("expected 3 lean base domains, got %d: %v", len(regPaths), regPaths)
 	}
-	if regPaths["finance"] || regPaths["travel"] {
-		t.Fatalf("did not expect finance or travel in lean base")
+	if regPaths["finance"] || regPaths["travel"] || regPaths["goals"] {
+		t.Fatalf("did not expect finance, travel, or goals in lean base")
 	}
 
 	// 2. List catalog features
@@ -90,14 +90,19 @@ func TestFeatureListInstallAndRemove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FeatureList: %v", err)
 	}
-	if len(listRes.Features) != 10 {
-		t.Fatalf("expected 10 catalog features, got %d", len(listRes.Features))
+	if len(listRes.Features) != 15 {
+		t.Fatalf("expected 15 catalog features, got %d", len(listRes.Features))
 	}
 	for _, f := range listRes.Features {
 		if f.State != "available" {
 			t.Errorf("expected feature %s to be available initially, got %s", f.ID, f.State)
 		}
 	}
+
+	// Set mock bin dir so hledger is provisioned via symlink into .local/bin
+	mockBinDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(mockBinDir, "hledger"), []byte("#!/bin/sh\nexit 0\n"), 0o755)
+	t.Setenv("OPENLIA_TOOL_MOCK_BIN_DIR", mockBinDir)
 
 	// 3. Install personal-finance and travel
 	finRes, err := FeatureInstall(cfg, "personal-finance", true, now)
@@ -106,6 +111,12 @@ func TestFeatureListInstallAndRemove(t *testing.T) {
 	}
 	if !finRes.OK || len(finRes.InstalledSkills) != 1 || finRes.InstalledSkills[0] != "personal-finance" {
 		t.Fatalf("unexpected personal-finance install result: %+v", finRes)
+	}
+	if len(finRes.ProvisionedTools) != 1 || finRes.ProvisionedTools[0] != "hledger" {
+		t.Fatalf("expected hledger to be provisioned for personal-finance, got %+v", finRes.ProvisionedTools)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.DataRoot, ".local", "bin", "hledger")); err != nil {
+		t.Errorf("expected .local/bin/hledger to be provisioned: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(cfg.DataRoot, "skills", "personal-finance", "SKILL.md")); err != nil {
 		t.Errorf("expected personal-finance SKILL.md to be installed: %v", err)
@@ -221,11 +232,12 @@ func TestMigrationAutoInstallsFeaturesAndSkipsBoilerplate(t *testing.T) {
 
 	// Populate sourceDir with an existing QA monolithic workspace export:
 	// 1. Unmodified starter templates and schema files from features
-	travelTpl, err := os.ReadFile(filepath.Join(cfg.RepositoryRoot, "features", "travel", "workspace", "travel", "trip-template.md"))
+	templatesRoot := ResolveTemplatesRoot(cfg)
+	travelTpl, err := os.ReadFile(filepath.Join(templatesRoot, "features", "travel", "workspace", "travel", "trip-template.md"))
 	if err != nil {
 		t.Fatalf("read travel trip-template.md: %v", err)
 	}
-	travelSchema, err := os.ReadFile(filepath.Join(cfg.RepositoryRoot, "features", "travel", "workspace", "travel", "trip-template.schema.json"))
+	travelSchema, err := os.ReadFile(filepath.Join(templatesRoot, "features", "travel", "workspace", "travel", "trip-template.schema.json"))
 	if err != nil {
 		t.Fatalf("read travel trip-template.schema.json: %v", err)
 	}

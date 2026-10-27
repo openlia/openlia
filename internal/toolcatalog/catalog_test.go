@@ -33,3 +33,18 @@ func TestManagedHermesImageBoundsLongProjectNames(t *testing.T) {
 		t.Fatalf("managed image exceeds Docker tag length: %d", len(image))
 	}
 }
+
+func TestCuratedToolCatalogLookupAndValidation(t *testing.T) {
+	for _, name := range []string{"hledger", "remind", "jq", "sqlite3"} {
+		if err := ValidateToolName(name); err != nil {
+			t.Fatalf("expected %s to be valid: %v", name, err)
+		}
+		spec, ok := LookupTool(name)
+		if !ok || spec.Binary != name || spec.DefaultVersion == "" {
+			t.Fatalf("unexpected ToolSpec for %s: %+v", name, spec)
+		}
+	}
+	if err := ValidateToolName("unknown-binary"); err == nil {
+		t.Fatal("expected unsupported tool name to fail validation")
+	}
+}

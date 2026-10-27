@@ -8,7 +8,6 @@ import { useState } from "react";
 import { z } from "zod";
 import type { WorkspaceDomainRecordSummary } from "../../shared/api";
 import { projectOpenUIProps } from "../../shared/project";
-import { FinanceOverview } from "./FinanceOverview";
 import { useOpenLiaOpenUI } from "./context";
 
 export interface OpenLiaRuntimeData {
@@ -782,7 +781,6 @@ export const openliaComponents = [
   MetricCard,
   RecordKanban,
   RecordTable,
-  FinanceOverview,
 ];
 
 export const openliaFunctions = [

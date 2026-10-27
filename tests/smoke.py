@@ -533,12 +533,9 @@ def run_local_smoke(args: argparse.Namespace) -> list[dict[str, Any]]:
                 for case_id, command, timeout in (
                     ("LOCAL-STOP", ["go", "run", ".", "stop", "--json"], 120),
                     ("LOCAL-START", ["go", "run", ".", "start", "--json"], 300),
-                    ("LOCAL-SKILL-BUNDLED", ["go", "run", ".", "skills", "test", "personal-finance"], 120),
+                    ("LOCAL-FEATURES-LIST", ["go", "run", ".", "features", "list", "--json"], 120),
                 ):
                     results.append(run_case(case_id, command, timeout=timeout, env=local_env))
-                results.append(run_case("LOCAL-SKILL-RUNTIME", local_skill_check(root, project, "personal-finance"), timeout=120, env=local_env))
-                results.append(run_case("LOCAL-SKILL-RUNTIME-CALENDAR", local_skill_check(root, project, "calendar"), timeout=120, env=local_env))
-                results.append(run_case("LOCAL-SKILL-RUNTIME-HEALTH", local_skill_check(root, project, "personal-health"), timeout=120, env=local_env))
     finally:
         if args.cleanup and cleanup_eligible:
             results.append(
@@ -573,21 +570,14 @@ def run(mode: str, args: argparse.Namespace) -> list[dict[str, Any]]:
         results.append(run_case("CLI-001", ["go", "run", ".", "--help"]))
         results.append(run_case("CLI-002", ["go", "run", ".", "--version", "--json"]))
         results.append(run_case("CLI-006", ["go", "run", ".", "skills", "list", "--json"]))
-        for skill in (
-            "inbox-triage",
-            "daily-briefing",
-            "weekly-review",
-            "decision-analysis",
-            "deep-research",
-            "personal-finance",
-            "calendar",
-            "workspace-git",
-            "workspace-organize",
-            "personal-health",
-        ):
-            results.append(run_case(f"SKILL-{skill}", ["go", "run", ".", "skills", "test", skill]))
         compose_env = {**os.environ, **compose_environment("/tmp/openlia-compose-check", "openlia-compose-check")}
-        results.append(run_case("DEP-001", ["docker", "compose", "-f", "docker/compose.yaml", "config", "--quiet"], env=compose_env))
+        results.append(
+            run_case(
+                "DEP-001",
+                ["docker", "compose", "--env-file", "docker/.env.example", "-f", "docker/compose.yaml", "config", "--quiet"],
+                env=compose_env,
+            )
+        )
         missing_compose_env = {key: value for key, value in os.environ.items() if key not in COMPOSE_RUNTIME_KEYS}
         results.append(run_expected_failure("DEP-002", ["docker", "compose", "-f", "docker/compose.yaml", "config", "--quiet"], env=missing_compose_env))
         scripts = [

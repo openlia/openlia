@@ -102,6 +102,8 @@ type Config struct {
 	LochoRelaySecretsSource       string
 	SecretSource                  string
 	ReleaseSource                 string
+	TemplatesRepo                 string
+	TemplatesRef                  string
 	EnabledSkills                 []string
 	SkillsConfigured              bool
 	IngestionMaxConcurrentJobs    int
@@ -470,6 +472,13 @@ func parseConfigUnchecked(data string) (Config, error) {
 				config.OpenLiaBrowser.ExtensionTokenFile, err = parseString(value)
 			case "release.source":
 				config.ReleaseSource, err = parseString(value)
+			case "templates.repo":
+				config.TemplatesRepo, err = parseString(value)
+				if err == nil {
+					config.TemplatesRepo = expandTilde(config.TemplatesRepo)
+				}
+			case "templates.ref":
+				config.TemplatesRef, err = parseString(value)
 			case "components.hermes_image":
 				config.HermesImage, err = parseString(value)
 			case "components.hermes_tag":
@@ -1258,6 +1267,16 @@ func renderConfig(config Config) string {
 		builder.WriteString("\n")
 	}
 	fmt.Fprintf(&builder, "[release]\nsource = %q\n\n", config.ReleaseSource)
+	if config.TemplatesRepo != "" || config.TemplatesRef != "" {
+		builder.WriteString("[templates]\n")
+		if config.TemplatesRepo != "" {
+			fmt.Fprintf(&builder, "repo = %q\n", config.TemplatesRepo)
+		}
+		if config.TemplatesRef != "" {
+			fmt.Fprintf(&builder, "ref = %q\n", config.TemplatesRef)
+		}
+		builder.WriteString("\n")
+	}
 	fmt.Fprintf(&builder, "[components]\nhermes_image = %q\nhermes_tag = %q\nhermes_digest = %q\nlocho_image = %q\nlocho_version = %q\nlocho_x86_64_sha256 = %q\nlocho_arm64_sha256 = %q\n\n", config.HermesImage, config.HermesTag, config.HermesDigest, config.LochoImage, config.LochoVersion, config.LochoX8664SHA256, config.LochoARM64SHA256)
 	fmt.Fprintf(&builder, "[api]\nenabled = %t\nhost = %q\n\n", config.APIEnabled, config.APIHost)
 	fmt.Fprintf(&builder, "[secrets]\nsource = %q\n\n", config.SecretSource)

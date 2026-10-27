@@ -8,7 +8,7 @@ import (
 
 func commandFeatures(options Options, args []string, _ fs.FS) int {
 	if len(args) == 0 {
-		return fail(options, ExitUsage, "features requires list, show, install, import, package, or remove", nil)
+		return fail(options, ExitUsage, "features requires list, show, sync, install, update, import, package, or remove", nil)
 	}
 	action := args[0]
 	rest := args[1:]

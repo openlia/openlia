@@ -10,11 +10,13 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"openlia/operator"
 )
 
 func commandSkills(options Options, args []string, assets fs.FS) int {
 	if len(args) == 0 {
-		return fail(options, ExitUsage, "skills requires list, show, test, status, fork, migrate, enable, or disable", nil)
+		return fail(options, ExitUsage, "skills requires list, show, test, status, fork, update, migrate, enable, or disable", nil)
 	}
 	action := args[0]
 	args = args[1:]
@@ -31,7 +33,7 @@ func commandSkills(options Options, args []string, assets fs.FS) int {
 		}
 		entries := make([]map[string]any, 0, len(defaultSkills))
 		for _, skill := range defaultSkills {
-			content, readErr := fs.ReadFile(assets, filepath.ToSlash(filepath.Join("profile", "skills", skill, "SKILL.md")))
+			content, readErr := readBundledOrFeatureSkillFile(assets, skill, "SKILL.md")
 			if readErr != nil {
 				return fail(options, ExitInternal, "missing bundled skill "+skill, nil)
 			}
@@ -91,6 +93,21 @@ func commandSkills(options Options, args []string, assets fs.FS) int {
 			return fail(options, ExitFailure, err.Error(), nil)
 		}
 		return renderRemote(options, raw, "openlia skills fork: active skill preserved and customization lineage recorded")
+	case "update":
+		if len(args) != 1 || !safeComponent(args[0]) {
+			return fail(options, ExitUsage, "skills update requires an installed safe skill name", nil)
+		}
+		config, code := configOrError(options)
+		if code != ExitOK {
+			return code
+		}
+		ctx, cancel := remoteContext()
+		defer cancel()
+		raw, err := newDeployment(config).operation(ctx, "skill-migration", nil, "update", args[0], "--json")
+		if err != nil {
+			return fail(options, ExitFailure, err.Error(), nil)
+		}
+		return renderRemote(options, raw, "openlia skills update: skill rebased against templates catalog")
 	case "migrate":
 		return commandSkillMigration(options, args)
 	case "test":
@@ -181,15 +198,47 @@ func resolveBundledOrFeatureSkillDir(assets fs.FS, name string) (string, error) 
 	if _, err := fs.ReadFile(assets, filepath.ToSlash(filepath.Join(featPath, "SKILL.md"))); err == nil {
 		return featPath, nil
 	}
+	if dir, ok := resolveExternalCatalogSkillDir(name); ok {
+		return dir, nil
+	}
 	return "", fs.ErrNotExist
 }
 
-func readBundledOrFeatureSkillFile(assets fs.FS, name, relFile string) ([]byte, error) {
-	dir, err := resolveBundledOrFeatureSkillDir(assets, name)
+func resolveExternalCatalogSkillDir(name string) (string, bool) {
+	cwd, err := os.Getwd()
 	if err != nil {
-		return nil, err
+		return "", false
 	}
-	return fs.ReadFile(assets, filepath.ToSlash(filepath.Join(dir, relFile)))
+	tplRoot := operator.ResolveTemplatesRoot(operator.Config{RepositoryRoot: cwd})
+	if tplRoot == "" {
+		return "", false
+	}
+	for _, candidate := range []string{
+		filepath.Join(tplRoot, "skills", name),
+		filepath.Join(tplRoot, "features", name, "skills", name),
+	} {
+		if _, err := os.Stat(filepath.Join(candidate, "SKILL.md")); err == nil {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func readBundledOrFeatureSkillFile(assets fs.FS, name, relFile string) ([]byte, error) {
+	basePath := filepath.ToSlash(filepath.Join("profile", "skills", name))
+	if data, err := fs.ReadFile(assets, filepath.ToSlash(filepath.Join(basePath, relFile))); err == nil {
+		return data, nil
+	}
+	featPath := filepath.ToSlash(filepath.Join("features", name, "skills", name))
+	if data, err := fs.ReadFile(assets, filepath.ToSlash(filepath.Join(featPath, relFile))); err == nil {
+		return data, nil
+	}
+	if extDir, ok := resolveExternalCatalogSkillDir(name); ok {
+		if data, err := os.ReadFile(filepath.Join(extDir, filepath.FromSlash(relFile))); err == nil {
+			return data, nil
+		}
+	}
+	return nil, fs.ErrNotExist
 }
 
 func testSkill(options Options, assets fs.FS, name string) int {
@@ -197,12 +246,18 @@ func testSkill(options Options, assets fs.FS, name string) int {
 	if dirErr != nil {
 		skillBaseDir = filepath.ToSlash(filepath.Join("profile", "skills", name))
 	}
+	isExternalDisk := filepath.IsAbs(skillBaseDir)
 	directory := filepath.ToSlash(filepath.Join(skillBaseDir, "scripts"))
-	entries, err := fs.ReadDir(assets, directory)
+	var entries []fs.DirEntry
+	var err error
+	if isExternalDisk {
+		entries, err = os.ReadDir(filepath.Join(skillBaseDir, "scripts"))
+	} else {
+		entries, err = fs.ReadDir(assets, directory)
+	}
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			skillPath := filepath.ToSlash(filepath.Join(skillBaseDir, "SKILL.md"))
-			if skillData, readErr := fs.ReadFile(assets, skillPath); readErr == nil && len(skillData) > 0 {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, os.ErrNotExist) {
+			if skillData, readErr := readBundledOrFeatureSkillFile(assets, name, "SKILL.md"); readErr == nil && len(skillData) > 0 {
 				return writeResult(options, map[string]any{"schema": 1, "ok": true, "skill": name, "output": "prompt skill verified: no deterministic helper script required"}, name+": self-test passed")
 			}
 		}
@@ -226,7 +281,13 @@ func testSkill(options Options, assets fs.FS, name string) int {
 	var scriptName string
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".py") {
-			data, readErr := fs.ReadFile(assets, filepath.ToSlash(filepath.Join(directory, entry.Name())))
+			var data []byte
+			var readErr error
+			if isExternalDisk {
+				data, readErr = os.ReadFile(filepath.Join(skillBaseDir, "scripts", entry.Name()))
+			} else {
+				data, readErr = fs.ReadFile(assets, filepath.ToSlash(filepath.Join(directory, entry.Name())))
+			}
 			if readErr != nil {
 				return fail(options, ExitInternal, readErr.Error(), nil)
 			}
@@ -234,8 +295,10 @@ func testSkill(options Options, assets fs.FS, name string) int {
 			if writeErr := os.WriteFile(path, data, 0o700); writeErr != nil {
 				return fail(options, ExitInternal, writeErr.Error(), nil)
 			}
-			if scriptName == "" {
-				scriptName = path
+			if scriptName == "" || entry.Name() == strings.ReplaceAll(name, "-", "_")+".py" || strings.HasPrefix(entry.Name(), "audit_") || strings.HasPrefix(entry.Name(), "manage_") || strings.HasPrefix(entry.Name(), "render_") || strings.HasPrefix(entry.Name(), "validate_") {
+				if entry.Name() != "workspace_registry.py" && (scriptName == "" || filepath.Base(scriptName) == "workspace_registry.py" || filepath.Base(scriptName) == "validate_workspace.py") {
+					scriptName = path
+				}
 			}
 		}
 	}

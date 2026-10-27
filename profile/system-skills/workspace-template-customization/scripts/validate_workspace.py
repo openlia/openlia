@@ -709,7 +709,9 @@ def validate_skill_templates(skill_root: Path) -> list[str]:
 
     templates = sorted(root.glob("*/templates/*.md"))
     if not templates:
-        return ["no skill templates found under */templates/*.md"]
+        if any(p.is_dir() for p in root.glob("*/templates")):
+            return ["no skill templates found under */templates/*.md"]
+        return []
 
     errors: list[str] = []
     referenced_schemas: set[Path] = set()

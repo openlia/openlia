@@ -28,4 +28,4 @@ export { IngestionSection } from "./IngestionSection";
 export { CreateFileDialog } from "./CreateFileDialog";
 export { MoveFileDialog } from "./MoveFileDialog";
 export { RenameFileDialog } from "./RenameFileDialog";
-export { isJournalPath, isMarkdownPath, isRemindPath } from "./CodeEditor";
+export { isMarkdownPath } from "./CodeEditor";

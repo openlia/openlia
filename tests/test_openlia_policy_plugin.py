@@ -31,6 +31,9 @@ class PolicyPluginTests(unittest.TestCase):
         self.workspace = Path(self.tempdir.name) / "workspace"
         self.permissions_file = Path(self.tempdir.name) / "permissions.yaml"
         shutil.copytree(TEMPLATE_ROOT, self.workspace)
+        (self.workspace / "goals").mkdir(parents=True, exist_ok=True)
+        (self.workspace / "goals/goal-template.md").write_text("# <Goal>\n", encoding="utf-8")
+        (self.workspace / "tasks").mkdir(parents=True, exist_ok=True)
         self.permissions_file.write_text(
             "version: 1\n"
             "destructive:\n"

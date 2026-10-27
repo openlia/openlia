@@ -8,14 +8,7 @@ import type {
   WorkspaceFileMetadata,
 } from "../../../shared/api";
 import { ActivitySection } from "../../ActivitySection";
-import {
-  CodeEditor,
-  isJournalPath,
-  isMarkdownPath,
-  isRemindPath,
-} from "../../CodeEditor";
-import { JournalPreviewPane } from "../../journal/JournalPreviewPane";
-import { CalendarPreviewPane } from "../../calendar/CalendarPreviewPane";
+import { CodeEditor, isMarkdownPath } from "../../CodeEditor";
 import { MarkdownPreview } from "../../components/editor/MarkdownPreview";
 import { CopyLinkButton } from "../../components/common/CopyLinkButton";
 import { DocumentInspector } from "./DocumentInspector";
@@ -346,9 +339,9 @@ export function DocumentPane({
   rawUrl,
   downloadUrl,
   totalDocuments,
-  onLoadCalendarFile,
-  onSaveCalendarFile,
-  onLoadInclude,
+  onLoadCalendarFile: _onLoadCalendarFile,
+  onSaveCalendarFile: _onSaveCalendarFile,
+  onLoadInclude: _onLoadInclude,
   onFixTemplate,
   fixingTemplate,
   onFixFinding,
@@ -413,8 +406,6 @@ export function DocumentPane({
   const canEdit = Boolean(file?.editable);
   const isMemory = Boolean(file && isMemoryDocument(file.path));
   const isMarkdown = file !== null && isMarkdownPath(file.path);
-  const isJournal = file !== null && isJournalPath(file.path);
-  const isRemind = file !== null && isRemindPath(file.path);
 
   return (
     <section aria-label="Document workspace" className="workspace-document">
@@ -459,40 +450,6 @@ export function DocumentPane({
                     value="preview"
                   >
                     Preview
-                  </ModeButton>
-                  <ModeButton
-                    active={view === "edit"}
-                    onClick={() => onViewChange("edit")}
-                    value="edit"
-                  >
-                    Edit
-                  </ModeButton>
-                </>
-              ) : isJournal ? (
-                <>
-                  <ModeButton
-                    active={view === "preview"}
-                    onClick={() => onViewChange("preview")}
-                    value="preview"
-                  >
-                    Visual
-                  </ModeButton>
-                  <ModeButton
-                    active={view === "edit"}
-                    onClick={() => onViewChange("edit")}
-                    value="edit"
-                  >
-                    Edit
-                  </ModeButton>
-                </>
-              ) : isRemind ? (
-                <>
-                  <ModeButton
-                    active={view === "preview"}
-                    onClick={() => onViewChange("preview")}
-                    value="preview"
-                  >
-                    Calendar
                   </ModeButton>
                   <ModeButton
                     active={view === "edit"}
@@ -890,52 +847,6 @@ export function DocumentPane({
           )}
           {view === "info" ? (
             <DocumentInspector diff={diff} draft={draft} file={file} />
-          ) : isJournal ? (
-            view === "preview" ? (
-              <section
-                aria-label="Visual Journal View"
-                className="workspace-preview-pane flex-1 overflow-hidden p-0"
-              >
-                <JournalPreviewPane
-                  content={draft}
-                  filePath={file.path}
-                  onLoadInclude={onLoadInclude}
-                  onNavigateLink={onNavigateLink}
-                  onSwitchToEdit={() => onViewChange("edit")}
-                />
-              </section>
-            ) : (
-              <EditorPane
-                draft={draft}
-                file={file}
-                fileLoading={fileLoading}
-                onDraftChange={onDraftChange}
-              />
-            )
-          ) : isRemind ? (
-            view === "preview" ? (
-              <section
-                aria-label="Visual Calendar View"
-                className="workspace-preview-pane flex-1 overflow-hidden p-0"
-              >
-                <CalendarPreviewPane
-                  content={draft}
-                  filePath={file.path}
-                  fileRevision={file.revision}
-                  onLoadCalendarFile={onLoadCalendarFile}
-                  onSaveCalendarFile={onSaveCalendarFile}
-                  onSwitchToEdit={() => onViewChange("edit")}
-                  onNavigateLink={onNavigateLink}
-                />
-              </section>
-            ) : (
-              <EditorPane
-                draft={draft}
-                file={file}
-                fileLoading={fileLoading}
-                onDraftChange={onDraftChange}
-              />
-            )
           ) : !isMarkdown ? (
             <EditorPane
               draft={draft}

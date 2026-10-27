@@ -16,39 +16,34 @@ import (
 	"strings"
 	"time"
 
+	"openlia/internal/toolcatalog"
 	"openlia/operator/migration/intake"
 	"openlia/operator/migration/security"
 )
 
 var featureIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
-// LeanBaseCoreDomains are the 6 core roots in the Lean Productivity Base.
+// LeanBaseCoreDomains are the core roots in the minimal OpenLia workspace.
 var LeanBaseCoreDomains = []string{
 	"inbox",
-	"goals",
-	"knowledge",
-	"tasks",
-	"calendar",
-	"archive",
+	"sources",
 }
 
 // LeanBaseAllDirs are the default directories created on a fresh bootstrap.
 var LeanBaseAllDirs = []string{
 	"inbox",
-	"inbox/daily-briefing",
 	"inbox/ingestion",
 	"sources",
-	"goals",
-	"knowledge",
-	"knowledge/claims",
-	"tasks",
-	"calendar",
-	"archive",
+	"sources/artifacts",
+	"sources/records",
 }
 
 type FeatureRequirements struct {
 	CoreDomains []string `json:"core_domains,omitempty"`
 	Features    []string `json:"features,omitempty"`
+	Tools       []string `json:"tools,omitempty"`
+	Python      string   `json:"python,omitempty"`
+	Bun         string   `json:"bun,omitempty"`
 }
 
 type WorkspaceDomain struct {
@@ -135,6 +130,7 @@ type FeatureInstallResult struct {
 	FeatureID        string   `json:"feature_id"`
 	InstalledDomains []string `json:"installed_domains"`
 	InstalledSkills  []string `json:"installed_skills"`
+	ProvisionedTools []string `json:"provisioned_tools,omitempty"`
 	PolicyUpdated    bool     `json:"policy_updated"`
 }
 
@@ -260,20 +256,29 @@ func ParseFeatureManifest(data []byte) (FeatureManifest, error) {
 				}
 				subSection = key
 				if val != "" {
-					items := parseInlineYAMLList(val)
-					if key == "core_domains" {
-						m.Requires.CoreDomains = append(m.Requires.CoreDomains, items...)
-					} else if key == "features" {
-						m.Requires.Features = append(m.Requires.Features, items...)
+					switch key {
+					case "core_domains":
+						m.Requires.CoreDomains = append(m.Requires.CoreDomains, parseInlineYAMLList(val)...)
+					case "features":
+						m.Requires.Features = append(m.Requires.Features, parseInlineYAMLList(val)...)
+					case "tools":
+						m.Requires.Tools = append(m.Requires.Tools, parseInlineYAMLList(val)...)
+					case "python":
+						m.Requires.Python = unquoteYAMLScalar(val)
+					case "bun":
+						m.Requires.Bun = unquoteYAMLScalar(val)
 					}
 				}
 			} else if strings.HasPrefix(trimmed, "- ") {
 				item := unquoteYAMLScalar(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
 				if item != "" {
-					if subSection == "core_domains" {
+					switch subSection {
+					case "core_domains":
 						m.Requires.CoreDomains = append(m.Requires.CoreDomains, item)
-					} else if subSection == "features" {
+					case "features":
 						m.Requires.Features = append(m.Requires.Features, item)
+					case "tools":
+						m.Requires.Tools = append(m.Requires.Tools, item)
 					}
 				}
 			}
@@ -397,6 +402,11 @@ func ValidateFeatureManifest(m FeatureManifest) error {
 			return fmt.Errorf("feature %s skill %s has invalid path %q", m.ID, s.ID, s.Path)
 		}
 	}
+	for _, tool := range m.Requires.Tools {
+		if err := toolcatalog.ValidateToolName(tool); err != nil {
+			return fmt.Errorf("feature %s: %w", m.ID, err)
+		}
+	}
 	return nil
 }
 
@@ -429,6 +439,18 @@ func RenderFeatureManifest(m FeatureManifest) []byte {
 		for _, f := range m.Requires.Features {
 			b.WriteString(fmt.Sprintf("    - %s\n", formatYAMLScalar(f)))
 		}
+	}
+	if len(m.Requires.Tools) > 0 {
+		b.WriteString("  tools:\n")
+		for _, t := range m.Requires.Tools {
+			b.WriteString(fmt.Sprintf("    - %s\n", formatYAMLScalar(t)))
+		}
+	}
+	if m.Requires.Python != "" {
+		b.WriteString(fmt.Sprintf("  python: %s\n", formatYAMLScalar(m.Requires.Python)))
+	}
+	if m.Requires.Bun != "" {
+		b.WriteString(fmt.Sprintf("  bun: %s\n", formatYAMLScalar(m.Requires.Bun)))
 	}
 	if len(m.Domains) == 0 {
 		b.WriteString("domains: []\n")
@@ -591,6 +613,9 @@ func RegisteredDomainPaths(workspaceDir string) (map[string]bool, error) {
 
 	// Include any LeanBaseAllDirs that exist in workspaceDir
 	for _, dirRel := range LeanBaseAllDirs {
+		if dirRel == "sources/artifacts" || dirRel == "sources/records" {
+			continue
+		}
 		if st, statErr := os.Stat(filepath.Join(workspaceDir, filepath.FromSlash(dirRel))); statErr == nil && st.IsDir() {
 			out[dirRel] = true
 		}
@@ -627,8 +652,28 @@ func RegisteredDomainPaths(workspaceDir string) (map[string]bool, error) {
 	return out, nil
 }
 
+func LoadCatalogFeaturesForConfig(config Config) ([]FeatureManifest, map[string]string, error) {
+	return LoadCatalogFeatures(ResolveTemplatesRoot(config))
+}
+
 func LoadCatalogFeatures(repoRoot string) ([]FeatureManifest, map[string]string, error) {
 	featuresDir := filepath.Join(repoRoot, "features")
+	if info, err := os.Stat(featuresDir); err != nil || !info.IsDir() {
+		for _, candidate := range []string{
+			strings.TrimSpace(os.Getenv("OPENLIA_TEMPLATES_REPO")),
+			strings.TrimSpace(os.Getenv("OPENLIA_TEMPLATES_ROOT")),
+			filepath.Join(filepath.Dir(repoRoot), "openlia_templates"),
+		} {
+			if candidate == "" {
+				continue
+			}
+			candFeatures := filepath.Join(candidate, "features")
+			if cInfo, cErr := os.Stat(candFeatures); cErr == nil && cInfo.IsDir() {
+				featuresDir = candFeatures
+				break
+			}
+		}
+	}
 	entries, err := os.ReadDir(featuresDir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, map[string]string{}, nil
@@ -767,7 +812,7 @@ func FeatureList(config Config) (FeatureListResult, error) {
 	if err := normalizeAndValidateFeatureConfig(&config); err != nil {
 		return FeatureListResult{}, err
 	}
-	catalog, _, err := LoadCatalogFeatures(config.RepositoryRoot)
+	catalog, _, err := LoadCatalogFeaturesForConfig(config)
 	if err != nil {
 		return FeatureListResult{}, err
 	}
@@ -827,7 +872,7 @@ func FeatureShow(config Config, featureID string) (FeatureShowResult, error) {
 }
 
 func resolveFeatureManifest(config Config, featureID string) (FeatureManifest, string, string, *InstalledFeatureRecord, error) {
-	_, paths, err := LoadCatalogFeatures(config.RepositoryRoot)
+	_, paths, err := LoadCatalogFeaturesForConfig(config)
 	if err != nil {
 		return FeatureManifest{}, "", "", nil, err
 	}
@@ -933,8 +978,27 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 			if _, err := prof.syncSkill(srcSkillDir, dstSkillDir, metaPath, sk.ID, distVer, distSource); err != nil {
 				return FeatureInstallResult{}, fmt.Errorf("install feature skill %s: %w", sk.ID, err)
 			}
+			if err := ProvisionSkillEnvironment(config, sk.ID, dstSkillDir, manifest.Requires.Python, manifest.Requires.Bun); err != nil {
+				return FeatureInstallResult{}, fmt.Errorf("provision skill environment for %s: %w", sk.ID, err)
+			}
 			installedSkills = append(installedSkills, sk.ID)
 		}
+	}
+
+	// 3. Provision required system tools into /opt/data/.local
+	var provisionedTools []string
+	if len(manifest.Requires.Tools) > 0 {
+		tools, err := ProvisionRequiredTools(config, manifest.Requires.Tools, "feature:"+manifest.ID)
+		if err != nil {
+			return FeatureInstallResult{}, fmt.Errorf("provision required tools for %s: %w", manifest.ID, err)
+		}
+		provisionedTools = tools
+	}
+
+	// 4. Snapshot base feature workspace files for 3-way rebase
+	if info, err := os.Stat(featureWorkspaceDir); err == nil && info.IsDir() {
+		baseWorkspaceSnap := filepath.Join(config.MetaRoot, "managed", "features", manifest.ID, "base")
+		_ = replaceDirectory(featureWorkspaceDir, baseWorkspaceSnap)
 	}
 
 	// 5. Write feature provenance record
@@ -975,6 +1039,7 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 		FeatureID:        manifest.ID,
 		InstalledDomains: installedDomains,
 		InstalledSkills:  installedSkills,
+		ProvisionedTools: provisionedTools,
 		PolicyUpdated:    policyUpdated,
 	}, nil
 }
@@ -1059,7 +1124,7 @@ func FeaturePackage(config Config, opts FeaturePackageOptions) (FeaturePackageRe
 			allDomains = append(allDomains, rec.Manifest.Domains...)
 		}
 	}
-	if catalog, _, err := LoadCatalogFeatures(config.RepositoryRoot); err == nil {
+	if catalog, _, err := LoadCatalogFeaturesForConfig(config); err == nil {
 		for _, m := range catalog {
 			allDomains = append(allDomains, m.Domains...)
 		}
@@ -2012,4 +2077,147 @@ func IsKnownBoilerplateTemplate(repoRoot, relPath string, content []byte) (bool,
 		}
 	}
 	return false, ""
+}
+
+// RebaseInstalledFeature performs a 3-way rebase of an installed feature's workspace templates/schemas
+// and bundled skills against the latest upstream templates catalog.
+func RebaseInstalledFeature(config Config, featureID string, now time.Time) (RebaseResult, error) {
+	if err := normalizeAndValidateFeatureConfig(&config); err != nil {
+		return RebaseResult{}, err
+	}
+	if err := ValidateFeatureID(featureID); err != nil {
+		return RebaseResult{}, err
+	}
+	manifest, pkgDir, source, existingRec, err := resolveFeatureManifest(config, featureID)
+	if err != nil {
+		return RebaseResult{}, err
+	}
+	if existingRec == nil {
+		return RebaseResult{}, fmt.Errorf("feature %s is not installed", featureID)
+	}
+
+	workspaceDir := featureWorkspaceDir(config)
+	newBaseWs := filepath.Join(pkgDir, "workspace")
+	oldBaseWs := filepath.Join(config.MetaRoot, "managed", "features", featureID, "base")
+
+	overallStatus := "fast-forward"
+	autoForked := false
+	var allConflicts []string
+	var migContext string
+	if info, err := os.Stat(newBaseWs); err == nil && info.IsDir() {
+		if _, err := os.Stat(oldBaseWs); err == nil {
+			tmpCurrent, err := os.MkdirTemp("", "openlia-feature-current-*")
+			if err != nil {
+				return RebaseResult{}, err
+			}
+			defer os.RemoveAll(tmpCurrent)
+
+			for _, root := range []string{oldBaseWs, newBaseWs} {
+				_ = filepath.WalkDir(root, func(p string, d os.DirEntry, walkErr error) error {
+					if walkErr != nil || d.IsDir() {
+						return walkErr
+					}
+					rel, err := filepath.Rel(root, p)
+					if err != nil {
+						return nil
+					}
+					wsFile := filepath.Join(workspaceDir, rel)
+					if data, err := os.ReadFile(wsFile); err == nil {
+						dst := filepath.Join(tmpCurrent, rel)
+						_ = EnsureDir(filepath.Dir(dst), 0o700)
+						_ = os.WriteFile(dst, data, 0o600)
+					}
+					return nil
+				})
+			}
+
+			tmpMerged, err := os.MkdirTemp("", "openlia-feature-merged-*")
+			if err != nil {
+				return RebaseResult{}, err
+			}
+			defer os.RemoveAll(tmpMerged)
+
+			forked, conflicts, err := RebaseDirectoryThreeWay(oldBaseWs, tmpCurrent, newBaseWs, tmpMerged)
+			if err != nil {
+				return RebaseResult{}, err
+			}
+			if forked {
+				autoForked = true
+				overallStatus = "merged"
+			}
+			if len(conflicts) > 0 {
+				overallStatus = "conflict"
+				allConflicts = append(allConflicts, conflicts...)
+				migStaging := filepath.Join(config.DataRoot, ".openlia", "migrations", "feature-"+featureID)
+				_ = removeSafeDirectory(migStaging)
+				_ = EnsureDir(migStaging, 0o700)
+				_ = CopyDir(oldBaseWs, filepath.Join(migStaging, "old-base"))
+				_ = CopyDir(tmpCurrent, filepath.Join(migStaging, "current-fork"))
+				_ = CopyDir(newBaseWs, filepath.Join(migStaging, "new-base"))
+				migContext = migStaging
+			} else {
+				_ = filepath.WalkDir(tmpMerged, func(p string, d os.DirEntry, walkErr error) error {
+					if walkErr != nil || d.IsDir() {
+						return walkErr
+					}
+					rel, err := filepath.Rel(tmpMerged, p)
+					if err != nil {
+						return nil
+					}
+					data, err := os.ReadFile(p)
+					if err != nil {
+						return err
+					}
+					dst := filepath.Join(workspaceDir, rel)
+					if err := EnsureDir(filepath.Dir(dst), 0o700); err != nil {
+						return err
+					}
+					return AtomicWriteFile(dst, data, 0o600)
+				})
+				_ = replaceDirectory(newBaseWs, oldBaseWs)
+			}
+		} else {
+			if err := seedFeatureWorkspaceFiles(newBaseWs, workspaceDir); err != nil {
+				return RebaseResult{}, err
+			}
+			_ = replaceDirectory(newBaseWs, oldBaseWs)
+		}
+	}
+
+	// Rebase bundled skills as well
+	for _, sk := range manifest.Skills {
+		skRes, err := RebaseInstalledSkill(config, sk.ID, now)
+		if err == nil {
+			if skRes.AutoForked {
+				autoForked = true
+			}
+			if skRes.Status == "conflict" {
+				overallStatus = "conflict"
+				allConflicts = append(allConflicts, skRes.Conflicts...)
+				if migContext == "" {
+					migContext = skRes.MigrationContext
+				}
+			} else if skRes.Status == "merged" && overallStatus != "conflict" {
+				overallStatus = "merged"
+			}
+		}
+	}
+
+	if overallStatus != "conflict" {
+		_, err := installFeatureFromDir(config, manifest, pkgDir, source, existingRec, false, now)
+		if err != nil {
+			return RebaseResult{}, err
+		}
+	}
+
+	return RebaseResult{
+		OK:               true,
+		Action:           "feature-update",
+		ID:               featureID,
+		Kind:             "feature",
+		Status:           overallStatus,
+		AutoForked:       autoForked,
+		Conflicts:        allConflicts,
+		MigrationContext: migContext,
+	}, nil
 }

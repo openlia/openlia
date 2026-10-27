@@ -128,10 +128,6 @@ func DetectTypeByExtension(relPath string) string {
 		return "toml"
 	case ".xml":
 		return "xml"
-	case ".journal", ".hledger":
-		return "hledger"
-	case ".rem":
-		return "remind"
 	case ".txt":
 		return "text"
 	default:
@@ -217,16 +213,6 @@ func ScanSourceFolder(migrationID string, folderPath string) ([]migration.Source
 			reason = fmt.Sprintf("unsupported non-text format (%s)", encoding)
 		}
 
-		// Discover include dependencies for hledger and remind files
-		var deps []string
-		if eligibility == migration.EligibilityEligible {
-			if detectedType == "hledger" {
-				deps = ExtractHledgerIncludes(data)
-			} else if detectedType == "remind" {
-				deps = ExtractRemindIncludes(data)
-			}
-		}
-
 		entries = append(entries, migration.SourceEntry{
 			ID:           fmt.Sprintf("src-%04d", orderIndex),
 			MigrationID:  migrationID,
@@ -237,7 +223,6 @@ func ScanSourceFolder(migrationID string, folderPath string) ([]migration.Source
 			DetectedType: detectedType,
 			Eligibility:  eligibility,
 			Reason:       reason,
-			Dependencies: deps,
 			OrderIndex:   orderIndex,
 		})
 		orderIndex++
@@ -377,37 +362,4 @@ func ExtractTarball(tarGzPath string, targetDir string) error {
 		}
 	}
 	return nil
-}
-
-var (
-	hledgerIncludeRegex = regexp.MustCompile(`(?m)^\s*include\s+([^\r\n#;]+)`)
-	remindIncludeRegex  = regexp.MustCompile(`(?mi)^\s*include\s+([^\r\n#;]+)`)
-)
-
-// ExtractHledgerIncludes extracts relative file paths from include directives.
-func ExtractHledgerIncludes(data []byte) []string {
-	matches := hledgerIncludeRegex.FindAllSubmatch(data, -1)
-	var includes []string
-	for _, m := range matches {
-		inc := strings.TrimSpace(string(m[1]))
-		inc = strings.Trim(inc, `"'`)
-		if inc != "" {
-			includes = append(includes, inc)
-		}
-	}
-	return includes
-}
-
-// ExtractRemindIncludes extracts relative file paths from INCLUDE directives.
-func ExtractRemindIncludes(data []byte) []string {
-	matches := remindIncludeRegex.FindAllSubmatch(data, -1)
-	var includes []string
-	for _, m := range matches {
-		inc := strings.TrimSpace(string(m[1]))
-		inc = strings.Trim(inc, `"'`)
-		if inc != "" {
-			includes = append(includes, inc)
-		}
-	}
-	return includes
 }

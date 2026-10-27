@@ -676,6 +676,7 @@ func restoreDurableBackup(config Config, archivePath, staging string, preRestore
 		rollback()
 		return BackupResult{}, fmt.Errorf("restore metadata ownership: %w", err)
 	}
+	_ = ReprovisionLocalStore(config)
 	if err := RecordChange(config, "restore", "ok", preRestore.Archive, "durable archive="+archivePath, now); err != nil {
 		return BackupResult{}, err
 	}

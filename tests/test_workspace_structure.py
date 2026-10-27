@@ -38,6 +38,7 @@ class WorkspaceStructureTests(unittest.TestCase):
 
     def test_template_boundary_does_not_disable_parent_contract(self):
         directory = self.menu()
+        (self.workspace / "goals/goal-template.md").write_text("# <Goal>\n\n## Outcome\n")
         (self.workspace / "goals/invalid.md").write_text("# Missing goal metadata\n")
         errors = validator.validate_workspace(self.workspace)
         self.assertTrue(any("goals/invalid.md" in error for error in errors))
@@ -57,7 +58,7 @@ class WorkspaceStructureTests(unittest.TestCase):
 
     def test_frontmatter_removal_in_supporting_folder_needs_no_template(self):
         directory = self.workspace / "goals/daily-menu"
-        directory.mkdir()
+        directory.mkdir(parents=True)
         record = directory / "2026-10-24.md"
         body = "# Daily Menu\n\n## Lunch\nRice\n\n## Dinner\nSoup\n"
         record.write_text("---\nmenu_date: 2026-10-24\nstatus: draft\n---\n" + body)
@@ -80,7 +81,7 @@ class WorkspaceStructureTests(unittest.TestCase):
 
     def test_explicit_record_schema_without_local_template(self):
         directory = self.workspace / "goals/notes"
-        directory.mkdir()
+        directory.mkdir(parents=True)
         (directory / "note.schema.json").write_text('{"type":"object","required":["date"],"properties":{"date":{"type":"string"}}}')
         record = directory / "note.md"
         record.write_text("---\n$schema: ./note.schema.json\ndate: 2026-10-24\n---\n# Note\n")
@@ -100,7 +101,7 @@ class WorkspaceStructureTests(unittest.TestCase):
 
     def test_explicit_record_schema_rejects_symlinks_and_remote_refs(self):
         directory = self.workspace / "goals/notes"
-        directory.mkdir()
+        directory.mkdir(parents=True)
         schema = directory / "schema.json"
         schema.write_text('{"type":"object"}')
         (directory / "linked.json").symlink_to(schema)
@@ -125,16 +126,32 @@ class WorkspaceStructureTests(unittest.TestCase):
         self.assertEqual(validator.validate_workspace(self.workspace), [])
 
     def test_project_manifest_and_openui_query_validation(self):
+        tasks_dir = self.workspace / "tasks"
+        tasks_dir.mkdir(parents=True, exist_ok=True)
+        (tasks_dir / "task-template.schema.json").write_text(
+            '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"status":{"type":"string"},"priority":{"type":"string"}}}'
+        )
+        (tasks_dir / "task-template.md").write_text(
+            "---\n$schema: ./task-template.schema.json\nstatus: todo\npriority: medium\n---\n# <Task>\n\n## Outcome\n"
+        )
+        tasks_manifest = tasks_dir / "project-manifest.toml"
+        orig_manifest = (
+            '[project]\nid = "tasks"\nname = "Tasks"\n\n'
+            '[data]\ntemplate = "task-template.md"\nschema = "task-template.schema.json"\n\n'
+            '[data.queries.todo_count]\nop = "count"\nwhere = { status = "todo" }\n\n'
+            '[ui]\nentry = "ui.openui"\n'
+        )
+        tasks_manifest.write_text(orig_manifest)
+        tasks_ui = tasks_dir / "ui.openui"
+        orig_ui = 'root = Stack([MetricCard("Todo", @Query("todo_count"))])\n'
+        tasks_ui.write_text(orig_ui)
+
         self.assertEqual(validator.validate_workspace(self.workspace), [])
-        tasks_ui = self.workspace / "tasks/ui.openui"
-        orig_ui = tasks_ui.read_text()
         tasks_ui.write_text(orig_ui + '\nbad = MetricCard("Bad", @Query("nonexistent_query"))\n')
         errors = validator.validate_workspace(self.workspace)
         self.assertTrue(any("nonexistent_query" in error for error in errors))
         tasks_ui.write_text(orig_ui)
 
-        tasks_manifest = self.workspace / "tasks/project-manifest.toml"
-        orig_manifest = tasks_manifest.read_text()
         tasks_manifest.write_text(orig_manifest + '\n[data.queries.bad_q]\nop = "count"\nwhere = { unknown_field = "todo" }\n')
         errors = validator.validate_workspace(self.workspace)
         self.assertTrue(any("unknown_field" in error for error in errors))

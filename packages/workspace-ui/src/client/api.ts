@@ -72,12 +72,6 @@ import type { ChatApi } from "../shared/chat";
 import { httpChatApi } from "./chatApi";
 import type { CheckpointProposal } from "../shared/checkpoints";
 import { isMemoryDocument, memoryFilename } from "../shared/memory";
-import {
-  type FinanceCheckResponse,
-  type FinanceCheckFreshnessResponse,
-  isFinanceCheckResponse,
-  isFinanceCheckFreshnessResponse,
-} from "../shared/finance";
 import { notifyWorkspaceFileChange } from "./workspaceFileChanges";
 import type { UsageRates, UsageResponse } from "../shared/usage";
 
@@ -98,11 +92,6 @@ export class ApiError extends Error {
 }
 
 export interface WorkspaceApi {
-  checkFinanceJournal(path: string): Promise<FinanceCheckResponse>;
-  checkFinanceJournalFreshness(
-    path: string,
-    fingerprint: string,
-  ): Promise<FinanceCheckFreshnessResponse>;
   chat: ChatApi;
   loadUsage(reference?: string): Promise<UsageResponse>;
   saveUsageOverride(
@@ -847,26 +836,6 @@ export const httpWorkspaceApi: WorkspaceApi = {
         ? `/api/memory/metadata?${new URLSearchParams({ name: memoryFilename(path) })}`
         : `/api/workspace/metadata?${new URLSearchParams({ path })}`,
       isWorkspaceFileMetadataResponse,
-    ),
-  checkFinanceJournal: (path) =>
-    requestJson<FinanceCheckResponse>(
-      "/api/workspace/finance/check",
-      isFinanceCheckResponse,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path }),
-      },
-    ),
-  checkFinanceJournalFreshness: (path, fingerprint) =>
-    requestJson<FinanceCheckFreshnessResponse>(
-      "/api/workspace/finance/check-status",
-      isFinanceCheckFreshnessResponse,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, fingerprint }),
-      },
     ),
   saveFile: async (path, content, expectedRevision) => {
     const response = await requestJson<WorkspaceWriteResponse>(

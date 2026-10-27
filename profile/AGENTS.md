@@ -1,9 +1,11 @@
 # OpenLia Profile Instructions
 
-This profile contains distribution-owned instructions and workflow skills. The
-Personal OS workspace is a separate runtime directory at
-`/opt/data/workspace`. Inspect it before relying on its contents; a fresh
-installation may contain only starter data.
+This profile contains distribution-owned instructions and runtime plugins. The
+user workspace is a separate runtime directory at `/opt/data/workspace`. Inspect
+it before relying on its contents; a fresh installation starts with an
+ultra-minimal workspace (`AGENTS.md`, `sources/`, and `inbox/ingestion/`) and
+grows organically or by installing profiles, features, and skills from
+`https://github.com/openlia/templates.git`.
 
 ## Safe defaults
 
@@ -27,19 +29,19 @@ installation may contain only starter data.
 - Act as the workspace architect for new recurring use cases. Inspect existing
   organization, design the smallest useful folder/template/Mini-Project contract,
   and create the requested artifact directly. Prefer a plain Markdown template;
-  add a schema only for useful validation, queries, or automation. Use inbox when
+  add a schema only for useful validation, queries, or automation. Use `inbox/` when
   genuinely uncertain, not merely because a requested folder is new.
 - Workspace Maintainer delivers advisory findings after edits. Saving and
   validity are separate outcomes: a structural warning does not reject a save.
   Fix issues within the user's request when helpful, or disclose material
   findings honestly without flooding the user with low-impact noise. Never mark
   an issue as ignored without explicit user instruction.
-- Use the bundled Python helpers only with explicit input paths and inspect
-  their output before applying it to the workspace.
+- Use helper scripts only with explicit input paths and inspect their output
+  before applying it to the workspace.
 - Do not fetch network data from helper scripts; research tools may be used by
-  the agent, with source URLs and claims recorded for review.
+  the agent, with source URLs recorded for review.
 
-## YouTube transcript routing
+## YouTube transcript & document ingestion routing
 
 - Route every YouTube transcript, summary, or video-analysis request through the
   `openlia-ingestion` tools:
@@ -52,18 +54,13 @@ installation may contain only starter data.
 - Do not substitute a standalone transcript helper, direct subtitle download,
   `web_extract` on YouTube URLs, or package installation such as `youtube-transcript-api` or `yt-dlp`.
 
-- Personal finance journal edits are local bookkeeping actions. They may use the
-  explicit `record_financial_data` delegation when the workspace policy allows it;
-  external transfers, purchases, and trades remain separate approval-gated actions.
-- Treat `workspace/knowledge/claims/` as the canonical store for durable
-  personal claims. Hermes runtime memory is a cache or context layer, not an
-  authority. Never promote Hermes-only memory to an active claim without a
-  stable source reference and review.
+## Memory, Mini-Projects, and Approval Boundaries
+
 - Treat Hermes-managed `memories/USER.md` and `memories/MEMORY.md` as compact
   entry lists owned by Hermes. Do not seed Markdown templates, fill blank
   profile fields, or rewrite their delimiters from OpenLia; use Hermes' memory
   tool for runtime memory changes.
-- Do not send messages, change calendars, buy anything, move money, or delete
+- Do not send messages, modify external accounts, buy anything, or delete
   data without an explicit approval boundary.
 - When referencing or linking to workspace documents, Mini-Projects, or skills, format them using canonical URIs (`openlia://workspace/<path>`, `openlia://projects/<path>`, and `openlia://skills/<path>`). Inside workspace markdown files, document-relative paths (`./sub.md`) are also supported. Never embed environment-specific HTTP origins in workspace files.
 - Structured workspace folders can opt into becoming a Mini-Project via `project-manifest.toml` and `ui.openui` (powered by OpenUI Lang), rendered under the dedicated Projects view (`/projects/<path>`). Presentation and query edits alone do not touch or invalidate records on disk. Validate them with `validate_workspace.py` and link using canonical `openlia://projects/<path>` URIs.
@@ -72,30 +69,24 @@ Credentials belong in Hermes' runtime secret source or environment, never in
 this profile, the workspace template, prompts, helper input, or reports. The
 dedicated workspace `sources/document-passwords.toml` file is the only allowed
 plaintext exception, and is limited to user-provided document-unlock passwords.
-Treat bundled skills as distribution-owned and read-only. Customize them only
-through the supported OpenLia fork and migration workflows.
-Skill writes are staged for review. Customize bundled skills through
-`openlia skills fork`; normal OpenLia updates preserve forked skills. The
-protected `openlia-skill-migration` system skill may propose a migration but
-must never edit an active skill or its provenance directly. Applying a
-migration requires the host `openlia` CLI and explicit confirmation. The
-protected `workspace-template-customization` system skill may propose changes to
-user-owned workspace templates and schemas, but must not modify existing
-records without separate explicit approval. The
-bundled workspace Git schedule only reminds the user about uncommitted changes;
-it never stages or creates commits. Other cron jobs remain opt-in and must fail closed when a human
-approval is unavailable. Manage cron jobs through Hermes' cron interface
-rather than editing its generated state files directly.
+Installed skills and features from `openlia/templates` track their upstream base
+snapshot in OpenLia metadata; local customizations are automatically preserved
+and rebased across upstream updates. The protected `openlia-skill-migration`
+system skill may propose a 3-way rebase migration for conflicting updates, but
+must never edit an active skill or its provenance directly. Applying a migration
+proposal requires explicit user confirmation. The protected
+`workspace-template-customization` system skill validates workspace templates,
+schemas, and OpenUI manifests.
 
 ## Workspace Git history
 
 - OpenLia maintains the workspace as a local Git repository for history only.
-- Use the `workspace-git` skill and `workspace_git_inspect` / `workspace_git_propose`
-  tools when the user requests a checkpoint review. Analyze actual diffs and save
-  recommendations; revise them in chat when asked. Only explicit confirmation in
-  Git Activity creates commits. Never stage, commit, or call approval endpoints
-  from an agent tool. The daily schedule is reminder-only. Encrypted OpenLia
-  backups remain the recovery mechanism.
+- Use `workspace_git_inspect` / `workspace_git_propose` tools when the user
+  requests a checkpoint review. Analyze actual diffs and save recommendations;
+  revise them in chat when asked. Only explicit confirmation in Git Activity
+  creates commits. Never stage, commit, or call approval endpoints from an agent
+  tool. The daily schedule is reminder-only. Encrypted OpenLia backups remain
+  the recovery mechanism.
 - Do not configure Git remotes or use Git network operations.
 - Never use hard resets, `git clean`, or destructive conflict resolution.
 

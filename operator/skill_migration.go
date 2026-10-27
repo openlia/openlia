@@ -92,6 +92,21 @@ func ReadSkillMigrationProposal(config Config, proposalID string) (SkillMigratio
 	return proposal, nil
 }
 
+func resolveBundledSkillSource(config Config, name string) (string, error) {
+	source := filepath.Join(config.RepositoryRoot, "profile", "skills", name)
+	if info, err := os.Stat(source); err == nil && info.IsDir() {
+		return source, nil
+	}
+	prof := &ProfileOperator{Config: config}
+	if featSrc, ok := prof.installedFeatureSkillSources()[name]; ok {
+		return featSrc, nil
+	}
+	if catSkills, err := LoadCatalogSkills(config); err == nil && catSkills[name] != "" {
+		return catSkills[name], nil
+	}
+	return "", fmt.Errorf("skill is not bundled: %s", name)
+}
+
 func ForkSkill(config Config, name string, now time.Time) (SkillForkResult, error) {
 	if err := config.ValidatePaths(); err != nil {
 		return SkillForkResult{}, err
@@ -110,12 +125,11 @@ func ForkSkill(config Config, name string, now time.Time) (SkillForkResult, erro
 	if metadata.Ownership == "forked" {
 		return SkillForkResult{}, fmt.Errorf("skill is already forked: %s", name)
 	}
-	source := filepath.Join(config.RepositoryRoot, "profile", "skills", name)
+	if _, err := resolveBundledSkillSource(config, name); err != nil {
+		return SkillForkResult{}, err
+	}
 	destination := filepath.Join(config.DataRoot, "skills", name)
 	basePath := filepath.Join(config.MetaRoot, filepath.FromSlash(metadata.BaseSnapshot))
-	if _, err := os.Stat(source); err != nil {
-		return SkillForkResult{}, fmt.Errorf("skill is not bundled: %s", name)
-	}
 	baseHash, err := DirectorySHA256(basePath)
 	if err != nil || "sha256:"+baseHash != metadata.ContentSHA256 {
 		return SkillForkResult{}, fmt.Errorf("skill base snapshot is missing or invalid")
@@ -171,13 +185,10 @@ func PrepareSkillMigration(config Config, name string, now time.Time) (SkillMigr
 	if err != nil {
 		return SkillMigrationContextResult{}, err
 	}
-	if metadata.Ownership != "forked" {
-		return SkillMigrationContextResult{}, fmt.Errorf("skill is not forked: %s", name)
-	}
 	basePath := filepath.Join(config.MetaRoot, filepath.FromSlash(metadata.BaseSnapshot))
 	destination := filepath.Join(config.DataRoot, "skills", name)
-	newBase := filepath.Join(config.RepositoryRoot, "profile", "skills", name)
-	if _, err := os.Stat(newBase); err != nil {
+	newBase, err := resolveBundledSkillSource(config, name)
+	if err != nil {
 		return SkillMigrationContextResult{}, fmt.Errorf("skill is no longer bundled: %s", name)
 	}
 	currentForkHash, err := DirectorySHA256(destination)
@@ -187,6 +198,19 @@ func PrepareSkillMigration(config Config, name string, now time.Time) (SkillMigr
 	oldBaseHash, err := DirectorySHA256(basePath)
 	if err != nil {
 		return SkillMigrationContextResult{}, err
+	}
+	if metadata.Ownership != "forked" {
+		if currentForkHash != oldBaseHash {
+			if _, err := ForkSkill(config, name, now); err != nil {
+				return SkillMigrationContextResult{}, err
+			}
+			metadata, err = readFullSkillMetadata(metadataPath, name)
+			if err != nil {
+				return SkillMigrationContextResult{}, err
+			}
+		} else {
+			return SkillMigrationContextResult{}, fmt.Errorf("skill is not forked: %s", name)
+		}
 	}
 	newBaseHash, err := DirectorySHA256(newBase)
 	if err != nil {
@@ -287,7 +311,10 @@ func ApplySkillMigration(config Config, proposalID string, now time.Time) (Skill
 	if "sha256:"+currentHash != proposal.CurrentForkHash {
 		return markProposalStale(proposalPath, proposal, now, "current fork changed")
 	}
-	source := filepath.Join(config.RepositoryRoot, "profile", "skills", proposal.Skill)
+	source, err := resolveBundledSkillSource(config, proposal.Skill)
+	if err != nil {
+		return SkillMigrationResult{}, err
+	}
 	newBaseHash, err := DirectorySHA256(source)
 	if err != nil {
 		return SkillMigrationResult{}, err

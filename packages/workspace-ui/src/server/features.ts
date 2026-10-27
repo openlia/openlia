@@ -86,6 +86,40 @@ export function validateFeatureId(value: unknown): string {
   return clean;
 }
 
+function resolveDefaultFeaturesRoot(): string {
+  for (const envCandidate of [
+    process.env.OPENLIA_TEMPLATES_REPO,
+    process.env.OPENLIA_TEMPLATES_ROOT,
+  ]) {
+    if (envCandidate && existsSync(join(envCandidate, "features"))) {
+      return resolve(envCandidate, "features");
+    }
+  }
+  if (process.env.OPENLIA_META_ROOT) {
+    const cacheFeatures = join(
+      process.env.OPENLIA_META_ROOT,
+      "templates-cache",
+      "features",
+    );
+    if (existsSync(cacheFeatures)) {
+      return resolve(cacheFeatures);
+    }
+  }
+  const repoFeatures = fileURLToPath(
+    new URL("../../../../features", import.meta.url),
+  );
+  if (existsSync(repoFeatures)) {
+    return repoFeatures;
+  }
+  const siblingTemplatesFeatures = fileURLToPath(
+    new URL("../../../../../openlia_templates/features", import.meta.url),
+  );
+  if (existsSync(siblingTemplatesFeatures)) {
+    return siblingTemplatesFeatures;
+  }
+  return repoFeatures;
+}
+
 export class FeatureService {
   readonly workspaceRoot: string;
   readonly skillsRoot: string;
@@ -96,7 +130,7 @@ export class FeatureService {
     this.skillsRoot = resolve(options.skillsRoot);
     this.featuresRoot = options.featuresRoot
       ? resolve(options.featuresRoot)
-      : fileURLToPath(new URL("../../../../features", import.meta.url));
+      : resolveDefaultFeaturesRoot();
   }
 
   private readRegisteredDomains(): Map<string, RawFeatureDomain> {
