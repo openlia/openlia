@@ -1482,23 +1482,6 @@ func syncLochoSources(ctx context.Context, deployment deployment, config Config)
 	return nil
 }
 
-func isInsideWorkingTree(file string) bool {
-	workingDirectory, err := os.Getwd()
-	if err != nil {
-		return false
-	}
-	workingDirectory, err = filepath.Abs(workingDirectory)
-	if err != nil {
-		return false
-	}
-	file, err = filepath.Abs(file)
-	if err != nil {
-		return false
-	}
-	relative, err := filepath.Rel(workingDirectory, file)
-	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
-}
-
 func renderRemote(options Options, raw []byte, human string) int {
 	clean := redact(string(raw))
 	if options.JSON {
