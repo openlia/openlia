@@ -141,7 +141,4 @@ export const projectOpenUIProps = {
     columns: z.array(z.string()).optional(),
     title: z.string().optional(),
   }),
-  FinanceOverview: z.object({
-    journalPath: z.string().optional(),
-  }),
 };

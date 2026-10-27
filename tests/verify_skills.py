@@ -11,6 +11,7 @@ import sys
 import time
 
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SYSTEM_SKILLS_DIR = os.path.join(REPO_DIR, "profile", "system-skills")
 SKILLS_DIR = os.path.join(REPO_DIR, "profile", "skills")
 FEATURES_DIR = os.path.join(REPO_DIR, "features")
 
@@ -39,14 +40,17 @@ def run_offline_tests(selected_skill: str = "") -> bool:
     print("  RUNNING OFFLINE SKILL SELF-TESTS")
     print("=" * 65)
 
+    sys_pattern = os.path.join(
+        SYSTEM_SKILLS_DIR, selected_skill or "*", "scripts", "validate_workspace.py"
+    )
     pattern = os.path.join(SKILLS_DIR, selected_skill or "*", "scripts", "*.py")
     feat_pattern = os.path.join(
         FEATURES_DIR, "*", "skills", selected_skill or "*", "scripts", "*.py"
     )
-    scripts = sorted(glob.glob(pattern) + glob.glob(feat_pattern))
+    scripts = sorted(glob.glob(sys_pattern) + glob.glob(pattern) + glob.glob(feat_pattern))
     if not scripts:
         print(f"No skill scripts found matching pattern: {pattern}")
-        return False
+        return True
 
     all_passed = True
     results = []
@@ -62,11 +66,11 @@ def run_offline_tests(selected_skill: str = "") -> bool:
             (skill_name, script_name, passed, duration, stderr.strip() or stdout.strip())
         )
 
-    print(f"{'Skill':<20} {'Script':<26} {'Status':<10} {'Duration':<10}")
-    print("-" * 68)
+    print(f"{'Skill':<34} {'Script':<26} {'Status':<10} {'Duration':<10}")
+    print("-" * 82)
     for skill, script, passed, duration, _ in results:
         status = "PASS" if passed else "FAIL"
-        print(f"{skill:<20} {script:<26} {status:<10} {duration:.2f}s")
+        print(f"{skill:<34} {script:<26} {status:<10} {duration:.2f}s")
     for skill, script, passed, _, details in results:
         if not passed:
             print(f"\n[FAIL DETAILED TRACE] {skill} -> {script}:")

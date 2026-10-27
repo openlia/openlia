@@ -1,6 +1,6 @@
-name: openlia-personal-os
+name: openlia
 version: 0.1.0
-description: File-based Personal OS workflows for Hermes Agent.
+description: Autonomous AI Agent workspace and operations runtime built on Hermes Agent.
 hermes_requires: ">=0.12.0"
 author: OpenLia maintainers
 license: MIT

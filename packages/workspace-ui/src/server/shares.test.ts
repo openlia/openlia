@@ -429,6 +429,34 @@ describe("ShareService & public share HTTP endpoints", () => {
   });
 
   test("lists, installs, packages, and shares unified feature packages", async () => {
+    const featuresRoot = join(tempDir, "features");
+    mkdirSync(join(featuresRoot, "travel", "workspace", "travel"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(featuresRoot, "travel", "feature.yaml"),
+      `schema: 1
+id: travel
+name: Travel & Itineraries
+version: 0.3.0
+description: Trip planning, itineraries, booking checklists, and travel notes.
+author: OpenLia maintainers
+license: MIT
+domains:
+  - travel
+requires:
+  core_domains:
+    - inbox
+policy:
+  allowed_domains:
+    - travel
+`,
+    );
+    writeFileSync(
+      join(featuresRoot, "travel", "workspace", "travel", "trip-template.md"),
+      "---\ntitle: Sample Trip\n---\n# Sample Trip\n",
+    );
+
     writeFileSync(
       join(workspaceRoot, "workspace.yaml"),
       "schema: 1\ndomains:\n  - path: inbox\n    kind: core\n    label: Inbox\n    purpose: Capture\n    lifecycle: inbox -> archived\n",
@@ -436,6 +464,7 @@ describe("ShareService & public share HTTP endpoints", () => {
 
     const handler = createWorkspaceHandler({
       authRequired: false,
+      featuresRoot,
       sharesDatabasePath: sharesDbPath,
       skillsRoot,
       workspaceRoot,

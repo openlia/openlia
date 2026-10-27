@@ -96,7 +96,6 @@ const OPENUI_KNOWN_COMPONENTS = new Set([
   "MetricCard",
   "RecordKanban",
   "RecordTable",
-  "FinanceOverview",
   // Built-in OpenUI expressions
   "Query",
   "Mutation",

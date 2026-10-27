@@ -248,11 +248,11 @@ func (p *ProfileOperator) Sync() (ProfileSyncResult, error) {
 				return ProfileSyncResult{}, fmt.Errorf("seed missing workspace templates: %w", err)
 			}
 		}
-		if _, catPaths, catErr := LoadCatalogFeatures(p.Config.RepositoryRoot); catErr == nil {
+		if _, catPaths, catErr := LoadCatalogFeaturesForConfig(p.Config); catErr == nil {
 			for _, pkgDir := range catPaths {
 				fws := filepath.Join(pkgDir, "workspace")
 				if fInfo, fErr := os.Stat(fws); fErr == nil && fInfo.IsDir() {
-					if err := seedMissingWorkspaceTemplates(fws, workspace); err != nil {
+					if err := seedMissingFeatureWorkspaceTemplates(fws, workspace); err != nil {
 						return ProfileSyncResult{}, fmt.Errorf("seed missing feature templates: %w", err)
 					}
 				}
@@ -264,7 +264,7 @@ func (p *ProfileOperator) Sync() (ProfileSyncResult, error) {
 	}}
 	sourceRoot := filepath.Join(p.Config.RepositoryRoot, "profile", "skills")
 	entries, err := os.ReadDir(sourceRoot)
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return ProfileSyncResult{}, fmt.Errorf("read bundled skills: %w", err)
 	}
 	availableSkillSources := make(map[string]string)
@@ -284,6 +284,16 @@ func (p *ProfileOperator) Sync() (ProfileSyncResult, error) {
 		if _, exists := availableSkillSources[name]; !exists {
 			availableSkillSources[name] = srcPath
 			orderedSkillNames = append(orderedSkillNames, name)
+		}
+	}
+	if catSkills, catErr := LoadCatalogSkills(p.Config); catErr == nil {
+		for _, reqSkill := range p.Config.EnabledSkills {
+			if srcPath, ok := catSkills[reqSkill]; ok {
+				if _, exists := availableSkillSources[reqSkill]; !exists {
+					availableSkillSources[reqSkill] = srcPath
+					orderedSkillNames = append(orderedSkillNames, reqSkill)
+				}
+			}
 		}
 	}
 	enabled := p.enabledSkills()
@@ -749,6 +759,8 @@ func (p *ProfileOperator) Status(selected string) (SkillStatusResult, error) {
 		if info, err := os.Stat(source); err != nil || !info.IsDir() {
 			if featSrc, ok := p.installedFeatureSkillSources()[selected]; ok {
 				source = featSrc
+			} else if catSkills, catErr := LoadCatalogSkills(p.Config); catErr == nil && catSkills[selected] != "" {
+				source = catSkills[selected]
 			} else {
 				source = ""
 			}
@@ -765,7 +777,7 @@ func (p *ProfileOperator) Status(selected string) (SkillStatusResult, error) {
 
 	sourceRoot := filepath.Join(p.Config.RepositoryRoot, "profile", "skills")
 	entries, err := os.ReadDir(sourceRoot)
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return SkillStatusResult{}, fmt.Errorf("read bundled skills: %w", err)
 	}
 	seenBundled := make(map[string]bool)
@@ -828,7 +840,7 @@ func (p *ProfileOperator) installedFeatureSkillSources() map[string]string {
 	workspaceDir := filepath.Join(p.Config.DataRoot, "workspace")
 	registered, _ := RegisteredDomainPaths(workspaceDir)
 	installedRecords, _ := loadInstalledFeatureRecords(p.Config.MetaRoot)
-	catalog, catPaths, err := LoadCatalogFeatures(p.Config.RepositoryRoot)
+	catalog, catPaths, err := LoadCatalogFeaturesForConfig(p.Config)
 	if err == nil {
 		for _, m := range catalog {
 			_, isInstalled := installedRecords[m.ID]
@@ -929,6 +941,9 @@ func (p *ProfileOperator) syncSkill(source, destination, metadataPath, name, ver
 			return SkillResult{}, err
 		}
 		if err := writeSkillMetadata(metadataPath, writtenMetadata); err != nil {
+			return SkillResult{}, err
+		}
+		if err := ProvisionSkillEnvironment(p.Config, name, destination, "", ""); err != nil {
 			return SkillResult{}, err
 		}
 		writtenInfo := metadataInfoFromMetadata(writtenMetadata)
@@ -1217,7 +1232,7 @@ func readSkillMetadata(path, expectedSkill string) (metadataInfo, error) {
 }
 
 func validSkillMetadata(metadata SkillMetadata, expectedSkill string) bool {
-	if metadata.Schema != 2 || metadata.Skill != expectedSkill || metadata.Ownership == "" || (metadata.Ownership != "managed" && metadata.Ownership != "forked") || metadata.Distribution != distributionName || metadata.DistributionVersion == "" || metadata.SourceID == "" || metadata.ArtifactPath != "profile/skills/"+expectedSkill || metadata.HashScope != hashScope || !contentHashPattern.MatchString(metadata.ContentSHA256) || metadata.BaseSnapshot != "managed/skills/"+expectedSkill+"/base" || metadata.PatchPath != "managed/skills/"+expectedSkill+"/customization.patch" || !contentHashPattern.MatchString(metadata.PatchSHA256) || metadata.InstalledAt == "" || metadata.UpdatedAt == "" {
+	if metadata.Schema != 2 || metadata.Skill != expectedSkill || metadata.Ownership == "" || (metadata.Ownership != "managed" && metadata.Ownership != "forked") || (metadata.Distribution != distributionName && metadata.Distribution != "openlia") || metadata.DistributionVersion == "" || metadata.SourceID == "" || metadata.ArtifactPath != "profile/skills/"+expectedSkill || metadata.HashScope != hashScope || !contentHashPattern.MatchString(metadata.ContentSHA256) || metadata.BaseSnapshot != "managed/skills/"+expectedSkill+"/base" || metadata.PatchPath != "managed/skills/"+expectedSkill+"/customization.patch" || !contentHashPattern.MatchString(metadata.PatchSHA256) || metadata.InstalledAt == "" || metadata.UpdatedAt == "" {
 		return false
 	}
 	if metadata.Ownership == "forked" {

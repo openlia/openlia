@@ -88,6 +88,8 @@ type Config struct {
 	RuntimeGID                    int
 	ServiceRoles                  map[string]string
 	ConfiguredHosts               []string
+	TemplatesRepo                 string
+	TemplatesRef                  string
 }
 
 // BackupDestination describes a target-side remote backup store. Credentials
@@ -229,6 +231,8 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 		RuntimeUID:                 runtimeUID,
 		RuntimeGID:                 runtimeGID,
 		LochoHostRoot:              filepath.Join(runtimeRoot, "locho-host"),
+		TemplatesRepo:              values["OPENLIA_TEMPLATES_REPO"],
+		TemplatesRef:               getOr(values, "OPENLIA_TEMPLATES_REF", DefaultTemplatesRef),
 	}
 	if config.OpenLiaReleaseSHA256 == "" {
 		if data, readErr := os.ReadFile(filepath.Join(repositoryRoot, "release.sha256")); readErr == nil {

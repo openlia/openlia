@@ -10,7 +10,6 @@ import (
 	"openlia/operator/migration/intake"
 	"openlia/operator/migration/propgit"
 	"openlia/operator/migration/security"
-	"openlia/operator/migration/validator"
 )
 
 func TestQualification_IntakeQuarantine(t *testing.T) {
@@ -82,49 +81,6 @@ func TestQualification_IntakeQuarantine(t *testing.T) {
 	// Verify unsupported binary
 	if byPath["unsupported/binary.bin"].Eligibility != migration.EligibilityUnsupported {
 		t.Errorf("binary.bin should be unsupported, got %s", byPath["unsupported/binary.bin"].Eligibility)
-	}
-}
-
-func TestQualification_RemindSafety(t *testing.T) {
-	tempDir := t.TempDir()
-
-	safeRem := "REM 2026-10-31 MSG Safe Halloween Party\nREM 2026-11-01 AT 10:00 MSG Meeting\n"
-	maliciousRun := "REM 2026-10-31 RUN touch /tmp/exploited_run.txt\n"
-	maliciousSh := "REM 2026-11-01 SH echo \"exploited\"\n"
-	maliciousExec := "REM 2026-11-02 MSG Safe line\nEXEC /bin/sh\n"
-
-	_ = os.WriteFile(filepath.Join(tempDir, "safe.rem"), []byte(safeRem), 0o600)
-	_ = os.WriteFile(filepath.Join(tempDir, "malicious_run.rem"), []byte(maliciousRun), 0o600)
-	_ = os.WriteFile(filepath.Join(tempDir, "malicious_sh.rem"), []byte(maliciousSh), 0o600)
-	_ = os.WriteFile(filepath.Join(tempDir, "malicious_exec.rem"), []byte(maliciousExec), 0o600)
-
-	changedFiles := []migration.ChangedFileEntry{
-		{Path: "safe.rem", Status: "added"},
-		{Path: "malicious_run.rem", Status: "added"},
-		{Path: "malicious_sh.rem", Status: "added"},
-		{Path: "malicious_exec.rem", Status: "added"},
-	}
-
-	findings := validator.ValidateProposalWorkspace(tempDir, changedFiles)
-
-	errorFiles := make(map[string]bool)
-	for _, f := range findings {
-		if f.Domain == "calendar" && f.Severity == "error" {
-			errorFiles[f.File] = true
-		}
-	}
-
-	if errorFiles["safe.rem"] {
-		t.Errorf("safe.rem should not have produced an error finding")
-	}
-	if !errorFiles["malicious_run.rem"] {
-		t.Errorf("malicious_run.rem was not flagged as calendar error finding")
-	}
-	if !errorFiles["malicious_sh.rem"] {
-		t.Errorf("malicious_sh.rem was not flagged as calendar error finding")
-	}
-	if !errorFiles["malicious_exec.rem"] {
-		t.Errorf("malicious_exec.rem was not flagged as calendar error finding")
 	}
 }
 

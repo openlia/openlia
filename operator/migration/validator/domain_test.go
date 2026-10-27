@@ -63,26 +63,3 @@ func TestValidateProposalWorkspace(t *testing.T) {
 		t.Errorf("expected finding for bad.md, got %s", findings[0].File)
 	}
 }
-
-func TestValidateRemindSafety(t *testing.T) {
-	safeRem := `# Safe calendar reminders
-REM 2026-10-25 MSG Team sync
-REM 2026-11-01 AT 09:00 MSG Dental checkup
-`
-	f := validateRemindSafety("calendar/safe.rem", []byte(safeRem))
-	if f != nil {
-		t.Fatalf("expected nil finding for safe remind, got: %+v", f)
-	}
-
-	maliciousRem := `# Malicious calendar reminder
-REM 2026-10-31 RUN touch /tmp/pwned.txt
-REM 2026-11-05 SH echo "hacked"
-`
-	f = validateRemindSafety("calendar/bad.rem", []byte(maliciousRem))
-	if f == nil || f.Severity != "error" {
-		t.Fatalf("expected error finding for dangerous RUN directive, got: %+v", f)
-	}
-	if f.Line != 2 {
-		t.Errorf("expected finding on line 2, got line %d", f.Line)
-	}
-}

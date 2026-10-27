@@ -1,4 +1,0 @@
-root = Stack([header, overview, table])
-header = DomainHeader("Personal Finance", "Ledger balances, income vs. expenses, and periodic review records.")
-overview = FinanceOverview("finance/main.journal")
-table = RecordTable(["title", "period", "review_date", "journal_path"])

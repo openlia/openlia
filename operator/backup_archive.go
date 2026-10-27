@@ -111,6 +111,19 @@ func durableHermesPath(relative string, entry fs.DirEntry, bundledGroups map[str
 		}
 		return true
 	}
+	if len(parts) > 0 && parts[0] == ".local" {
+		if len(parts) == 1 {
+			return entry != nil && entry.IsDir()
+		}
+		if parts[1] != "manifests" {
+			return false
+		}
+		base := parts[len(parts)-1]
+		if strings.HasSuffix(base, ".lock") || strings.HasSuffix(base, ".tmp") {
+			return false
+		}
+		return true
+	}
 	base := parts[len(parts)-1]
 	for _, part := range parts {
 		switch part {

@@ -871,7 +871,7 @@ func runWorkspaceMigrate(ctx context.Context, config Config, args []string, outp
 
 func runSkillMigration(config Config, args []string, output, errorOutput io.Writer, jsonOutput bool, now time.Time) int {
 	if len(args) == 0 {
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("skill-migration requires prepare, show, apply, or reject"))
+		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("skill-migration requires prepare, show, apply, reject, or update"))
 	}
 	action := args[0]
 	if len(args) != 2 {
@@ -884,6 +884,12 @@ func runSkillMigration(config Config, args []string, output, errorOutput io.Writ
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
 		return emit(output, result, jsonOutput, "openlia skill-migration: context staged for Hermes")
+	case "update":
+		result, err := RebaseInstalledSkill(config, args[1], now)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, result, jsonOutput, fmt.Sprintf("openlia skill-migration: updated %s (%s)", result.ID, result.Status))
 	case "show":
 		proposal, err := ReadSkillMigrationProposal(config, args[1])
 		if err != nil {
@@ -909,7 +915,7 @@ func runSkillMigration(config Config, args []string, output, errorOutput io.Writ
 
 func runFeatures(config Config, args []string, output, errorOutput io.Writer, jsonOutput bool, now time.Time) int {
 	if len(args) == 0 {
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features requires list, show, install, import, package, or remove"))
+		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features requires list, show, sync, install, update, import, package, or remove"))
 	}
 	action := args[0]
 	args = args[1:]
@@ -921,6 +927,23 @@ func runFeatures(config Config, args []string, output, errorOutput io.Writer, js
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
 		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: %d feature(s)", len(res.Features)))
+
+	case "sync":
+		res, err := SyncTemplatesCatalog(context.Background(), config)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, res, jsonOutput, "openlia features: synchronized templates catalog ("+res.CacheDir+")")
+
+	case "update":
+		if len(args) != 1 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features update requires FEATURE_ID"))
+		}
+		res, err := RebaseInstalledFeature(config, args[0], now)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: updated %s (%s)", res.ID, res.Status))
 
 	case "show":
 		if len(args) != 1 {

@@ -1204,7 +1204,6 @@ messages:
       "Chat",
       "Documents",
       "Projects",
-      "Calendar",
       "Ingestion",
       "Skills",
       "Shared Links",
@@ -1223,85 +1222,6 @@ messages:
       ).toBeInTheDocument();
       expect(window.location.pathname).toBe("/");
     }
-  });
-
-  test("navigates to Calendar and displays visual calendar preview for reminders.rem", async () => {
-    render(<App api={createMockWorkspaceApi()} />);
-
-    expect(
-      await screen.findByRole("heading", { name: "Recent Changes" }),
-    ).toBeInTheDocument();
-
-    // Click Calendar in navigation
-    const nav = screen.getByRole("navigation", {
-      name: "Workspace navigation",
-    });
-    const calendarButton = within(nav).getByRole("button", {
-      name: "Calendar",
-    });
-    fireEvent.click(calendarButton);
-
-    // Expect calendar to load reminders.rem in preview mode
-    expect(await screen.findByText("Q4 Strategy Sync")).toBeInTheDocument();
-    expect(
-      await screen.findByText("Columbus Day / Indigenous Peoples' Day"),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Month" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(calendarButton).toHaveAttribute("aria-current", "page");
-  });
-
-  test("does not show calendar event creation in raw edit mode", async () => {
-    render(<App api={createMockWorkspaceApi()} />);
-
-    expect(
-      await screen.findByRole("heading", { name: "Recent Changes" }),
-    ).toBeInTheDocument();
-    const nav = screen.getByRole("navigation", {
-      name: "Workspace navigation",
-    });
-    fireEvent.click(within(nav).getByRole("button", { name: "Calendar" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
-
-    expect(
-      await screen.findByRole("textbox", { name: "Code editor" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "New Event" }),
-    ).not.toBeInTheDocument();
-  });
-
-  test("protects unsaved calendar code before opening preview", async () => {
-    render(<App api={createMockWorkspaceApi()} />);
-    expect(
-      await screen.findByRole("heading", { name: "Recent Changes" }),
-    ).toBeInTheDocument();
-
-    fireEvent.click(
-      within(
-        screen.getByRole("navigation", { name: "Workspace navigation" }),
-      ).getByRole("button", { name: "Calendar" }),
-    );
-    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
-    const editor = await screen.findByRole("textbox", { name: "Code editor" });
-    setEditorText(editor, "REM 2026-10-15 MSG Unsaved calendar change");
-
-    fireEvent.click(
-      within(screen.getByRole("toolbar", { name: "Document view" })).getByRole(
-        "button",
-        { name: "Calendar" },
-      ),
-    );
-    expect(
-      await screen.findByRole("heading", { name: "Keep your draft?" }),
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
-    expect(
-      await screen.findByRole("button", { name: "New Event" }),
-    ).toBeInTheDocument();
   });
 
   test("navigates to Git Activity tab and displays commit history", async () => {
@@ -1489,35 +1409,6 @@ messages:
     ).toBeInTheDocument();
     // Permissive editing: Edit button is still available
     expect(screen.getByRole("button", { name: "Edit" })).toBeEnabled();
-  });
-
-  test("opens hledger journal files in Visual preview mode with Sankey diagram and highlights", async () => {
-    window.history.replaceState(null, "", "/files/finance/journal.hledger");
-    render(<App api={createMockWorkspaceApi()} />);
-
-    // Journal preview should be rendered
-    expect(
-      await screen.findByRole("region", { name: "Sankey Diagram Flow" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Money Flow (Sankey Diagram)")).toBeInTheDocument();
-    expect(
-      screen.getByRole("region", { name: "Journal Highlights" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("TOTAL INCOME")).toBeInTheDocument();
-    expect(screen.getByText("TOTAL EXPENSES")).toBeInTheDocument();
-    expect(screen.getByText("NET RETAINED")).toBeInTheDocument();
-
-    // Mode buttons should include Visual and Edit
-    expect(screen.getByRole("button", { name: "Visual" })).toHaveClass(
-      "btn-primary",
-    );
-    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
-
-    // Clicking Edit switches to Code view
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    expect(screen.getByRole("button", { name: "Edit" })).toHaveClass(
-      "btn-primary",
-    );
   });
 
   test("navigates to migrations list and allows returning to list from migration detail", async () => {

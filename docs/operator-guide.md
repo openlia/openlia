@@ -272,34 +272,36 @@ openlia instructions keep workspace/AGENTS.md   # Keep local file and acknowledg
 openlia instructions reset workspace/AGENTS.md  # Replace with upstream file (creates backup)
 ```
 
-### Bundled Skill Provenance, Forking & Migration
-Bundled skills are tracked in `meta/managed/skills/<skill>.json`. Before customizing a bundled skill, fork it so future updates preserve your customizations:
+### Templates Catalog, Automatic Forking, & 3-Way Rebase
+OpenLia discovers starter profiles, modular features, and standalone skills from [`https://github.com/openlia/templates.git`](https://github.com/openlia/templates.git) (configurable under `[templates]` in `config.toml` or via `OPENLIA_TEMPLATES_REPO`).
 
 ```bash
+# Sync the templates catalog from https://github.com/openlia/templates.git
+openlia features sync
+
+# List catalog and installed profiles/features/skills
+openlia features list [--json]
 openlia skills list [--json]
-openlia skills show daily-briefing
-openlia skills status [SKILL]
-openlia skills fork daily-briefing
-openlia skills test deep-research
-```
 
-When an upstream update modifies a skill you have forked, `openlia update openlia` stages a migration context. Ask Lia in chat to prepare a migration proposal using the `openlia-skill-migration` system skill, then review and apply it from the CLI:
-
-```bash
-openlia skills migrate show PROPOSAL_ID
-openlia skills migrate apply PROPOSAL_ID
-```
-*(Use `openlia skills migrate prepare SKILL` only if you need to stage migration context manually outside of an update).*
-
-### À La Carte Feature Packages
-Install, package, or import domain feature packages (`personal-finance`, `personal-health`, `decision-analysis`, `deep-research`, `areas`, `ideas`, `monitors`, `people`, `shopping`, `travel`):
-
-```bash
-openlia features list
+# Install a full profile, an individual feature, or a standalone skill
+openlia features install --profile personal-os
 openlia features install personal-finance
+openlia skills install daily-briefing
+
+# Inspect customization status and 3-way rebase against upstream template updates
+openlia features status [FEATURE]
+openlia features update [FEATURE]
+openlia skills status [SKILL]
+openlia skills update [SKILL]
+
+# Package or import portable feature archives
 openlia features package <feature-dir> --output my-feature.zip
 openlia features import my-feature.zip
 ```
+
+- **Automatic Fork Detection**: You do not need to run `openlia skills fork` before customizing a skill or feature template. OpenLia stores a clean upstream snapshot at install time and automatically detects any local edits (`current_hash != base_hash`).
+- **3-Way Rebase & Conflict Staging**: Running `openlia features update` or `openlia skills update` performs a 3-way rebase (`old-base` vs. `current-fork` vs. `new-base`). Non-overlapping upstream changes merge automatically; overlapping conflicts leave the live workspace untouched and stage a migration directory under `/opt/data/.openlia/migrations/<id>` for review via `openlia skills migrate show|apply`.
+- **On-Demand `/opt/data/.local` Tool Store**: When a feature or skill declares `requires.tools` (such as `hledger`, `remind`, `jq`, or `sqlite3`), `requires.python`, or `requires.bun`, OpenLia provisions them into `/opt/data/.local/{bin,tools,envs}` and records `/opt/data/.local/manifests/<owner>.json`. Backups capture the manifests and automatically re-materialize the tools and virtual environments on `openlia backup restore`.
 
 ---
 

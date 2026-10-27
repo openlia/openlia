@@ -24,9 +24,8 @@ RUN sed -i \
         -e "s|URIs: http://deb.debian.org/debian-security$|URIs: http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|" \
         /etc/apt/sources.list.d/debian.sources \
     && apt-get -o Acquire::Check-Valid-Until=false update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl git hledger python3-yaml remind tzdata unzip xz-utils \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl git python3-yaml tzdata unzip xz-utils \
     && rm -rf /var/lib/apt/lists/* \
-    && hledger --version \
     && set -eu; \
     case "${TARGETARCH:-amd64}" in \
         amd64) \

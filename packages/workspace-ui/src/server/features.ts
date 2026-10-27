@@ -86,6 +86,40 @@ export function validateFeatureId(value: unknown): string {
   return clean;
 }
 
+function resolveDefaultFeaturesRoot(): string {
+  for (const envCandidate of [
+    process.env.OPENLIA_TEMPLATES_REPO,
+    process.env.OPENLIA_TEMPLATES_ROOT,
+  ]) {
+    if (envCandidate && existsSync(join(envCandidate, "features"))) {
+      return resolve(envCandidate, "features");
+    }
+  }
+  if (process.env.OPENLIA_META_ROOT) {
+    const cacheFeatures = join(
+      process.env.OPENLIA_META_ROOT,
+      "templates-cache",
+      "features",
+    );
+    if (existsSync(cacheFeatures)) {
+      return resolve(cacheFeatures);
+    }
+  }
+  const repoFeatures = fileURLToPath(
+    new URL("../../../../features", import.meta.url),
+  );
+  if (existsSync(repoFeatures)) {
+    return repoFeatures;
+  }
+  const siblingTemplatesFeatures = fileURLToPath(
+    new URL("../../../../../openlia_templates/features", import.meta.url),
+  );
+  if (existsSync(siblingTemplatesFeatures)) {
+    return siblingTemplatesFeatures;
+  }
+  return repoFeatures;
+}
+
 export class FeatureService {
   readonly workspaceRoot: string;
   readonly skillsRoot: string;
@@ -96,7 +130,7 @@ export class FeatureService {
     this.skillsRoot = resolve(options.skillsRoot);
     this.featuresRoot = options.featuresRoot
       ? resolve(options.featuresRoot)
-      : fileURLToPath(new URL("../../../../features", import.meta.url));
+      : resolveDefaultFeaturesRoot();
   }
 
   private readRegisteredDomains(): Map<string, RawFeatureDomain> {
@@ -166,8 +200,57 @@ export class FeatureService {
         try {
           const parsed = YAML.parse(
             readFileSync(manifestPath, "utf8"),
-          ) as RawFeatureManifest;
+          ) as RawFeatureManifest & {
+            title?: string;
+            paths?: string[];
+          };
           if (parsed && typeof parsed === "object" && parsed.id) {
+            if (!parsed.name && parsed.title) {
+              parsed.name = parsed.title;
+            }
+            const rawDomains = Array.isArray(parsed.domains)
+              ? parsed.domains
+              : Array.isArray(parsed.paths)
+                ? parsed.paths
+                : [];
+            parsed.domains = rawDomains
+              .map((d: unknown): RawFeatureDomain | null => {
+                if (typeof d === "string" && d.trim()) {
+                  const p = d.trim();
+                  return {
+                    path: p,
+                    label: parsed.name || p,
+                    purpose: parsed.description || "",
+                    lifecycle: "active -> archived",
+                  };
+                }
+                if (
+                  d &&
+                  typeof d === "object" &&
+                  typeof (d as RawFeatureDomain).path === "string"
+                ) {
+                  return d as RawFeatureDomain;
+                }
+                return null;
+              })
+              .filter((d): d is RawFeatureDomain => d !== null);
+            const rawSkills = Array.isArray(parsed.skills) ? parsed.skills : [];
+            parsed.skills = rawSkills
+              .map((s: unknown): RawFeatureSkill | null => {
+                if (typeof s === "string" && s.trim()) {
+                  const sid = s.trim();
+                  return { id: sid, path: `skills/${sid}` };
+                }
+                if (
+                  s &&
+                  typeof s === "object" &&
+                  typeof (s as RawFeatureSkill).id === "string"
+                ) {
+                  return s as RawFeatureSkill;
+                }
+                return null;
+              })
+              .filter((s): s is RawFeatureSkill => s !== null);
             map.set(parsed.id, { dir, manifest: parsed });
           }
         } catch {}
