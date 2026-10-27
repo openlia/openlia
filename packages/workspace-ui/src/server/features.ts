@@ -200,8 +200,57 @@ export class FeatureService {
         try {
           const parsed = YAML.parse(
             readFileSync(manifestPath, "utf8"),
-          ) as RawFeatureManifest;
+          ) as RawFeatureManifest & {
+            title?: string;
+            paths?: string[];
+          };
           if (parsed && typeof parsed === "object" && parsed.id) {
+            if (!parsed.name && parsed.title) {
+              parsed.name = parsed.title;
+            }
+            const rawDomains = Array.isArray(parsed.domains)
+              ? parsed.domains
+              : Array.isArray(parsed.paths)
+                ? parsed.paths
+                : [];
+            parsed.domains = rawDomains
+              .map((d: unknown): RawFeatureDomain | null => {
+                if (typeof d === "string" && d.trim()) {
+                  const p = d.trim();
+                  return {
+                    path: p,
+                    label: parsed.name || p,
+                    purpose: parsed.description || "",
+                    lifecycle: "active -> archived",
+                  };
+                }
+                if (
+                  d &&
+                  typeof d === "object" &&
+                  typeof (d as RawFeatureDomain).path === "string"
+                ) {
+                  return d as RawFeatureDomain;
+                }
+                return null;
+              })
+              .filter((d): d is RawFeatureDomain => d !== null);
+            const rawSkills = Array.isArray(parsed.skills) ? parsed.skills : [];
+            parsed.skills = rawSkills
+              .map((s: unknown): RawFeatureSkill | null => {
+                if (typeof s === "string" && s.trim()) {
+                  const sid = s.trim();
+                  return { id: sid, path: `skills/${sid}` };
+                }
+                if (
+                  s &&
+                  typeof s === "object" &&
+                  typeof (s as RawFeatureSkill).id === "string"
+                ) {
+                  return s as RawFeatureSkill;
+                }
+                return null;
+              })
+              .filter((s): s is RawFeatureSkill => s !== null);
             map.set(parsed.id, { dir, manifest: parsed });
           }
         } catch {}

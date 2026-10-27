@@ -37,12 +37,92 @@ func setupLeanWorkspaceForTest(t *testing.T) (Config, string) {
 		t.Fatalf("copy workspace-template: %v", err)
 	}
 
+	// Seed a self-contained templates catalog in metaRoot/templates-cache so tests
+	// pass deterministically in CI without requiring a sibling openlia_templates repo.
+	catalogDir := filepath.Join(metaRoot, "templates-cache")
+	seedTestFeatureCatalog(t, catalogDir)
+	t.Setenv("OPENLIA_TEMPLATES_REPO", catalogDir)
+
 	cfg := Config{
 		RepositoryRoot: repoRoot,
 		DataRoot:       dataRoot,
 		MetaRoot:       metaRoot,
 	}
 	return cfg, wsDir
+}
+
+func seedTestFeatureCatalog(t *testing.T, catalogDir string) {
+	t.Helper()
+	finDir := filepath.Join(catalogDir, "features", "personal-finance")
+	if err := EnsureDir(filepath.Join(finDir, "skills", "personal-finance"), 0o700); err != nil {
+		t.Fatalf("mkdir personal-finance skill: %v", err)
+	}
+	if err := EnsureDir(filepath.Join(finDir, "workspace", "finance", "intake"), 0o700); err != nil {
+		t.Fatalf("mkdir finance/intake: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(finDir, "feature.yaml"), []byte(`schema: 1
+id: personal-finance
+name: Personal Finance & Double-Entry Accounting
+version: 0.3.0
+description: Double-entry hledger bookkeeping.
+author: OpenLia maintainers
+license: MIT
+domains:
+  - path: finance
+    kind: extension
+    label: Finance
+    purpose: Bookkeeping
+    lifecycle: active -> archived
+  - path: finance/intake
+    kind: extension
+    label: Finance Intake
+    purpose: Statement intake
+    lifecycle: active -> archived
+skills:
+  - id: personal-finance
+    path: skills/personal-finance
+requires:
+  core_domains:
+    - inbox
+    - sources
+  tools:
+    - hledger
+policy:
+  allowed_domains:
+    - finance
+  allowed_actions:
+    - record_financial_data
+`), 0o600)
+	_ = os.WriteFile(filepath.Join(finDir, "skills", "personal-finance", "SKILL.md"), []byte("---\nname: personal-finance\ndescription: Finance skill\n---\n# Personal Finance\n"), 0o600)
+	_ = os.WriteFile(filepath.Join(finDir, "workspace", "finance", "finance-template.md"), []byte("---\ntitle: Finance\n---\n# Finance\n"), 0o600)
+	_ = os.WriteFile(filepath.Join(finDir, "workspace", "finance", "intake", "intake-template.md"), []byte("---\ntitle: Intake\n---\n# Intake\n"), 0o600)
+
+	travelDir := filepath.Join(catalogDir, "features", "travel")
+	if err := EnsureDir(filepath.Join(travelDir, "workspace", "travel"), 0o700); err != nil {
+		t.Fatalf("mkdir travel workspace: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(travelDir, "feature.yaml"), []byte(`schema: 1
+id: travel
+name: Travel & Itineraries
+version: 0.3.0
+description: Trip planning and itineraries.
+author: OpenLia maintainers
+license: MIT
+domains:
+  - path: travel
+    kind: extension
+    label: Travel
+    purpose: Itineraries
+    lifecycle: planned -> archived
+requires:
+  core_domains:
+    - inbox
+policy:
+  allowed_domains:
+    - travel
+`), 0o600)
+	_ = os.WriteFile(filepath.Join(travelDir, "workspace", "travel", "trip-template.md"), []byte("---\n$schema: \"./trip-template.schema.json\"\ntitle: Sample Trip\nstatus: planned\n---\n\n# Sample Trip\n"), 0o600)
+	_ = os.WriteFile(filepath.Join(travelDir, "workspace", "travel", "trip-template.schema.json"), []byte(`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["title","status"],"properties":{"title":{"type":"string"},"status":{"type":"string"}}}`+"\n"), 0o600)
 }
 
 func copyDirectoryContents(src, dst string) error {
@@ -90,8 +170,8 @@ func TestFeatureListInstallAndRemove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FeatureList: %v", err)
 	}
-	if len(listRes.Features) != 15 {
-		t.Fatalf("expected 15 catalog features, got %d", len(listRes.Features))
+	if len(listRes.Features) != 2 {
+		t.Fatalf("expected 2 catalog features, got %d", len(listRes.Features))
 	}
 	for _, f := range listRes.Features {
 		if f.State != "available" {
