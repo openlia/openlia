@@ -20,7 +20,7 @@ For private relay infrastructure, configure `relay_config` and, if needed,
 bind-mounts the relay TOML into Locho containers and injects dotenv values as
 environment variables. The same relay configuration must be available to the
 client, and `token_env` values must be exported in the client environment:
-See `locho/relay.toml.example` and `locho/relay.env.example` for templates.
+See `examples/locho/relay.toml.example` and `examples/locho/relay.env.example` for templates.
 
 ```sh
 export LOCHO_RELAY_TOKEN="..."

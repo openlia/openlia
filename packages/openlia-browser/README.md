@@ -176,5 +176,5 @@ openlia deploy
 ```
 
 Keep capability values outside Git and ordinary command arguments. See
-[Locho Host Attachments](../../locho/hosts/example/README.md) for capability
+[Locho Host Attachments](../../examples/locho/hosts/example/README.md) for capability
 creation, protected attachment files, rotation, and service-role mapping.

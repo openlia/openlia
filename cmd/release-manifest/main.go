@@ -205,7 +205,7 @@ func syncManagedFiles(root string, value manifest, check bool) error {
 			},
 		},
 		{
-			path: filepath.Join(root, "locho", "relay.toml.example"),
+			path: filepath.Join(root, "examples", "locho", "relay.toml.example"),
 			replacements: map[string]string{
 				"# Optional Locho ": fmt.Sprintf("# Optional Locho %s relay transport configuration.", value.Locho.Version),
 			},

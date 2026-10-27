@@ -26,10 +26,10 @@ home/
 backups/
 
 # Locho capabilities and generated host configuration
-locho/hosts/*/attachments.toml
-locho/hosts/*/*.secret.toml
-locho/relay.toml
-locho/relay.env
+examples/locho/hosts/*/attachments.toml
+examples/locho/hosts/*/*.secret.toml
+examples/locho/relay.toml
+examples/locho/relay.env
 docker/compose.generated.yaml
 openlia-attachments.toml
 

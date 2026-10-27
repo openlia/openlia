@@ -17,6 +17,10 @@ func TestEmbeddedWorkspaceIncludesControlFiles(t *testing.T) {
 		"docker/yt-dlp-requirements.txt",
 		"profile/config.yaml",
 		"profile/distribution.yaml",
+		"examples/locho/hosts/example/README.md",
+		"examples/locho/hosts/example/attachments.toml.example",
+		"examples/locho/relay.toml.example",
+		"examples/locho/relay.env.example",
 	} {
 		if _, err := fs.ReadFile(releaseAssets, path); err != nil {
 			t.Fatalf("embedded release is missing %s: %v", path, err)

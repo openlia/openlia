@@ -204,7 +204,7 @@ cmd/operator/           Cross-compiled target operator entrypoint
 profile/                Hermes profile template and distribution metadata
 profile/skills/         Workflow skills and deterministic helper scripts
 workspace-template/     Initial Personal OS directories and instructions
-locho/hosts/            Per-host attachments.toml templates
+examples/locho/          Locho relay and per-host attachment examples
 ```
 
 Secrets, Hermes state, memories, sessions, logs, OAuth data, and real Locho
