@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"openlia/internal/releaseinfo"
 )
 
 const DefaultDebianSnapshot = "20260801T000000Z"
@@ -29,7 +31,7 @@ var curatedTools = map[string]ToolSpec{
 	},
 	"remind": {
 		Name:           "remind",
-		DefaultVersion: "05.00.02",
+		DefaultVersion: releaseinfo.Default.Remind.Version,
 		Binary:         "remind",
 		Description:    "Sophisticated calendar and alarm service CLI",
 	},
@@ -80,7 +82,7 @@ func ValidateToolName(name string) error {
 // ManagedHermesImage returns a project-specific image reference so separate
 // deployments on one Docker host cannot overwrite each other's tool images.
 func ManagedHermesImage(project, baseTag, baseDigest, debianSnapshot string) string {
-	identity := strings.Join([]string{project, baseTag, baseDigest, debianSnapshot, RequiredIngestionRevision}, "\x00")
+	identity := strings.Join([]string{project, baseTag, baseDigest, debianSnapshot, RequiredIngestionRevision, releaseinfo.Default.Remind.Version, releaseinfo.Default.Remind.SourceSHA256}, "\x00")
 	digest := sha256.Sum256([]byte(identity))
 	displayProject := project
 	if len(displayProject) > 80 {

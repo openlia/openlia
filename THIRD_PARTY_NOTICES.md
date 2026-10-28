@@ -16,6 +16,7 @@ replacement for the license files shipped by those projects or images.
 | uv | `0.8.14`; architecture-specific SHA-256 values are recorded in [`docker/Dockerfile`](docker/Dockerfile) | MIT and Apache-2.0 | [MIT License](https://github.com/astral-sh/uv/blob/0.8.14/LICENSE-MIT) and [Apache License 2.0](https://github.com/astral-sh/uv/blob/0.8.14/LICENSE-APACHE) |
 | PyYAML | `6.0.2` | MIT | [Upstream license](https://github.com/yaml/pyyaml/blob/6.0.2/LICENSE) |
 | yt-dlp | `2026.8.19`; universal wheel SHA-256 is recorded in [`docker/yt-dlp-requirements.txt`](docker/yt-dlp-requirements.txt) | Unlicense | [Upstream repository](https://github.com/yt-dlp/yt-dlp) |
+| Remind | `06.03.06`; exact source URL and SHA-256 are recorded in [`release/manifest.json`](release/manifest.json) | GPL-2.0-only | [Upstream](https://dianne.skoll.ca/projects/remind/); exact corresponding source and license accompany the installed binary |
 | age | `filippo.io/age v1.3.2` | BSD-3-Clause | [Upstream repository](https://github.com/FiloSottile/age) |
 | AWS SDK for Go v2 | `v1.47.1` and modules in [`go.mod`](go.mod) | Apache-2.0 | [Upstream repository](https://github.com/aws/aws-sdk-go-v2) |
 | robfig/cron | `v3.0.1` | MIT | [Upstream repository](https://github.com/robfig/cron) |
@@ -50,6 +51,28 @@ package metadata and files under
 information.
 
 ## Bundled and Transitive Notices
+
+### Remind corresponding source
+
+OpenLia-built Workspace UI and Hermes images include the unmodified, checksum-
+verified Remind source archive alongside the binary. Under
+`/usr/local/lib/openlia/remind/06.03.06/`:
+
+- `share/licenses/remind/COPYRIGHT` contains the upstream GPLv2 notice/license.
+- `share/openlia/sources/remind/remind-06.03.06.tar.gz` is the exact corresponding
+  source, including upstream build scripts and data.
+- The same directory contains `install-remind.py`, `release-manifest.json`, and
+  `build-info.json` with the pin, build commands, platform, and binary checksum.
+- Image build recipes are included in `/usr/local/share/openlia/build-recipes/`.
+
+The CLI is compiled without optional Readline and without modifying upstream C
+source. Holiday data is included; the upstream UK-to-GB alias is materialized as
+identical regular data. Compiler/build packages remain in the builder stage, not
+added to the final image by this installation. When redistributing these images
+or extracting/redistributing their Remind binary, retain and provide the complete
+corresponding-source bundle and notices to recipients; do not replace it with
+only an upstream URL. Remind remains a separate GPLv2 program, not MIT-licensed
+OpenLia source.
 
 - Bun statically links or embeds additional libraries and polyfills with
   licenses including LGPL, BSD, Apache, MIT, zlib, and other licenses. Refer to

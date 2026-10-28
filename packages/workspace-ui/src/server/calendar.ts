@@ -137,7 +137,7 @@ export class CalendarService {
         mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
         writeFileSync(destination, content, { mode: 0o600 });
       }
-      // Monthly JSON is supported by the feature's pinned Remind 05.00.02.
+      // Monthly JSON is checked against release/manifest.json's pinned Remind.
       // -b2 leaves titles unadorned; -r disables RUN/shell(); -q disables queues.
       const firstMonth = `${from.slice(0, 7)}-01`;
       const last = addDays(to, -1);

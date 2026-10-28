@@ -232,7 +232,7 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 		RuntimeGID:                 runtimeGID,
 		LochoHostRoot:              filepath.Join(runtimeRoot, "locho-host"),
 		TemplatesRepo:              values["OPENLIA_TEMPLATES_REPO"],
-		TemplatesRef:               getOr(values, "OPENLIA_TEMPLATES_REF", DefaultTemplatesRef),
+		TemplatesRef:               values["OPENLIA_TEMPLATES_REF"],
 	}
 	if config.OpenLiaReleaseSHA256 == "" {
 		if data, readErr := os.ReadFile(filepath.Join(repositoryRoot, "release.sha256")); readErr == nil {

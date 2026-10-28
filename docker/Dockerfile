@@ -4,6 +4,16 @@
 ARG HERMES_BASE_IMAGE
 ARG HERMES_BASE_TAG
 ARG HERMES_BASE_DIGEST
+FROM ${HERMES_BASE_IMAGE}:${HERMES_BASE_TAG}@${HERMES_BASE_DIGEST} AS remind-builder
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates gcc libc6-dev make python3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY release/manifest.json /build/release/manifest.json
+COPY docker/install-remind.py /build/docker/install-remind.py
+RUN version="$(python3 -c 'import json; print(json.load(open("/build/release/manifest.json"))["remind"]["version"])')" \
+    && python3 /build/docker/install-remind.py --prefix "/usr/local/lib/openlia/remind/${version}" \
+    && ln -s "${version}" /usr/local/lib/openlia/remind/current
+
 FROM ${HERMES_BASE_IMAGE}:${HERMES_BASE_TAG}@${HERMES_BASE_DIGEST}
 
 ARG TARGETARCH
@@ -62,6 +72,10 @@ RUN sed -i \
     install -m 0755 "/tmp/uv/uv-${uv_target}/uvx" /usr/local/bin/uvx; \
     rm -rf /tmp/bun /tmp/uv "${bun_archive}" "${uv_archive}"
 
+COPY --from=remind-builder /usr/local/lib/openlia/remind/ /usr/local/lib/openlia/remind/
+COPY --chmod=0644 docker/Dockerfile /usr/local/share/openlia/build-recipes/hermes.Dockerfile
+COPY --chmod=0644 THIRD_PARTY_NOTICES.md /usr/local/share/openlia/THIRD_PARTY_NOTICES.md
+RUN ln -sf /usr/local/lib/openlia/remind/current/bin/remind /usr/local/bin/remind
 COPY profile/system-skills/workspace-template-customization/requirements.txt /tmp/workspace-template-req.txt
 RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache \
 	--requirement /tmp/workspace-template-req.txt \

@@ -952,11 +952,37 @@ func runFeatures(config Config, args []string, output, errorOutput io.Writer, js
 		return emit(output, res, jsonOutput, fmt.Sprintf("feature %s (%s): %s", res.Status.ID, res.Status.State, res.Status.Description))
 
 	case "sync":
+		if len(args) != 0 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features sync takes no arguments; configure templates.repo and templates.ref"))
+		}
 		res, err := SyncTemplatesCatalog(context.Background(), config)
 		if err != nil {
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
-		return emit(output, res, jsonOutput, "openlia features: synchronized templates catalog ("+res.CacheDir+")")
+		message := "openlia features: synchronized templates catalog (" + res.CacheDir + ") at " + res.Catalog.Revision
+		if res.Catalog.Mode == "local-worktree" {
+			message += " [local worktree]"
+		}
+		if res.UIRefreshRequired {
+			message += "; recreate Workspace UI to refresh its catalog bind mount"
+		}
+		return emit(output, res, jsonOutput, message)
+
+	case "cache-prune":
+		confirmed, args := removeFlag(args, "--confirm-unmounted")
+		keepValue, args, err := stringFlag(args, "--keep")
+		keep := 2
+		if err == nil && keepValue != "" {
+			keep, err = strconv.Atoi(keepValue)
+		}
+		if err != nil || len(args) != 0 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features cache-prune accepts --keep N --confirm-unmounted"))
+		}
+		result, err := PruneTemplatesCatalogSnapshots(context.Background(), config, keep, confirmed)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, result, jsonOutput, fmt.Sprintf("retired catalog snapshots: removed %d, retained %d", len(result.Removed), result.Retained))
 
 	case "update":
 		if len(args) != 1 {

@@ -570,6 +570,8 @@ export function createWorkspaceHandler(
           url.pathname.startsWith("/api/chat/") ||
           url.pathname.startsWith("/api/memory/") ||
           url.pathname.startsWith("/api/skills/") ||
+          url.pathname === "/api/features" ||
+          url.pathname.startsWith("/api/features/") ||
           url.pathname === "/api/shares" ||
           url.pathname.startsWith("/api/shares/") ||
           url.pathname.startsWith("/api/cron/") ||

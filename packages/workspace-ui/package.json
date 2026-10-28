@@ -10,6 +10,7 @@
     "dev": "vite",
     "dev:real": "bun scripts/dev-real.ts",
     "e2e": "playwright test",
+    "browser:install": "playwright install chromium",
     "e2e:headed": "playwright test --headed",
     "screenshots": "playwright test e2e/mock-screenshots.spec.ts",
     "screenshots:headed": "playwright test e2e/mock-screenshots.spec.ts --headed",

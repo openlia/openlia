@@ -1,6 +1,15 @@
 {
   "schema": 1,
   "openlia": "0.1.0",
+  "templates": {
+    "repository": "https://github.com/openlia/templates.git",
+    "revision": "2ae32cab7f9ad32b164ccb83b9bd711bff0224fe"
+  },
+  "remind": {
+    "version": "06.03.06",
+    "source_url": "https://dianne.skoll.ca/projects/remind/download/remind-06.03.06.tar.gz",
+    "source_sha256": "19518dfa6ab3695749e74b26b664a7134b573ddd03f0a7a6fee3867868d6fd58"
+  },
   "hermes": {
     "image": "nousresearch/hermes-agent",
     "channel": "stable",

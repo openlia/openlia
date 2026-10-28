@@ -16,4 +16,13 @@ var Default = Manifest{
 		LinuxX8664SHA: "5efec3f6d1e6ac86017f86bb3dd6f60bb9234cbab223bc9028ee63161ad550a0",
 		LinuxARM64SHA: "235fb616581636f9f34c47c707fa8af620748d86e1cd86afc49fcbfae14b4267",
 	},
+	Templates: TemplatesPin{
+		Repository: "https://github.com/openlia/templates.git",
+		Revision:   "2ae32cab7f9ad32b164ccb83b9bd711bff0224fe",
+	},
+	Remind: SourcePin{
+		Version:      "06.03.06",
+		SourceURL:    "https://dianne.skoll.ca/projects/remind/download/remind-06.03.06.tar.gz",
+		SourceSHA256: "19518dfa6ab3695749e74b26b664a7134b573ddd03f0a7a6fee3867868d6fd58",
+	},
 }

@@ -35,6 +35,17 @@ jobs:
       - name: Install Python validation dependencies
         run: python -m pip install -r requirements-dev.txt
 
+      - name: Install pinned upstream Remind
+        run: |
+          version="$(python3 -c 'import json; print(json.load(open("release/manifest.json"))["remind"]["version"])')"
+          prefix="${RUNNER_TEMP}/openlia-remind/${version}"
+          python3 docker/install-remind.py --prefix "$prefix"
+          echo "$prefix/bin" >> "$GITHUB_PATH"
+          echo "OPENLIA_REMIND_BINARY=$prefix/bin/remind" >> "$GITHUB_ENV"
+
+      - name: Test source installer safeguards
+        run: python -m unittest discover -s tests -p test_install_remind.py
+
       - name: Install locked JavaScript dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
@@ -64,6 +75,9 @@ jobs:
       - name: Build Workspace UI image
         run: docker build --file docker/workspace-ui.Dockerfile --tag openlia-workspace-ui:ci .
 
+      - name: Verify pinned Remind in Workspace UI image
+        run: python tests/check_remind_image.py openlia-workspace-ui:ci
+
       - name: Build Hermes ingestion image
         run: |
           set -a
@@ -83,6 +97,9 @@ jobs:
           docker run --rm --entrypoint sh
           --volume "$PWD/docker/verify-tools.sh:/tmp/verify-tools.sh:ro"
           openlia-hermes:ci /tmp/verify-tools.sh
+
+      - name: Verify pinned Remind in Hermes image
+        run: python tests/check_remind_image.py openlia-hermes:ci
 
       - name: Verify Hermes workspace validator dependency
         run: >-

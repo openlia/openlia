@@ -1,0 +1,9 @@
+schema: 1
+id: yaml-contract
+name: YAML contract
+version: 1.0.0
+description: Block and flow syntax have identical runtime semantics.
+requires: {openlia: ">=0.1.0", tools: [remind], features: [], python: requirements.txt, bun: package.json}
+domains: [{path: yaml-contract, kind: extension, label: Contract, purpose: Testing, lifecycle: active, tags: [test], include_in_briefing: true}]
+skills: [{id: yaml-child, path: skills/yaml-child, workspace_domains: &roots [yaml-contract]}]
+policy: {allowed_domains: *roots, allowed_actions: [capture]}

@@ -50,7 +50,7 @@ func InitMigrationV2(config Config, migrationID string) (*migration.Migration, e
 		return nil, fmt.Errorf("acquire workspace lock for baseline: %w", lockErr)
 	}
 	if config.RepositoryRoot != "" {
-		_ = SeedAllFeatureTemplatesIntoDir(config.RepositoryRoot, propRepoDir)
+		_ = SeedAllFeatureTemplatesIntoDir(ResolveTemplatesRoot(config), propRepoDir)
 	}
 	baseCommit, err := repo.CaptureBaseline(liveWorkspace)
 	unlock()
@@ -69,7 +69,7 @@ func InitMigrationV2(config Config, migrationID string) (*migration.Migration, e
 		}
 		data, readErr := os.ReadFile(filepath.Join(sourceDir, filepath.FromSlash(sources[i].RelativePath)))
 		if readErr == nil {
-			if isBoilerplate, reason := IsKnownBoilerplateTemplate(config.RepositoryRoot, sources[i].RelativePath, data); isBoilerplate {
+			if isBoilerplate, reason := IsKnownBoilerplateTemplate(config.RepositoryRoot, sources[i].RelativePath, data, ResolveTemplatesRoot(config)); isBoilerplate {
 				sources[i].Eligibility = migration.EligibilitySkipped
 				sources[i].Reason = reason
 				sources[i].Dependencies = nil
@@ -244,7 +244,7 @@ func RunMigrationSupervisor(ctx context.Context, config Config, migrationID stri
 	mergedSkillsDir := filepath.Join(runnerRuntimeDir, "merged-skills")
 	_ = os.MkdirAll(filepath.Join(runnerRuntimeDir, "logs"), 0o777)
 	_ = os.MkdirAll(filepath.Join(runnerRuntimeDir, ".local"), 0o777)
-	_ = MergeCatalogSkillsIntoDir(config.RepositoryRoot, filepath.Join(config.DataRoot, "skills"), mergedSkillsDir)
+	_ = MergeCatalogSkillsIntoDir(ResolveTemplatesRoot(config), filepath.Join(config.DataRoot, "skills"), mergedSkillsDir)
 	if config.RuntimeUID > 0 && config.RuntimeGID > 0 && os.Geteuid() == 0 {
 		migrationsBaseDir := filepath.Dir(migDir)
 		openliaHiddenDir := filepath.Dir(migrationsBaseDir)
