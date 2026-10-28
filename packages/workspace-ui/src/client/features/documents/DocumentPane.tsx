@@ -1,33 +1,22 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { isMemoryDocument, memoryFilename } from "../../../shared/memory";
-import { getBuiltinDomainContract } from "../../../shared/domainContracts";
+import type { ReactNode } from "react";
 import type {
   MaintainerFinding,
   WorkspaceActivityResponse,
   WorkspaceDiagnosticsResponse,
-  WorkspaceDomainRecordsResponse,
   WorkspaceFile,
   WorkspaceFileMetadata,
 } from "../../../shared/api";
-import type { WorkspaceApi } from "../../api";
+import { isMemoryDocument, memoryFilename } from "../../../shared/memory";
 import { ActivitySection } from "../../ActivitySection";
+import type { WorkspaceApi } from "../../api";
 import { CodeEditor, isMarkdownPath } from "../../CodeEditor";
-import { MarkdownPreview } from "../../components/editor/MarkdownPreview";
-import {
-  type RelationshipOption,
-  SchemaRecordForm,
-} from "../../components/editor/SchemaRecordForm";
 import { CopyLinkButton } from "../../components/common/CopyLinkButton";
-import {
-  mutateRecordFrontmatter,
-  parseMarkdownRecord,
-  updateRecordSectionContent,
-} from "../../openui/recordMutator";
-import { DocumentInspector } from "./DocumentInspector";
+import { MarkdownPreview } from "../../components/editor/MarkdownPreview";
 import {
   buildCanonicalWorkspaceUri,
   buildWorkspaceLink,
 } from "../../openliaLinks";
+import { DocumentInspector } from "./DocumentInspector";
 
 export type WorkspaceView = "edit" | "preview" | "info";
 
@@ -318,7 +307,7 @@ function ArtifactPane({
 }
 
 export function DocumentPane({
-  api,
+  api: _api,
   artifact,
   conflict,
   detailsOpen = false,
@@ -420,107 +409,6 @@ export function DocumentPane({
   const canEdit = Boolean(file?.editable);
   const isMemory = Boolean(file && isMemoryDocument(file.path));
   const isMarkdown = file !== null && isMarkdownPath(file.path);
-  const domainPath = useMemo(() => {
-    if (!file || isMemory || !file.path.includes("/")) return "";
-    return file.path.split("/")[0] ?? "";
-  }, [file, isMemory]);
-
-  const builtinContract = useMemo(
-    () => (domainPath ? getBuiltinDomainContract(domainPath) : undefined),
-    [domainPath],
-  );
-
-  const [domainOverview, setDomainOverview] =
-    useState<WorkspaceDomainRecordsResponse | null>(null);
-  const [relationshipOptions, setRelationshipOptions] = useState<{
-    linked_project: RelationshipOption[];
-    linked_goal: RelationshipOption[];
-    linked_area: RelationshipOption[];
-  }>({
-    linked_project: [],
-    linked_goal: [],
-    linked_area: [],
-  });
-  const [fieldsPanelOpen, setFieldsPanelOpen] = useState(true);
-  const [fieldsOnlyView, setFieldsOnlyView] = useState(false);
-
-  useEffect(() => {
-    setDomainOverview(null);
-    if (!api || !domainPath || !isMarkdown) return;
-    let cancelled = false;
-    api
-      .loadDomainOverview(domainPath)
-      .then((res) => {
-        if (!cancelled) setDomainOverview(res);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [api, domainPath, isMarkdown]);
-
-  useEffect(() => {
-    if (!api || !domainPath || !isMarkdown) return;
-    let cancelled = false;
-    Promise.all([
-      api.loadDomainOverview("knowledge").catch(() => null),
-      api.loadDomainOverview("goals").catch(() => null),
-      api.loadDomainOverview("areas").catch(() => null),
-    ]).then(([knowledgeRes, goalsRes, areasRes]) => {
-      if (cancelled) return;
-      setRelationshipOptions({
-        linked_project: (knowledgeRes?.records ?? []).map((r) => ({
-          path: r.path,
-          title: r.title,
-        })),
-        linked_goal: (goalsRes?.records ?? []).map((r) => ({
-          path: r.path,
-          title: r.title,
-        })),
-        linked_area: (areasRes?.records ?? []).map((r) => ({
-          path: r.path,
-          title: r.title,
-        })),
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [api, domainPath, isMarkdown]);
-
-  const parsedRecord = useMemo(
-    () => (isMarkdown ? parseMarkdownRecord(draft) : null),
-    [draft, isMarkdown],
-  );
-
-  const activeSchemaJson =
-    domainOverview?.schema_json ?? builtinContract?.schema_json;
-  const activeSectionHeadings =
-    domainOverview?.template_headings ??
-    builtinContract?.template_headings ??
-    [];
-
-  const hasStructuredContract = Boolean(
-    isMarkdown &&
-      !isMemory &&
-      (parsedRecord?.hasFrontmatter ||
-        activeSchemaJson ||
-        activeSectionHeadings.length > 0),
-  );
-
-  const handleFrontmatterFieldChange = (key: string, value: unknown) => {
-    try {
-      const updated = mutateRecordFrontmatter(draft, { [key]: value });
-      onDraftChange(updated);
-    } catch {
-      // Ignore if frontmatter is temporarily malformed during raw text edits
-    }
-  };
-
-  const handleSectionFieldChange = (heading: string, content: string) => {
-    const updated = updateRecordSectionContent(draft, heading, content);
-    onDraftChange(updated);
-  };
 
   return (
     <section aria-label="Document workspace" className="workspace-document">
@@ -561,37 +449,18 @@ export function DocumentPane({
                 <>
                   <ModeButton
                     active={view === "preview"}
-                    onClick={() => {
-                      setFieldsOnlyView(false);
-                      onViewChange("preview");
-                    }}
+                    onClick={() => onViewChange("preview")}
                     value="preview"
                   >
                     Preview
                   </ModeButton>
                   <ModeButton
-                    active={view === "edit" && !fieldsOnlyView}
-                    onClick={() => {
-                      setFieldsOnlyView(false);
-                      onViewChange("edit");
-                    }}
+                    active={view === "edit"}
+                    onClick={() => onViewChange("edit")}
                     value="edit"
                   >
                     Edit
                   </ModeButton>
-                  {hasStructuredContract && (
-                    <ModeButton
-                      active={view === "edit" && fieldsOnlyView}
-                      onClick={() => {
-                        setFieldsOnlyView(true);
-                        setFieldsPanelOpen(true);
-                        onViewChange("edit");
-                      }}
-                      value="fields"
-                    >
-                      Fields
-                    </ModeButton>
-                  )}
                 </>
               ) : (
                 <span className="btn btn-xs sm:btn-sm btn-primary pointer-events-none">
@@ -981,88 +850,13 @@ export function DocumentPane({
           )}
           {view === "info" ? (
             <DocumentInspector diff={diff} draft={draft} file={file} />
-          ) : !isMarkdown ? (
+          ) : !isMarkdown || view === "edit" ? (
             <EditorPane
               draft={draft}
               file={file}
               fileLoading={fileLoading}
               onDraftChange={onDraftChange}
             />
-          ) : view === "edit" &&
-            fieldsOnlyView &&
-            hasStructuredContract &&
-            parsedRecord ? (
-            <section
-              aria-label="Structured Record Fields"
-              className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6"
-            >
-              <div className="max-w-3xl mx-auto">
-                <SchemaRecordForm
-                  disabled={!canEdit || fileLoading}
-                  frontmatter={parsedRecord.metadata}
-                  onFrontmatterChange={handleFrontmatterFieldChange}
-                  onSectionChange={handleSectionFieldChange}
-                  relationshipOptions={relationshipOptions}
-                  schemaJson={activeSchemaJson}
-                  schemaPath={
-                    file.validation?.schema_path ??
-                    domainOverview?.domain?.schema_path
-                  }
-                  sectionHeadings={activeSectionHeadings}
-                  sections={parsedRecord.sections}
-                  templatePath={
-                    file.validation?.template_path ??
-                    domainOverview?.domain?.template_path
-                  }
-                />
-              </div>
-            </section>
-          ) : view === "edit" ? (
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              {hasStructuredContract && parsedRecord && (
-                <div className="border-b border-base-content/10 bg-base-200/20 px-4 py-2.5 shrink-0 max-h-[42vh] overflow-y-auto">
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-base-content/70">
-                      Structured Record Fields
-                    </span>
-                    <button
-                      className="btn btn-ghost btn-xs"
-                      onClick={() => setFieldsPanelOpen((prev) => !prev)}
-                      type="button"
-                    >
-                      {fieldsPanelOpen ? "Hide Fields" : "Show Fields"}
-                    </button>
-                  </div>
-                  {fieldsPanelOpen && (
-                    <SchemaRecordForm
-                      compact
-                      disabled={!canEdit || fileLoading}
-                      frontmatter={parsedRecord.metadata}
-                      onFrontmatterChange={handleFrontmatterFieldChange}
-                      onSectionChange={handleSectionFieldChange}
-                      relationshipOptions={relationshipOptions}
-                      schemaJson={activeSchemaJson}
-                      schemaPath={
-                        file.validation?.schema_path ??
-                        domainOverview?.domain?.schema_path
-                      }
-                      sectionHeadings={activeSectionHeadings}
-                      sections={parsedRecord.sections}
-                      templatePath={
-                        file.validation?.template_path ??
-                        domainOverview?.domain?.template_path
-                      }
-                    />
-                  )}
-                </div>
-              )}
-              <EditorPane
-                draft={draft}
-                file={file}
-                fileLoading={fileLoading}
-                onDraftChange={onDraftChange}
-              />
-            </div>
           ) : (
             <section aria-label="Preview" className="workspace-preview-pane">
               <div className="workspace-pane-label sr-only">Preview</div>

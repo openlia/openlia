@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { CodeEditor } from "../CodeEditor";
 import { MarkdownPreview } from "../components/editor/MarkdownPreview";
 import { FrontmatterBlock } from "../FrontmatterBlock";
-import { CodeEditor } from "../CodeEditor";
 import { DocumentInspector } from "../features/documents/DocumentInspector";
 import { DocumentPane } from "../features/documents/DocumentPane";
 import { FileNavigator } from "../features/documents/FileNavigator";
@@ -15,7 +15,6 @@ const meta = {
   parameters: {
     componentExports: [
       "components/editor/MarkdownPreview.tsx#MarkdownPreview",
-      "components/editor/SchemaRecordForm.tsx#SchemaRecordForm",
       "FrontmatterBlock.tsx#FrontmatterBlock",
       "CodeEditor.tsx#CodeEditor",
       "features/documents/DocumentInspector.tsx#DocumentInspector",

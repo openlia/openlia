@@ -4,8 +4,8 @@ import {
   closeSync,
   existsSync,
   fsyncSync,
-  lstatSync,
   linkSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -17,6 +17,12 @@ import {
   writeSync,
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import YAML from "yaml";
+import {
+  mutateRecordFrontmatter,
+  parseMarkdownRecord,
+  updateRecordSectionContent,
+} from "../client/openui/recordMutator";
 import type {
   WorkspaceActivityResponse,
   WorkspaceCommit,
@@ -24,8 +30,8 @@ import type {
   WorkspaceDeleteResponse,
   WorkspaceDiagnosticsResponse,
   WorkspaceDomainInfo,
-  WorkspaceDomainRecordsResponse,
   WorkspaceDomainRecordSummary,
+  WorkspaceDomainRecordsResponse,
   WorkspaceFile,
   WorkspaceFileMetadata,
   WorkspaceFileValidation,
@@ -40,12 +46,19 @@ import type {
   WorkspaceWriteResponse,
 } from "../shared/api";
 import {
+  BUILTIN_DOMAIN_CONTRACTS,
+  getBuiltinDomainContract,
+  mergeBuiltinSchemaProperties,
+} from "../shared/domainContracts";
+import { MEMORY_DOCUMENT_PREFIX } from "../shared/memory";
+import {
   DEFAULT_PROJECT_UI_ENTRY,
   PROJECT_MANIFEST_FILENAME,
   type ProjectManifest,
   type ProjectQueryDefinition,
   type ProjectSummary,
 } from "../shared/project";
+import { evaluateFileFindings, MaintainerService } from "./maintainer/engine";
 import {
   extractHeadings,
   findDomainTemplate,
@@ -56,19 +69,6 @@ import {
   validateProjectManifest,
   validateRecordContent,
 } from "./validator";
-import YAML from "yaml";
-import { MEMORY_DOCUMENT_PREFIX } from "../shared/memory";
-import {
-  BUILTIN_DOMAIN_CONTRACTS,
-  getBuiltinDomainContract,
-  mergeBuiltinSchemaProperties,
-} from "../shared/domainContracts";
-import {
-  mutateRecordFrontmatter,
-  parseMarkdownRecord,
-  updateRecordSectionContent,
-} from "../client/openui/recordMutator";
-import { evaluateFileFindings, MaintainerService } from "./maintainer/engine";
 
 export const DEFAULT_MAX_EDITABLE_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
@@ -2034,6 +2034,9 @@ export class WorkspaceService {
               ...(manifest.data.template
                 ? { template_path: `${domain}/${manifest.data.template}` }
                 : {}),
+              ...(manifest.data.schema
+                ? { schema_path: `${domain}/${manifest.data.schema}` }
+                : {}),
             };
           }
         } catch {}
@@ -2051,6 +2054,11 @@ export class WorkspaceService {
           ? { template_path: tplInfo.templateRelativePath }
           : builtin?.template_path
             ? { template_path: builtin.template_path }
+            : {}),
+        ...(tplInfo?.schemaRelativePath
+          ? { schema_path: tplInfo.schemaRelativePath }
+          : builtin?.schema_path
+            ? { schema_path: builtin.schema_path }
             : {}),
       };
     }
@@ -2155,6 +2163,155 @@ export class WorkspaceService {
         /^([ \t]{0,3}#[ \t]+)(.+?)$/m,
         `$1${defaultTitle}`,
       );
+    }
+
+    // Prefill frontmatter from domain schema (if present on disk) for any missing schema properties
+    if (
+      typeof options?.content !== "string" &&
+      options?.starter_id !== "blank-note"
+    ) {
+      let schemaAbsolute: string | null = null;
+      if (matchedDomain.schema_path) {
+        const candidate = resolve(
+          this.workspaceRoot,
+          matchedDomain.schema_path,
+        );
+        if (this.insideWorkspace(candidate) && existsSync(candidate)) {
+          schemaAbsolute = candidate;
+        }
+      }
+      if (!schemaAbsolute) {
+        const tplInfo = findDomainTemplate(this.workspaceRoot, relativePath);
+        if (
+          tplInfo?.schemaAbsolutePath &&
+          existsSync(tplInfo.schemaAbsolutePath)
+        ) {
+          schemaAbsolute = tplInfo.schemaAbsolutePath;
+        }
+      }
+      if (!schemaAbsolute) {
+        const domainDirAbs = resolve(this.workspaceRoot, matchedDomain.path);
+        if (this.insideWorkspace(domainDirAbs) && existsSync(domainDirAbs)) {
+          try {
+            const schemaEntries = readdirSync(domainDirAbs, {
+              withFileTypes: true,
+            }).filter(
+              (entry) =>
+                entry.isFile() &&
+                entry.name.endsWith(".schema.json") &&
+                !entry.name.startsWith("."),
+            );
+            if (schemaEntries.length === 1 && schemaEntries[0]) {
+              schemaAbsolute = join(domainDirAbs, schemaEntries[0].name);
+            }
+          } catch {}
+        }
+      }
+
+      if (schemaAbsolute && existsSync(schemaAbsolute)) {
+        try {
+          const parsedSchema = JSON.parse(
+            readFileSync(schemaAbsolute, "utf-8"),
+          );
+          if (
+            parsedSchema &&
+            typeof parsedSchema === "object" &&
+            !Array.isArray(parsedSchema) &&
+            parsedSchema.properties &&
+            typeof parsedSchema.properties === "object" &&
+            !Array.isArray(parsedSchema.properties)
+          ) {
+            const parsedRecord = parseMarkdownRecord(templateContent);
+            const existingMeta = parsedRecord.metadata;
+            const schemaDefaults: Record<string, unknown> = {};
+
+            if (!existingMeta.$schema) {
+              const relSchemaRaw = relative(
+                dirname(absolute),
+                schemaAbsolute,
+              ).replaceAll("\\", "/");
+              schemaDefaults.$schema = relSchemaRaw.startsWith(".")
+                ? relSchemaRaw
+                : `./${relSchemaRaw}`;
+            }
+
+            const requiredSet = new Set<string>(
+              Array.isArray(parsedSchema.required)
+                ? parsedSchema.required.filter(
+                    (r: unknown): r is string => typeof r === "string",
+                  )
+                : [],
+            );
+            const allowsType = (
+              prop: Record<string, unknown>,
+              target: string,
+            ): boolean => {
+              if (typeof prop.type === "string") return prop.type === target;
+              if (Array.isArray(prop.type)) return prop.type.includes(target);
+              return false;
+            };
+            const allowsNull = (prop: Record<string, unknown>): boolean => {
+              if (!prop.type) return true;
+              if (allowsType(prop, "null")) return true;
+              if (Array.isArray(prop.enum) && prop.enum.includes(null))
+                return true;
+              return false;
+            };
+
+            const props = parsedSchema.properties as Record<string, unknown>;
+            for (const [propKey, rawProp] of Object.entries(props)) {
+              if (propKey === "$schema" || existingMeta[propKey] !== undefined)
+                continue;
+              if (
+                !rawProp ||
+                typeof rawProp !== "object" ||
+                Array.isArray(rawProp)
+              ) {
+                schemaDefaults[propKey] = null;
+                continue;
+              }
+              const prop = rawProp as Record<string, unknown>;
+              if (prop.default !== undefined) {
+                schemaDefaults[propKey] = prop.default;
+              } else if (
+                builtin?.template_defaults &&
+                propKey in builtin.template_defaults &&
+                (builtin.template_defaults[propKey] !== null ||
+                  allowsNull(prop))
+              ) {
+                schemaDefaults[propKey] = builtin.template_defaults[propKey];
+              } else if (Array.isArray(prop.enum) && prop.enum.length > 0) {
+                if (requiredSet.has(propKey) || !allowsNull(prop)) {
+                  schemaDefaults[propKey] =
+                    prop.enum.find((v) => v !== null) ?? prop.enum[0];
+                } else {
+                  schemaDefaults[propKey] = null;
+                }
+              } else if (allowsType(prop, "array")) {
+                schemaDefaults[propKey] = [];
+              } else if (allowsNull(prop)) {
+                schemaDefaults[propKey] = null;
+              } else if (allowsType(prop, "boolean")) {
+                schemaDefaults[propKey] = false;
+              } else if (
+                allowsType(prop, "number") ||
+                allowsType(prop, "integer")
+              ) {
+                schemaDefaults[propKey] = 0;
+              } else {
+                schemaDefaults[propKey] = "";
+              }
+            }
+
+            if (Object.keys(schemaDefaults).length > 0) {
+              templateContent = mutateRecordFrontmatter(
+                templateContent,
+                schemaDefaults,
+              );
+            }
+          }
+        } catch {}
+      }
     }
 
     // Apply structured frontmatter overrides if provided

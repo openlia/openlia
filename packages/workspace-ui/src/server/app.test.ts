@@ -1544,6 +1544,47 @@ describe("workspace HTTP handler", () => {
       "linked_project: knowledge/project-apollo.md",
     );
     expect(taskFile.content).toContain("completed_at: null");
+
+    // Creating a file with only domain + name prefills template and schema frontmatter automatically
+    mkdirSync(join(root, "habits"), { recursive: true });
+    writeFileSync(
+      join(root, "habits/habit-template.schema.json"),
+      JSON.stringify({
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        type: "object",
+        required: ["frequency"],
+        properties: {
+          frequency: { type: "string", enum: ["daily", "weekly"] },
+          streak: { type: "integer", default: 0 },
+          notes: { type: ["string", "null"] },
+        },
+      }),
+    );
+    writeFileSync(
+      join(root, "habits/habit-template.md"),
+      "---\n$schema: ./habit-template.schema.json\nfrequency: daily\n---\n\n# <Habit Name>\n\n## Routine\n\n- Step 1\n",
+    );
+
+    const simpleHabitRes = await request("/api/workspace/create-file", {
+      body: JSON.stringify({
+        domain: "habits",
+        name: "morning-run",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    expect(simpleHabitRes.status).toBe(201);
+    const habitFile = (await simpleHabitRes.json()) as WorkspaceFile;
+    expect(habitFile.path).toBe("habits/morning-run.md");
+    expect(habitFile.content).toContain(
+      "$schema: ./habit-template.schema.json",
+    );
+    expect(habitFile.content).toContain("frequency: daily");
+    expect(habitFile.content).toContain("streak: 0");
+    expect(habitFile.content).toContain("notes: null");
+    expect(habitFile.content).toContain("# morning-run");
+    expect(habitFile.content).toContain("## Routine");
+    expect(habitFile.validation?.valid).toBe(true);
   });
 
   test("manages cron jobs through API endpoints", async () => {
