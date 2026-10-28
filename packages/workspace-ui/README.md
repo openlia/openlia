@@ -102,6 +102,39 @@ bun install
 
 ## Frontend Development
 
+### Component review with Storybook
+
+```sh
+bun run --cwd packages/workspace-ui storybook
+```
+
+From the repository root, open **http://127.0.0.1:6006**. If already in this
+package, use `bun run storybook`. Storybook requires a current Node.js runtime
+(22.12+ recommended) alongside Bun; no Go, Docker, Hermes, API server, or native
+Remind is needed.
+
+The catalog covers all exported UI components, including Calendar Month, Week,
+Gantt/event-duration Timeline, appointment editor/details, and the template-defined
+three-tab Calendar. It also includes documents, dialogs, chat, skills, ingestion,
+sharing, workspace features, and OpenUI compositions. Use the viewport toolbar
+for desktop/mobile review, Controls where available, Actions for callback events,
+and Accessibility for non-blocking findings. Open modal stories in **Canvas**.
+
+Each story uses synthetic fixtures and a fresh in-memory API. The preview clock
+is fixed to 27 October 2026; live API and external fetch requests are blocked.
+No records, invitations, scheduled jobs, or real shared links are created.
+
+```sh
+bun run --cwd packages/workspace-ui storybook:coverage # inventory of exported UI components
+bun run --cwd packages/workspace-ui build:storybook   # static .storybook-static/ output
+bun run --cwd packages/workspace-ui test:storybook    # build + desktop/mobile browser checks
+```
+
+See [the Storybook guide](../../docs/storybook.md) for catalog structure,
+authoring conventions, and test boundaries.
+
+### Full application development
+
 The default development mode uses a stateful in-memory API. It requires no
 backend process and is safe to use for normal UI development:
 

@@ -73,10 +73,16 @@ cd packages/workspace-ui
 bun install
 bun run dev          # Starts Vite on http://127.0.0.1:5173 with in-memory mock API
 bun run dev:real     # Starts Vite + real Bun filesystem API against disposable .dev-workspace/
+bun run storybook    # Reviews isolated UI components at http://127.0.0.1:6006
+bun run test:storybook # Builds Storybook and checks every story on desktop/mobile
 bun run check        # Runs Biome lint/format and TypeScript typechecking
 bun run test         # Runs Vitest suite
 ```
 Switch UI states instantly in mock mode with `?scenario=auth`, `?scenario=conflict`, `?scenario=empty`, `?scenario=error`, or `?scenario=loading`. See [`packages/workspace-ui/README.md`](packages/workspace-ui/README.md) for details.
+
+For component-focused work, use [Storybook](docs/storybook.md) with synthetic
+fixtures and no live backend. Add stories for new exported UI components;
+`bun run storybook:coverage` checks the inventory and is included in `bun run check`.
 
 ### C. Skills, Templates & Feature Packages (`profile/skills/`, `features/`, `workspace-template/`)
 ```bash
