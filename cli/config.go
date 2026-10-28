@@ -39,7 +39,6 @@ var (
 )
 
 var defaultSkills = []string{
-	"inbox-triage",
 	"document-intelligence",
 	"daily-briefing",
 	"weekly-review",

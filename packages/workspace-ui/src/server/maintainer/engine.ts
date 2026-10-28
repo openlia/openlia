@@ -98,12 +98,12 @@ const CORE_DOMAIN_PURPOSES: Record<string, { label: string; purpose: string }> =
     },
     knowledge: {
       label: "Knowledge",
-      purpose: "Reference notes, guides, and durable knowledge.",
-    },
-    "knowledge/claims": {
-      label: "Claims",
       purpose:
-        "Reusable personal claims with provenance and lifecycle metadata.",
+        "Obsidian-style free-form PKM vault for notes, project pages (e.g. project-apollo.md), and subfolders.",
+    },
+    decisions: {
+      label: "Decisions",
+      purpose: "Questions, options, trade-offs, and outcomes.",
     },
     sources: {
       label: "Sources",

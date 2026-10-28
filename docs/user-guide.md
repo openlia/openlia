@@ -85,7 +85,7 @@ workspace/
 ### Public Templates Catalog (`https://github.com/openlia/templates.git`)
 You can keep your workspace completely custom or install starter profiles, modular features, and workflow skills from **[`openlia/templates`](https://github.com/openlia/templates.git)**:
 
-- **`personal-os` Profile (`openlia features install --profile personal-os`)**: Installs the full Personal OS suite (`goals`, `tasks`, `calendar`, `claims`, `daily-briefing`, and all 7 core productivity skills) in one command.
+- **`personal-os` Profile (`openlia features install --profile personal-os`)**: Installs the full Personal OS suite (`goals`, `tasks`, `calendar`, `daily-briefing`, and core productivity skills) in one command.
 - **Modular Features (`openlia features install <id>`)**:
 
 | Feature Package | Workspace Folders Added | Capabilities & Dependencies |
@@ -93,7 +93,6 @@ You can keep your workspace completely custom or install starter profiles, modul
 | **`goals`** | `goals/` | High-level outcomes and milestones with OpenUI dashboard |
 | **`tasks`** | `tasks/` | Concrete action items with Kanban & table views |
 | **`calendar`** | `calendar/` | Calendar Mini-Project with Month, Week, and event-duration Timeline views, local appointment creation, companion event notes, and `reminders.rem` (automatically installs `remind` CLI into `/opt/data/.local`) |
-| **`claims`** | `knowledge/claims/`, `archive/` | Provenance-backed personal claim ledger with certainty and temporal validity |
 | **`daily-briefing`** | `inbox/daily-briefing/` | Dated morning briefing reports and `/daily-briefing` skill |
 | **`personal-finance`** | `finance/`, `finance/intake/`, `finance/accounts/`, `finance/portfolios/`, `finance/reviews/` | `personal-finance` skill + `hledger` journals (automatically installs `hledger` CLI into `/opt/data/.local`) |
 | **`personal-health`** | `health/`, `health/profiles/`, `health/history/`, `health/conditions/`, `health/treatments/`, `health/reviews/` | `personal-health` skill & structured medical templates |

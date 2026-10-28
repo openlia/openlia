@@ -60,7 +60,6 @@ source = "~/.config/openlia/dev/openlia_dev.env"
 
 [skills]
 enabled = [
-  "inbox-triage",
   "daily-briefing",
   "weekly-review",
   "decision-analysis",

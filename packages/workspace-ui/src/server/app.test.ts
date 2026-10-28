@@ -1411,6 +1411,141 @@ describe("workspace HTTP handler", () => {
     });
   });
 
+  test("exposes typed domain contracts and creates linked project, decision, and task records (#183)", async () => {
+    const domainsRes = await request("/api/workspace/creatable-domains");
+    expect(domainsRes.status).toBe(200);
+    const { domains } = (await domainsRes.json()) as WorkspaceDomainsResponse;
+    const domainPaths = domains.map((d) => d.path);
+    expect(domainPaths).toContain("knowledge");
+    expect(domainPaths).toContain("decisions");
+    expect(domainPaths).toContain("tasks");
+    expect(domainPaths).not.toContain("knowledge/claims");
+
+    // Inspect knowledge vault overview and starter scaffolds
+    const knowledgeOverviewRes = await request(
+      "/api/workspace/domain-overview?path=knowledge",
+    );
+    expect(knowledgeOverviewRes.status).toBe(200);
+    const knowledgeOverview = (await knowledgeOverviewRes.json()) as any;
+    expect(knowledgeOverview.starter_templates?.map((s: any) => s.id)).toEqual([
+      "project-note",
+      "atomic-note",
+      "blank-note",
+    ]);
+
+    // Create knowledge/project-apollo.md with Project Note starter and typed fields
+    const createProjectRes = await request("/api/workspace/create-file", {
+      body: JSON.stringify({
+        domain: "knowledge",
+        name: "project-apollo.md",
+        starter_id: "project-note",
+        title: "Project Apollo",
+        frontmatter: {
+          kind: "project",
+          status: "active",
+          owner: "Alex",
+          target_completion: "2026-11-30",
+          linked_goal: "goals/q4-reliability.md",
+          linked_area: "areas/platform.md",
+          tags: ["apollo", "storage"],
+        },
+        sections: {
+          Objective: "Unify storage layer with zero-downtime migration.",
+          Constraints: "Must keep latency under 10ms p99.",
+          Milestones:
+            "- [ ] M1: Storage evaluation\n- [ ] M2: Benchmark harness",
+        },
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    expect(createProjectRes.status).toBe(201);
+    const projectFile = (await createProjectRes.json()) as WorkspaceFile;
+    expect(projectFile.path).toBe("knowledge/project-apollo.md");
+    expect(projectFile.content).not.toContain("$schema:");
+    expect(projectFile.content).toContain("# Project Apollo");
+    expect(projectFile.content).toContain("status: active");
+    expect(projectFile.content).toContain("owner: Alex");
+    expect(projectFile.content).toContain("target_completion: 2026-11-30");
+    expect(projectFile.content).toContain(
+      "Unify storage layer with zero-downtime migration.",
+    );
+    expect(projectFile.validation?.valid).toBe(true);
+
+    // Create decisions/apollo-storage-choice.md linked to knowledge/project-apollo.md
+    const createDecisionRes = await request("/api/workspace/create-file", {
+      body: JSON.stringify({
+        domain: "decisions",
+        name: "apollo-storage-choice.md",
+        title: "Apollo Storage Engine Choice",
+        frontmatter: {
+          status: "proposed",
+          decision_date: "2026-10-20",
+          review_date: "2026-11-05",
+          linked_project: "knowledge/project-apollo.md",
+          chosen_option: null,
+        },
+        sections: {
+          Question: "Which storage engine should Project Apollo adopt?",
+          "Options Considered": "- Option A: SQLite WAL\n- Option B: DuckDB",
+          "Chosen Option & Rationale": "Pending benchmark results.",
+        },
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    expect(createDecisionRes.status).toBe(201);
+    const decisionFile = (await createDecisionRes.json()) as WorkspaceFile;
+    expect(decisionFile.path).toBe("decisions/apollo-storage-choice.md");
+    expect(decisionFile.content).toContain("status: proposed");
+    expect(decisionFile.content).toContain("decision_date: 2026-10-20");
+    expect(decisionFile.content).toContain("review_date: 2026-11-05");
+    expect(decisionFile.content).toContain(
+      "linked_project: knowledge/project-apollo.md",
+    );
+    expect(decisionFile.content).toContain("chosen_option: null");
+    expect(decisionFile.content).toContain(
+      "Which storage engine should Project Apollo adopt?",
+    );
+
+    // Create tasks/apollo-benchmark-harness.md linked to knowledge/project-apollo.md
+    const createTaskRes = await request("/api/workspace/create-file", {
+      body: JSON.stringify({
+        domain: "tasks",
+        name: "apollo-benchmark-harness.md",
+        title: "Apollo Benchmark Harness",
+        frontmatter: {
+          status: "todo",
+          priority: "high",
+          owner: "Alex",
+          due_date: "2026-10-29",
+          linked_project: "knowledge/project-apollo.md",
+          linked_area: "areas/platform.md",
+          context_tags: ["benchmark", "apollo"],
+          completed_at: null,
+        },
+        sections: {
+          Action: "Build reproducible p99 latency benchmark harness.",
+          "Checklist / Substeps":
+            "- [ ] Seed synthetic workload\n- [ ] Capture p99 metrics",
+        },
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    expect(createTaskRes.status).toBe(201);
+    const taskFile = (await createTaskRes.json()) as WorkspaceFile;
+    expect(taskFile.path).toBe("tasks/apollo-benchmark-harness.md");
+    expect(taskFile.content).toContain("status: todo");
+    expect(taskFile.content).toContain("priority: high");
+    expect(taskFile.content).toContain("owner: Alex");
+    expect(taskFile.content).toContain("due_date: 2026-10-29");
+    expect(taskFile.content).toContain(
+      "linked_project: knowledge/project-apollo.md",
+    );
+    expect(taskFile.content).toContain("completed_at: null");
+  });
+
   test("manages cron jobs through API endpoints", async () => {
     // Initial overview
     const getRes = await request("/api/cron/jobs");

@@ -861,12 +861,27 @@ export interface WorkspaceDomainRecordSummary {
   validation?: WorkspaceFileValidation | undefined;
 }
 
+export interface WorkspaceStarterTemplate {
+  id: string;
+  label: string;
+  description: string;
+  schema_json?: Record<string, unknown> | undefined;
+  template_headings: string[];
+  template_content: string;
+  template_defaults?: Record<string, unknown> | undefined;
+  template_sections?: Record<string, string> | undefined;
+}
+
 export interface WorkspaceDomainRecordsResponse {
   schema: 1;
   domain: WorkspaceDomainInfo;
   records: WorkspaceDomainRecordSummary[];
   schema_json?: Record<string, unknown> | undefined;
   template_headings?: string[] | undefined;
+  template_content?: string | undefined;
+  template_defaults?: Record<string, unknown> | undefined;
+  template_sections?: Record<string, string> | undefined;
+  starter_templates?: WorkspaceStarterTemplate[] | undefined;
   dashboard_openui?: string | undefined;
   record_openui?: string | undefined;
 }
@@ -879,6 +894,11 @@ export interface WorkspaceDomainsResponse {
 export interface WorkspaceCreateFileRequest {
   domain: string;
   name: string;
+  starter_id?: string | undefined;
+  title?: string | undefined;
+  frontmatter?: Record<string, unknown> | undefined;
+  sections?: Record<string, string> | undefined;
+  content?: string | undefined;
 }
 
 export interface WorkspaceFixTemplateRequest {

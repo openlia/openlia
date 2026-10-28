@@ -87,9 +87,9 @@ Every new OpenLia deployment starts with a clean, unopinionated core workspace (
 - `feature.schema.json` (JSON Schema for modular feature manifests)
 
 Install starter profiles, domain features, and standalone skills on demand from [`https://github.com/openlia/templates.git`](https://github.com/openlia/templates.git) (or your own template repository / local directory / `.zip` archive):
-- **Starter Profiles**: `personal-os` (installs `goals`, `tasks`, `calendar`, `claims`, `daily-briefing`, and core productivity skills in one command)
-- **Modular Features**: `goals`, `tasks`, `calendar`, `claims`, `daily-briefing`, `personal-finance`, `personal-health`, `decision-analysis`, `deep-research`, `areas`, `ideas`, `monitors`, `people`, `shopping`, `travel`
-- **Standalone Skills**: `daily-briefing`, `weekly-review`, `inbox-triage`, `workspace-organize`, `workspace-git`, `calendar`, `document-intelligence`
+- **Starter Profiles**: `personal-os` (installs `goals`, `tasks`, `calendar`, `daily-briefing`, and core productivity skills in one command)
+- **Modular Features**: `goals`, `tasks`, `calendar`, `daily-briefing`, `personal-finance`, `personal-health`, `decision-analysis`, `deep-research`, `areas`, `ideas`, `monitors`, `people`, `shopping`, `travel`
+- **Standalone Skills**: `daily-briefing`, `weekly-review`, `workspace-organize`, `workspace-git`, `calendar`, `document-intelligence`
 
 ### 2. On-Demand Tool & Dependency Store (`/opt/data/.local`)
  Core container images stay lean. Features (`feature.yaml`) and skills (`SKILL.md`) declare domain-specific dependencies under `requires`:

@@ -132,7 +132,7 @@ Verify the compiled version:
    OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia skills list --json
    OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia features list
    ```
-   **Pass Criteria**: Lists bundled skills (`calendar`, `daily-briefing`, `document-intelligence`, `inbox-triage`, `weekly-review`, `workspace-git`, `workspace-organize`) and available/installed features (`personal-finance`, `personal-health`, etc.).
+   **Pass Criteria**: Lists bundled skills (`calendar`, `daily-briefing`, `document-intelligence`, `weekly-review`, `workspace-git`, `workspace-organize`) and available/installed features (`personal-finance`, `personal-health`, etc.).
 
 ---
 

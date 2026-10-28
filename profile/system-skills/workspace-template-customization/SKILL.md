@@ -46,8 +46,6 @@ other skills, or existing records without explicit approval.
 - Skill templates without frontmatter are checked for Markdown template
   structure. Skill templates with frontmatter must declare `$schema` and have
   their metadata validated against the referenced schema.
-- Knowledge claim records use the ordinary workspace template/schema contract at
-  `knowledge/claims/claim-template.md`.
 - Workspace copies are user-owned. OpenLia seeds missing files and preserves
   existing files during profile updates.
 - A missing registry is supported for older workspaces; registry-aware skills

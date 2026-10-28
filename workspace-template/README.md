@@ -23,6 +23,8 @@ Every workspace starts with a clean, unopinionated foundation:
 - `inbox/`: universal intake point for uncategorized captures waiting for review.
 - `inbox/ingestion/`: durable ingestion intake records that survive runtime queue
   cleanup (`inbox/ingestion/ingestion-template.md`).
+- `knowledge/`: free-form Obsidian-style PKM vault for notes, project pages, and
+  linked knowledge.
 - `sources/`: retained originals, source records, immutable extraction artifacts,
   and evidence manifests created by durable ingestion (`sources/records/source-template.md`).
 
@@ -35,12 +37,12 @@ can be synced, installed, imported, or packaged on demand via `openlia features`
 
 - **Profiles** (e.g. `personal-os`): curated bundles of agent instructions,
   features, and skills.
-- **Features** (e.g. `tasks`, `goals`, `calendar`, `claims`, `daily-briefing`,
+- **Features** (e.g. `tasks`, `goals`, `calendar`, `daily-briefing`,
   `personal-finance`, `personal-health`, `decision-analysis`, `deep-research`,
   `travel`, `shopping`, `areas`, `ideas`, `monitors`, `people`): self-contained
   packages with `feature.yaml`, `workspace/` templates/schemas/OpenUI views,
   `skills/`, and on-demand `/opt/data/.local` tool/Python/Bun dependencies.
-- **Standalone Skills** (e.g. `inbox-triage`, `document-intelligence`,
+- **Standalone Skills** (e.g. `document-intelligence`,
   `workspace-organize`, `workspace-git`, `weekly-review`).
 
 Users can also package custom workspace domains and skills into a portable

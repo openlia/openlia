@@ -2238,7 +2238,10 @@ export function createWorkspaceHandler(
             { schema: 1, ok: false, error: "origin_not_allowed" },
             403,
           );
-        const bodyResult = await readJson(request, maxDeleteRequestBytes);
+        const bodyResult = await readJson(
+          request,
+          (options.maxEditableBytes ?? 2 * 1024 * 1024) + 4096,
+        );
         if (bodyResult.tooLarge)
           return json(
             { schema: 1, ok: false, error: "request_too_large" },
@@ -2254,6 +2257,13 @@ export function createWorkspaceHandler(
         const file = service.createFile(
           createRequest.domain,
           createRequest.name,
+          {
+            starter_id: createRequest.starter_id,
+            title: createRequest.title,
+            frontmatter: createRequest.frontmatter,
+            sections: createRequest.sections,
+            content: createRequest.content,
+          },
         );
         return json(file, 201);
       }

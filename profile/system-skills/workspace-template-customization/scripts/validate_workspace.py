@@ -866,26 +866,27 @@ def self_test() -> None:
             "---\nstatus: active\n---\n# Quarterly goal\n\n## Outcome\n", encoding="utf-8"
         )
 
-        claims_domain = root / "knowledge" / "claims"
-        claims_domain.mkdir(parents=True)
-        claims_schema = {
+        decisions_domain = root / "decisions"
+        decisions_domain.mkdir(parents=True)
+        decisions_schema = {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
-            "properties": {"status": {"enum": ["candidate", "active"]}},
+            "properties": {"status": {"enum": ["proposed", "decided"]}},
             "required": ["status"],
             "additionalProperties": False,
         }
-        (claims_domain / "claim-template.schema.json").write_text(
-            json.dumps(claims_schema), encoding="utf-8"
+        (decisions_domain / "decision-template.schema.json").write_text(
+            json.dumps(decisions_schema), encoding="utf-8"
         )
-        (claims_domain / "claim-template.md").write_text(
-            "---\n$schema: ./claim-template.schema.json\nstatus: candidate\n---\n"
-            "# <Claim Record>\n\n## Claim\n",
+        (decisions_domain / "decision-template.md").write_text(
+            "---\n$schema: ./decision-template.schema.json\nstatus: proposed\n---\n"
+            "# <Decision Record>\n\n## Question\n",
             encoding="utf-8",
         )
-        claim = claims_domain / "example.md"
-        claim.write_text("---\nstatus: active\n---\n# Claim Record\n\n## Claim\nA claim.\n", encoding="utf-8")
+        decision = decisions_domain / "example.md"
+        decision.write_text("---\nstatus: decided\n---\n# Decision Record\n\n## Question\nA question.\n", encoding="utf-8")
         unrelated_knowledge = root / "knowledge" / "reference.md"
+        unrelated_knowledge.parent.mkdir(parents=True, exist_ok=True)
         unrelated_knowledge.write_text("# A knowledge reference without frontmatter\n", encoding="utf-8")
         assert load_registry(root) is not None
         assert validate_workspace(root) == []
@@ -916,7 +917,7 @@ def self_test() -> None:
         errors = validate_workspace(root)
         assert any("career.md" in error and "status" in error for error in errors)
         assert any("career.md" in error and "extra" in error for error in errors)
-        assert any("knowledge/claims/example.md" in error for error in errors) is False
+        assert any("decisions/example.md" in error for error in errors) is False
         assert record.read_text(encoding="utf-8").startswith("---\nstatus: unknown")
 
         record.write_text("---\nstatus: active\n---\n# Career\n\n## Outcoome\n", encoding="utf-8")
@@ -925,9 +926,9 @@ def self_test() -> None:
 
         record.write_text("---\nstatus: active\n---\n# Career\n\n## Outcome\n", encoding="utf-8")
 
-        claim.write_text("---\nstatus: unknown\n---\n# Claim Record\n\n## Claim\nA claim.\n", encoding="utf-8")
+        decision.write_text("---\nstatus: unknown\n---\n# Decision Record\n\n## Question\nA question.\n", encoding="utf-8")
         errors = validate_workspace(root)
-        assert any("knowledge/claims/example.md" in error and "status" in error for error in errors)
+        assert any("decisions/example.md" in error and "status" in error for error in errors)
         assert not any("knowledge/reference.md" in error for error in errors)
 
     with TemporaryDirectory(prefix="openlia-skill-template-validation-") as directory:
