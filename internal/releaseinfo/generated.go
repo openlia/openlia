@@ -18,6 +18,11 @@ var Default = Manifest{
 	},
 	Templates: TemplatesPin{
 		Repository: "https://github.com/openlia/templates.git",
-		Revision:   "cb0d6e44ee4ce84ef4c05465af224d2e7b266f01",
+		Revision:   "2ae32cab7f9ad32b164ccb83b9bd711bff0224fe",
+	},
+	Remind: SourcePin{
+		Version:      "06.03.06",
+		SourceURL:    "https://dianne.skoll.ca/projects/remind/download/remind-06.03.06.tar.gz",
+		SourceSHA256: "19518dfa6ab3695749e74b26b664a7134b573ddd03f0a7a6fee3867868d6fd58",
 	},
 }

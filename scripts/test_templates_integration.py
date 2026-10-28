@@ -79,13 +79,24 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report["runtime"] = checkout_identity(ROOT)
         report["templates"] = checkout_identity(templates)
-        report["release_catalog_pin"] = json.loads((ROOT / "release/manifest.json").read_text())["templates"]
+        manifest = json.loads((ROOT / "release/manifest.json").read_text())
+        report["release_catalog_pin"] = manifest["templates"]
         for tool in ("git", "go", "bun"):
             if not shutil.which(tool):
                 raise RuntimeError(f"Missing {tool}; install integration prerequisites first")
         remind = str(args.remind_binary.resolve()) if args.remind_binary else shutil.which("remind")
         if not args.skip_browser and not remind:
             raise RuntimeError("Native Remind is required for Calendar acceptance. Install remind, pass --remind-binary PATH, or explicitly use --skip-browser for contract-only checks.")
+        if remind:
+            installer = runpy.run_path(str(ROOT / "docker/install-remind.py"))
+            binary = Path(remind).resolve()
+            verified = installer["verify_binary"](binary, manifest["remind"]["version"])
+            report["remind"] = {**verified, "binary": str(binary), "source_pin": manifest["remind"], "corresponding_source_verified": False}
+            source = binary.parent.parent / "share/openlia/sources/remind" / f"remind-{verified['version']}.tar.gz"
+            if source.is_file():
+                if installer["digest"](source) != manifest["remind"]["source_sha256"]:
+                    raise RuntimeError("Installed Remind corresponding source does not match the release pin")
+                report["remind"]["corresponding_source_verified"] = True
         with tempfile.TemporaryDirectory(prefix="openlia-templates-integration-") as temp:
             scratch = Path(temp)
             snapshot = scratch / "templates"
@@ -106,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
                 go_env["OPENLIA_INTEGRATION_DOCKER"] = "true"
             run("real Go catalog sync/install/profile/package/import and regressions", ["go", "test", "./operator", "-run", "TestCompatibility|TestRuntimeMeetsMinimum|TestParseOpenLiaRequirement|TestTemplates|TestRealTemplatesCatalogIntegration", "-count=1"], env=go_env)
             report["go_catalog"] = json.loads(go_report.read_text())
+            if remind:
+                run("native Calendar server regression tests", ["bun", "test", "src/server/calendar.test.ts"], cwd=UI, env={**environment, "OPENLIA_REMIND_BINARY": remind})
             report["docker_bind_mounts"] = "passed with isolated pinned Alpine container" if args.docker else "not-run (opt in with --docker)"
             sandbox = scratch / "installed"
             run("real catalog installation and runtime OpenUI diagnostics", ["bun", "scripts/check-templates.ts", str(snapshot), str(sandbox)], cwd=UI)

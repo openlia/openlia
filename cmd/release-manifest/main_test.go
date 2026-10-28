@@ -7,6 +7,7 @@ func TestValidateRequiresStableImmutableImagePins(t *testing.T) {
 		Schema:    1,
 		OpenLia:   "0.1.0",
 		Templates: templates{Repository: "https://github.com/openlia/templates.git", Revision: "cb0d6e44ee4ce84ef4c05465af224d2e7b266f01"},
+		Remind:    sourcePin{Version: "06.03.06", SourceURL: "https://dianne.skoll.ca/projects/remind/download/remind-06.03.06.tar.gz", SourceSHA256: repeatedHex('e')},
 		Hermes: image{
 			Image:   "nousresearch/hermes-agent",
 			Channel: "stable",
@@ -24,9 +25,13 @@ func TestValidateRequiresStableImmutableImagePins(t *testing.T) {
 	}
 
 	for name, edit := range map[string]func(*manifest){
-		"prerelease":                   func(value *manifest) { value.Hermes.Tag = "v0.23.0-rc.1" },
-		"floating":                     func(value *manifest) { value.Hermes.Tag = "latest" },
-		"floating templates":           func(value *manifest) { value.Templates.Revision = "main" },
+		"prerelease":         func(value *manifest) { value.Hermes.Tag = "v0.23.0-rc.1" },
+		"floating":           func(value *manifest) { value.Hermes.Tag = "latest" },
+		"floating templates": func(value *manifest) { value.Templates.Revision = "main" },
+		"unpinned Remind":    func(value *manifest) { value.Remind.SourceSHA256 = "" },
+		"moving Remind URL": func(value *manifest) {
+			value.Remind.SourceURL = "https://dianne.skoll.ca/projects/remind/download/latest.tar.gz"
+		},
 		"short templates SHA":          func(value *manifest) { value.Templates.Revision = "cb0d6e4" },
 		"missing templates repository": func(value *manifest) { value.Templates.Repository = "" },
 		"missing channel": func(value *manifest) {

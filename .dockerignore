@@ -1,4 +1,5 @@
 .git
+.artifacts/
 .venv/
 local
 runtime

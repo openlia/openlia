@@ -10,7 +10,9 @@ on:
       - "cmd/release-manifest/**"
       - "scripts/test_templates_integration.py"
       - "tests/test_templates_integration.py"
+      - "tests/test_install_remind.py"
       - "requirements-templates-integration.txt"
+      - "docker/install-remind.py"
       - ".github/workflows/templates-integration.yml"
   push:
     branches: [main]
@@ -20,7 +22,9 @@ on:
       - "release/**"
       - "scripts/test_templates_integration.py"
       - "tests/test_templates_integration.py"
+      - "tests/test_install_remind.py"
       - "requirements-templates-integration.txt"
+      - "docker/install-remind.py"
       - ".github/workflows/templates-integration.yml"
   workflow_dispatch:
     inputs:
@@ -82,9 +86,15 @@ jobs:
           cache: pip
           cache-dependency-path: runtime/requirements-templates-integration.txt
       - name: Install native Calendar dependencies
+        working-directory: runtime
         run: |
           sudo apt-get update
-          sudo apt-get install -y remind tzdata
+          sudo apt-get install -y gcc libc6-dev make tzdata
+          version="$(python3 -c 'import json; print(json.load(open("release/manifest.json"))["remind"]["version"])')"
+          prefix="${RUNNER_TEMP}/openlia-remind/${version}"
+          python3 docker/install-remind.py --prefix "$prefix"
+          echo "$prefix/bin" >> "$GITHUB_PATH"
+          echo "OPENLIA_REMIND_BINARY=$prefix/bin/remind" >> "$GITHUB_ENV"
       - name: Install validation dependencies
         run: python -m pip install -r runtime/requirements-templates-integration.txt
       - name: Install locked JavaScript dependencies
@@ -96,9 +106,12 @@ jobs:
       - name: Test integration runner
         working-directory: runtime
         run: python -m unittest discover -s tests -p test_templates_integration.py
+      - name: Test pinned source installer safeguards
+        working-directory: runtime
+        run: python -m unittest discover -s tests -p test_install_remind.py
       - name: Test selected runtime and templates together
         working-directory: runtime
-        run: python scripts/test_templates_integration.py --templates-root ../templates --docker
+        run: python scripts/test_templates_integration.py --templates-root ../templates --docker --remind-binary "$OPENLIA_REMIND_BINARY"
       - name: Publish paired-revision evidence
         if: always()
         uses: actions/upload-artifact@v4

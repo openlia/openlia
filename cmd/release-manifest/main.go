@@ -15,6 +15,13 @@ type manifest struct {
 	Hermes    image     `json:"hermes"`
 	Locho     locho     `json:"locho"`
 	Templates templates `json:"templates"`
+	Remind    sourcePin `json:"remind"`
+}
+
+type sourcePin struct {
+	Version      string `json:"version"`
+	SourceURL    string `json:"source_url"`
+	SourceSHA256 string `json:"source_sha256"`
 }
 
 type templates struct {
@@ -81,6 +88,9 @@ func main() {
 }
 
 func validate(value manifest) error {
+	if !stableTag("v"+value.Remind.Version) || value.Remind.SourceURL != "https://dianne.skoll.ca/projects/remind/download/remind-"+value.Remind.Version+".tar.gz" || !validSHA(value.Remind.SourceSHA256) {
+		return fmt.Errorf("Remind requires an exact upstream version, source URL, and SHA-256")
+	}
 	if value.Templates.Repository != "https://github.com/openlia/templates.git" || len(value.Templates.Revision) != 40 || strings.Trim(value.Templates.Revision, "0123456789abcdef") != "" {
 		return fmt.Errorf("templates release pin must name the official repository and a full lowercase commit SHA")
 	}
@@ -161,8 +171,13 @@ var Default = Manifest{
 		Repository: %q,
 		Revision:   %q,
 	},
+	Remind: SourcePin{
+		Version:      %q,
+		SourceURL:    %q,
+		SourceSHA256: %q,
+	},
 }
-`, value.Schema, value.OpenLia, value.Hermes.Image, value.Hermes.Channel, value.Hermes.Tag, value.Hermes.Digest, value.Locho.Version, value.Locho.LinuxX8664SHA, value.Locho.LinuxARM64SHA, value.Templates.Repository, value.Templates.Revision)
+`, value.Schema, value.OpenLia, value.Hermes.Image, value.Hermes.Channel, value.Hermes.Tag, value.Hermes.Digest, value.Locho.Version, value.Locho.LinuxX8664SHA, value.Locho.LinuxARM64SHA, value.Templates.Repository, value.Templates.Revision, value.Remind.Version, value.Remind.SourceURL, value.Remind.SourceSHA256)
 }
 
 func syncManagedFiles(root string, value manifest, check bool) error {

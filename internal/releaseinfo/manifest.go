@@ -38,6 +38,13 @@ type Manifest struct {
 	Hermes    ImagePin
 	Locho     LochoPin
 	Templates TemplatesPin
+	Remind    SourcePin
+}
+
+type SourcePin struct {
+	Version      string
+	SourceURL    string
+	SourceSHA256 string
 }
 
 type TemplatesPin struct {

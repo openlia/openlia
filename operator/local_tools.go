@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -204,6 +205,9 @@ func ProvisionRequiredTools(config Config, tools []string, requiredBy string) ([
 		if hasOverride && override.Version != "" {
 			version = override.Version
 		}
+		if toolName == "remind" && version != spec.DefaultVersion {
+			return nil, fmt.Errorf("Remind must use pinned version %s, not %s", spec.DefaultVersion, version)
+		}
 		if err := ValidateSafeComponent(toolName, "tool"); err != nil {
 			return nil, err
 		}
@@ -257,6 +261,12 @@ func ProvisionRequiredTools(config Config, tools []string, requiredBy string) ([
 
 func materializeToolBinary(binaryName, toolBinPath, exposedPath, overrideBinaryPath string) error {
 	targetSystemBin := overrideBinaryPath
+	if binaryName == "remind" && targetSystemBin == "" {
+		pinned := filepath.Join("/usr/local/lib/openlia/remind", toolcatalogRemindVersion(), "bin/remind")
+		if info, err := os.Stat(pinned); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
+			targetSystemBin = pinned
+		}
+	}
 	if targetSystemBin == "" {
 		if found, err := exec.LookPath(binaryName); err == nil && filepath.Clean(found) != filepath.Clean(exposedPath) {
 			targetSystemBin = found
@@ -264,7 +274,23 @@ func materializeToolBinary(binaryName, toolBinPath, exposedPath, overrideBinaryP
 	}
 
 	var script string
-	if targetSystemBin != "" {
+	if binaryName == "remind" {
+		version := toolcatalogRemindVersion()
+		if targetSystemBin != "" {
+			if err := verifyRemindVersion(targetSystemBin, version); err != nil {
+				return err
+			}
+		}
+		candidates := []string{filepath.Join("/usr/local/lib/openlia/remind", version, "bin/remind"), "/usr/local/bin/remind", "/usr/bin/remind", "/bin/remind"}
+		if targetSystemBin != "" {
+			candidates = []string{targetSystemBin}
+		}
+		script = "#!/bin/sh\n"
+		for _, candidate := range candidates {
+			script += fmt.Sprintf("if [ -x %q ]; then\n  actual=$(%q --version 2>/dev/null) || exit 126\n  if [ \"$actual\" != %q ]; then echo 'openlia: Remind version mismatch; install the checksum-pinned upstream build' >&2; exit 126; fi\n  exec %q \"$@\"\nfi\n", candidate, candidate, version, candidate)
+		}
+		script += "echo 'openlia: pinned Remind is unavailable; install it with docker/install-remind.py' >&2\nexit 127\n"
+	} else if targetSystemBin != "" {
 		script = fmt.Sprintf("#!/bin/sh\nexec %q \"$@\"\n", targetSystemBin)
 	} else {
 		script = fmt.Sprintf("#!/bin/sh\nfor candidate in /usr/bin/%s /usr/local/bin/%s /bin/%s; do\n  if [ -x \"$candidate\" ]; then\n    exec \"$candidate\" \"$@\"\n  fi\ndone\necho \"openlia: %s is registered in /opt/data/.local/tools but binary is not installed on host\" >&2\nexit 127\n", binaryName, binaryName, binaryName, binaryName)
@@ -286,6 +312,21 @@ func materializeToolBinary(binaryName, toolBinPath, exposedPath, overrideBinaryP
 		return err
 	}
 	return os.Chmod(exposedPath, 0o755)
+}
+
+func toolcatalogRemindVersion() string {
+	spec, _ := toolcatalog.LookupTool("remind")
+	return spec.DefaultVersion
+}
+
+func verifyRemindVersion(path, expected string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, path, "--version").Output()
+	if err != nil || strings.TrimSpace(string(output)) != expected {
+		return fmt.Errorf("Remind at %s must report %s; install the checksum-pinned upstream build (version probe: %v)", path, expected, err)
+	}
+	return nil
 }
 
 // ParseSkillRequirements parses optional `requires.tools`, `requires.python`, and `requires.bun`
@@ -437,6 +478,12 @@ func ReprovisionLocalStore(config Config) error {
 		if override.Version != "" {
 			version = override.Version
 		}
+		if toolName == "remind" {
+			if override.Version != "" && override.Version != spec.DefaultVersion {
+				return fmt.Errorf("Remind override must match pinned version %s", spec.DefaultVersion)
+			}
+			version = spec.DefaultVersion
+		}
 		toolBinDir := filepath.Join(config.DataRoot, ".local", "tools", toolName, version, "bin")
 		if err := EnsureDir(toolBinDir, 0o755); err != nil {
 			return err
@@ -446,6 +493,15 @@ func ReprovisionLocalStore(config Config) error {
 		if err := materializeToolBinary(spec.Binary, toolBinPath, exposedPath, override.BinaryPath); err != nil {
 			return err
 		}
+		if toolName == "remind" {
+			rec.Version = version
+			rec.BinaryPath = filepath.ToSlash(filepath.Join(".local/tools", toolName, version, "bin", spec.Binary))
+			rec.ExposedPath = filepath.ToSlash(filepath.Join(".local/bin", spec.Binary))
+			state.Tools[toolName] = rec
+		}
+	}
+	if err := SaveLocalToolsState(config.DataRoot, state); err != nil {
+		return err
 	}
 	for skillID, envRec := range state.Envs {
 		skillDir := filepath.Join(config.DataRoot, "skills", skillID)

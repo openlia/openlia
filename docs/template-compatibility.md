@@ -88,7 +88,7 @@ protect deployments consuming template `main` through old clients.
 `make versions-check` rejects missing/floating pins. With no explicit templates
 configuration, sync uses this immutable revision, not `main` or an accidentally
 present sibling checkout. The initial pin is
-`cb0d6e44ee4ce84ef4c05465af224d2e7b266f01` (Calendar 0.2.0 and Personal Finance
+`2ae32cab7f9ad32b164ccb83b9bd711bff0224fe` (merged templates#3, Calendar 0.2.0 and Personal Finance
 0.4.0). It is a tested source pairing, not a new OpenLia release announcement.
 
 Supported selections in the deployment's `config.toml`:
@@ -191,10 +191,37 @@ Docker deployment, or real workspace is needed.
 
 ```sh
 python3 -m pip install -r requirements-templates-integration.txt
+python3 docker/install-remind.py --prefix "$PWD/.artifacts/remind/06.03.06"
 bun install --frozen-lockfile --ignore-scripts
 bun run --cwd packages/workspace-ui browser:install
-make templates-integration TEMPLATES_ROOT=../openlia_templates
+make templates-integration TEMPLATES_ROOT=../openlia_templates \
+  TEMPLATES_INTEGRATION_ARGS="--remind-binary $PWD/.artifacts/remind/06.03.06/bin/remind"
 ```
+
+Pass `TEMPLATES_INTEGRATION_ARGS="--remind-binary $PWD/.artifacts/remind/06.03.06/bin/remind"`
+to Make if the installed binary is not on PATH. The source installer reads the
+version/HTTPS URL/SHA-256 from `release/manifest.json`, verifies before extracting
+or executing, and builds only the native CLI with no optional Readline linkage.
+It requires Python, a C compiler, make, libc/libm, and timezone data; it never
+installs a distro Remind package. `--archive` permits an offline source archive
+but still requires the exact checksum. An existing unrecognized/corrupt prefix
+is never overwritten.
+
+CI, Workspace UI, and Hermes use the same installer and release pin (06.03.06).
+Each Docker builder uses its own runtime base to avoid cross-libc assumptions;
+no compiler is added to the final image by this build. Both images contain the
+exact source archive, license, and build recipe described in THIRD_PARTY_NOTICES.
+The provisioner validates available Remind executables and its wrapper rechecks
+the version when run; it does not silently accept a different distro binary.
+If no executable is available, tool-store registration remains a fail-closed
+placeholder, not proof of native installation. Restores migrate old Remind
+registration versions to the current release pin.
+
+The runner records the actual executable path/version/hash and verifies native
+JSON/NOQUEUE/metadata behavior before acceptance. A wrong version fails early;
+the Calendar native server tests run explicitly rather than being skipped. The
+report separately records whether a matching corresponding-source archive is
+present; a reported version alone is not proof of source provenance.
 
 Alternatively call `python3 scripts/test_templates_integration.py --templates-root
 ../openlia_templates`. `--remind-binary /path/to/remind` can select an isolated
