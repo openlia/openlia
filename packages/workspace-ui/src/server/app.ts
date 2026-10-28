@@ -38,6 +38,7 @@ import { UsageService } from "./usage";
 import { CronService, CronError } from "./cron";
 import { CheckpointService } from "./checkpoints";
 import { CalendarService } from "./calendar";
+import { FinanceService } from "./finance";
 import {
   applyDeterministicFix,
   loadConsequentialPermissions,
@@ -315,6 +316,7 @@ export function createWorkspaceHandler(
   options: WorkspaceHandlerOptions,
 ): (request: Request, clientKey?: string) => Promise<Response> {
   const service = new WorkspaceService(options);
+  const finance = new FinanceService(service);
   const calendar = new CalendarService(
     service,
     options.timezone ?? process.env.OPENLIA_TIMEZONE ?? process.env.TZ ?? "UTC",
@@ -2128,6 +2130,40 @@ export function createWorkspaceHandler(
           schema: 1,
           ...saved,
         });
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname === "/api/workspace/finance"
+      ) {
+        return json(finance.context(url.searchParams.get("path")));
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname === "/api/workspace/finance/report"
+      ) {
+        return json(await finance.report(Object.fromEntries(url.searchParams)));
+      }
+      if (
+        request.method === "POST" &&
+        [
+          "/api/workspace/finance/accounts",
+          "/api/workspace/finance/accounts/validate",
+        ].includes(url.pathname)
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const body = await readJson(request, 128 * 1024);
+        if (body.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        return url.pathname.endsWith("/validate")
+          ? json(finance.validateMapping(body.value))
+          : json(finance.createMapping(body.value), 201);
       }
       if (
         request.method === "GET" &&

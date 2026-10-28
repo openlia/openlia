@@ -197,6 +197,26 @@ export const startWorkspaceApi: WorkspaceApi = {
     request<WorkspaceDiagnosticsResponse>({
       path: "/api/workspace/diagnostics",
     }),
+  loadFinanceContext: (path) =>
+    request({
+      path: `/api/workspace/finance?${new URLSearchParams({ path })}`,
+    }),
+  loadFinanceReport: (scope) =>
+    request({
+      path: `/api/workspace/finance/report?${new URLSearchParams({ ...scope })}`,
+    }),
+  createFinanceMapping: (input) =>
+    request({
+      path: "/api/workspace/finance/accounts",
+      method: "POST",
+      body: input,
+    }),
+  validateFinanceMapping: (input) =>
+    request({
+      path: "/api/workspace/finance/accounts/validate",
+      method: "POST",
+      body: input,
+    }),
   loadCalendar: (range) =>
     request({
       path: `/api/workspace/calendar?${new URLSearchParams({ ...range })}`,

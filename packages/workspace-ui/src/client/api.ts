@@ -80,6 +80,18 @@ import {
   type CalendarRangeRequest,
   type CalendarResponse,
 } from "../shared/calendar";
+import {
+  financeContextSchema,
+  financeReportSchema,
+  financeMappingResultSchema,
+  financeMappingValidationSchema,
+  type FinanceMappingValidation,
+  type FinanceContextResponse,
+  type FinanceReport,
+  type FinanceReportRequest,
+  type FinanceCreateMapping,
+  type FinanceMappingResult,
+} from "../shared/finance";
 
 export type ApiErrorResponse = Omit<WorkspaceErrorResponse, "schema"> & {
   schema: 1 | 2;
@@ -98,6 +110,14 @@ export class ApiError extends Error {
 }
 
 export interface WorkspaceApi {
+  loadFinanceContext(path: string): Promise<FinanceContextResponse>;
+  loadFinanceReport(scope: FinanceReportRequest): Promise<FinanceReport>;
+  createFinanceMapping(
+    input: FinanceCreateMapping,
+  ): Promise<FinanceMappingResult>;
+  validateFinanceMapping(
+    input: FinanceCreateMapping,
+  ): Promise<FinanceMappingValidation>;
   loadCalendar(range: CalendarRangeRequest): Promise<CalendarResponse>;
   createCalendarEvent(event: CalendarCreateRequest): Promise<CalendarResponse>;
   chat: ChatApi;
@@ -903,6 +923,40 @@ export const httpWorkspaceApi: WorkspaceApi = {
         }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
+      },
+    ),
+  loadFinanceContext: (path) =>
+    requestJson<FinanceContextResponse>(
+      `/api/workspace/finance?${new URLSearchParams({ path })}`,
+      (value): value is FinanceContextResponse =>
+        financeContextSchema.safeParse(value).success,
+    ),
+  loadFinanceReport: (scope) =>
+    requestJson<FinanceReport>(
+      `/api/workspace/finance/report?${new URLSearchParams({ ...scope })}`,
+      (value): value is FinanceReport =>
+        financeReportSchema.safeParse(value).success,
+    ),
+  createFinanceMapping: (input) =>
+    requestJson<FinanceMappingResult>(
+      "/api/workspace/finance/accounts",
+      (value): value is FinanceMappingResult =>
+        financeMappingResultSchema.safeParse(value).success,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    ),
+  validateFinanceMapping: (input) =>
+    requestJson<FinanceMappingValidation>(
+      "/api/workspace/finance/accounts/validate",
+      (value): value is FinanceMappingValidation =>
+        financeMappingValidationSchema.safeParse(value).success,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
       },
     ),
   loadCalendar: (range) =>

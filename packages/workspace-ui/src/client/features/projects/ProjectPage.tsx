@@ -1,4 +1,7 @@
 import { Renderer } from "@openuidev/react-lang";
+import { CHART_THEME } from "../../openui/charts/palette";
+import { ThemeProvider } from "@openuidev/react-ui";
+import "@openuidev/react-ui/index.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ProjectSummary,
@@ -600,137 +603,151 @@ export function ProjectPage({
                 </div>
               </div>
             ) : (
-              <OpenLiaOpenUIProvider
-                value={{
-                  calendarApi: api,
-                  loadFile: (path) => api.loadFile(path),
-                  project: projectData.project,
-                  manifest: projectData.manifest,
-                  queries: projectData.queries,
-                  domainPath: projectData.project.path,
-                  domainInfo: {
-                    path: projectData.project.path,
-                    label: projectData.project.name,
-                    purpose: projectData.project.description,
-                    template_path: projectData.project.template_path,
-                    schema_path: projectData.project.schema_path,
-                    record_count: projectData.project.record_count,
-                    invalid_record_count:
-                      projectData.project.invalid_record_count,
-                  },
-                  records: projectData.records,
-                  schemaJson: projectData.schema_json,
-                  templateHeadings: projectData.template_headings,
-                  onOpenRecord: onOpenFile,
-                  onCreateRecord: onCreateFile,
-                  onEditOpenUI: () => onOpenFile(projectData.project.ui_path),
-                  onImproveUI: handleImproveUI,
-                  onUpdateRecordFrontmatter: handleUpdateRecordFrontmatter,
-                }}
+              <ThemeProvider
+                mode="dark"
+                darkTheme={CHART_THEME}
+                cssSelector=".workspace-project-ui"
               >
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6 flex flex-col gap-4">
-                  {projectData.renderable === false && (
-                    <div
-                      className="rounded-xl border border-warning/40 bg-warning/10 p-4 space-y-3 text-xs"
-                      role="alert"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <p className="font-bold text-sm text-warning">
-                            Project UI cannot render yet
-                          </p>
-                          <p className="text-base-content/75 mt-0.5">
-                            Your project records ({projectData.records.length})
-                            are safely stored and accessible, but the UI or
-                            manifest has structural issues:
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <button
-                            className="btn btn-xs btn-outline"
-                            onClick={() =>
-                              onOpenFile(projectData.project.manifest_path)
-                            }
-                            type="button"
-                          >
-                            Edit project-manifest.toml
-                          </button>
-                          <button
-                            className="btn btn-xs btn-outline"
-                            onClick={() =>
-                              onOpenFile(projectData.project.ui_path)
-                            }
-                            type="button"
-                          >
-                            Edit {projectData.manifest.ui.entry}
-                          </button>
-                          <button
-                            className="btn btn-xs btn-outline"
-                            onClick={() => handleViewChange("files")}
-                            type="button"
-                          >
-                            View Project Files ({projectData.records.length})
-                          </button>
-                          {onAskLia && (
+                <OpenLiaOpenUIProvider
+                  value={{
+                    calendarApi: api,
+                    financeApi: api,
+                    loadFile: (path) => api.loadFile(path),
+                    project: projectData.project,
+                    manifest: projectData.manifest,
+                    queries: projectData.queries,
+                    domainPath: projectData.project.path,
+                    domainInfo: {
+                      path: projectData.project.path,
+                      label: projectData.project.name,
+                      purpose: projectData.project.description,
+                      template_path: projectData.project.template_path,
+                      schema_path: projectData.project.schema_path,
+                      record_count: projectData.project.record_count,
+                      invalid_record_count:
+                        projectData.project.invalid_record_count,
+                    },
+                    records: projectData.records,
+                    schemaJson: projectData.schema_json,
+                    templateHeadings: projectData.template_headings,
+                    onOpenRecord: onOpenFile,
+                    onCreateRecord: onCreateFile,
+                    onEditOpenUI: () => onOpenFile(projectData.project.ui_path),
+                    onImproveUI: handleImproveUI,
+                    onUpdateRecordFrontmatter: handleUpdateRecordFrontmatter,
+                  }}
+                >
+                  <div className="workspace-project-ui flex-1 overflow-y-auto p-4 sm:p-6 flex flex-col gap-4">
+                    {projectData.renderable === false && (
+                      <div
+                        className="rounded-xl border border-warning/40 bg-warning/10 p-4 space-y-3 text-xs"
+                        role="alert"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="font-bold text-sm text-warning">
+                              Project UI cannot render yet
+                            </p>
+                            <p className="text-base-content/75 mt-0.5">
+                              Your project records ({projectData.records.length}
+                              ) are safely stored and accessible, but the UI or
+                              manifest has structural issues:
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
                             <button
-                              className="btn btn-xs btn-primary"
-                              onClick={handleImproveUI}
+                              className="btn btn-xs btn-outline"
+                              onClick={() =>
+                                onOpenFile(projectData.project.manifest_path)
+                              }
                               type="button"
                             >
-                              Fix with Lia
+                              Edit project-manifest.toml
                             </button>
-                          )}
+                            <button
+                              className="btn btn-xs btn-outline"
+                              onClick={() =>
+                                onOpenFile(projectData.project.ui_path)
+                              }
+                              type="button"
+                            >
+                              Edit {projectData.manifest.ui.entry}
+                            </button>
+                            <button
+                              className="btn btn-xs btn-outline"
+                              onClick={() => handleViewChange("files")}
+                              type="button"
+                            >
+                              View Project Files ({projectData.records.length})
+                            </button>
+                            {onAskLia && (
+                              <button
+                                className="btn btn-xs btn-primary"
+                                onClick={handleImproveUI}
+                                type="button"
+                              >
+                                Fix with Lia
+                              </button>
+                            )}
+                          </div>
                         </div>
+                        {projectData.render_errors &&
+                          projectData.render_errors.length > 0 && (
+                            <ul className="list-disc list-inside font-mono text-warning space-y-0.5">
+                              {projectData.render_errors.map((err) => (
+                                <li key={err}>{err}</li>
+                              ))}
+                            </ul>
+                          )}
                       </div>
-                      {projectData.render_errors &&
-                        projectData.render_errors.length > 0 && (
-                          <ul className="list-disc list-inside font-mono text-warning space-y-0.5">
-                            {projectData.render_errors.map((err) => (
-                              <li key={err}>{err}</li>
-                            ))}
-                          </ul>
+                    )}
+                    <OpenUIDiagnostics content={projectData.ui_content} />
+                    <OpenUIErrorBoundary
+                      key={projectData.project.ui_path}
+                      onEditUI={() => onOpenFile(projectData.project.ui_path)}
+                      uiPath={projectData.project.ui_path}
+                    >
+                      <Renderer
+                        library={scopedLibrary}
+                        response={normalizeOpenUIProgram(
+                          projectData.ui_content,
                         )}
-                    </div>
-                  )}
-                  <OpenUIDiagnostics content={projectData.ui_content} />
-                  <OpenUIErrorBoundary
-                    key={projectData.project.ui_path}
-                    onEditUI={() => onOpenFile(projectData.project.ui_path)}
-                    uiPath={projectData.project.ui_path}
-                  >
-                    <Renderer
-                      library={scopedLibrary}
-                      response={normalizeOpenUIProgram(projectData.ui_content)}
-                      toolProvider={toolProvider}
-                      onAction={(event) => {
-                        if (event.type === "OpenRecord" && event.params?.path) {
-                          onOpenFile(String(event.params.path));
-                        } else if (
-                          event.type === "CreateDomainRecord" &&
-                          onCreateFile
-                        ) {
-                          onCreateFile(
-                            String(
-                              event.params?.domain ?? projectData.project.path,
-                            ),
-                          );
-                        } else if (
-                          event.type === "UpdateFrontmatter" &&
-                          event.params?.path &&
-                          event.params?.field
-                        ) {
-                          void handleUpdateRecordFrontmatter(
-                            String(event.params.path),
-                            {
-                              [String(event.params.field)]: event.params.value,
-                            },
-                          );
-                        }
-                      }}
-                    />
-                  </OpenUIErrorBoundary>
-                </div>
-              </OpenLiaOpenUIProvider>
+                        toolProvider={toolProvider}
+                        onAction={(event) => {
+                          if (
+                            event.type === "OpenRecord" &&
+                            event.params?.path
+                          ) {
+                            onOpenFile(String(event.params.path));
+                          } else if (
+                            event.type === "CreateDomainRecord" &&
+                            onCreateFile
+                          ) {
+                            onCreateFile(
+                              String(
+                                event.params?.domain ??
+                                  projectData.project.path,
+                              ),
+                            );
+                          } else if (
+                            event.type === "UpdateFrontmatter" &&
+                            event.params?.path &&
+                            event.params?.field
+                          ) {
+                            void handleUpdateRecordFrontmatter(
+                              String(event.params.path),
+                              {
+                                [String(event.params.field)]:
+                                  event.params.value,
+                              },
+                            );
+                          }
+                        }}
+                      />
+                    </OpenUIErrorBoundary>
+                  </div>
+                </OpenLiaOpenUIProvider>
+              </ThemeProvider>
             )}
           </>
         ) : null}

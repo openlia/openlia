@@ -1,9 +1,11 @@
 import type { Preview } from "@storybook/react-vite";
+import { ThemeProvider } from "@openuidev/react-ui";
 import MockDate from "mockdate";
 import "../src/client/styles.css";
 import "../src/client/chat.css";
 import "@openuidev/react-ui/index.css";
 import { installStoryNetworkGuard } from "../src/client/stories/networkGuard";
+import { CHART_THEME } from "../src/client/openui/charts/palette";
 
 MockDate.set("2026-10-27T09:00:00.000Z");
 installStoryNetworkGuard();
@@ -39,6 +41,8 @@ const preview: Preview = {
         order: [
           "Foundations",
           "Calendar",
+          "Charts",
+          "Finance",
           "OpenUI",
           "Documents",
           "Chat",
@@ -52,13 +56,15 @@ const preview: Preview = {
   },
   decorators: [
     (Story) => (
-      <div
-        data-story-ready
-        data-theme="dark"
-        className="min-h-[240px] bg-base-100 text-base-content"
-      >
-        <Story />
-      </div>
+      <ThemeProvider mode="dark" darkTheme={CHART_THEME}>
+        <div
+          data-story-ready
+          data-theme="dark"
+          className="min-h-[240px] bg-base-100 text-base-content"
+        >
+          <Story />
+        </div>
+      </ThemeProvider>
     ),
   ],
 };

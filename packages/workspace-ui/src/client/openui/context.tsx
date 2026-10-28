@@ -8,6 +8,15 @@ import type {
 } from "../../shared/api";
 
 export interface OpenLiaOpenUIContextValue {
+  financeApi?:
+    | Pick<
+        WorkspaceApi,
+        | "loadFinanceContext"
+        | "loadFinanceReport"
+        | "createFinanceMapping"
+        | "validateFinanceMapping"
+      >
+    | undefined;
   calendarApi?:
     | Pick<WorkspaceApi, "loadCalendar" | "createCalendarEvent">
     | undefined;

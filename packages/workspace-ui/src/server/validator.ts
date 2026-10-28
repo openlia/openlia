@@ -100,6 +100,12 @@ const OPENUI_KNOWN_COMPONENTS = new Set([
   "CalendarMonth",
   "CalendarWeek",
   "GanttChart",
+  "SankeyDiagram",
+  "ChartPanel",
+  "Finance",
+  "FinanceOverview",
+  "FinanceChart",
+  "FinanceAccounts",
   // Built-in OpenUI expressions
   "Query",
   "Mutation",

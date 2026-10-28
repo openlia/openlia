@@ -49,6 +49,7 @@ import type {
   WorkspaceWriteResponse,
 } from "../shared/api";
 import type { CalendarEvent } from "../shared/calendar";
+import { createFinanceMock } from "./financeMock";
 import {
   isMemoryDocument,
   MEMORY_FILENAMES,
@@ -807,6 +808,7 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
   const calendarEvents: CalendarEvent[] = [];
   let calendarVersion = 0;
   return {
+    ...createFinanceMock(requireAuthentication),
     async loadCalendar(range) {
       requireAuthentication();
       return {

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { calendarOpenUIProps } from "./calendar";
+import { chartOpenUIProps } from "./charts";
+import { financeOpenUIProps } from "./finance";
 import type {
   WorkspaceDomainRecordSummary,
   WorkspaceFileMetadata,
@@ -112,6 +114,8 @@ export interface WorkspaceProjectResponse {
 // Shared OpenUI component prop schemas for Project UIs (used by both client library & server validator)
 export const projectOpenUIProps = {
   ...calendarOpenUIProps,
+  ...chartOpenUIProps,
+  ...financeOpenUIProps,
   Grid: z.object({
     children: z.array(z.any()),
     columns: z.number().optional(),

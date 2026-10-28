@@ -90,8 +90,20 @@ prompt = "Review my tasks in tasks/ and suggest the top 3 priorities for today."
   Interactive Kanban board grouping project records by any frontmatter enum field (default: `"status"`). Supports click-to-open and quick status transitions.
 - **`RecordTable(filterStatus?: string, filterPriority?: string, limit?: number, title?: string, columns?: string[])`**
   Tabular list of project records with custom frontmatter columns, status/priority badges, tags, and clickable links to open records in Documents view.
-- **`FinanceOverview(journalPath?: string, title?: string)`**
-  Interactive hledger journal summary and authoritative `hledger check` runner for finance projects.
+- **`Finance(children: any[], journal?: string)`**
+  Read-only native hledger report scope plus structured account-mapping creation.
+  The optional journal path is project-relative; otherwise one unambiguous include
+  root can be selected. Reports and account mappings do not require a Markdown
+  review record to be saved first.
+- **`FinanceOverview(title?: string)`** — Exact scoped income/expense summaries;
+  must be inside `Finance`.
+- **`FinanceChart(report: "income-expenses" | "spending" | "balances" | "flows", kind?: "bar" | "line" | "pie" | "sankey", title?: string)`**
+  Binds native exact data to reusable charts. Select one commodity and whole
+  months. Flows are accounting posting flows, not inferred cash-spending
+  attribution; balances are historical unvalued quantities, not investment returns.
+- **`FinanceAccounts(title?: string)`** — Mapping list with distinct record/link
+  states and verified scoped balances. New account saves only a mapping record;
+  never a journal, declaration, opening posting, or external account change.
 - **`TravelOverview(title?: string)`**
   Specialized trip readiness, alerts, and itinerary summary view.
 - **`ShoppingComparison(title?: string)`**
@@ -143,9 +155,25 @@ dynamic/system/command includes are rejected rather than silently omitted.
 - **`TextContent(text: string)`**
 - **`MarkDownRenderer(content: string)`**
 - **`Callout(title: string, body: string, variant?: "info" | "success" | "warning" | "error")`**
-- **`BarChart(data: any[], xKey: string, series: Series[])`**
-- **`PieChart(data: any[], nameKey: string, dataKey: string)`**
-- **`LineChart(data: any[], xKey: string, series: Series[])`**
+- **`BarChart(labels: string[], series: Series[], variant?: "grouped" | "stacked", xLabel?: string, yLabel?: string, height?: number)`**
+- **`LineChart(labels: string[], series: Series[], variant?: "linear" | "natural" | "step", xLabel?: string, yLabel?: string, height?: number)`**
+- **`Series(category: string, values: number[])`**
+- **`PieChart(labels: string[], values: number[], variant?: "pie" | "donut", appearance?: "circular" | "semiCircular")`**
+- **`ChartPanel(kind: "bar" | "line" | "pie", labels: string[], series?: {category: string, values: number[]}[], values?: number[], title?: string, unit?: string, caption?: string, exactRows?: string[][], error?: string, colors?: string[], colorDomain?: string[])`**
+  Ledger-independent wrapper around the existing upstream charts, with units,
+  captions, diagnostics, and an accessible exact data table. Pie values cannot be
+  negative; series lengths must match the labels.
+  Optional `colors` are opaque hex colors in input series/slice order. Supply a
+  complete, stable `colorDomain` (including hidden categories) to retain category
+  colors through filtering and value-based pie sorting. Colors repeat after the
+  categorical palette is exhausted; labels/tables remain necessary.
+- **`SankeyDiagram(nodes: {id: string, label: string, colorKey?: string, color?: string}[], links: {source: string, target: string, value: number, exact?: string}[], title?: string, unit?: string, caption?: string, height?: number)`**
+  Generic non-negative acyclic flow diagram. Validates references and unique node
+  IDs, preserves input data, and provides an exact table. Financial classification
+  belongs to the native report adapter, never this renderer.
+  Node colors are keyed by `colorKey` (or `id`), with optional opaque hex overrides;
+  changing node order does not reassign colors. Finance can share an account color
+  across credit/debit nodes without implying credit is bad or debit is good.
 
 ---
 

@@ -1,5 +1,11 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import {
+  financeAccountTemplate,
+  financeAccountSchema,
+  financeProgram,
+  financeJournalFiles,
+} from "../test-fixtures/finance";
 
 const packageRoot = resolve(import.meta.dir, "..");
 const workspaceRoot = resolve(
@@ -72,6 +78,20 @@ if (e2eFixture) {
   };
   for (const [name, content] of Object.entries(calendarFiles)) {
     const path = join(workspaceRoot, "calendar", name);
+    if (!existsSync(path)) writeFileSync(path, content);
+  }
+  mkdirSync(join(workspaceRoot, "finance/accounts"), { recursive: true });
+  const financeFiles: Record<string, string> = {
+    "project-manifest.toml":
+      'version = 1\n[project]\nid = "finance"\nname = "Personal Finance"\n[ui]\nentry = "ui.openui"\n',
+    "ui.openui": financeProgram,
+    "accounts/accounts-template.md": financeAccountTemplate,
+    "accounts/accounts-template.schema.json":
+      JSON.stringify(financeAccountSchema),
+    ...financeJournalFiles,
+  };
+  for (const [name, content] of Object.entries(financeFiles)) {
+    const path = join(workspaceRoot, "finance", name);
     if (!existsSync(path)) writeFileSync(path, content);
   }
 }

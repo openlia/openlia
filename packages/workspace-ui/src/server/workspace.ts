@@ -5,6 +5,7 @@ import {
   existsSync,
   fsyncSync,
   lstatSync,
+  linkSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -700,6 +701,7 @@ export class WorkspaceService {
     pathValue: unknown,
     contentValue: unknown,
     expectedValue: unknown,
+    createOnly = false,
   ): WorkspaceWriteResponse {
     const path = validateRelativePath(pathValue, this.settings());
     if (typeof contentValue !== "string") {
@@ -739,6 +741,12 @@ export class WorkspaceService {
     let current = new Uint8Array();
     let mode = 0o600;
     if (existsSync(absolute)) {
+      if (createOnly)
+        throw new WorkspaceError(
+          "destination already exists",
+          409,
+          "destination_exists",
+        );
       const info = lstatSync(absolute);
       if (!info.isFile())
         throw new WorkspaceError(
@@ -796,9 +804,19 @@ export class WorkspaceService {
           revision(beforeReplace),
         );
       }
-      renameSync(temporary, absolute);
+      if (createOnly) {
+        // Publish a complete file atomically, without replacing even a concurrent empty file.
+        linkSync(temporary, absolute);
+        unlinkSync(temporary);
+      } else renameSync(temporary, absolute);
     } catch (error) {
       if (existsSync(temporary)) unlinkSync(temporary);
+      if (createOnly && asNodeError(error).code === "EEXIST")
+        throw new WorkspaceError(
+          "destination already exists",
+          409,
+          "destination_exists",
+        );
       throw error;
     }
     const nextRev = revision(contents);
@@ -1999,6 +2017,62 @@ export class WorkspaceService {
     const emptyRevision = revision(new Uint8Array());
     this.write(relativePath, templateContent, emptyRevision);
     return this.read(relativePath);
+  }
+
+  /** Narrow read-only access to a collection's hidden local contract, not arbitrary hidden files. */
+  collectionContract(collection: string): {
+    templatePath: string;
+    schemaPath: string;
+    template: string;
+    schema: string;
+    revision: string;
+  } {
+    validateRelativePath(`${collection}/record.md`, this.settings());
+    this.assertNoSymlink(`${collection}/record.md`);
+    const info = findDomainTemplate(
+      this.workspaceRoot,
+      `${collection}/record.md`,
+    );
+    if (!info || info.error || !info.schemaRelativePath)
+      throw new WorkspaceError(
+        "The local collection contract is missing or invalid.",
+        422,
+        "contract_unavailable",
+      );
+    if (
+      protectedPath(info.schemaRelativePath) ||
+      !info.schemaRelativePath.startsWith(`${collection}/`) ||
+      !info.schemaRelativePath.endsWith(".schema.json")
+    )
+      throw new WorkspaceError(
+        "Contract schemas must be local to the collection.",
+        422,
+        "contract_unavailable",
+      );
+    const read = (path: string) => {
+      const absolute = this.assertNoSymlink(path);
+      const stats = lstatSync(absolute);
+      if (!stats.isFile() || stats.size > 64 * 1024)
+        throw new WorkspaceError(
+          "Contract exceeds the supported size.",
+          422,
+          "contract_unavailable",
+        );
+      return readFileSync(absolute, "utf8");
+    };
+    const template = read(info.templateRelativePath);
+    const schema = read(info.schemaRelativePath);
+    return {
+      templatePath: info.templateRelativePath,
+      schemaPath: info.schemaRelativePath,
+      template,
+      schema,
+      revision: revision(
+        new TextEncoder().encode(
+          `${info.templateRelativePath}\0${template}\0${info.schemaRelativePath}\0${schema}`,
+        ),
+      ),
+    };
   }
 
   private executeMoveOrRename(
