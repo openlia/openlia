@@ -95,7 +95,7 @@ You can keep your workspace completely custom or install starter profiles, modul
 | **`calendar`** | `calendar/` | Calendar Mini-Project with Month, Week, and event-duration Timeline views, local appointment creation, companion event notes, and `reminders.rem` (automatically installs `remind` CLI into `/opt/data/.local`) |
 | **`claims`** | `knowledge/claims/`, `archive/` | Provenance-backed personal claim ledger with certainty and temporal validity |
 | **`daily-briefing`** | `inbox/daily-briefing/` | Dated morning briefing reports and `/daily-briefing` skill |
-| **`personal-finance`** | `finance/`, `finance/intake/`, `finance/accounts/`, `finance/portfolios/`, `finance/reviews/` | `personal-finance` skill + `hledger` journals (automatically installs `hledger` CLI into `/opt/data/.local`) |
+| **`personal-finance`** | `finance/`, `finance/intake/`, `finance/accounts/`, `finance/portfolios/`, `finance/reviews/` | Read-only hledger dashboards and charts, structured account mappings, and the `personal-finance` skill (automatically installs agent-side `hledger` into `/opt/data/.local`) |
 | **`personal-health`** | `health/`, `health/profiles/`, `health/history/`, `health/conditions/`, `health/treatments/`, `health/reviews/` | `personal-health` skill & structured medical templates |
 | **`decision-analysis`** | `decisions/` | `decision-analysis` skill + option/criteria trade-off matrix |
 | **`deep-research`** | `knowledge/research/` | `deep-research` skill + source rubric & brief templates |

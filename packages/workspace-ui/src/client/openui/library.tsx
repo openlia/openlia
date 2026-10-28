@@ -15,6 +15,10 @@ import { CalendarWeek } from "./calendar/CalendarWeek";
 import { GanttChart } from "./calendar/GanttChart";
 import { ChartPanel } from "./charts/ChartPanel";
 import { SankeyDiagram } from "./charts/SankeyDiagram";
+import { Finance } from "./finance/Finance";
+import { FinanceAccounts } from "./finance/FinanceAccounts";
+import { FinanceChart } from "./finance/FinanceChart";
+import { FinanceOverview } from "./finance/FinanceOverview";
 
 export interface OpenLiaRuntimeData {
   records: WorkspaceDomainRecordSummary[];
@@ -784,6 +788,10 @@ export const UpdateFrontmatter = defineAction({
 export const openliaComponents = [
   ChartPanel,
   SankeyDiagram,
+  Finance,
+  FinanceAccounts,
+  FinanceChart,
+  FinanceOverview,
   Calendar,
   CalendarMonth,
   CalendarWeek,

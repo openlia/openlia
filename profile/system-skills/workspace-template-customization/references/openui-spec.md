@@ -90,8 +90,20 @@ prompt = "Review my tasks in tasks/ and suggest the top 3 priorities for today."
   Interactive Kanban board grouping project records by any frontmatter enum field (default: `"status"`). Supports click-to-open and quick status transitions.
 - **`RecordTable(filterStatus?: string, filterPriority?: string, limit?: number, title?: string, columns?: string[])`**
   Tabular list of project records with custom frontmatter columns, status/priority badges, tags, and clickable links to open records in Documents view.
-- **`FinanceOverview(journalPath?: string, title?: string)`**
-  Interactive hledger journal summary and authoritative `hledger check` runner for finance projects.
+- **`Finance(children: any[], journal?: string)`**
+  Read-only native hledger report scope plus structured account-mapping creation.
+  The optional journal path is project-relative; otherwise one unambiguous include
+  root can be selected. Reports and account mappings do not require a Markdown
+  review record to be saved first.
+- **`FinanceOverview(title?: string)`** — Exact scoped income/expense summaries;
+  must be inside `Finance`.
+- **`FinanceChart(report: "income-expenses" | "spending" | "balances" | "flows", kind?: "bar" | "line" | "pie" | "sankey", title?: string)`**
+  Binds native exact data to reusable charts. Select one commodity and whole
+  months. Flows are accounting posting flows, not inferred cash-spending
+  attribution; balances are historical unvalued quantities, not investment returns.
+- **`FinanceAccounts(title?: string)`** — Mapping list with distinct record/link
+  states and verified scoped balances. New account saves only a mapping record;
+  never a journal, declaration, opening posting, or external account change.
 - **`TravelOverview(title?: string)`**
   Specialized trip readiness, alerts, and itinerary summary view.
 - **`ShoppingComparison(title?: string)`**

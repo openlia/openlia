@@ -78,6 +78,21 @@ After upgrading an existing QA install, regenerate Compose and recreate both
 Hermes and Workspace UI; an already completed blocked turn must be retried
 explicitly after checking whether any earlier actions succeeded.
 
+## Finance dashboards and account mappings
+
+The optional Personal Finance 0.4.0 feature composes read-only native hledger
+reports with Sankey, Bar, Line, and Pie charts. **New account** exposes the local
+template/schema before any save and creates only an account-mapping record—never
+a journal, account declaration, opening posting, or external bank/broker change.
+Draft validation is server-side and read-only; script CSP is not weakened.
+
+Select the main journal to combine its payroll, bank, and other included files.
+Identical account names in independent ledgers stay separate. Missing ledger data
+is not zero, currencies are not silently combined, and market valuation is not
+enabled. Use `hledger` on PATH or server-only `OPENLIA_HLEDGER_BINARY` for local
+native reports; the runtime image includes it. See [Finance UI](../../docs/finance-ui.md)
+for deployment order, safety limits, report meanings, and verification commands.
+
 ## LLM usage monitoring
 
 The **Usage** page combines Hermes, ingestion, and migration estimates. Automatic

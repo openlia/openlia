@@ -194,6 +194,22 @@ export function CreateFileDialog({
                 .
               </p>
             )}
+            {(selectedDomain === "finance" ||
+              selectedDomain.startsWith("finance/")) && (
+              <p className="mt-2 text-xs">
+                This creates a template copy. For a complete account mapping
+                before any save,{" "}
+                <a
+                  className="link link-primary"
+                  href="/projects/finance"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  open Finance in a new tab and choose New account
+                </a>
+                .
+              </p>
+            )}
           </div>
 
           <div>

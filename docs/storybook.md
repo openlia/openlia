@@ -21,7 +21,7 @@ start the application API. Use Node.js 22.12+ with Bun for the Storybook/Vite CL
 - **Accessibility** runs axe checks and surfaces existing findings. Findings are
   currently non-blocking (`test: "todo"`), not a claim of full accessibility.
 
-The catalog currently contains 101 stories covering 68 named exported UI
+The catalog currently contains 112 stories covering 77 named exported UI
 components. Use the inventory command rather than this count as the ongoing
 source of truth.
 
@@ -32,6 +32,7 @@ source of truth.
 | Foundations | Real theme, controls, badges, copy-link button |
 | Calendar | Month overflow; Week overlaps; all-day/overnight spans; timezone/DST; Timeline zoom/grouping and generic items; editor/details; loading/error/empty states; real OpenUI three-tab composition |
 | Charts | Reusable bar/line/pie panels, exact tables, signed changes, Sankey references/cycles/empty states, and long labels |
+| Finance | Native-report-shaped mock data, mapping editor, ledger scopes, independent books, mixed commodities, invalid/missing journals, unknown types, refunds, and precision limits |
 | OpenUI | All custom registered components, diagnostics/error boundary, dashboard composition, representative upstream primitives |
 | Documents | Markdown/frontmatter, code editor, file navigator, document pane/inspector, loading/error/conflict, file/action dialogs |
 | Chat | Header, transcript/tool results, Markdown, composer, navigation, full mock conversation |
@@ -44,8 +45,9 @@ Upstream OpenUI primitives have a representative gallery; the inventory covers
 our exported components, not every third-party component or private helper.
 
 Charts also include a full categorical palette and an interactive filter/reorder
-example. Application and Storybook share categorical palette tokens. Pie and
-Sankey identities remain stable across filters rather than following display order.
+example. Application and Storybook share palette tokens; Finance series use
+emerald income, orange expenses, and violet balances. Pie categories and Sankey
+account identities remain stable across filters rather than following display order.
 
 ## Isolation and repeatability
 
