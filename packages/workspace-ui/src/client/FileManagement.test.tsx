@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { CreateFileDialog } from "./CreateFileDialog";
+import { DocumentPane, FileNavigator } from "./components";
 import { MoveFileDialog } from "./MoveFileDialog";
 import { RenameFileDialog } from "./RenameFileDialog";
-import { DocumentPane, FileNavigator } from "./components";
 
 describe("RenameFileDialog", () => {
   test("renders with current filename and handles submit", () => {
@@ -494,7 +494,7 @@ describe("CreateFileDialog", () => {
     expect(handleCreate).not.toHaveBeenCalled();
   });
 
-  test("exposes typed record templates, starter scaffolds, and project relationships (#183)", () => {
+  test("shows template and schema path in target preview and supports subfolders in knowledge vault", () => {
     const handleCreate = vi.fn();
     const richDomains = [
       {
@@ -530,70 +530,44 @@ describe("CreateFileDialog", () => {
       />,
     );
 
-    // Knowledge Vault defaults to Project Note starter scaffold with typed fields & sections
+    // Knowledge Vault allows nested subfolder paths and does not render complex schema form
     expect(
-      screen.getByRole("combobox", { name: "Starter Scaffold" }),
-    ).toHaveValue("project-note");
-    expect(screen.getByLabelText("status")).toHaveValue("active");
-    expect(screen.getByLabelText("owner")).toBeInTheDocument();
-    expect(screen.getByLabelText("target_completion")).toBeInTheDocument();
-    expect(screen.getByLabelText("linked_goal")).toBeInTheDocument();
-    expect(screen.getByLabelText("Section Objective")).toBeInTheDocument();
-    expect(screen.getByLabelText("Section Constraints")).toBeInTheDocument();
-    expect(screen.getByLabelText("Section Milestones")).toBeInTheDocument();
+      screen.queryByRole("combobox", { name: "Starter Scaffold" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "Record Title" }),
+    ).not.toBeInTheDocument();
 
-    // Switch domain to Decisions and verify decision contract & project relationship fields
+    fireEvent.change(screen.getByRole("textbox", { name: "File Name" }), {
+      target: { value: "projects/project-apollo" },
+    });
+    expect(
+      screen.getByText("knowledge/projects/project-apollo.md"),
+    ).toBeInTheDocument();
+
+    // Switch domain to Decisions and verify template + schema preview and simple filename submit
     const domainSelect = screen.getByRole("combobox", { name: "Domain" });
     fireEvent.change(domainSelect, { target: { value: "decisions" } });
 
-    expect(screen.getByLabelText("status")).toHaveValue("proposed");
-    expect(screen.getByLabelText("decision_date")).toBeInTheDocument();
-    expect(screen.getByLabelText("review_date")).toBeInTheDocument();
-    expect(screen.getByLabelText("linked_project")).toBeInTheDocument();
-    expect(screen.getByLabelText("chosen_option")).toHaveValue("");
-    expect(screen.getByLabelText("Section Question")).toBeInTheDocument();
     expect(
-      screen.getByLabelText("Section Options Considered"),
+      screen.getByText("decisions/decision-template.md"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("decisions/decision-template.schema.json"),
     ).toBeInTheDocument();
 
-    // Link decision to knowledge/project-apollo.md and submit
     fireEvent.change(screen.getByRole("textbox", { name: "File Name" }), {
       target: { value: "apollo-storage-choice" },
     });
-    fireEvent.change(screen.getByLabelText("decision_date"), {
-      target: { value: "2026-10-20" },
-    });
-    fireEvent.change(screen.getByLabelText("review_date"), {
-      target: { value: "2026-11-05" },
-    });
-    fireEvent.change(screen.getByLabelText("linked_project"), {
-      target: { value: "knowledge/project-apollo.md" },
-    });
-    fireEvent.change(screen.getByLabelText("Section Question"), {
-      target: { value: "Which storage engine should Project Apollo adopt?" },
-    });
-
     fireEvent.click(screen.getByRole("button", { name: "Create File" }));
 
     expect(handleCreate).toHaveBeenCalledWith(
       "decisions",
       "apollo-storage-choice.md",
-      expect.objectContaining({
-        frontmatter: expect.objectContaining({
-          status: "proposed",
-          decision_date: "2026-10-20",
-          review_date: "2026-11-05",
-          linked_project: "knowledge/project-apollo.md",
-          chosen_option: null,
-        }),
-        sections: expect.objectContaining({
-          Question: "Which storage engine should Project Apollo adopt?",
-        }),
-      }),
     );
   });
 
-  test("DocumentPane exposes structured Fields editor for typed records and updates draft (#183)", () => {
+  test("DocumentPane renders clean Preview and Edit views without structured Fields form", () => {
     const handleDraftChange = vi.fn();
     const decisionContent = `---
 $schema: ./decision-template.schema.json
@@ -608,10 +582,6 @@ chosen_option: null
 
 ## Question
 Which storage engine should Project Apollo adopt?
-
-## Options Considered
-- SQLite WAL
-- DuckDB
 `;
 
     render(
@@ -644,18 +614,13 @@ Which storage engine should Project Apollo adopt?
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Fields" })).toBeInTheDocument();
-    expect(screen.getByLabelText("status")).toHaveValue("proposed");
-    expect(screen.getByLabelText("linked_project")).toHaveValue(
-      "knowledge/project-apollo.md",
-    );
-    expect(screen.getByLabelText("chosen_option")).toHaveValue("");
-
-    fireEvent.change(screen.getByLabelText("status"), {
-      target: { value: "accepted" },
-    });
-    expect(handleDraftChange).toHaveBeenCalledWith(
-      expect.stringContaining("status: accepted"),
-    );
+    expect(screen.getByRole("button", { name: "Preview" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Fields" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: "Code editor" }),
+    ).toHaveTextContent("# Apollo Storage Engine Choice");
   });
 });
