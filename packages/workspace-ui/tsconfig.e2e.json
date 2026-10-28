@@ -6,6 +6,7 @@
   "include": [
     "playwright.config.ts",
     "playwright.storybook.config.ts",
+    "playwright.templates.config.ts",
     "e2e/**/*.ts",
     "storybook-tests/**/*.ts"
   ]

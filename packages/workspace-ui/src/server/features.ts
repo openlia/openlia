@@ -20,14 +20,20 @@ import type {
   FeaturesListResponse,
   FeatureSummary,
   ShareFeatureMetadata,
+  TemplatesCatalogProvenance,
 } from "../shared/api";
 import { createZipArchive, type ZipArchiveEntry } from "./export";
+import {
+  checkTemplateRequirements,
+  readTemplatesRuntimeVersion,
+} from "./template-compatibility";
 import { WorkspaceError } from "./workspace";
 
 export interface FeatureServiceOptions {
   workspaceRoot: string;
   skillsRoot: string;
   featuresRoot?: string | undefined;
+  runtimeReleasePath?: string | undefined;
 }
 
 interface RawFeatureDomain {
@@ -56,6 +62,7 @@ interface RawFeatureManifest {
   author?: string;
   license?: string;
   requires?: {
+    openlia?: string;
     core_domains?: string[];
     features?: string[];
   };
@@ -111,12 +118,6 @@ function resolveDefaultFeaturesRoot(): string {
   if (existsSync(repoFeatures)) {
     return repoFeatures;
   }
-  const siblingTemplatesFeatures = fileURLToPath(
-    new URL("../../../../../openlia_templates/features", import.meta.url),
-  );
-  if (existsSync(siblingTemplatesFeatures)) {
-    return siblingTemplatesFeatures;
-  }
   return repoFeatures;
 }
 
@@ -124,13 +125,36 @@ export class FeatureService {
   readonly workspaceRoot: string;
   readonly skillsRoot: string;
   readonly featuresRoot: string;
+  private readonly runtimeReleasePath: string | undefined;
 
   constructor(options: FeatureServiceOptions) {
+    this.runtimeReleasePath = options.runtimeReleasePath;
     this.workspaceRoot = resolve(options.workspaceRoot);
     this.skillsRoot = resolve(options.skillsRoot);
     this.featuresRoot = options.featuresRoot
       ? resolve(options.featuresRoot)
       : resolveDefaultFeaturesRoot();
+  }
+
+  private catalogProvenance(): TemplatesCatalogProvenance | undefined {
+    try {
+      const value = JSON.parse(
+        readFileSync(
+          join(this.featuresRoot, "..", ".openlia-catalog.json"),
+          "utf8",
+        ),
+      );
+      if (
+        value?.schema === 1 &&
+        typeof value.source === "string" &&
+        typeof value.ref === "string" &&
+        typeof value.content_sha256 === "string" &&
+        (value.mode === "git" || value.mode === "local-worktree") &&
+        typeof value.dirty === "boolean"
+      )
+        return value;
+    } catch {}
+    return undefined;
   }
 
   private readRegisteredDomains(): Map<string, RawFeatureDomain> {
@@ -284,6 +308,7 @@ export class FeatureService {
             ? "partial"
             : "available";
       summaries.push({
+        requires_openlia: manifest.requires?.openlia,
         id,
         name: manifest.name || id,
         version: manifest.version || "1.0.0",
@@ -329,28 +354,150 @@ export class FeatureService {
       schema: 1,
       ok: true,
       features: summaries,
+      catalog: this.catalogProvenance(),
     };
   }
 
-  install(rawId: unknown, approvePolicy = true): FeatureInstallResponse {
-    const featureId = validateFeatureId(rawId);
+  private preflight(
+    featureId: string,
+  ): Array<{ dir: string; manifest: RawFeatureManifest }> {
     const catalog = this.loadCatalogManifests();
-    const entry = catalog.get(featureId);
-    if (!entry) {
-      throw new WorkspaceError(
-        `feature not found: ${featureId}`,
-        404,
-        "feature_not_found",
-      );
-    }
-    const { dir, manifest } = entry;
-
-    // 1. Install required features first
-    for (const reqId of manifest.requires?.features ?? []) {
-      if (reqId !== featureId) {
-        this.install(reqId, approvePolicy);
+    const plan: Array<{ dir: string; manifest: RawFeatureManifest }> = [];
+    const plannedSkills = new Set<string>();
+    const active = new Set<string>();
+    const done = new Set<string>();
+    let runtimeVersion: string | undefined;
+    const version = () => {
+      runtimeVersion ??= readTemplatesRuntimeVersion(this.runtimeReleasePath);
+      return runtimeVersion;
+    };
+    const visit = (id: string) => {
+      if (active.has(id)) {
+        throw new WorkspaceError(
+          `cyclic feature dependency at ${id}`,
+          400,
+          "invalid_template_compatibility",
+        );
       }
-    }
+      if (done.has(id)) return;
+      const entry = catalog.get(validateFeatureId(id));
+      if (!entry) {
+        throw new WorkspaceError(
+          `feature not found: ${id}`,
+          404,
+          "feature_not_found",
+        );
+      }
+      active.add(id);
+      checkTemplateRequirements(
+        entry.manifest.requires,
+        `feature ${id}`,
+        version,
+      );
+      for (const dependency of entry.manifest.requires?.features ?? []) {
+        visit(dependency);
+      }
+      for (const skill of entry.manifest.skills ?? []) {
+        validateFeatureId(skill.id);
+        const skillRel = relative(entry.dir, resolve(entry.dir, skill.path));
+        if (skillRel === ".." || skillRel.startsWith(`..${sep}`)) {
+          throw new WorkspaceError(
+            "skill source must stay inside its feature",
+            400,
+            "invalid_skill_path",
+          );
+        }
+        if (plannedSkills.has(skill.id)) {
+          throw new WorkspaceError(
+            `multiple packages install skill ${skill.id}; use the managed CLI`,
+            409,
+            "skill_install_requires_cli",
+          );
+        }
+        plannedSkills.add(skill.id);
+        for (const destination of [
+          join(this.skillsRoot, skill.id),
+          join(this.skillsRoot, ".openlia-disabled", skill.id),
+        ]) {
+          try {
+            lstatSync(destination);
+          } catch (error) {
+            if (
+              error &&
+              typeof error === "object" &&
+              "code" in error &&
+              error.code === "ENOENT"
+            )
+              continue;
+            throw error;
+          }
+          throw new WorkspaceError(
+            `skill ${skill.id} already exists (active or disabled); use the managed CLI to preserve customizations and lineage`,
+            409,
+            "skill_install_requires_cli",
+          );
+        }
+        const path = join(entry.dir, skill.path, "SKILL.md");
+        if (!existsSync(path))
+          throw new WorkspaceError(
+            `skill ${skill.id} is missing SKILL.md`,
+            400,
+            "invalid_skill_package",
+          );
+        const text = readFileSync(path, "utf8").replaceAll("\r\n", "\n");
+        if (!text.startsWith("---\n")) continue;
+        const lines = text.slice(4).split("\n");
+        const end = lines.indexOf("---");
+        if (end < 0) {
+          throw new WorkspaceError(
+            `skill ${skill.id} has unclosed frontmatter`,
+            400,
+            "invalid_template_compatibility",
+          );
+        }
+        let frontmatter: { requires?: unknown } | null;
+        try {
+          frontmatter = YAML.parse(lines.slice(0, end).join("\n"));
+        } catch {
+          throw new WorkspaceError(
+            `skill ${skill.id} has invalid frontmatter`,
+            400,
+            "invalid_template_compatibility",
+          );
+        }
+        checkTemplateRequirements(
+          frontmatter?.requires,
+          `skill ${skill.id}`,
+          version,
+        );
+      }
+      active.delete(id);
+      done.add(id);
+      plan.push(entry);
+    };
+    visit(featureId);
+    return plan;
+  }
+
+  install(rawId: unknown, _approvePolicy = true): FeatureInstallResponse {
+    const featureId = validateFeatureId(rawId);
+    const plan = this.preflight(featureId);
+    const root = plan.pop();
+    if (!root)
+      throw new WorkspaceError(
+        "empty feature installation plan",
+        400,
+        "invalid_feature",
+      );
+    for (const entry of plan) this.installNewEntry(entry.dir, entry.manifest);
+    return this.installNewEntry(root.dir, root.manifest);
+  }
+
+  private installNewEntry(
+    dir: string,
+    manifest: RawFeatureManifest,
+  ): FeatureInstallResponse {
+    const featureId = manifest.id;
 
     // 2. Copy workspace templates/schemas non-destructively
     const featureWsDir = join(dir, "workspace");
@@ -376,12 +523,15 @@ export class FeatureService {
       const srcSkillDir = join(dir, sk.path);
       if (existsSync(srcSkillDir)) {
         const dstSkillDir = join(this.skillsRoot, sk.id);
-        const disabledDir = join(this.skillsRoot, ".openlia-disabled", sk.id);
-        if (existsSync(disabledDir)) {
-          rmSync(disabledDir, { recursive: true, force: true });
-        }
         mkdirSync(dirname(dstSkillDir), { recursive: true, mode: 0o700 });
-        cpSync(srcSkillDir, dstSkillDir, { recursive: true, force: true });
+        // Reserve a new destination exclusively; never merge into an existing
+        // active tree, even if another process created it after preflight.
+        mkdirSync(dstSkillDir, { mode: 0o700 });
+        cpSync(srcSkillDir, dstSkillDir, {
+          recursive: true,
+          force: false,
+          errorOnExist: true,
+        });
         installedSkills.push(sk.id);
       }
     }
@@ -391,6 +541,7 @@ export class FeatureService {
       ok: true,
       feature_id: featureId,
       installed_domains: installedDomains,
+      catalog: this.catalogProvenance(),
       installed_skills: installedSkills,
       policy_updated: policyUpdated,
     };

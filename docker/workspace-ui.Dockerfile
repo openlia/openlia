@@ -30,6 +30,7 @@ RUN apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquir
     && useradd --system --uid 10000 --gid 10000 --home-dir /nonexistent --shell /usr/sbin/nologin openlia
 
 COPY packages/workspace-ui/dist/ /opt/openlia/workspace-ui/
+COPY release/manifest.json /opt/openlia/runtime-release.json
 COPY profile/plugins/openlia-workspace-git/git_proposals.py /opt/openlia/git_proposals.py
 ARG OPENLIA_RELEASE_SHA256
 RUN if [ -n "${OPENLIA_RELEASE_SHA256:-}" ]; then printf '%s\n' "${OPENLIA_RELEASE_SHA256}" > /opt/openlia/release.sha256; fi \

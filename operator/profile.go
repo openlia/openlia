@@ -154,22 +154,24 @@ func (result SkillResult) MarshalJSON() ([]byte, error) {
 }
 
 type SkillMetadata struct {
-	Schema              int    `json:"schema"`
-	Skill               string `json:"skill"`
-	Ownership           string `json:"ownership"`
-	Distribution        string `json:"distribution"`
-	DistributionVersion string `json:"distribution_version"`
-	SourceID            string `json:"source_id"`
-	ArtifactPath        string `json:"artifact_path"`
-	HashScope           string `json:"hash_scope"`
-	ContentSHA256       string `json:"content_sha256"`
-	BaseSnapshot        string `json:"base_snapshot"`
-	PatchPath           string `json:"patch_path"`
-	PatchSHA256         string `json:"patch_sha256"`
-	ForkSHA256          string `json:"fork_sha256"`
-	ForkedAt            string `json:"forked_at,omitempty"`
-	InstalledAt         string `json:"installed_at"`
-	UpdatedAt           string `json:"updated_at"`
+	CatalogArtifactPath string                      `json:"catalog_artifact_path,omitempty"`
+	Catalog             *TemplatesCatalogProvenance `json:"catalog,omitempty"`
+	Schema              int                         `json:"schema"`
+	Skill               string                      `json:"skill"`
+	Ownership           string                      `json:"ownership"`
+	Distribution        string                      `json:"distribution"`
+	DistributionVersion string                      `json:"distribution_version"`
+	SourceID            string                      `json:"source_id"`
+	ArtifactPath        string                      `json:"artifact_path"`
+	HashScope           string                      `json:"hash_scope"`
+	ContentSHA256       string                      `json:"content_sha256"`
+	BaseSnapshot        string                      `json:"base_snapshot"`
+	PatchPath           string                      `json:"patch_path"`
+	PatchSHA256         string                      `json:"patch_sha256"`
+	ForkSHA256          string                      `json:"fork_sha256"`
+	ForkedAt            string                      `json:"forked_at,omitempty"`
+	InstalledAt         string                      `json:"installed_at"`
+	UpdatedAt           string                      `json:"updated_at"`
 }
 
 type metadataInfo struct {

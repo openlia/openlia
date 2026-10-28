@@ -39,6 +39,7 @@ var LeanBaseAllDirs = []string{
 }
 
 type FeatureRequirements struct {
+	OpenLia     string   `json:"openlia,omitempty"`
 	CoreDomains []string `json:"core_domains,omitempty"`
 	Features    []string `json:"features,omitempty"`
 	Tools       []string `json:"tools,omitempty"`
@@ -87,51 +88,57 @@ type FeatureManifest struct {
 }
 
 type InstalledFeatureRecord struct {
-	Schema      int             `json:"schema"`
-	ID          string          `json:"id"`
-	Source      string          `json:"source"` // "builtin" or "imported"
-	InstalledAt string          `json:"installed_at"`
-	UpdatedAt   string          `json:"updated_at"`
-	Manifest    FeatureManifest `json:"manifest"`
+	Catalog     *TemplatesCatalogProvenance `json:"catalog,omitempty"`
+	Schema      int                         `json:"schema"`
+	ID          string                      `json:"id"`
+	Source      string                      `json:"source"` // "builtin" or "imported"
+	InstalledAt string                      `json:"installed_at"`
+	UpdatedAt   string                      `json:"updated_at"`
+	Manifest    FeatureManifest             `json:"manifest"`
 }
 
 type FeatureStatus struct {
-	ID          string              `json:"id"`
-	Name        string              `json:"name"`
-	Version     string              `json:"version"`
-	Description string              `json:"description"`
-	Author      string              `json:"author,omitempty"`
-	License     string              `json:"license,omitempty"`
-	Source      string              `json:"source"`
-	State       string              `json:"state"` // "installed", "partial", "available"
-	Domains     []string            `json:"domains"`
-	Skills      []string            `json:"skills"`
-	Requires    FeatureRequirements `json:"requires,omitempty"`
-	Policy      FeaturePolicySpec   `json:"policy,omitempty"`
-	InstalledAt string              `json:"installed_at,omitempty"`
+	InstalledCatalog *TemplatesCatalogProvenance `json:"installed_catalog,omitempty"`
+	ID               string                      `json:"id"`
+	Name             string                      `json:"name"`
+	Version          string                      `json:"version"`
+	Description      string                      `json:"description"`
+	Author           string                      `json:"author,omitempty"`
+	License          string                      `json:"license,omitempty"`
+	Source           string                      `json:"source"`
+	State            string                      `json:"state"` // "installed", "partial", "available"
+	Domains          []string                    `json:"domains"`
+	Skills           []string                    `json:"skills"`
+	Requires         FeatureRequirements         `json:"requires,omitempty"`
+	Policy           FeaturePolicySpec           `json:"policy,omitempty"`
+	InstalledAt      string                      `json:"installed_at,omitempty"`
 }
 
 type FeatureListResult struct {
-	OK       bool            `json:"ok"`
-	Action   string          `json:"action"`
-	Features []FeatureStatus `json:"features"`
+	Catalog  *TemplatesCatalogProvenance `json:"catalog,omitempty"`
+	OK       bool                        `json:"ok"`
+	Action   string                      `json:"action"`
+	Features []FeatureStatus             `json:"features"`
 }
 
 type FeatureShowResult struct {
-	OK       bool            `json:"ok"`
-	Action   string          `json:"action"`
-	Status   FeatureStatus   `json:"status"`
-	Manifest FeatureManifest `json:"manifest"`
+	Catalog  *TemplatesCatalogProvenance `json:"catalog,omitempty"`
+	OK       bool                        `json:"ok"`
+	Action   string                      `json:"action"`
+	Status   FeatureStatus               `json:"status"`
+	Manifest FeatureManifest             `json:"manifest"`
 }
 
 type FeatureInstallResult struct {
-	OK               bool     `json:"ok"`
-	Action           string   `json:"action"`
-	FeatureID        string   `json:"feature_id"`
-	InstalledDomains []string `json:"installed_domains"`
-	InstalledSkills  []string `json:"installed_skills"`
-	ProvisionedTools []string `json:"provisioned_tools,omitempty"`
-	PolicyUpdated    bool     `json:"policy_updated"`
+	SkillResults     []SkillResult               `json:"skill_results,omitempty"`
+	Catalog          *TemplatesCatalogProvenance `json:"catalog,omitempty"`
+	OK               bool                        `json:"ok"`
+	Action           string                      `json:"action"`
+	FeatureID        string                      `json:"feature_id"`
+	InstalledDomains []string                    `json:"installed_domains"`
+	InstalledSkills  []string                    `json:"installed_skills"`
+	ProvisionedTools []string                    `json:"provisioned_tools,omitempty"`
+	PolicyUpdated    bool                        `json:"policy_updated"`
 }
 
 type FeatureRemoveResult struct {
@@ -174,190 +181,18 @@ func ValidateFeatureID(id string) error {
 
 // ParseFeatureManifest parses a feature.yaml manifest.
 func ParseFeatureManifest(data []byte) (FeatureManifest, error) {
-	var m FeatureManifest
-	m.Schema = 1
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-
-	section := ""
-	subSection := ""
-	var curDomain *WorkspaceDomain
-	var curSkill *FeatureSkillSpec
-	domainListField := ""
-	skillListField := ""
-
-	flushDomain := func() {
-		if curDomain != nil {
-			m.Domains = append(m.Domains, *curDomain)
-			curDomain = nil
-		}
-		domainListField = ""
+	m := FeatureManifest{Schema: 1}
+	if err := decodeTypedTemplateYAML(data, &m); err != nil {
+		return FeatureManifest{}, err
 	}
-	flushSkill := func() {
-		if curSkill != nil {
-			m.Skills = append(m.Skills, *curSkill)
-			curSkill = nil
-		}
-		skillListField = ""
+	if _, err := parseOpenLiaRequirement(data); err != nil {
+		return FeatureManifest{}, err
 	}
-
-	for _, rawLine := range lines {
-		trimmed := strings.TrimSpace(rawLine)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		indent := len(rawLine) - len(strings.TrimLeft(rawLine, " "))
-
-		if indent == 0 {
-			flushDomain()
-			flushSkill()
-			subSection = ""
-			key, val, ok := splitYAMLKeyValue(trimmed)
-			if !ok {
-				continue
-			}
-			switch key {
-			case "schema":
-				if v, err := strconv.Atoi(val); err == nil {
-					m.Schema = v
-				}
-				section = ""
-			case "id":
-				m.ID = unquoteYAMLScalar(val)
-				section = ""
-			case "name":
-				m.Name = unquoteYAMLScalar(val)
-				section = ""
-			case "version":
-				m.Version = unquoteYAMLScalar(val)
-				section = ""
-			case "description":
-				m.Description = unquoteYAMLScalar(val)
-				section = ""
-			case "author":
-				m.Author = unquoteYAMLScalar(val)
-				section = ""
-			case "license":
-				m.License = unquoteYAMLScalar(val)
-				section = ""
-			case "requires", "domains", "skills", "policy":
-				section = key
-			default:
-				section = ""
-			}
-			continue
-		}
-
-		switch section {
-		case "requires":
-			if indent == 2 && !strings.HasPrefix(trimmed, "- ") {
-				key, val, ok := splitYAMLKeyValue(trimmed)
-				if !ok {
-					continue
-				}
-				subSection = key
-				if val != "" {
-					switch key {
-					case "core_domains":
-						m.Requires.CoreDomains = append(m.Requires.CoreDomains, parseInlineYAMLList(val)...)
-					case "features":
-						m.Requires.Features = append(m.Requires.Features, parseInlineYAMLList(val)...)
-					case "tools":
-						m.Requires.Tools = append(m.Requires.Tools, parseInlineYAMLList(val)...)
-					case "python":
-						m.Requires.Python = unquoteYAMLScalar(val)
-					case "bun":
-						m.Requires.Bun = unquoteYAMLScalar(val)
-					}
-				}
-			} else if strings.HasPrefix(trimmed, "- ") {
-				item := unquoteYAMLScalar(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
-				if item != "" {
-					switch subSection {
-					case "core_domains":
-						m.Requires.CoreDomains = append(m.Requires.CoreDomains, item)
-					case "features":
-						m.Requires.Features = append(m.Requires.Features, item)
-					case "tools":
-						m.Requires.Tools = append(m.Requires.Tools, item)
-					}
-				}
-			}
-
-		case "domains":
-			if indent == 2 && strings.HasPrefix(trimmed, "- ") {
-				flushDomain()
-				curDomain = &WorkspaceDomain{Kind: "extension"}
-				rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
-				if key, val, ok := splitYAMLKeyValue(rest); ok {
-					applyDomainField(curDomain, key, val, &domainListField)
-				}
-			} else if curDomain != nil && indent == 4 && !strings.HasPrefix(trimmed, "- ") {
-				domainListField = ""
-				if key, val, ok := splitYAMLKeyValue(trimmed); ok {
-					applyDomainField(curDomain, key, val, &domainListField)
-				}
-			} else if curDomain != nil && indent >= 4 && strings.HasPrefix(trimmed, "- ") {
-				item := unquoteYAMLScalar(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
-				if item != "" {
-					switch domainListField {
-					case "tags":
-						curDomain.Tags = append(curDomain.Tags, item)
-					case "skills":
-						curDomain.Skills = append(curDomain.Skills, item)
-					}
-				}
-			}
-
-		case "skills":
-			if indent == 2 && strings.HasPrefix(trimmed, "- ") {
-				flushSkill()
-				curSkill = &FeatureSkillSpec{}
-				rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
-				if key, val, ok := splitYAMLKeyValue(rest); ok {
-					applySkillField(curSkill, key, val, &skillListField)
-				}
-			} else if curSkill != nil && indent == 4 && !strings.HasPrefix(trimmed, "- ") {
-				skillListField = ""
-				if key, val, ok := splitYAMLKeyValue(trimmed); ok {
-					applySkillField(curSkill, key, val, &skillListField)
-				}
-			} else if curSkill != nil && indent >= 4 && strings.HasPrefix(trimmed, "- ") {
-				item := unquoteYAMLScalar(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
-				if item != "" && skillListField == "workspace_domains" {
-					curSkill.WorkspaceDomains = append(curSkill.WorkspaceDomains, item)
-				}
-			}
-
-		case "policy":
-			if indent == 2 && !strings.HasPrefix(trimmed, "- ") {
-				key, val, ok := splitYAMLKeyValue(trimmed)
-				if !ok {
-					continue
-				}
-				subSection = key
-				if val != "" {
-					items := parseInlineYAMLList(val)
-					if key == "allowed_domains" {
-						m.Policy.AllowedDomains = append(m.Policy.AllowedDomains, items...)
-					} else if key == "allowed_actions" {
-						m.Policy.AllowedActions = append(m.Policy.AllowedActions, items...)
-					}
-				}
-			} else if strings.HasPrefix(trimmed, "- ") {
-				item := unquoteYAMLScalar(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
-				if item != "" {
-					if subSection == "allowed_domains" {
-						m.Policy.AllowedDomains = append(m.Policy.AllowedDomains, item)
-					} else if subSection == "allowed_actions" {
-						m.Policy.AllowedActions = append(m.Policy.AllowedActions, item)
-					}
-				}
-			}
+	for i := range m.Domains {
+		if m.Domains[i].Kind == "" {
+			m.Domains[i].Kind = "extension"
 		}
 	}
-	flushDomain()
-	flushSkill()
-
 	if err := ValidateFeatureManifest(m); err != nil {
 		return FeatureManifest{}, err
 	}
@@ -365,6 +200,12 @@ func ParseFeatureManifest(data []byte) (FeatureManifest, error) {
 }
 
 func ValidateFeatureManifest(m FeatureManifest) error {
+	if err := validateEnvironmentManifestPaths(m.Requires); err != nil {
+		return err
+	}
+	if err := validateOpenLiaRequirement(m.Requires.OpenLia); err != nil {
+		return err
+	}
 	if m.Schema != 1 {
 		return fmt.Errorf("feature manifest schema must be 1, got %d", m.Schema)
 	}
@@ -424,6 +265,9 @@ func RenderFeatureManifest(m FeatureManifest) []byte {
 		b.WriteString(fmt.Sprintf("license: %s\n", formatYAMLScalar(m.License)))
 	}
 	b.WriteString("requires:\n")
+	if m.Requires.OpenLia != "" {
+		b.WriteString(fmt.Sprintf("  openlia: %s\n", formatYAMLScalar(m.Requires.OpenLia)))
+	}
 	if len(m.Requires.CoreDomains) == 0 {
 		b.WriteString("  core_domains: []\n")
 	} else {
@@ -658,22 +502,6 @@ func LoadCatalogFeaturesForConfig(config Config) ([]FeatureManifest, map[string]
 
 func LoadCatalogFeatures(repoRoot string) ([]FeatureManifest, map[string]string, error) {
 	featuresDir := filepath.Join(repoRoot, "features")
-	if info, err := os.Stat(featuresDir); err != nil || !info.IsDir() {
-		for _, candidate := range []string{
-			strings.TrimSpace(os.Getenv("OPENLIA_TEMPLATES_REPO")),
-			strings.TrimSpace(os.Getenv("OPENLIA_TEMPLATES_ROOT")),
-			filepath.Join(filepath.Dir(repoRoot), "openlia_templates"),
-		} {
-			if candidate == "" {
-				continue
-			}
-			candFeatures := filepath.Join(candidate, "features")
-			if cInfo, cErr := os.Stat(candFeatures); cErr == nil && cInfo.IsDir() {
-				featuresDir = candFeatures
-				break
-			}
-		}
-	}
 	entries, err := os.ReadDir(featuresDir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, map[string]string{}, nil
@@ -771,7 +599,7 @@ func computeFeatureStatus(config Config, m FeatureManifest, source string, insta
 		}
 	}
 
-	return FeatureStatus{
+	status := FeatureStatus{
 		ID:          m.ID,
 		Name:        m.Name,
 		Version:     m.Version,
@@ -786,6 +614,10 @@ func computeFeatureStatus(config Config, m FeatureManifest, source string, insta
 		Policy:      m.Policy,
 		InstalledAt: installedAt,
 	}
+	if installedRec != nil {
+		status.InstalledCatalog = installedRec.Catalog
+	}
+	return status
 }
 
 func normalizeAndValidateFeatureConfig(config *Config) error {
@@ -843,6 +675,7 @@ func FeatureList(config Config) (FeatureListResult, error) {
 		return statuses[i].ID < statuses[j].ID
 	})
 	return FeatureListResult{
+		Catalog:  currentTemplatesProvenance(config),
 		OK:       true,
 		Action:   "features-list",
 		Features: statuses,
@@ -864,6 +697,7 @@ func FeatureShow(config Config, featureID string) (FeatureShowResult, error) {
 	registered, _ := RegisteredDomainPaths(workspaceDir)
 	status := computeFeatureStatus(config, manifest, source, rec, registered)
 	return FeatureShowResult{
+		Catalog:  currentTemplatesProvenance(config),
 		OK:       true,
 		Action:   "features-show",
 		Status:   status,
@@ -872,7 +706,9 @@ func FeatureShow(config Config, featureID string) (FeatureShowResult, error) {
 }
 
 func resolveFeatureManifest(config Config, featureID string) (FeatureManifest, string, string, *InstalledFeatureRecord, error) {
-	ensureTemplatesCatalogIfNeeded(config)
+	if err := ensureTemplatesCatalogIfNeeded(config); err != nil {
+		return FeatureManifest{}, "", "", nil, err
+	}
 	_, paths, err := LoadCatalogFeaturesForConfig(config)
 	if err != nil {
 		return FeatureManifest{}, "", "", nil, err
@@ -907,6 +743,14 @@ func FeatureInstall(config Config, featureID string, approvePolicy bool, now tim
 	if err := ValidateFeatureID(featureID); err != nil {
 		return FeatureInstallResult{}, err
 	}
+	if err := ensureTemplatesCatalogIfNeeded(config); err != nil {
+		return FeatureInstallResult{}, err
+	}
+	unlock, err := lockTemplatesCatalogForRead(config)
+	if err != nil {
+		return FeatureInstallResult{}, err
+	}
+	defer unlock()
 	manifest, pkgDir, source, existingRec, err := resolveFeatureManifest(config, featureID)
 	if err != nil {
 		return FeatureInstallResult{}, err
@@ -915,6 +759,13 @@ func FeatureInstall(config Config, featureID string, approvePolicy bool, now tim
 }
 
 func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir string, source string, existingRec *InstalledFeatureRecord, approvePolicy bool, now time.Time) (FeatureInstallResult, error) {
+	if err := newTemplatePreflight(config).feature(manifest, pkgDir); err != nil {
+		return FeatureInstallResult{}, err
+	}
+	var catalog *TemplatesCatalogProvenance
+	if source != "imported" {
+		catalog = catalogProvenanceForPath(config, pkgDir)
+	}
 	// Install required features first
 	for _, reqFeat := range manifest.Requires.Features {
 		if reqFeat == manifest.ID {
@@ -951,6 +802,7 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 
 	// 2. Install bundled skills into DataRoot/skills
 	var installedSkills []string
+	var skillResults []SkillResult
 	if len(manifest.Skills) > 0 {
 		skillsRoot := filepath.Join(config.DataRoot, "skills")
 		managedSkillsRoot := filepath.Join(config.MetaRoot, "managed", "skills")
@@ -976,8 +828,18 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 				_ = os.RemoveAll(disabledDir)
 			}
 			metaPath := filepath.Join(managedSkillsRoot, sk.ID+".json")
-			if _, err := prof.syncSkill(srcSkillDir, dstSkillDir, metaPath, sk.ID, distVer, distSource); err != nil {
+			skillResult, err := prof.syncSkill(srcSkillDir, dstSkillDir, metaPath, sk.ID, distVer, distSource)
+			if err != nil {
 				return FeatureInstallResult{}, fmt.Errorf("install feature skill %s: %w", sk.ID, err)
+			}
+			if source != "imported" {
+				if err := recordSkillCatalog(config, metaPath, sk.ID, srcSkillDir, skillResult); err != nil {
+					return FeatureInstallResult{}, err
+				}
+			}
+			skillResults = append(skillResults, skillResult)
+			if skillResult.ResultState != "managed" {
+				continue
 			}
 			if err := ProvisionSkillEnvironment(config, sk.ID, dstSkillDir, manifest.Requires.Python, manifest.Requires.Bun); err != nil {
 				return FeatureInstallResult{}, fmt.Errorf("provision skill environment for %s: %w", sk.ID, err)
@@ -1013,6 +875,7 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 		installedAt = existingRec.InstalledAt
 	}
 	rec := InstalledFeatureRecord{
+		Catalog:     catalog,
 		Schema:      1,
 		ID:          manifest.ID,
 		Source:      source,
@@ -1035,6 +898,8 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 
 	_ = RecordChange(config, "feature-install", "ok", manifest.ID, fmt.Sprintf("installed feature %s", manifest.ID), now)
 	return FeatureInstallResult{
+		SkillResults:     skillResults,
+		Catalog:          catalog,
 		OK:               true,
 		Action:           "feature-install",
 		FeatureID:        manifest.ID,
@@ -1084,6 +949,19 @@ func FeatureImport(config Config, archiveOrDirPath string, approvePolicy bool, n
 	}
 
 	// Persist imported package under MetaRoot/managed/features/<id>/package
+	if len(manifest.Requires.Features) > 0 {
+		if err := ensureTemplatesCatalogIfNeeded(config); err != nil {
+			return FeatureInstallResult{}, err
+		}
+	}
+	unlock, err := lockTemplatesCatalogForRead(config)
+	if err != nil {
+		return FeatureInstallResult{}, err
+	}
+	defer unlock()
+	if err := newTemplatePreflight(config).feature(manifest, tmpDir); err != nil {
+		return FeatureInstallResult{}, err
+	}
 	pkgStorageDir := filepath.Join(config.MetaRoot, "managed", "features", manifest.ID, "package")
 	if err := replaceDirectory(tmpDir, pkgStorageDir); err != nil {
 		return FeatureInstallResult{}, fmt.Errorf("store imported feature package: %w", err)
@@ -1267,6 +1145,9 @@ func FeaturePackage(config Config, opts FeaturePackageOptions) (FeaturePackageRe
 	if baseManifest != nil && len(baseManifest.Policy.AllowedActions) > 0 {
 		manifest.Policy.AllowedActions = baseManifest.Policy.AllowedActions
 	}
+	if baseManifest != nil {
+		manifest.Requires = baseManifest.Requires
+	}
 
 	outputPath := opts.OutputPath
 	if outputPath == "" {
@@ -1349,7 +1230,7 @@ func FeaturePackage(config Config, opts FeaturePackageOptions) (FeaturePackageRe
 		if info, err := os.Stat(skDir); err != nil || !info.IsDir() {
 			// Fallback to catalog skill dir if packaging a builtin feature
 			if baseManifest != nil {
-				if _, catalogPaths, err := LoadCatalogFeatures(config.RepositoryRoot); err == nil {
+				if _, catalogPaths, err := LoadCatalogFeaturesForConfig(config); err == nil {
 					if catDir, ok := catalogPaths[opts.FeatureID]; ok {
 						skDir = filepath.Join(catDir, "skills", skID)
 					}
@@ -2022,23 +1903,8 @@ func applyDomainField(d *WorkspaceDomain, key, val string, listField *string) {
 	}
 }
 
-func applySkillField(s *FeatureSkillSpec, key, val string, listField *string) {
-	switch key {
-	case "id":
-		s.ID = unquoteYAMLScalar(val)
-	case "path":
-		s.Path = unquoteYAMLScalar(val)
-	case "workspace_domains":
-		if val == "" {
-			*listField = "workspace_domains"
-		} else {
-			s.WorkspaceDomains = append(s.WorkspaceDomains, parseInlineYAMLList(val)...)
-		}
-	}
-}
-
 // IsKnownBoilerplateTemplate checks if relPath is a standard OpenLia schema or unmodified starter template.
-func IsKnownBoilerplateTemplate(repoRoot, relPath string, content []byte) (bool, string) {
+func IsKnownBoilerplateTemplate(repoRoot, relPath string, content []byte, catalogRoots ...string) (bool, string) {
 	clean := strings.Trim(filepath.ToSlash(relPath), "/")
 	base := filepath.Base(clean)
 
@@ -2063,7 +1929,11 @@ func IsKnownBoilerplateTemplate(repoRoot, relPath string, content []byte) (bool,
 	candidatePaths := []string{
 		filepath.Join(repoRoot, "workspace-template", filepath.FromSlash(clean)),
 	}
-	if _, catPaths, err := LoadCatalogFeatures(repoRoot); err == nil {
+	catalogRoot := repoRoot
+	if len(catalogRoots) > 0 {
+		catalogRoot = catalogRoots[0]
+	}
+	if _, catPaths, err := LoadCatalogFeatures(catalogRoot); err == nil {
 		for _, pkgDir := range catPaths {
 			candidatePaths = append(candidatePaths, filepath.Join(pkgDir, "workspace", filepath.FromSlash(clean)))
 		}
@@ -2089,12 +1959,23 @@ func RebaseInstalledFeature(config Config, featureID string, now time.Time) (Reb
 	if err := ValidateFeatureID(featureID); err != nil {
 		return RebaseResult{}, err
 	}
+	if err := ensureTemplatesCatalogIfNeeded(config); err != nil {
+		return RebaseResult{}, err
+	}
+	unlock, err := lockTemplatesCatalogForRead(config)
+	if err != nil {
+		return RebaseResult{}, err
+	}
+	defer unlock()
 	manifest, pkgDir, source, existingRec, err := resolveFeatureManifest(config, featureID)
 	if err != nil {
 		return RebaseResult{}, err
 	}
 	if existingRec == nil {
 		return RebaseResult{}, fmt.Errorf("feature %s is not installed", featureID)
+	}
+	if err := newTemplatePreflight(config).feature(manifest, pkgDir); err != nil {
+		return RebaseResult{}, err
 	}
 
 	workspaceDir := featureWorkspaceDir(config)

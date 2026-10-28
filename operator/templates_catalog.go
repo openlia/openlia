@@ -8,28 +8,31 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
+
+	"openlia/internal/releaseinfo"
 )
 
-const (
-	DefaultTemplatesRepo = "https://github.com/openlia/templates.git"
-	DefaultTemplatesRef  = "main"
+var (
+	DefaultTemplatesRepo = releaseinfo.Default.Templates.Repository
+	DefaultTemplatesRef  = releaseinfo.Default.Templates.Revision
 )
 
 type TemplatesSyncResult struct {
-	OK            bool   `json:"ok"`
-	Action        string `json:"action"`
-	Source        string `json:"source"`
-	Ref           string `json:"ref"`
-	CacheDir      string `json:"cache_dir"`
-	ProfilesCount int    `json:"profiles_count"`
-	FeaturesCount int    `json:"features_count"`
-	SkillsCount   int    `json:"skills_count"`
+	OK                bool                        `json:"ok"`
+	Action            string                      `json:"action"`
+	Source            string                      `json:"source"`
+	Ref               string                      `json:"ref"`
+	CacheDir          string                      `json:"cache_dir"`
+	ProfilesCount     int                         `json:"profiles_count"`
+	FeaturesCount     int                         `json:"features_count"`
+	SkillsCount       int                         `json:"skills_count"`
+	Catalog           *TemplatesCatalogProvenance `json:"catalog"`
+	UIRefreshRequired bool                        `json:"ui_refresh_required"`
+	PreviousCacheDir  string                      `json:"previous_cache_dir,omitempty"`
 }
 
 type ProfileInstructionsSpec struct {
@@ -53,20 +56,26 @@ type TemplateProfileManifest struct {
 }
 
 type ProfileInstallResult struct {
-	OK                bool     `json:"ok"`
-	Action            string   `json:"action"`
-	ProfileID         string   `json:"profile_id"`
-	InstalledFeatures []string `json:"installed_features"`
-	InstalledSkills   []string `json:"installed_skills"`
-	ProvisionedTools  []string `json:"provisioned_tools,omitempty"`
+	SkillResults      []SkillResult               `json:"skill_results,omitempty"`
+	OK                bool                        `json:"ok"`
+	Action            string                      `json:"action"`
+	ProfileID         string                      `json:"profile_id"`
+	InstalledFeatures []string                    `json:"installed_features"`
+	InstalledSkills   []string                    `json:"installed_skills"`
+	ProvisionedTools  []string                    `json:"provisioned_tools,omitempty"`
+	Catalog           *TemplatesCatalogProvenance `json:"catalog,omitempty"`
 }
 
 type SkillInstallResult struct {
-	OK               bool     `json:"ok"`
-	Action           string   `json:"action"`
-	SkillID          string   `json:"skill_id"`
-	Source           string   `json:"source"`
-	ProvisionedTools []string `json:"provisioned_tools,omitempty"`
+	Outcome          string                      `json:"outcome"`
+	Skill            SkillResult                 `json:"skill"`
+	AvailableCatalog *TemplatesCatalogProvenance `json:"available_catalog,omitempty"`
+	OK               bool                        `json:"ok"`
+	Action           string                      `json:"action"`
+	SkillID          string                      `json:"skill_id"`
+	Source           string                      `json:"source"`
+	ProvisionedTools []string                    `json:"provisioned_tools,omitempty"`
+	Catalog          *TemplatesCatalogProvenance `json:"catalog,omitempty"`
 }
 
 type RebaseResult struct {
@@ -103,8 +112,10 @@ func ResolveTemplatesRoot(config Config) string {
 		if candidate == "" {
 			continue
 		}
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-			return candidate
+		if strings.TrimSpace(config.TemplatesRef) == "" && strings.TrimSpace(os.Getenv("OPENLIA_TEMPLATES_REF")) == "" {
+			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+				return candidate
+			}
 		}
 	}
 
@@ -119,139 +130,86 @@ func ResolveTemplatesRoot(config Config) string {
 		if isCatalogDirectory(config.RepositoryRoot) {
 			return config.RepositoryRoot
 		}
-		sibling := filepath.Join(filepath.Dir(config.RepositoryRoot), "openlia_templates")
-		if isCatalogDirectory(sibling) {
-			return sibling
-		}
 	}
 
 	return config.RepositoryRoot
 }
 
-func ensureTemplatesCatalogIfNeeded(config Config) {
-	if isCatalogDirectory(ResolveTemplatesRoot(config)) {
-		return
+func ensureTemplatesCatalogIfNeeded(config Config) error {
+	if err := recoverTemplatesCatalog(config); err != nil {
+		return err
+	}
+	root := ResolveTemplatesRoot(config)
+	if isCatalogDirectory(root) {
+		// An explicitly selected live directory is not an unidentified legacy
+		// cache, even when a local fixture or mounted catalog uses that pathname.
+		if strings.TrimSpace(config.TemplatesRef) == "" && strings.TrimSpace(os.Getenv("OPENLIA_TEMPLATES_REF")) == "" {
+			for _, source := range []string{config.TemplatesRepo, os.Getenv("OPENLIA_TEMPLATES_REPO"), os.Getenv("OPENLIA_TEMPLATES_ROOT")} {
+				if source != "" && filepath.Clean(source) == filepath.Clean(root) {
+					return nil
+				}
+			}
+		}
+		if root != filepath.Join(config.MetaRoot, "templates-cache") {
+			return nil
+		}
+		source := strings.TrimSpace(config.TemplatesRepo)
+		if source == "" {
+			source = strings.TrimSpace(os.Getenv("OPENLIA_TEMPLATES_REPO"))
+		}
+		if source == "" {
+			source = DefaultTemplatesRepo
+		}
+		ref := strings.TrimSpace(config.TemplatesRef)
+		if ref == "" {
+			ref = strings.TrimSpace(os.Getenv("OPENLIA_TEMPLATES_REF"))
+		}
+		if ref == "" {
+			if stat, err := os.Stat(source); err == nil && stat.IsDir() {
+				source, _ = filepath.Abs(source)
+				ref = "worktree"
+			} else {
+				ref = DefaultTemplatesRef
+			}
+		}
+		data, err := os.ReadFile(filepath.Join(root, catalogProvenanceFile))
+		var info TemplatesCatalogProvenance
+		if err == nil && json.Unmarshal(data, &info) == nil && info.Schema == 1 && info.Source == source && info.Ref == ref {
+			return nil
+		}
 	}
 	if config.MetaRoot == "" {
-		return
+		return nil
 	}
-	_, _ = SyncTemplatesCatalog(context.Background(), config)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	_, err := SyncTemplatesCatalog(ctx, config)
+	return err
 }
 
 // ParseProfileManifest parses a profiles/<id>/profile.yaml manifest.
 func ParseProfileManifest(data []byte) (TemplateProfileManifest, error) {
-	var m TemplateProfileManifest
-	m.Schema = 1
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-
-	section := ""
-	subSection := ""
-	for _, rawLine := range lines {
-		trimmed := strings.TrimSpace(rawLine)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		indent := len(rawLine) - len(strings.TrimLeft(rawLine, " "))
-
-		if indent == 0 {
-			subSection = ""
-			key, val, ok := splitYAMLKeyValue(trimmed)
-			if !ok {
-				continue
-			}
-			switch key {
-			case "schema":
-				if v, err := strconv.Atoi(val); err == nil {
-					m.Schema = v
-				}
-				section = ""
-			case "id":
-				m.ID = unquoteYAMLScalar(val)
-				section = ""
-			case "name":
-				m.Name = unquoteYAMLScalar(val)
-				section = ""
-			case "version":
-				m.Version = unquoteYAMLScalar(val)
-				section = ""
-			case "description":
-				m.Description = unquoteYAMLScalar(val)
-				section = ""
-			case "author":
-				m.Author = unquoteYAMLScalar(val)
-				section = ""
-			case "license":
-				m.License = unquoteYAMLScalar(val)
-				section = ""
-			case "features":
-				section = "features"
-				if val != "" {
-					m.Features = append(m.Features, parseInlineYAMLList(val)...)
-				}
-			case "skills":
-				section = "skills"
-				if val != "" {
-					m.Skills = append(m.Skills, parseInlineYAMLList(val)...)
-				}
-			case "requires", "instructions":
-				section = key
-			default:
-				section = ""
-			}
-			continue
-		}
-
-		switch section {
-		case "features":
-			if strings.HasPrefix(trimmed, "- ") {
-				item := unquoteYAMLScalar(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
-				if item != "" {
-					m.Features = append(m.Features, item)
-				}
-			}
-		case "skills":
-			if strings.HasPrefix(trimmed, "- ") {
-				item := unquoteYAMLScalar(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
-				if item != "" {
-					m.Skills = append(m.Skills, item)
-				}
-			}
-		case "requires":
-			if indent == 2 && !strings.HasPrefix(trimmed, "- ") {
-				key, val, ok := splitYAMLKeyValue(trimmed)
-				if !ok {
-					continue
-				}
-				subSection = key
-				if val != "" && key == "tools" {
-					m.Requires.Tools = append(m.Requires.Tools, parseInlineYAMLList(val)...)
-				}
-			} else if strings.HasPrefix(trimmed, "- ") && subSection == "tools" {
-				item := unquoteYAMLScalar(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
-				if item != "" {
-					m.Requires.Tools = append(m.Requires.Tools, item)
-				}
-			}
-		case "instructions":
-			if indent >= 2 && !strings.HasPrefix(trimmed, "- ") {
-				key, val, ok := splitYAMLKeyValue(trimmed)
-				if !ok {
-					continue
-				}
-				switch key {
-				case "soul":
-					m.Instructions.Soul = unquoteYAMLScalar(val)
-				case "profile_agents":
-					m.Instructions.ProfileAgents = unquoteYAMLScalar(val)
-				case "workspace_agents":
-					m.Instructions.WorkspaceAgents = unquoteYAMLScalar(val)
-				}
-			}
-		}
+	m := TemplateProfileManifest{Schema: 1}
+	if err := decodeTypedTemplateYAML(data, &m); err != nil {
+		return TemplateProfileManifest{}, err
 	}
-
 	if err := ValidateFeatureID(m.ID); err != nil {
 		return TemplateProfileManifest{}, fmt.Errorf("invalid profile id %q: %w", m.ID, err)
+	}
+	if _, err := parseOpenLiaRequirement(data); err != nil {
+		return TemplateProfileManifest{}, err
+	}
+	if m.Schema != 1 {
+		return TemplateProfileManifest{}, fmt.Errorf("profile manifest schema must be 1")
+	}
+	if err := validateEnvironmentManifestPaths(m.Requires); err != nil {
+		return TemplateProfileManifest{}, err
+	}
+	for _, path := range []string{m.Instructions.Soul, m.Instructions.ProfileAgents, m.Instructions.WorkspaceAgents} {
+		clean := filepath.Clean(filepath.FromSlash(path))
+		if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return TemplateProfileManifest{}, fmt.Errorf("profile instruction path must remain inside its package: %q", path)
+		}
 	}
 	return m, nil
 }
@@ -266,7 +224,14 @@ func InstallTemplateProfile(config Config, profileID string, approvePolicy bool,
 		return ProfileInstallResult{}, fmt.Errorf("invalid profile id %q: %w", profileID, err)
 	}
 
-	ensureTemplatesCatalogIfNeeded(config)
+	if err := ensureTemplatesCatalogIfNeeded(config); err != nil {
+		return ProfileInstallResult{}, err
+	}
+	unlock, err := lockTemplatesCatalogForRead(config)
+	if err != nil {
+		return ProfileInstallResult{}, err
+	}
+	defer unlock()
 	templatesRoot := ResolveTemplatesRoot(config)
 	profileDir := filepath.Join(templatesRoot, "profiles", profileID)
 	manifestBytes, err := os.ReadFile(filepath.Join(profileDir, "profile.yaml"))
@@ -280,6 +245,10 @@ func InstallTemplateProfile(config Config, profileID string, approvePolicy bool,
 	}
 
 	var installedFeatures []string
+	var skillResults []SkillResult
+	if err := newTemplatePreflight(config).profile(manifest); err != nil {
+		return ProfileInstallResult{}, err
+	}
 	skillSet := make(map[string]bool)
 	var installedSkills []string
 	toolSet := make(map[string]bool)
@@ -304,6 +273,7 @@ func InstallTemplateProfile(config Config, profileID string, approvePolicy bool,
 			return ProfileInstallResult{}, fmt.Errorf("install profile feature %s: %w", featID, err)
 		}
 		installedFeatures = append(installedFeatures, res.FeatureID)
+		skillResults = append(skillResults, res.SkillResults...)
 		for _, sk := range res.InstalledSkills {
 			addSkill(sk)
 		}
@@ -317,7 +287,10 @@ func InstallTemplateProfile(config Config, profileID string, approvePolicy bool,
 		if err != nil {
 			return ProfileInstallResult{}, fmt.Errorf("install profile skill %s: %w", skillID, err)
 		}
-		addSkill(res.SkillID)
+		skillResults = append(skillResults, res.Skill)
+		if res.Skill.ResultState == "managed" {
+			addSkill(res.SkillID)
+		}
 		for _, tl := range res.ProvisionedTools {
 			addTool(tl)
 		}
@@ -363,9 +336,11 @@ func InstallTemplateProfile(config Config, profileID string, approvePolicy bool,
 
 	_ = RecordChange(config, "profile-install", "ok", manifest.ID, fmt.Sprintf("installed template profile %s", manifest.ID), now)
 	return ProfileInstallResult{
+		SkillResults:      skillResults,
 		OK:                true,
 		Action:            "profile-install",
 		ProfileID:         manifest.ID,
+		Catalog:           currentTemplatesProvenance(config),
 		InstalledFeatures: installedFeatures,
 		InstalledSkills:   installedSkills,
 		ProvisionedTools:  provisionedTools,
@@ -382,7 +357,14 @@ func SkillInstall(config Config, skillID string, now time.Time) (SkillInstallRes
 		return SkillInstallResult{}, err
 	}
 
-	ensureTemplatesCatalogIfNeeded(config)
+	if err := ensureTemplatesCatalogIfNeeded(config); err != nil {
+		return SkillInstallResult{}, err
+	}
+	unlock, err := lockTemplatesCatalogForRead(config)
+	if err != nil {
+		return SkillInstallResult{}, err
+	}
+	defer unlock()
 	catalogSkills, err := LoadCatalogSkills(config)
 	if err != nil {
 		return SkillInstallResult{}, err
@@ -390,6 +372,9 @@ func SkillInstall(config Config, skillID string, now time.Time) (SkillInstallRes
 	srcSkillDir, ok := catalogSkills[skillID]
 	if !ok {
 		return SkillInstallResult{}, fmt.Errorf("skill %s not found in templates catalog", skillID)
+	}
+	if err := newTemplatePreflight(config).catalogSkill(srcSkillDir); err != nil {
+		return SkillInstallResult{}, err
 	}
 
 	skillsRoot := filepath.Join(config.DataRoot, "skills")
@@ -413,11 +398,21 @@ func SkillInstall(config Config, skillID string, now time.Time) (SkillInstallRes
 	distVer, distSource := prof.distributionInfo()
 	dstSkillDir := filepath.Join(skillsRoot, skillID)
 	metaPath := filepath.Join(managedSkillsRoot, skillID+".json")
-	if _, err := prof.syncSkill(srcSkillDir, dstSkillDir, metaPath, skillID, distVer, distSource); err != nil {
+	skillResult, err := prof.syncSkill(srcSkillDir, dstSkillDir, metaPath, skillID, distVer, distSource)
+	if err != nil {
 		return SkillInstallResult{}, fmt.Errorf("install skill %s: %w", skillID, err)
 	}
-	if err := ProvisionSkillEnvironment(config, skillID, dstSkillDir, "", ""); err != nil {
-		return SkillInstallResult{}, fmt.Errorf("provision skill environment for %s: %w", skillID, err)
+	if err := recordSkillCatalog(config, metaPath, skillID, srcSkillDir, skillResult); err != nil {
+		return SkillInstallResult{}, err
+	}
+	if skillResult.ResultState == "managed" {
+		if err := ProvisionSkillEnvironment(config, skillID, dstSkillDir, "", ""); err != nil {
+			return SkillInstallResult{}, fmt.Errorf("provision skill environment for %s: %w", skillID, err)
+		}
+	}
+	var installedCatalog *TemplatesCatalogProvenance
+	if metadata, err := readFullSkillMetadata(metaPath, skillID); err == nil {
+		installedCatalog = metadata.Catalog
 	}
 	skTools, _, _ := ParseSkillRequirements(dstSkillDir)
 
@@ -428,81 +423,21 @@ func SkillInstall(config Config, skillID string, now time.Time) (SkillInstallRes
 
 	_ = RecordChange(config, "skill-install", "ok", skillID, fmt.Sprintf("installed skill %s", skillID), now)
 	return SkillInstallResult{
+		Outcome:          skillResult.Action,
+		Skill:            skillResult,
+		AvailableCatalog: catalogProvenanceForPath(config, srcSkillDir),
 		OK:               true,
 		Action:           "skill-install",
 		SkillID:          skillID,
 		Source:           "catalog",
+		Catalog:          installedCatalog,
 		ProvisionedTools: skTools,
 	}, nil
 }
 
 // SyncTemplatesCatalog clones or updates the templates catalog in <MetaRoot>/templates-cache.
 func SyncTemplatesCatalog(ctx context.Context, config Config) (TemplatesSyncResult, error) {
-	if err := normalizeAndValidateFeatureConfig(&config); err != nil {
-		return TemplatesSyncResult{}, err
-	}
-	source := strings.TrimSpace(config.TemplatesRepo)
-	if source == "" {
-		source = strings.TrimSpace(os.Getenv("OPENLIA_TEMPLATES_REPO"))
-	}
-	if source == "" {
-		sibling := filepath.Join(filepath.Dir(config.RepositoryRoot), "openlia_templates")
-		if info, err := os.Stat(filepath.Join(sibling, "features")); err == nil && info.IsDir() {
-			source = sibling
-		} else {
-			source = DefaultTemplatesRepo
-		}
-	}
-	ref := strings.TrimSpace(config.TemplatesRef)
-	if ref == "" {
-		ref = strings.TrimSpace(os.Getenv("OPENLIA_TEMPLATES_REF"))
-	}
-	if ref == "" {
-		ref = DefaultTemplatesRef
-	}
-
-	cacheDir := filepath.Join(config.MetaRoot, "templates-cache")
-	if err := EnsureDir(filepath.Dir(cacheDir), 0o700); err != nil {
-		return TemplatesSyncResult{}, err
-	}
-
-	if info, err := os.Stat(source); err == nil && info.IsDir() {
-		if err := replaceDirectory(source, cacheDir); err != nil {
-			return TemplatesSyncResult{}, fmt.Errorf("sync local templates directory: %w", err)
-		}
-	} else {
-		gitDir := filepath.Join(cacheDir, ".git")
-		if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
-			cmd := exec.CommandContext(ctx, "git", "-C", cacheDir, "pull", "--ff-only", "origin", ref)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				return TemplatesSyncResult{}, fmt.Errorf("git pull templates catalog: %s: %w", strings.TrimSpace(string(out)), err)
-			}
-		} else {
-			_ = os.RemoveAll(cacheDir)
-			cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--branch", ref, source, cacheDir)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				return TemplatesSyncResult{}, fmt.Errorf("git clone templates catalog: %s: %w", strings.TrimSpace(string(out)), err)
-			}
-		}
-	}
-
-	profilesCount := countSubdirs(filepath.Join(cacheDir, "profiles"))
-	featuresCount := countSubdirs(filepath.Join(cacheDir, "features"))
-	skillsCount := countSubdirs(filepath.Join(cacheDir, "skills"))
-	if config.RuntimeUID > 0 && config.RuntimeGID > 0 && os.Geteuid() == 0 {
-		_ = ensureRuntimeTreeOwner(cacheDir, config.RuntimeUID, config.RuntimeGID)
-	}
-
-	return TemplatesSyncResult{
-		OK:            true,
-		Action:        "templates-sync",
-		Source:        source,
-		Ref:           ref,
-		CacheDir:      cacheDir,
-		ProfilesCount: profilesCount,
-		FeaturesCount: featuresCount,
-		SkillsCount:   skillsCount,
-	}, nil
+	return syncTemplatesCatalog(ctx, config)
 }
 
 func countSubdirs(dir string) int {
@@ -744,6 +679,14 @@ func RebaseInstalledSkill(config Config, skillID string, now time.Time) (RebaseR
 	if err := ValidateSafeComponent(skillID, "skill"); err != nil {
 		return RebaseResult{}, err
 	}
+	if err := ensureTemplatesCatalogIfNeeded(config); err != nil {
+		return RebaseResult{}, err
+	}
+	unlock, err := lockTemplatesCatalogForRead(config)
+	if err != nil {
+		return RebaseResult{}, err
+	}
+	defer unlock()
 	catalogSkills, err := LoadCatalogSkills(config)
 	if err != nil {
 		return RebaseResult{}, err
@@ -751,6 +694,9 @@ func RebaseInstalledSkill(config Config, skillID string, now time.Time) (RebaseR
 	newBaseDir, ok := catalogSkills[skillID]
 	if !ok {
 		return RebaseResult{}, fmt.Errorf("skill %s not found in templates catalog", skillID)
+	}
+	if err := newTemplatePreflight(config).catalogSkill(newBaseDir); err != nil {
+		return RebaseResult{}, err
 	}
 	destination := filepath.Join(config.DataRoot, "skills", skillID)
 	if info, err := os.Stat(destination); err != nil || !info.IsDir() {
@@ -874,6 +820,11 @@ func RebaseInstalledSkill(config Config, skillID string, now time.Time) (RebaseR
 	}
 	distVer, distSource := prof.distributionInfo()
 	meta := prof.newMetadata(skillID, "sha256:"+newBaseHash, distVer, distSource)
+	meta.Catalog = catalogProvenanceForPath(config, newBaseDir)
+	if meta.Catalog != nil {
+		rel, _ := filepath.Rel(ResolveTemplatesRoot(config), newBaseDir)
+		meta.CatalogArtifactPath = filepath.ToSlash(rel)
+	}
 	if patch, pErr := GenerateSkillPatch(basePath, destination, skillID); pErr == nil {
 		patchPath := filepath.Join(config.MetaRoot, filepath.FromSlash(meta.PatchPath))
 		if patchHash, wErr := WriteSkillPatch(patchPath, patch); wErr == nil {

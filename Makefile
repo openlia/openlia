@@ -22,6 +22,7 @@ help:
 		'venv               Create local virtualenv and install dependencies from requirements-dev.txt' \
 		'skills-test        Run offline skill self-tests' \
 		'workspace-templates-test  Validate bundled workspace and skill templates' \
+		'templates-integration  Test a paired catalog: TEMPLATES_ROOT=/path/to/templates' \
 		'skills-verify      Run bundled skill and browser relay tests' \
 		'clean-logs         Purge local .playwright-mcp and verification test logs' \
 		'deploy-dev         Verify skills and deploy to local dev stack' \
@@ -132,6 +133,11 @@ skills-test:
 workspace-templates-test:
 	$(PYTHON) tests/validate_workspace_templates.py --self-test
 	$(PYTHON) tests/validate_workspace_templates.py
+
+.PHONY: templates-integration
+templates-integration:
+	@test -n "$(TEMPLATES_ROOT)" || (printf '%s\n' 'Set TEMPLATES_ROOT to an explicit templates checkout' >&2; exit 2)
+	$(PYTHON) scripts/test_templates_integration.py --templates-root "$(TEMPLATES_ROOT)" $(TEMPLATES_INTEGRATION_ARGS)
 
 skills-verify:
 	$(PYTHON) tests/verify_skills.py --offline

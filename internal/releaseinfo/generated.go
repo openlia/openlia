@@ -16,4 +16,8 @@ var Default = Manifest{
 		LinuxX8664SHA: "5efec3f6d1e6ac86017f86bb3dd6f60bb9234cbab223bc9028ee63161ad550a0",
 		LinuxARM64SHA: "235fb616581636f9f34c47c707fa8af620748d86e1cd86afc49fcbfae14b4267",
 	},
+	Templates: TemplatesPin{
+		Repository: "https://github.com/openlia/templates.git",
+		Revision:   "cb0d6e44ee4ce84ef4c05465af224d2e7b266f01",
+	},
 }

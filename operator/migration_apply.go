@@ -141,7 +141,7 @@ func ApplyRevision(config Config, migrationID string, revisionID string, expecte
 		for _, f := range changedFiles {
 			changedPaths = append(changedPaths, f.Path)
 		}
-		if detectedFeatures, detectErr := DetectFeaturesForPaths(config.RepositoryRoot, changedPaths); detectErr == nil {
+		if detectedFeatures, detectErr := DetectFeaturesForPaths(ResolveTemplatesRoot(config), changedPaths); detectErr == nil {
 			for _, featureID := range detectedFeatures {
 				_, _ = FeatureInstall(config, featureID, true, time.Now().UTC())
 			}

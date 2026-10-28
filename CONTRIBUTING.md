@@ -92,6 +92,13 @@ make skills-verify             # Runs bundled skill tests + openlia-browser MCP 
 ```
 See [Skill & Feature Package Development](docs/skill-and-feature-development.md) for authoring conventions.
 
+For changes spanning `openlia/openlia` and `openlia/templates`, follow the
+[runtime/templates compatibility contract and rollout checklist](docs/template-compatibility.md).
+Run `make templates-integration TEMPLATES_ROOT=../openlia_templates` to check
+both working trees together, including actual-catalog Calendar desktop/mobile
+acceptance. The **Runtime and templates integration** workflow accepts two PR
+refs and records the resolved SHAs for linked review evidence.
+
 ### D. Release Manifest & Version Pins (`release/manifest.json`)
 Runtime component pins have a single source of truth in [`release/manifest.json`](release/manifest.json).
 - After editing `release/manifest.json`, run:

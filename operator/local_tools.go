@@ -291,72 +291,63 @@ func materializeToolBinary(binaryName, toolBinPath, exposedPath, overrideBinaryP
 // ParseSkillRequirements parses optional `requires.tools`, `requires.python`, and `requires.bun`
 // from a skill's SKILL.md YAML frontmatter.
 func ParseSkillRequirements(skillDir string) (tools []string, pythonManifest string, bunManifest string) {
-	skillMD := filepath.Join(skillDir, "SKILL.md")
-	data, err := os.ReadFile(skillMD)
+	requirements, _ := readSkillRequirements(skillDir)
+	return requirements.Tools, requirements.Python, requirements.Bun
+}
+
+func readSkillRequirements(skillDir string) (FeatureRequirements, error) {
+	data, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
 	if err != nil {
-		return nil, "", ""
+		return FeatureRequirements{}, err
 	}
 	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	if !strings.HasPrefix(text, "---\n") {
-		return nil, "", ""
+		return FeatureRequirements{}, nil
 	}
-	rest := text[4:]
-	endIdx := strings.Index(rest, "\n---")
-	if endIdx < 0 {
-		return nil, "", ""
+	lines := strings.Split(text[4:], "\n")
+	for i, line := range lines {
+		if line != "---" {
+			continue
+		}
+		frontmatter := []byte(strings.Join(lines[:i], "\n"))
+		if strings.TrimSpace(string(frontmatter)) == "" {
+			return FeatureRequirements{}, nil
+		}
+		var document struct {
+			Requires FeatureRequirements `json:"requires"`
+		}
+		if err := decodeTypedTemplateYAML(frontmatter, &document); err != nil {
+			return FeatureRequirements{}, err
+		}
+		if _, err := parseOpenLiaRequirement(frontmatter); err != nil {
+			return FeatureRequirements{}, err
+		}
+		return document.Requires, validateEnvironmentManifestPaths(document.Requires)
 	}
-	frontmatter := rest[:endIdx]
-	lines := strings.Split(frontmatter, "\n")
+	return FeatureRequirements{}, fmt.Errorf("skill %s has unclosed frontmatter", filepath.Base(skillDir))
+}
 
-	inRequires := false
-	inToolsList := false
-	for _, rawLine := range lines {
-		trimmed := strings.TrimSpace(rawLine)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+func validateEnvironmentManifestPaths(requirements FeatureRequirements) error {
+	for name, path := range map[string]string{"python": requirements.Python, "bun": requirements.Bun} {
+		if path == "" {
 			continue
 		}
-		indent := len(rawLine) - len(strings.TrimLeft(rawLine, " "))
-		if indent == 0 {
-			k, _, ok := splitYAMLKeyValue(trimmed)
-			inRequires = ok && k == "requires"
-			inToolsList = false
-			continue
-		}
-		if !inRequires {
-			continue
-		}
-		if indent == 2 && !strings.HasPrefix(trimmed, "- ") {
-			inToolsList = false
-			k, val, ok := splitYAMLKeyValue(trimmed)
-			if !ok {
-				continue
-			}
-			switch k {
-			case "tools":
-				if val == "" {
-					inToolsList = true
-				} else {
-					tools = append(tools, parseInlineYAMLList(val)...)
-				}
-			case "python":
-				pythonManifest = unquoteYAMLScalar(val)
-			case "bun":
-				bunManifest = unquoteYAMLScalar(val)
-			}
-		} else if inToolsList && strings.HasPrefix(trimmed, "- ") {
-			item := unquoteYAMLScalar(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
-			if item != "" {
-				tools = append(tools, item)
-			}
+		clean := filepath.Clean(filepath.FromSlash(path))
+		if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("requires.%s must be a safe relative manifest path", name)
 		}
 	}
-	return tools, pythonManifest, bunManifest
+	return nil
 }
 
 // ProvisionSkillEnvironment provisions any tool, Python (uv), or Bun environment
 // dependencies declared by a skill or its parent feature.
 func ProvisionSkillEnvironment(config Config, skillID, skillDir, pythonManifest, bunManifest string) error {
-	skTools, skPy, skBun := ParseSkillRequirements(skillDir)
+	requirements, err := readSkillRequirements(skillDir)
+	if err != nil {
+		return err
+	}
+	skTools, skPy, skBun := requirements.Tools, requirements.Python, requirements.Bun
 	if len(skTools) > 0 {
 		if _, err := ProvisionRequiredTools(config, skTools, "skill:"+skillID); err != nil {
 			return err

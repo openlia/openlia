@@ -951,6 +951,7 @@ export interface ShareFeatureMetadata {
 }
 
 export interface FeatureSummary {
+  requires_openlia?: string | undefined;
   id: string;
   name: string;
   version: string;
@@ -964,6 +965,7 @@ export interface FeatureSummary {
 }
 
 export interface FeaturesListResponse {
+  catalog?: TemplatesCatalogProvenance | undefined;
   schema: 1;
   ok: true;
   features: FeatureSummary[];
@@ -975,12 +977,23 @@ export interface FeatureInstallRequest {
 }
 
 export interface FeatureInstallResponse {
+  catalog?: TemplatesCatalogProvenance | undefined;
   schema: 1;
   ok: true;
   feature_id: string;
   installed_domains: string[];
   installed_skills: string[];
   policy_updated: boolean;
+}
+
+export interface TemplatesCatalogProvenance {
+  schema: 1;
+  source: string;
+  ref: string;
+  revision?: string | undefined;
+  mode: "git" | "local-worktree";
+  dirty: boolean;
+  content_sha256: string;
 }
 
 export interface FeaturePackageRequest {
