@@ -8,6 +8,7 @@ import (
 
 func TestEmbeddedWorkspaceIncludesControlFiles(t *testing.T) {
 	for _, path := range []string{
+		"THIRD_PARTY_NOTICES.md",
 		"workspace-template/.gitignore",
 		"workspace-template/inbox/.gitkeep",
 		"docker/.env.example",
