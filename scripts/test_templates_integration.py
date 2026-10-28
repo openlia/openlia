@@ -115,12 +115,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.skip_browser:
                 report["browser_acceptance"] = "skipped explicitly; not UI acceptance evidence"
             else:
+                run("production Workspace UI build", ["bun", "run", "build"], cwd=UI)
                 browser_env = {
                     **environment,
                     "OPENLIA_INTEGRATION_WORKSPACE": str(calendar),
                     "OPENLIA_INTEGRATION_STATE": str(scratch / "browser-state"),
                     "OPENLIA_REMIND_BINARY": remind,
-                    "OPENLIA_WORKSPACE_UI_DEV_PORT": str(free_port()),
                     "OPENLIA_WORKSPACE_UI_PORT": str(free_port()),
                     "WORKSPACE_UI_E2E_MODE": "real",
                 }

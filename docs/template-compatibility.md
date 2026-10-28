@@ -213,7 +213,8 @@ The runtime-owned runner:
 4. Confirms the enforcing implementation rejects a synthetic older target
    identity before changing installed state, using scratch Calendar content.
    This does not claim that old pre-guard binaries enforce new metadata.
-5. Validates the installed Calendar workspace and runs its native real-backend
+5. Validates the installed Calendar workspace, builds/serves the production
+   Workspace UI bundle (not a Vite/watch development server), and runs its native real-backend
    create/cancel/reload/reopen browser journey on desktop and mobile using the
 actual catalog layout, not the runtime's duplicated fixture.
 

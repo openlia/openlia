@@ -9,7 +9,7 @@ if (!workspace || !state) {
     "Use scripts/test_templates_integration.py to create an isolated catalog workspace",
   );
 }
-const baseURL = `http://127.0.0.1:${process.env.OPENLIA_WORKSPACE_UI_DEV_PORT ?? "5173"}`;
+const baseURL = `http://127.0.0.1:${process.env.OPENLIA_WORKSPACE_UI_PORT ?? "8089"}`;
 
 export default defineConfig({
   testDir: `${packageRoot}/e2e`,
@@ -50,12 +50,16 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "bun run dev:real",
+    command: "bun dist/server.js",
     cwd: packageRoot,
     reuseExistingServer: false,
     timeout: 120_000,
-    url: baseURL,
+    url: `${baseURL}/health`,
+    stdout: "pipe",
+    stderr: "pipe",
     env: {
+      OPENLIA_WORKSPACE_UI_BIND: "127.0.0.1",
+      OPENLIA_WORKSPACE_UI_AUTH_REQUIRED: "false",
       OPENLIA_WORKSPACE_ROOT: workspace,
       OPENLIA_SKILLS_ROOT: `${state}/skills`,
       OPENLIA_MEMORIES_ROOT: `${state}/memories`,
