@@ -50,6 +50,8 @@ openlia-attachments.toml
 /packages/workspace-ui/.e2e-skills/
 /packages/workspace-ui/.playwright/
 /packages/workspace-ui/.storybook-static/
+/packages/workspace-ui/.openlia-maintainer/
+/packages/workspace-ui/ingestion/
 node_modules/
 *.test
 coverage.out

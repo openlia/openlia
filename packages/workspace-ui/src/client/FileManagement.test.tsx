@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import { CreateFileDialog } from "./CreateFileDialog";
 import { MoveFileDialog } from "./MoveFileDialog";
 import { RenameFileDialog } from "./RenameFileDialog";
-import { FileNavigator } from "./components";
+import { DocumentPane, FileNavigator } from "./components";
 
 describe("RenameFileDialog", () => {
   test("renders with current filename and handles submit", () => {
@@ -492,5 +492,170 @@ describe("CreateFileDialog", () => {
     ).toBeInTheDocument();
 
     expect(handleCreate).not.toHaveBeenCalled();
+  });
+
+  test("exposes typed record templates, starter scaffolds, and project relationships (#183)", () => {
+    const handleCreate = vi.fn();
+    const richDomains = [
+      {
+        path: "knowledge",
+        label: "Knowledge Vault",
+        purpose: "Free-form Obsidian-style PKM vault",
+      },
+      {
+        path: "decisions",
+        label: "Decisions",
+        template_path: "decisions/decision-template.md",
+        schema_path: "decisions/decision-template.schema.json",
+        purpose: "Questions, options, evidence, trade-offs, and outcomes.",
+      },
+      {
+        path: "tasks",
+        label: "Tasks",
+        template_path: "tasks/task-template.md",
+        schema_path: "tasks/task-template.schema.json",
+        purpose: "Concrete actions that can be completed.",
+      },
+    ];
+
+    render(
+      <CreateFileDialog
+        availableDomains={richDomains}
+        existingPaths={new Set(["knowledge/project-apollo.md", "goals/q4.md"])}
+        initialDomain="knowledge"
+        isCreating={false}
+        isOpen={true}
+        onCancel={() => {}}
+        onCreate={handleCreate}
+      />,
+    );
+
+    // Knowledge Vault defaults to Project Note starter scaffold with typed fields & sections
+    expect(
+      screen.getByRole("combobox", { name: "Starter Scaffold" }),
+    ).toHaveValue("project-note");
+    expect(screen.getByLabelText("status")).toHaveValue("active");
+    expect(screen.getByLabelText("owner")).toBeInTheDocument();
+    expect(screen.getByLabelText("target_completion")).toBeInTheDocument();
+    expect(screen.getByLabelText("linked_goal")).toBeInTheDocument();
+    expect(screen.getByLabelText("Section Objective")).toBeInTheDocument();
+    expect(screen.getByLabelText("Section Constraints")).toBeInTheDocument();
+    expect(screen.getByLabelText("Section Milestones")).toBeInTheDocument();
+
+    // Switch domain to Decisions and verify decision contract & project relationship fields
+    const domainSelect = screen.getByRole("combobox", { name: "Domain" });
+    fireEvent.change(domainSelect, { target: { value: "decisions" } });
+
+    expect(screen.getByLabelText("status")).toHaveValue("proposed");
+    expect(screen.getByLabelText("decision_date")).toBeInTheDocument();
+    expect(screen.getByLabelText("review_date")).toBeInTheDocument();
+    expect(screen.getByLabelText("linked_project")).toBeInTheDocument();
+    expect(screen.getByLabelText("chosen_option")).toHaveValue("");
+    expect(screen.getByLabelText("Section Question")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Section Options Considered"),
+    ).toBeInTheDocument();
+
+    // Link decision to knowledge/project-apollo.md and submit
+    fireEvent.change(screen.getByRole("textbox", { name: "File Name" }), {
+      target: { value: "apollo-storage-choice" },
+    });
+    fireEvent.change(screen.getByLabelText("decision_date"), {
+      target: { value: "2026-10-20" },
+    });
+    fireEvent.change(screen.getByLabelText("review_date"), {
+      target: { value: "2026-11-05" },
+    });
+    fireEvent.change(screen.getByLabelText("linked_project"), {
+      target: { value: "knowledge/project-apollo.md" },
+    });
+    fireEvent.change(screen.getByLabelText("Section Question"), {
+      target: { value: "Which storage engine should Project Apollo adopt?" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Create File" }));
+
+    expect(handleCreate).toHaveBeenCalledWith(
+      "decisions",
+      "apollo-storage-choice.md",
+      expect.objectContaining({
+        frontmatter: expect.objectContaining({
+          status: "proposed",
+          decision_date: "2026-10-20",
+          review_date: "2026-11-05",
+          linked_project: "knowledge/project-apollo.md",
+          chosen_option: null,
+        }),
+        sections: expect.objectContaining({
+          Question: "Which storage engine should Project Apollo adopt?",
+        }),
+      }),
+    );
+  });
+
+  test("DocumentPane exposes structured Fields editor for typed records and updates draft (#183)", () => {
+    const handleDraftChange = vi.fn();
+    const decisionContent = `---
+$schema: ./decision-template.schema.json
+status: proposed
+decision_date: "2026-10-20"
+review_date: "2026-11-05"
+linked_project: knowledge/project-apollo.md
+chosen_option: null
+---
+
+# Apollo Storage Engine Choice
+
+## Question
+Which storage engine should Project Apollo adopt?
+
+## Options Considered
+- SQLite WAL
+- DuckDB
+`;
+
+    render(
+      <DocumentPane
+        conflict=""
+        deleting={false}
+        diff={[]}
+        documentError=""
+        draft={decisionContent}
+        file={{
+          content: decisionContent,
+          editable: true,
+          modified_at: "2026-10-20T00:00:00Z",
+          path: "decisions/apollo-storage-choice.md",
+          revision: "rev-1",
+          schema: 1,
+          size: decisionContent.length,
+        }}
+        fileLoading={false}
+        onCloseFiles={() => {}}
+        onDelete={() => {}}
+        onDownload={() => {}}
+        onDraftChange={handleDraftChange}
+        onOpenDetails={() => {}}
+        onRetry={() => {}}
+        onSave={() => {}}
+        onViewChange={() => {}}
+        saving={false}
+        view="edit"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Fields" })).toBeInTheDocument();
+    expect(screen.getByLabelText("status")).toHaveValue("proposed");
+    expect(screen.getByLabelText("linked_project")).toHaveValue(
+      "knowledge/project-apollo.md",
+    );
+    expect(screen.getByLabelText("chosen_option")).toHaveValue("");
+
+    fireEvent.change(screen.getByLabelText("status"), {
+      target: { value: "accepted" },
+    });
+    expect(handleDraftChange).toHaveBeenCalledWith(
+      expect.stringContaining("status: accepted"),
+    );
   });
 });

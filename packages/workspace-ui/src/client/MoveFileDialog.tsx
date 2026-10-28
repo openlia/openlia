@@ -24,7 +24,7 @@ const knownSchemaDomains = new Set([
   "shopping",
   "tasks",
   "travel",
-  "knowledge/claims",
+  "knowledge",
 ]);
 
 export function MoveFileDialog({

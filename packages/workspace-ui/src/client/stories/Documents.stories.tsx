@@ -15,6 +15,7 @@ const meta = {
   parameters: {
     componentExports: [
       "components/editor/MarkdownPreview.tsx#MarkdownPreview",
+      "components/editor/SchemaRecordForm.tsx#SchemaRecordForm",
       "FrontmatterBlock.tsx#FrontmatterBlock",
       "CodeEditor.tsx#CodeEditor",
       "features/documents/DocumentInspector.tsx#DocumentInspector",

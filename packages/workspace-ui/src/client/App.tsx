@@ -2179,6 +2179,12 @@ export function App({
   async function handleCreateFile(
     domain: string,
     filename: string,
+    options?: {
+      starter_id?: string | undefined;
+      title?: string | undefined;
+      frontmatter?: Record<string, unknown> | undefined;
+      sections?: Record<string, string> | undefined;
+    },
   ): Promise<void> {
     if (!pendingCreateFile || creatingFile) return;
     setCreatingFile(true);
@@ -2191,7 +2197,7 @@ export function App({
           return;
         }
       }
-      const created = await api.createFile(domain, filename);
+      const created = await api.createFile(domain, filename, options);
       setPendingCreateFile(null);
       const [treeRes, nextGit, nextActivity, nextDiag] = await Promise.all([
         api.loadTree().catch(() => null),
@@ -2849,6 +2855,7 @@ export function App({
             workspaceError={workspaceError}
           />
           <DocumentPane
+            api={api}
             activity={activity}
             activityLoading={activityLoading}
             artifact={artifact}
@@ -3330,6 +3337,7 @@ export function App({
 
       {pendingCreateFile && (
         <CreateFileDialog
+          api={api}
           availableDomains={creatableDomains}
           error={createFileError}
           existingPaths={existingPaths}
@@ -3340,7 +3348,9 @@ export function App({
             setPendingCreateFile(null);
             setCreateFileError("");
           }}
-          onCreate={(domain, name) => void handleCreateFile(domain, name)}
+          onCreate={(domain, name, options) =>
+            void handleCreateFile(domain, name, options)
+          }
         />
       )}
 

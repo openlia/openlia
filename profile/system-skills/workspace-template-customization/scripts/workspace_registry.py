@@ -37,7 +37,6 @@ ROUTES = {
     "decision",
     "idea",
     "research",
-    "claim",
     "finance",
     "archive",
     "review",
@@ -48,7 +47,6 @@ BRIEFING_CATEGORIES = {
     "goals",
     "decisions",
     "monitors",
-    "claims",
     "finance",
     "inbox",
     "extension",
@@ -116,16 +114,8 @@ _KNOWN_DOMAIN_METADATA: dict[str, dict[str, Any]] = {
     "knowledge": {
         "kind": "core",
         "label": "Knowledge",
-        "purpose": "Durable notes, research, and claims",
+        "purpose": "Obsidian-style free-form PKM vault for notes, project pages, and linked knowledge",
         "include_in_briefing": False,
-    },
-    "knowledge/claims": {
-        "kind": "extension",
-        "label": "Claims",
-        "purpose": "Atomic, evidence-backed claims and preferences",
-        "route": "claim",
-        "include_in_briefing": True,
-        "briefing_category": "claims",
     },
     "knowledge/research": {
         "kind": "extension",
@@ -310,7 +300,7 @@ def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
     if not root.is_dir():
         return []
 
-    discovered_paths: set[str] = set(CORE_ROOTS) | {"knowledge/claims"}
+    discovered_paths: set[str] = set(CORE_ROOTS)
     if (root / "goals/decisions").is_dir():
         discovered_paths.add("goals/decisions")
     else:

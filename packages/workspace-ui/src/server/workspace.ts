@@ -58,6 +58,16 @@ import {
 } from "./validator";
 import YAML from "yaml";
 import { MEMORY_DOCUMENT_PREFIX } from "../shared/memory";
+import {
+  BUILTIN_DOMAIN_CONTRACTS,
+  getBuiltinDomainContract,
+  mergeBuiltinSchemaProperties,
+} from "../shared/domainContracts";
+import {
+  mutateRecordFrontmatter,
+  parseMarkdownRecord,
+  updateRecordSectionContent,
+} from "../client/openui/recordMutator";
 import { evaluateFileFindings, MaintainerService } from "./maintainer/engine";
 
 export const DEFAULT_MAX_EDITABLE_BYTES = 2 * 1024 * 1024;
@@ -136,28 +146,38 @@ export const creationDisallowedDomains = new Set([
 
 export const DEFAULT_CREATABLE_DOMAINS: WorkspaceDomainInfo[] = [
   {
+    path: "knowledge",
+    label: "Knowledge",
+    template_path: "knowledge/project-note",
+    purpose:
+      "Obsidian-style free-form PKM vault for notes, project pages (e.g. project-apollo.md), and subfolders.",
+  },
+  {
     path: "tasks",
     label: "Tasks",
     template_path: "tasks/task-template.md",
+    schema_path: "tasks/task-template.schema.json",
     purpose: "Concrete actions that can be completed.",
   },
   {
     path: "goals",
     label: "Goals",
     template_path: "goals/goal-template.md",
+    schema_path: "goals/goal-template.schema.json",
     purpose: "Outcomes and the reasons they matter.",
+  },
+  {
+    path: "decisions",
+    label: "Decisions",
+    template_path: "decisions/decision-template.md",
+    schema_path: "decisions/decision-template.schema.json",
+    purpose: "Questions, options, trade-offs, and outcomes.",
   },
   {
     path: "calendar",
     label: "Calendar",
     template_path: "calendar/event-note-template.md",
     purpose: "Remind appointments and companion event notes.",
-  },
-  {
-    path: "knowledge/claims",
-    label: "Claims",
-    template_path: "knowledge/claims/claim-template.md",
-    purpose: "Reusable personal claims with provenance and lifecycle metadata.",
   },
 ];
 
@@ -1123,16 +1143,26 @@ export class WorkspaceService {
     // 2. Discover collections from filesystem via Maintainer
     for (const col of this.maintainer.discoverCollections()) {
       if (isDisallowed(col.path) || byPath.has(col.path)) continue;
-      if (!col.template_path && !col.manifest_path && col.record_count === 0) {
+      const builtin = getBuiltinDomainContract(col.path);
+      if (
+        col.path !== "knowledge" &&
+        !col.template_path &&
+        !col.manifest_path &&
+        col.record_count === 0
+      ) {
         continue;
       }
       const openuiPaths = this.findDomainOpenUIPaths(col.path);
+      const resolvedTemplatePath = col.template_path ?? builtin?.template_path;
+      const resolvedSchemaPath = col.schema_path ?? builtin?.schema_path;
       byPath.set(col.path, {
         path: col.path,
         label: col.label,
         purpose: col.inferred_purpose,
-        ...(col.template_path ? { template_path: col.template_path } : {}),
-        ...(col.schema_path ? { schema_path: col.schema_path } : {}),
+        ...(resolvedTemplatePath
+          ? { template_path: resolvedTemplatePath }
+          : {}),
+        ...(resolvedSchemaPath ? { schema_path: resolvedSchemaPath } : {}),
         ...(openuiPaths.dashboard_openui_path
           ? { dashboard_openui_path: openuiPaths.dashboard_openui_path }
           : {}),
@@ -1191,8 +1221,10 @@ export class WorkspaceService {
       throw new WorkspaceError("invalid domain path", 400, "invalid_domain");
     }
 
+    const builtin = getBuiltinDomainContract(domainPath);
     const dirAbs = this.assertNoSymlink(domainPath);
-    if (!existsSync(dirAbs) || !lstatSync(dirAbs).isDirectory()) {
+    const dirExists = existsSync(dirAbs) && lstatSync(dirAbs).isDirectory();
+    if (!dirExists && !builtin) {
       throw new WorkspaceError(
         `domain "${domainPath}" was not found`,
         404,
@@ -1205,26 +1237,27 @@ export class WorkspaceService {
       (d) => d.path === domainPath,
     );
 
-    const templateInfo = findDomainTemplate(
-      this.workspaceRoot,
-      `${domainPath}/dummy.md`,
-    );
-    const openuiPaths = this.findDomainOpenUIPaths(domainPath);
+    const templateInfo = dirExists
+      ? findDomainTemplate(this.workspaceRoot, `${domainPath}/dummy.md`)
+      : null;
+    const openuiPaths = dirExists ? this.findDomainOpenUIPaths(domainPath) : {};
 
     if (!domainInfo) {
       const label =
+        builtin?.label ||
         (domainPath.split("/").at(-1) ?? domainPath)
           .replace(/[-_]/g, " ")
-          .replace(/\b\w/g, (c) => c.toUpperCase()) || domainPath;
+          .replace(/\b\w/g, (c) => c.toUpperCase()) ||
+        domainPath;
+      const tplRel =
+        templateInfo?.templateRelativePath ?? builtin?.template_path;
+      const schRel = templateInfo?.schemaRelativePath ?? builtin?.schema_path;
       domainInfo = {
         path: domainPath,
         label,
-        ...(templateInfo?.templateRelativePath
-          ? { template_path: templateInfo.templateRelativePath }
-          : {}),
-        ...(templateInfo?.schemaRelativePath
-          ? { schema_path: templateInfo.schemaRelativePath }
-          : {}),
+        ...(builtin?.purpose ? { purpose: builtin.purpose } : {}),
+        ...(tplRel ? { template_path: tplRel } : {}),
+        ...(schRel ? { schema_path: schRel } : {}),
         ...(openuiPaths.dashboard_openui_path
           ? { dashboard_openui_path: openuiPaths.dashboard_openui_path }
           : {}),
@@ -1233,11 +1266,10 @@ export class WorkspaceService {
           : {}),
       };
     } else {
+      const schRel = templateInfo?.schemaRelativePath ?? builtin?.schema_path;
       domainInfo = {
         ...domainInfo,
-        ...(templateInfo?.schemaRelativePath && !domainInfo.schema_path
-          ? { schema_path: templateInfo.schemaRelativePath }
-          : {}),
+        ...(schRel && !domainInfo.schema_path ? { schema_path: schRel } : {}),
         ...(openuiPaths.dashboard_openui_path &&
         !domainInfo.dashboard_openui_path
           ? { dashboard_openui_path: openuiPaths.dashboard_openui_path }
@@ -1262,8 +1294,13 @@ export class WorkspaceService {
         }
       } catch {}
     }
+    schemaJson = mergeBuiltinSchemaProperties(domainPath, schemaJson);
 
     let templateHeadings: string[] | undefined;
+    let templateContent: string | undefined;
+    let templateDefaults: Record<string, unknown> | undefined;
+    let templateSections: Record<string, string> | undefined;
+
     if (templateInfo?.templateRelativePath) {
       const tplAbs = resolve(
         this.workspaceRoot,
@@ -1272,13 +1309,38 @@ export class WorkspaceService {
       if (existsSync(tplAbs)) {
         try {
           const tplRaw = readFileSync(tplAbs, "utf-8");
-          const { body } = parseRecordFrontmatter(tplRaw);
-          templateHeadings = extractHeadings(body)
+          templateContent = tplRaw;
+          const parsedTpl = parseMarkdownRecord(tplRaw);
+          templateHeadings = extractHeadings(parsedTpl.body)
             .filter((h) => h.level === 2)
             .map((h) => h.text.trim())
             .filter(Boolean);
+          const defaults: Record<string, unknown> = {
+            ...(builtin?.template_defaults ?? {}),
+          };
+          for (const [k, v] of Object.entries(parsedTpl.metadata)) {
+            if (k !== "$schema") defaults[k] = v;
+          }
+          templateDefaults = defaults;
+          templateSections = {
+            ...(builtin?.template_sections ?? {}),
+            ...parsedTpl.sections,
+          };
         } catch {}
       }
+    }
+
+    if (!templateHeadings && builtin) {
+      templateHeadings = builtin.template_headings;
+    }
+    if (!templateContent && builtin) {
+      templateContent = builtin.template_content;
+    }
+    if (!templateDefaults && builtin) {
+      templateDefaults = builtin.template_defaults;
+    }
+    if (!templateSections && builtin) {
+      templateSections = builtin.template_sections;
     }
 
     let dashboardOpenui: string | undefined;
@@ -1307,85 +1369,114 @@ export class WorkspaceService {
     const records: WorkspaceDomainRecordSummary[] = [];
     let invalidCount = 0;
 
-    let entries: Dirent<string>[] = [];
-    try {
-      entries = readdirSync(dirAbs, { encoding: "utf8", withFileTypes: true });
-    } catch {}
-
-    for (const entry of entries) {
-      if (!entry.isFile()) continue;
-      const fname = entry.name;
-      if (fname.startsWith(".")) continue;
-      if (!fname.toLowerCase().endsWith(".md")) continue;
-      if (fname.toLowerCase().endsWith("-template.md")) continue;
-      if (fname.toLowerCase() === "readme.md") continue;
-
-      const relPath = `${domainPath}/${fname}`;
-      if (protectedPath(relPath) || isTemplateOrSchemaPath(relPath)) continue;
-
-      const absPath = join(dirAbs, fname);
+    const collectDirectoryRecords = (
+      scanAbs: string,
+      relPrefix: string,
+      allowSubfolders: boolean,
+    ): void => {
+      let entries: Dirent<string>[] = [];
       try {
-        const info = lstatSync(absPath);
-        if (info.isSymbolicLink() || !info.isFile()) continue;
-        const rawBytes = readFileSync(absPath);
-        const content = new TextDecoder("utf-8").decode(rawBytes);
-        const parsed = parseRecordFrontmatter(content);
-        const headings = extractHeadings(parsed.body);
-        const l1 = headings.find((h) => h.level === 1)?.text.trim();
-        const title =
-          l1 ||
-          (typeof parsed.metadata?.title === "string"
-            ? parsed.metadata.title
-            : "") ||
-          fname.replace(/\.md$/i, "");
-        const sections = headings
-          .filter((h) => h.level === 2)
-          .map((h) => h.text.trim())
-          .filter(Boolean);
-
-        // Compute plain excerpt from body (excluding headings)
-        const excerptLines = parsed.body
-          .split(/\r?\n/)
-          .map((l) => l.trim())
-          .filter(
-            (l) =>
-              l.length > 0 &&
-              !l.startsWith("#") &&
-              !l.startsWith("---") &&
-              !l.startsWith("```"),
-          );
-        const excerpt = excerptLines.slice(0, 2).join(" ").slice(0, 220);
-
-        const recRev = revision(rawBytes);
-        const validation = this.validateWithMaintainer(
-          relPath,
-          content,
-          recRev,
-        );
-        if (!validation.valid) {
-          invalidCount++;
-        }
-
-        const fm: Record<string, unknown> = {};
-        if (parsed.metadata) {
-          for (const [k, v] of Object.entries(parsed.metadata)) {
-            if (k !== "$schema") fm[k] = v;
-          }
-        }
-
-        records.push({
-          path: relPath,
-          filename: fname,
-          title,
-          modified_at: info.mtime.toISOString(),
-          size: info.size,
-          revision: recRev,
-          frontmatter: fm,
-          sections,
-          excerpt,
-          validation,
+        entries = readdirSync(scanAbs, {
+          encoding: "utf8",
+          withFileTypes: true,
         });
-      } catch {}
+      } catch {
+        return;
+      }
+
+      for (const entry of entries) {
+        const fname = entry.name;
+        if (fname.startsWith(".")) continue;
+        if (entry.isDirectory() && allowSubfolders) {
+          const childRel = `${relPrefix}/${fname}`;
+          const childAbs = join(scanAbs, fname);
+          if (
+            !protectedPath(childRel) &&
+            !existsSync(join(childAbs, PROJECT_MANIFEST_FILENAME)) &&
+            !findDomainTemplate(this.workspaceRoot, `${childRel}/dummy.md`)
+          ) {
+            collectDirectoryRecords(childAbs, childRel, false);
+          }
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        if (!fname.toLowerCase().endsWith(".md")) continue;
+        if (fname.toLowerCase().endsWith("-template.md")) continue;
+        if (fname.toLowerCase() === "readme.md") continue;
+
+        const relPath = `${relPrefix}/${fname}`;
+        if (protectedPath(relPath) || isTemplateOrSchemaPath(relPath)) continue;
+
+        const absPath = join(scanAbs, fname);
+        try {
+          const info = lstatSync(absPath);
+          if (info.isSymbolicLink() || !info.isFile()) continue;
+          const rawBytes = readFileSync(absPath);
+          const content = new TextDecoder("utf-8").decode(rawBytes);
+          const parsed = parseRecordFrontmatter(content);
+          const headings = extractHeadings(parsed.body);
+          const l1 = headings.find((h) => h.level === 1)?.text.trim();
+          const title =
+            l1 ||
+            (typeof parsed.metadata?.title === "string"
+              ? parsed.metadata.title
+              : "") ||
+            fname.replace(/\.md$/i, "");
+          const sections = headings
+            .filter((h) => h.level === 2)
+            .map((h) => h.text.trim())
+            .filter(Boolean);
+
+          const excerptLines = parsed.body
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .filter(
+              (l) =>
+                l.length > 0 &&
+                !l.startsWith("#") &&
+                !l.startsWith("---") &&
+                !l.startsWith("```"),
+            );
+          const excerpt = excerptLines.slice(0, 2).join(" ").slice(0, 220);
+
+          const recRev = revision(rawBytes);
+          const validation = this.validateWithMaintainer(
+            relPath,
+            content,
+            recRev,
+          );
+          if (!validation.valid) {
+            invalidCount++;
+          }
+
+          const fm: Record<string, unknown> = {};
+          if (parsed.metadata) {
+            for (const [k, v] of Object.entries(parsed.metadata)) {
+              if (k !== "$schema") fm[k] = v;
+            }
+          }
+
+          records.push({
+            path: relPath,
+            filename:
+              relPrefix === domainPath
+                ? fname
+                : `${relPrefix.slice(domainPath.length + 1)}/${fname}`,
+            title,
+            modified_at: info.mtime.toISOString(),
+            size: info.size,
+            revision: recRev,
+            frontmatter: fm,
+            sections,
+            excerpt,
+            validation,
+          });
+        } catch {}
+      }
+    };
+
+    if (dirExists) {
+      collectDirectoryRecords(dirAbs, domainPath, domainPath === "knowledge");
     }
 
     records.sort((a, b) => a.path.localeCompare(b.path));
@@ -1402,6 +1493,14 @@ export class WorkspaceService {
       records,
       ...(schemaJson ? { schema_json: schemaJson } : {}),
       ...(templateHeadings ? { template_headings: templateHeadings } : {}),
+      ...(templateContent !== undefined
+        ? { template_content: templateContent }
+        : {}),
+      ...(templateDefaults ? { template_defaults: templateDefaults } : {}),
+      ...(templateSections ? { template_sections: templateSections } : {}),
+      ...(builtin?.starter_templates
+        ? { starter_templates: builtin.starter_templates }
+        : {}),
       ...(dashboardOpenui !== undefined
         ? { dashboard_openui: dashboardOpenui }
         : {}),
@@ -1872,7 +1971,17 @@ export class WorkspaceService {
     };
   }
 
-  createFile(domainValue: unknown, nameValue: unknown): WorkspaceFile {
+  createFile(
+    domainValue: unknown,
+    nameValue: unknown,
+    options?: {
+      starter_id?: string | undefined;
+      title?: string | undefined;
+      frontmatter?: Record<string, unknown> | undefined;
+      sections?: Record<string, string> | undefined;
+      content?: string | undefined;
+    },
+  ): WorkspaceFile {
     if (typeof domainValue !== "string" || !domainValue.trim()) {
       throw new WorkspaceError(
         "domain must be a non-empty string",
@@ -1904,6 +2013,7 @@ export class WorkspaceService {
         "domain_not_allowed",
       );
     }
+    const builtin = getBuiltinDomainContract(domain);
     const allowed = this.creatableDomains();
     let matchedDomain = allowed.find((d) => d.path === domain);
     if (!matchedDomain) {
@@ -1936,8 +2046,12 @@ export class WorkspaceService {
       );
       matchedDomain = {
         path: domain,
-        label: domain.split("/").at(-1) ?? domain,
-        ...(tplInfo ? { template_path: tplInfo.templateRelativePath } : {}),
+        label: builtin?.label ?? domain.split("/").at(-1) ?? domain,
+        ...(tplInfo
+          ? { template_path: tplInfo.templateRelativePath }
+          : builtin?.template_path
+            ? { template_path: builtin.template_path }
+            : {}),
       };
     }
 
@@ -1948,11 +2062,16 @@ export class WorkspaceService {
         "invalid_filename",
       );
     }
-    let filename = nameValue.trim();
+    let filename = nameValue.trim().replace(/^\/+|\/+$/g, "");
+    const allowNestedPath = matchedDomain.path === "knowledge";
     if (
-      filename.includes("/") ||
       filename.includes("\\") ||
-      filename.includes("..")
+      filename.includes("..") ||
+      (!allowNestedPath && filename.includes("/")) ||
+      (allowNestedPath &&
+        filename
+          .split("/")
+          .some((seg) => !seg || seg === "." || seg.startsWith(".")))
     ) {
       throw new WorkspaceError(
         "filename cannot contain path separators",
@@ -1960,10 +2079,11 @@ export class WorkspaceService {
         "invalid_filename",
       );
     }
+    const baseFilename = filename.split("/").at(-1) ?? filename;
     if (
-      filename.endsWith("-template.md") ||
-      filename.endsWith(".schema.json") ||
-      filename.endsWith(".openui")
+      baseFilename.endsWith("-template.md") ||
+      baseFilename.endsWith(".schema.json") ||
+      baseFilename.endsWith(".openui")
     ) {
       throw new WorkspaceError(
         "filename cannot use protected template or schema name",
@@ -2007,10 +2127,65 @@ export class WorkspaceService {
       }
     }
 
-    if (templateAbsolute && existsSync(templateAbsolute)) {
+    const defaultTitle =
+      options?.title?.trim() ||
+      (filename.split("/").at(-1) ?? filename).replace(/\.md$/i, "");
+
+    if (typeof options?.content === "string" && options.content.trim()) {
+      templateContent = options.content;
+    } else if (options?.starter_id && builtin?.starter_templates) {
+      const starter = builtin.starter_templates.find(
+        (s) => s.id === options.starter_id,
+      );
+      templateContent =
+        starter?.template_content ??
+        builtin.template_content ??
+        `# ${defaultTitle}\n`;
+    } else if (templateAbsolute && existsSync(templateAbsolute)) {
       templateContent = readFileSync(templateAbsolute, "utf-8");
+    } else if (builtin?.template_content) {
+      templateContent = builtin.template_content;
     } else {
-      templateContent = `# ${filename.replace(/\.md$/i, "")}\n`;
+      templateContent = `# ${defaultTitle}\n`;
+    }
+
+    // Replace H1 title if explicitly provided (or when using a built-in starter with a placeholder H1)
+    if (options?.title?.trim() || templateContent.includes("# <")) {
+      templateContent = templateContent.replace(
+        /^([ \t]{0,3}#[ \t]+)(.+?)$/m,
+        `$1${defaultTitle}`,
+      );
+    }
+
+    // Apply structured frontmatter overrides if provided
+    if (
+      options?.frontmatter &&
+      typeof options.frontmatter === "object" &&
+      !Array.isArray(options.frontmatter) &&
+      Object.keys(options.frontmatter).length > 0 &&
+      options?.starter_id !== "blank-note"
+    ) {
+      templateContent = mutateRecordFrontmatter(
+        templateContent,
+        options.frontmatter,
+      );
+    }
+
+    // Apply structured section overrides if provided
+    if (
+      options?.sections &&
+      typeof options.sections === "object" &&
+      !Array.isArray(options.sections)
+    ) {
+      for (const [heading, body] of Object.entries(options.sections)) {
+        if (typeof body === "string") {
+          templateContent = updateRecordSectionContent(
+            templateContent,
+            heading,
+            body,
+          );
+        }
+      }
     }
 
     // Perform atomic write with expectedRevision for empty file

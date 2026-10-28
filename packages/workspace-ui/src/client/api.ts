@@ -41,6 +41,7 @@ import type {
   SourceUpdateRequest,
   SourceUploadResponse,
   WorkspaceActivityResponse,
+  WorkspaceCreateFileRequest,
   WorkspaceDeleteResponse,
   WorkspaceDiagnosticsResponse,
   WorkspaceDomainInfo,
@@ -159,7 +160,11 @@ export interface WorkspaceApi {
   ): Promise<WorkspaceDomainRecordsResponse>;
   loadProjects(): Promise<WorkspaceProjectsResponse>;
   loadProject(projectPath: string): Promise<WorkspaceProjectResponse>;
-  createFile(domain: string, name: string): Promise<WorkspaceFile>;
+  createFile(
+    domain: string,
+    name: string,
+    options?: Omit<WorkspaceCreateFileRequest, "domain" | "name">,
+  ): Promise<WorkspaceFile>;
   fixTemplateIssues(
     path: string,
     content?: string,
@@ -996,9 +1001,13 @@ export const httpWorkspaceApi: WorkspaceApi = {
       `/api/workspace/project?${new URLSearchParams({ path: projectPath })}`,
       isWorkspaceProjectResponse,
     ),
-  createFile: (domain, name) =>
+  createFile: (domain, name, options) =>
     requestJson<WorkspaceFile>("/api/workspace/create-file", isWorkspaceFile, {
-      body: JSON.stringify({ domain, name }),
+      body: JSON.stringify({
+        domain,
+        name,
+        ...(options ?? {}),
+      }),
       headers: { "Content-Type": "application/json" },
       method: "POST",
     }),

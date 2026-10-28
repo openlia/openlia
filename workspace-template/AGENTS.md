@@ -33,7 +33,7 @@ user-owned delegation policy authorizes the scoped update.
     - `inbox/ingestion/ingestion-template.md`: durable capture and processing records.
     - `sources/records/source-template.md`: retained source provenance and extraction metadata.
   - **Optional Feature & Profile Templates** (available via `openlia features install <id>` from `https://github.com/openlia/templates.git` or custom feature packages):
-    - Install only the domains, Mini-Projects, and skills that match the user's workflow (e.g. `tasks`, `goals`, `calendar`, `claims`, `daily-briefing`, `personal-finance`, `personal-health`, `decision-analysis`, `deep-research`, `monitors`, `people`, `ideas`, `areas`, `travel`, `shopping`, or custom domains).
+    - Install only the domains, Mini-Projects, and skills that match the user's workflow (e.g. `tasks`, `goals`, `calendar`, `daily-briefing`, `personal-finance`, `personal-health`, `decision-analysis`, `deep-research`, `monitors`, `people`, `ideas`, `areas`, `travel`, `shopping`, or custom domains).
 - Prefer Markdown and small structured files with stable, descriptive names.
 - Distinguish semantic domain records from supporting artifacts. Use a suitable
   local template for recurring artifacts rather than forcing a checklist into

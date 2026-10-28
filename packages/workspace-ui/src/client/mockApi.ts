@@ -27,6 +27,7 @@ import type {
   SourceSearchResponse,
   SourceUploadResponse,
   WorkspaceActivityResponse,
+  WorkspaceCreateFileRequest,
   WorkspaceDeleteResponse,
   WorkspaceDiagnosticsResponse,
   WorkspaceDomainInfo,
@@ -65,7 +66,15 @@ import { suggestPasswordProfiles } from "../shared/passwordSuggester";
 import { ApiError, type WorkspaceApi } from "./api";
 import { mockUsage } from "./usageMock";
 import { createChatMock } from "./chatMock";
-import { parseMarkdownRecord } from "./openui/recordMutator";
+import {
+  mutateRecordFrontmatter,
+  parseMarkdownRecord,
+  updateRecordSectionContent,
+} from "./openui/recordMutator";
+import {
+  getBuiltinDomainContract,
+  mergeBuiltinSchemaProperties,
+} from "../shared/domainContracts";
 import { notifyWorkspaceFileChange } from "./workspaceFileChanges";
 
 export type MockWorkspaceScenario =
@@ -151,10 +160,10 @@ export const mockCreatableDomains: WorkspaceDomainInfo[] = [
     purpose: "Budgets, spending notes, and financial reviews.",
   },
   {
-    path: "knowledge/claims",
-    label: "Claims",
-    template_path: "knowledge/claims/claim-template.md",
-    purpose: "Reusable personal claims with provenance and lifecycle metadata.",
+    path: "knowledge",
+    label: "Knowledge Vault",
+    purpose:
+      "Free-form Obsidian-style PKM vault for project pages, atomic notes, and backlinked documents.",
   },
 ];
 
@@ -1052,7 +1061,7 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
             p.startsWith(prefix) &&
             p.endsWith(".md") &&
             !p.endsWith("-template.md") &&
-            !p.slice(prefix.length).includes("/"),
+            (clean === "knowledge" || !p.slice(prefix.length).includes("/")),
         )
         .map(([p, text]) => {
           const fname = p.slice(prefix.length);
@@ -1071,23 +1080,48 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
           };
         });
 
-      let schemaJson: Record<string, unknown> | undefined;
+      const builtinContract = getBuiltinDomainContract(clean);
+      let schemaJson: Record<string, unknown> | undefined =
+        builtinContract?.schema_json;
       const schemaEntry = Object.entries(fileContents).find(
         ([p]) => p.startsWith(prefix) && p.endsWith(".schema.json"),
       );
       if (schemaEntry) {
         try {
-          schemaJson = JSON.parse(schemaEntry[1]);
+          schemaJson = mergeBuiltinSchemaProperties(
+            clean,
+            JSON.parse(schemaEntry[1]),
+          );
         } catch {}
       }
 
-      let templateHeadings: string[] | undefined;
+      let templateContent = builtinContract?.template_content;
+      let templateHeadings: string[] | undefined =
+        builtinContract?.template_headings;
+      let templateDefaults: Record<string, unknown> | undefined =
+        builtinContract?.template_defaults
+          ? { ...builtinContract.template_defaults }
+          : undefined;
+      let templateSections: Record<string, string> | undefined =
+        builtinContract?.template_sections
+          ? { ...builtinContract.template_sections }
+          : undefined;
+
       const templateEntry = Object.entries(fileContents).find(
         ([p]) => p.startsWith(prefix) && p.endsWith("-template.md"),
       );
       if (templateEntry) {
+        templateContent = templateEntry[1];
         const parsedTmpl = parseMarkdownRecord(templateEntry[1]);
         templateHeadings = Object.keys(parsedTmpl.sections);
+        templateDefaults = {
+          ...(builtinContract?.template_defaults ?? {}),
+          ...parsedTmpl.metadata,
+        };
+        templateSections = {
+          ...(builtinContract?.template_sections ?? {}),
+          ...parsedTmpl.sections,
+        };
       }
 
       return {
@@ -1100,6 +1134,10 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         records,
         schema_json: schemaJson,
         template_headings: templateHeadings,
+        template_content: templateContent,
+        template_defaults: templateDefaults,
+        template_sections: templateSections,
+        starter_templates: builtinContract?.starter_templates,
       };
     },
     async loadProjects(): Promise<WorkspaceProjectsResponse> {
@@ -1200,18 +1238,23 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         project_files: [],
       };
     },
-    async createFile(domain: string, name: string): Promise<WorkspaceFile> {
+    async createFile(
+      domain: string,
+      name: string,
+      options?: Omit<WorkspaceCreateFileRequest, "domain" | "name">,
+    ): Promise<WorkspaceFile> {
       requireAuthentication();
       const matched = mockCreatableDomains.find((d) => d.path === domain);
       if (!matched) {
         throw error(403, "domain_not_allowed");
       }
-      let filename = name.trim();
+      let filename = name.trim().replace(/^\/+/, "");
       if (!filename.toLowerCase().endsWith(".md")) {
         filename = `${filename}.md`;
       }
+      const allowNested = matched.path === "knowledge";
       if (
-        filename.includes("/") ||
+        (!allowNested && filename.includes("/")) ||
         filename.includes("\\") ||
         filename.includes("..")
       ) {
@@ -1228,11 +1271,58 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         throw error(409, "destination_exists");
       }
 
-      // Starter template content
-      const templateContent =
-        domain === "tasks"
-          ? `---\n$schema: ./task-template.schema.json\nstatus: todo\npriority: medium\ndue_date: null\nlinked_project: null\nlinked_area: null\ncontext_tags: []\ncompleted_at: null\n---\n\n# ${filename.replace(/\.md$/i, "")}\n\n## Action\n`
-          : `---\n$schema: ./${domain}-template.schema.json\n---\n\n# ${filename.replace(/\.md$/i, "")}\n`;
+      const builtinContract = getBuiltinDomainContract(matched.path);
+      const starter =
+        builtinContract?.starter_templates?.find(
+          (item) => item.id === options?.starter_id,
+        ) ?? builtinContract?.starter_templates?.[0];
+      const baseName = (filename.split("/").at(-1) ?? filename).replace(
+        /\.md$/i,
+        "",
+      );
+      const headingTitle = options?.title?.trim() || baseName;
+
+      let templateContent =
+        options?.content ??
+        starter?.template_content ??
+        builtinContract?.template_content ??
+        `---\n$schema: ./${domain}-template.schema.json\n---\n\n# ${headingTitle}\n`;
+
+      if (!options?.content) {
+        templateContent = templateContent.replace(
+          /^#\s+.+$/m,
+          `# ${headingTitle}`,
+        );
+        const mergedFrontmatter: Record<string, unknown> = {
+          ...(builtinContract?.template_defaults ?? {}),
+          ...(starter?.template_defaults ?? {}),
+          ...(options?.frontmatter ?? {}),
+        };
+        if (
+          Object.keys(mergedFrontmatter).length > 0 &&
+          templateContent.startsWith("---")
+        ) {
+          try {
+            templateContent = mutateRecordFrontmatter(
+              templateContent,
+              mergedFrontmatter,
+            );
+          } catch {}
+        }
+        if (options?.sections) {
+          for (const [heading, secContent] of Object.entries(
+            options.sections,
+          )) {
+            if (typeof secContent === "string") {
+              templateContent = updateRecordSectionContent(
+                templateContent,
+                heading,
+                secContent,
+              );
+            }
+          }
+        }
+      }
 
       const nextRev = `sha256:mock-${++saveCount}`;
       fileContents[newPath] = templateContent;
