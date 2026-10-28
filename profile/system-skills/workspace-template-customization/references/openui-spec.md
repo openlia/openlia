@@ -143,9 +143,25 @@ dynamic/system/command includes are rejected rather than silently omitted.
 - **`TextContent(text: string)`**
 - **`MarkDownRenderer(content: string)`**
 - **`Callout(title: string, body: string, variant?: "info" | "success" | "warning" | "error")`**
-- **`BarChart(data: any[], xKey: string, series: Series[])`**
-- **`PieChart(data: any[], nameKey: string, dataKey: string)`**
-- **`LineChart(data: any[], xKey: string, series: Series[])`**
+- **`BarChart(labels: string[], series: Series[], variant?: "grouped" | "stacked", xLabel?: string, yLabel?: string, height?: number)`**
+- **`LineChart(labels: string[], series: Series[], variant?: "linear" | "natural" | "step", xLabel?: string, yLabel?: string, height?: number)`**
+- **`Series(category: string, values: number[])`**
+- **`PieChart(labels: string[], values: number[], variant?: "pie" | "donut", appearance?: "circular" | "semiCircular")`**
+- **`ChartPanel(kind: "bar" | "line" | "pie", labels: string[], series?: {category: string, values: number[]}[], values?: number[], title?: string, unit?: string, caption?: string, exactRows?: string[][], error?: string, colors?: string[], colorDomain?: string[])`**
+  Ledger-independent wrapper around the existing upstream charts, with units,
+  captions, diagnostics, and an accessible exact data table. Pie values cannot be
+  negative; series lengths must match the labels.
+  Optional `colors` are opaque hex colors in input series/slice order. Supply a
+  complete, stable `colorDomain` (including hidden categories) to retain category
+  colors through filtering and value-based pie sorting. Colors repeat after the
+  categorical palette is exhausted; labels/tables remain necessary.
+- **`SankeyDiagram(nodes: {id: string, label: string, colorKey?: string, color?: string}[], links: {source: string, target: string, value: number, exact?: string}[], title?: string, unit?: string, caption?: string, height?: number)`**
+  Generic non-negative acyclic flow diagram. Validates references and unique node
+  IDs, preserves input data, and provides an exact table. Financial classification
+  belongs to the native report adapter, never this renderer.
+  Node colors are keyed by `colorKey` (or `id`), with optional opaque hex overrides;
+  changing node order does not reassign colors. Finance can share an account color
+  across credit/debit nodes without implying credit is bad or debit is good.
 
 ---
 
