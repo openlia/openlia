@@ -180,6 +180,20 @@ export function CreateFileDialog({
                 {activeDomainInfo.purpose}
               </p>
             )}
+            {selectedDomain === "calendar" && (
+              <p className="mt-2 text-xs">
+                This creates an event note, not a scheduled appointment.{" "}
+                <a
+                  className="link link-primary"
+                  href="/projects/calendar"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open Calendar in a new tab to create an appointment
+                </a>
+                .
+              </p>
+            )}
           </div>
 
           <div>

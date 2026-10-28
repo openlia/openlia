@@ -9,6 +9,10 @@ import { z } from "zod";
 import type { WorkspaceDomainRecordSummary } from "../../shared/api";
 import { projectOpenUIProps } from "../../shared/project";
 import { useOpenLiaOpenUI } from "./context";
+import { Calendar } from "./calendar/Calendar";
+import { CalendarMonth } from "./calendar/CalendarMonth";
+import { CalendarWeek } from "./calendar/CalendarWeek";
+import { GanttChart } from "./calendar/GanttChart";
 
 export interface OpenLiaRuntimeData {
   records: WorkspaceDomainRecordSummary[];
@@ -776,6 +780,10 @@ export const UpdateFrontmatter = defineAction({
 // --- Extended OpenLia Library ---
 
 export const openliaComponents = [
+  Calendar,
+  CalendarMonth,
+  CalendarWeek,
+  GanttChart,
   Grid,
   DomainHeader,
   MetricCard,

@@ -8,6 +8,9 @@ import type {
 } from "../../shared/api";
 
 export interface OpenLiaOpenUIContextValue {
+  calendarApi?:
+    | Pick<WorkspaceApi, "loadCalendar" | "createCalendarEvent">
+    | undefined;
   loadFile?: WorkspaceApi["loadFile"] | undefined;
   project?: ProjectSummary | undefined;
   manifest?: ProjectManifest | undefined;

@@ -92,7 +92,7 @@ You can keep your workspace completely custom or install starter profiles, modul
 | :--- | :--- | :--- |
 | **`goals`** | `goals/` | High-level outcomes and milestones with OpenUI dashboard |
 | **`tasks`** | `tasks/` | Concrete action items with Kanban & table views |
-| **`calendar`** | `calendar/` | Event notes and `reminders.rem` (automatically installs `remind` CLI into `/opt/data/.local`) |
+| **`calendar`** | `calendar/` | Calendar Mini-Project with Month, Week, and event-duration Timeline views, local appointment creation, companion event notes, and `reminders.rem` (automatically installs `remind` CLI into `/opt/data/.local`) |
 | **`claims`** | `knowledge/claims/`, `archive/` | Provenance-backed personal claim ledger with certainty and temporal validity |
 | **`daily-briefing`** | `inbox/daily-briefing/` | Dated morning briefing reports and `/daily-briefing` skill |
 | **`personal-finance`** | `finance/`, `finance/intake/`, `finance/accounts/`, `finance/portfolios/`, `finance/reviews/` | `personal-finance` skill + `hledger` journals (automatically installs `hledger` CLI into `/opt/data/.local`) |

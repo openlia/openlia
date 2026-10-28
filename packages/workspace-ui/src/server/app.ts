@@ -37,6 +37,7 @@ import { WorkspaceError, WorkspaceService } from "./workspace";
 import { UsageService } from "./usage";
 import { CronService, CronError } from "./cron";
 import { CheckpointService } from "./checkpoints";
+import { CalendarService } from "./calendar";
 import {
   applyDeterministicFix,
   loadConsequentialPermissions,
@@ -314,6 +315,10 @@ export function createWorkspaceHandler(
   options: WorkspaceHandlerOptions,
 ): (request: Request, clientKey?: string) => Promise<Response> {
   const service = new WorkspaceService(options);
+  const calendar = new CalendarService(
+    service,
+    options.timezone ?? process.env.OPENLIA_TIMEZONE ?? process.env.TZ ?? "UTC",
+  );
   const checkpointService = new CheckpointService(service.workspaceRoot);
   const memoryService = new MemoryFileService(service, options.memoriesRoot);
   const ingestionService = new IngestionService(options);
@@ -2123,6 +2128,36 @@ export function createWorkspaceHandler(
           schema: 1,
           ...saved,
         });
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname === "/api/workspace/calendar"
+      ) {
+        return json(
+          await calendar.load({
+            source: url.searchParams.get("source") ?? "",
+            from: url.searchParams.get("from") ?? "",
+            to: url.searchParams.get("to") ?? "",
+          }),
+        );
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/workspace/calendar"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin)) {
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        }
+        const body = await readJson(request, 32 * 1024);
+        if (body.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        return json(await calendar.create(body.value), 201);
       }
       if (
         request.method === "GET" &&

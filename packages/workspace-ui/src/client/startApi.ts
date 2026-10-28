@@ -197,6 +197,16 @@ export const startWorkspaceApi: WorkspaceApi = {
     request<WorkspaceDiagnosticsResponse>({
       path: "/api/workspace/diagnostics",
     }),
+  loadCalendar: (range) =>
+    request({
+      path: `/api/workspace/calendar?${new URLSearchParams({ ...range })}`,
+    }),
+  createCalendarEvent: (event) =>
+    request({
+      path: "/api/workspace/calendar",
+      method: "POST",
+      body: event,
+    }),
   loadCreatableDomains: () =>
     request<WorkspaceDomainsResponse>({
       path: "/api/workspace/creatable-domains",

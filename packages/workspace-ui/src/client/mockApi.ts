@@ -48,6 +48,7 @@ import type {
   WorkspaceTreeResponse,
   WorkspaceWriteResponse,
 } from "../shared/api";
+import type { CalendarEvent } from "../shared/calendar";
 import {
   isMemoryDocument,
   MEMORY_FILENAMES,
@@ -122,7 +123,7 @@ export const mockCreatableDomains: WorkspaceDomainInfo[] = [
     path: "calendar",
     label: "Calendar",
     template_path: "calendar/event-note-template.md",
-    purpose: "Planning notes, meeting agendas, and event context.",
+    purpose: "Remind appointments and companion event notes.",
   },
   {
     path: "people",
@@ -803,7 +804,55 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     };
   }
 
+  const calendarEvents: CalendarEvent[] = [];
+  let calendarVersion = 0;
   return {
+    async loadCalendar(range) {
+      requireAuthentication();
+      return {
+        schema: 1,
+        timezone: "UTC",
+        revision: `sha256:mock-calendar-${calendarVersion}`,
+        events: calendarEvents.filter(
+          (event) =>
+            event.sourcePath === range.source &&
+            event.start.slice(0, 10) < range.to &&
+            event.end.slice(0, 10) >= range.from,
+        ),
+      };
+    },
+    async createCalendarEvent(event) {
+      requireAuthentication();
+      const id = `openlia-ui-${event.requestId}`;
+      if (!calendarEvents.some((item) => item.id === id)) {
+        if (
+          event.expectedRevision !== `sha256:mock-calendar-${calendarVersion}`
+        )
+          throw error(409, "revision_conflict");
+        calendarEvents.push({
+          id,
+          occurrenceId: `${id}:${event.start}`,
+          title: event.title,
+          start: event.start,
+          end: event.end,
+          allDay: false,
+          timezone: event.timezone,
+          agenda: event.agenda,
+          attendees: event.attendees,
+          location: event.location,
+          sourcePath: event.source,
+          sourceLine: 1,
+          notifications: "off",
+        });
+        calendarVersion++;
+      }
+      return {
+        schema: 1,
+        timezone: "UTC",
+        revision: `sha256:mock-calendar-${calendarVersion}`,
+        events: [...calendarEvents],
+      };
+    },
     async loadTree() {
       requireAuthentication();
       return scenario === "empty"

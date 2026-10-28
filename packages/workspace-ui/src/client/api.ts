@@ -74,6 +74,12 @@ import type { CheckpointProposal } from "../shared/checkpoints";
 import { isMemoryDocument, memoryFilename } from "../shared/memory";
 import { notifyWorkspaceFileChange } from "./workspaceFileChanges";
 import type { UsageRates, UsageResponse } from "../shared/usage";
+import {
+  calendarResponseSchema,
+  type CalendarCreateRequest,
+  type CalendarRangeRequest,
+  type CalendarResponse,
+} from "../shared/calendar";
 
 export type ApiErrorResponse = Omit<WorkspaceErrorResponse, "schema"> & {
   schema: 1 | 2;
@@ -92,6 +98,8 @@ export class ApiError extends Error {
 }
 
 export interface WorkspaceApi {
+  loadCalendar(range: CalendarRangeRequest): Promise<CalendarResponse>;
+  createCalendarEvent(event: CalendarCreateRequest): Promise<CalendarResponse>;
   chat: ChatApi;
   loadUsage(reference?: string): Promise<UsageResponse>;
   saveUsageOverride(
@@ -893,6 +901,23 @@ export const httpWorkspaceApi: WorkspaceApi = {
           expected_revision: expectedRevision,
           source_path: sourcePath,
         }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  loadCalendar: (range) =>
+    requestJson<CalendarResponse>(
+      `/api/workspace/calendar?${new URLSearchParams({ ...range })}`,
+      (value): value is CalendarResponse =>
+        calendarResponseSchema.safeParse(value).success,
+    ),
+  createCalendarEvent: (event) =>
+    requestJson<CalendarResponse>(
+      "/api/workspace/calendar",
+      (value): value is CalendarResponse =>
+        calendarResponseSchema.safeParse(value).success,
+      {
+        body: JSON.stringify(event),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       },
