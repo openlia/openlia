@@ -104,6 +104,40 @@ prompt = "Review my tasks in tasks/ and suggest the top 3 priorities for today."
   Decision analysis summary with options and recommendation badges.
 
 ### General UI & Chart Components
+#### Calendar and event-duration timelines
+
+- **`Calendar(children: any[], source?: string, timezone?: string)`**
+  Loads native Remind occurrences for its child views and provides a shared
+  selected date, display timezone, appointment details, and **New appointment**
+  editor. `source` defaults to project-relative `reminders.rem`; `timezone`
+  defaults to the server's configured calendar timezone. This is not a Markdown
+  record collection: Remind remains the source of truth.
+- **`CalendarMonth(title?: string)`** — Monday-first month grid, all-day spans,
+  overflow disclosure, and event selection. Must be inside `Calendar`.
+- **`CalendarWeek(title?: string)`** — Week time grid with overlap layout and an
+  all-day lane. Must be inside `Calendar`.
+- **`GanttChart(title?: string, items?: TimelineItem[], zoom?: "day" | "week" | "month", groupBy?: "none" | "source" | "location")`**
+  Event-duration timeline, not project dependency planning. Inside `Calendar`,
+  omitted `items` uses calendar occurrences and shared event selection. Standalone
+  usage accepts `{id, title, start, end, group?}` items; dates are ISO date-only
+  or offset-bearing timestamps. No dependencies, progress tracking, or drag edits.
+
+```openui
+root = Calendar([Tabs([
+  TabItem("month", "Month", [CalendarMonth()]),
+  TabItem("week", "Week", [CalendarWeek()]),
+  TabItem("timeline", "Timeline", [GanttChart()])
+])])
+```
+
+All-day ranges have exclusive end dates. Timed appointments store instants plus
+their IANA timezone. Drafts are unsaved until confirmation; notification and
+invitation delivery are unavailable and visibly off. New appointments use
+`NOQUEUE`; existing source-defined notification behavior is not changed. The UI
+supports one-off creation, not recurring-event editing or drag-to-reschedule.
+Native evaluation accepts only bounded, literal calendar-local `.rem` includes;
+dynamic/system/command includes are rejected rather than silently omitted.
+
 - **`Card(children: any[], variant?: "card" | "sunk" | "clear")`**
 - **`CardHeader(title: string, subtitle?: string)`**
 - **`TextContent(text: string)`**

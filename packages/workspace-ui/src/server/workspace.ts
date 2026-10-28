@@ -150,7 +150,7 @@ export const DEFAULT_CREATABLE_DOMAINS: WorkspaceDomainInfo[] = [
     path: "calendar",
     label: "Calendar",
     template_path: "calendar/event-note-template.md",
-    purpose: "Planning notes, meeting agendas, and event context.",
+    purpose: "Remind appointments and companion event notes.",
   },
   {
     path: "knowledge/claims",

@@ -94,7 +94,7 @@ const CORE_DOMAIN_PURPOSES: Record<string, { label: string; purpose: string }> =
     },
     calendar: {
       label: "Calendar",
-      purpose: "Planning notes, meeting agendas, and event context.",
+      purpose: "Remind appointments and companion event notes.",
     },
     knowledge: {
       label: "Knowledge",

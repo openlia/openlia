@@ -602,6 +602,7 @@ export function ProjectPage({
             ) : (
               <OpenLiaOpenUIProvider
                 value={{
+                  calendarApi: api,
                   loadFile: (path) => api.loadFile(path),
                   project: projectData.project,
                   manifest: projectData.manifest,

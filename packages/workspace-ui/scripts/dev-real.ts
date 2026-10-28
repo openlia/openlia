@@ -58,6 +58,24 @@ if (!process.env.OPENLIA_WORKSPACE_ROOT || e2eFixture) {
     );
 }
 
+if (e2eFixture) {
+  // Self-contained copy of the Calendar feature's OpenUI integration contract.
+  const calendarFiles: Record<string, string> = {
+    "project-manifest.toml":
+      'version = 1\n[project]\nid = "calendar"\nname = "Calendar"\n[ui]\nentry = "ui.openui"\n',
+    "ui.openui":
+      'root = Calendar([Tabs([TabItem("month", "Month", [CalendarMonth()]), TabItem("week", "Week", [CalendarWeek()]), TabItem("timeline", "Timeline", [GanttChart()])])])\n',
+    "reminders.rem":
+      "# Calendar browser fixture\nINCLUDE holidays.rem\nREM Mon AT 09:30 DURATION 30 MSG Weekly standup\n",
+    "holidays.rem":
+      "# Included calendar fixture\nREM 2026-10-28 THROUGH 2026-10-30 MSG Holiday\n",
+  };
+  for (const [name, content] of Object.entries(calendarFiles)) {
+    const path = join(workspaceRoot, "calendar", name);
+    if (!existsSync(path)) writeFileSync(path, content);
+  }
+}
+
 mkdirSync(skillsRoot, { recursive: true });
 mkdirSync(memoriesRoot, { recursive: true });
 if (!process.env.OPENLIA_MEMORIES_ROOT && !process.env.HERMES_HOME) {
