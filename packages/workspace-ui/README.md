@@ -1,7 +1,7 @@
 # Workspace UI
 
 The Workspace UI is OpenLia's web interface for chatting with Lia, browsing and
-editing documents, using interactive Mini-Projects, reviewing Git checkpoints,
+editing documents with inline OpenUI views, reviewing Git checkpoints,
 and managing the workspace. Its React client and Bun HTTP server share an
 explicit `WorkspaceApi` boundary so frontend work does not require OpenLia,
 Hermes, Go, or Docker.

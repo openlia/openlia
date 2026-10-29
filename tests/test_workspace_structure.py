@@ -125,7 +125,7 @@ class WorkspaceStructureTests(unittest.TestCase):
         self.assertIn("family-menu", paths)
         self.assertEqual(validator.validate_workspace(self.workspace), [])
 
-    def test_project_manifest_and_openui_query_validation(self):
+    def test_inline_openui_warnings_are_advisory(self):
         tasks_dir = self.workspace / "tasks"
         tasks_dir.mkdir(parents=True, exist_ok=True)
         (tasks_dir / "task-template.schema.json").write_text(
@@ -134,28 +134,14 @@ class WorkspaceStructureTests(unittest.TestCase):
         (tasks_dir / "task-template.md").write_text(
             "---\n$schema: ./task-template.schema.json\nstatus: todo\npriority: medium\n---\n# <Task>\n\n## Outcome\n"
         )
-        tasks_manifest = tasks_dir / "project-manifest.toml"
-        orig_manifest = (
-            '[project]\nid = "tasks"\nname = "Tasks"\n\n'
-            '[data]\ntemplate = "task-template.md"\nschema = "task-template.schema.json"\n\n'
-            '[data.queries.todo_count]\nop = "count"\nwhere = { status = "todo" }\n\n'
-            '[ui]\nentry = "ui.openui"\n'
-        )
-        tasks_manifest.write_text(orig_manifest)
-        tasks_ui = tasks_dir / "ui.openui"
-        orig_ui = 'root = Stack([MetricCard("Todo", @Query("todo_count"))])\n'
-        tasks_ui.write_text(orig_ui)
-
+        note = self.workspace / "menu.md"
+        note.write_text('# Menu\n\n```openui\nTable(title: "Menu", columns: [{key: "dish", label: "Dish"}], rows: [{dish: "Phở"}])\n```\n')
+        self.assertEqual(validator.inline_openui_warnings(self.workspace), [])
         self.assertEqual(validator.validate_workspace(self.workspace), [])
-        tasks_ui.write_text(orig_ui + '\nbad = MetricCard("Bad", @Query("nonexistent_query"))\n')
-        errors = validator.validate_workspace(self.workspace)
-        self.assertTrue(any("nonexistent_query" in error for error in errors))
-        tasks_ui.write_text(orig_ui)
-
-        tasks_manifest.write_text(orig_manifest + '\n[data.queries.bad_q]\nop = "count"\nwhere = { unknown_field = "todo" }\n')
-        errors = validator.validate_workspace(self.workspace)
-        self.assertTrue(any("unknown_field" in error for error in errors))
-        tasks_manifest.write_text(orig_manifest)
+        note.write_text('# Menu\n\n```openui\nTable(columns: [{key: "dish", label: "Dish"}], rows: [{dish: }])\n```\n')
+        warnings = validator.inline_openui_warnings(self.workspace)
+        self.assertTrue(any("openui_syntax_error: line 4:" in warning for warning in warnings))
+        self.assertEqual(validator.validate_workspace(self.workspace), [])
 
 
 if __name__ == "__main__":

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import os
 import re
-import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -317,8 +316,8 @@ def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
     except OSError:
         pass
 
-    # 2. Directories containing a template, schema, project-manifest.toml, or nested Markdown collections
-    for pattern in ("*-template.md", "*.schema.json", "project-manifest.toml", "*.md"):
+    # 2. Directories containing a template, schema, or nested Markdown collections
+    for pattern in ("*-template.md", "*.schema.json", "*.md"):
         for match in sorted(root.rglob(pattern)):
             try:
                 rel_parent = match.parent.relative_to(root).as_posix()
@@ -381,21 +380,6 @@ def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
             )
             if len(templates) == 1:
                 template_rel = templates[0].relative_to(root).as_posix()
-
-            manifest_file = folder / "project-manifest.toml"
-            if manifest_file.is_file() and not manifest_file.is_symlink():
-                try:
-                    manifest = tomllib.loads(manifest_file.read_text(encoding="utf-8"))
-                    proj = manifest.get("project")
-                    if isinstance(proj, dict):
-                        if isinstance(proj.get("name"), str) and proj["name"].strip():
-                            label = proj["name"].strip()
-                        elif isinstance(proj.get("title"), str) and proj["title"].strip():
-                            label = proj["title"].strip()
-                        if isinstance(proj.get("description"), str) and proj["description"].strip():
-                            purpose = proj["description"].strip()
-                except Exception:
-                    pass
 
         entry_dict: dict[str, Any] = {
             "path": rel_path,

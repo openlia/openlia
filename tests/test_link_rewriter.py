@@ -27,7 +27,7 @@ def test_rewrite_workspace_links_with_origin():
         sample_project = "[Tasks Project](openlia://projects/tasks)"
         assert (
             rewrite_openlia_links(sample_project)
-            == "[Tasks Project](https://workspace.example.test/projects/tasks)"
+            == sample_project
         )
 
         sample_hash = "[Section](openlia://workspace/goals/plan.md#milestones)"

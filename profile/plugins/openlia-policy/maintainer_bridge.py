@@ -10,11 +10,11 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 import re
 import sqlite3
-import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -29,6 +29,20 @@ except Exception:  # pragma: no cover
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?(.*)\Z", re.DOTALL)
+
+
+def _inline_warnings(content: str) -> list[str]:
+    helper = Path(os.environ.get("OPENLIA_POLICY_HELPER", "/opt/data/skills/workspace-template-customization/scripts/workspace_registry.py"))
+    candidates = [helper.with_name("openui_validation.py"), Path(__file__).resolve().parents[2] / "system-skills/workspace-template-customization/scripts/openui_validation.py"]
+    for path in candidates:
+        if not path.is_file() or path.is_symlink():
+            continue
+        spec = importlib.util.spec_from_file_location("openlia_inline_openui", path)
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module.validate_inline_openui(content)
+    return []
 
 
 def sha256_hex(value: str | bytes) -> str:
@@ -331,53 +345,15 @@ class MaintainerBridge:
                 )
             return candidates
 
-        if lower == "project-manifest.toml" or lower.endswith("/project-manifest.toml"):
-            try:
-                manifest = tomllib.loads(content)
-            except Exception as exc:
-                fp = compute_contract_fingerprint(
-                    rule_code="WM-MANIFEST-INVALID", subject="manifest"
-                )
-                candidates.append(
-                    self._make_candidate(
-                        relative_path=rel,
-                        rule_code="WM-MANIFEST-INVALID",
-                        severity="error",
-                        subject="manifest",
-                        message=f"Malformed TOML in {rel}: {exc}",
-                        explanation="Ensure project-manifest.toml is valid TOML with version = 1 and [project] metadata.",
-                        contract_path=rel,
-                        contract_fingerprint=fp,
-                        fix_strategy="agent",
-                        checked_revision=checked_revision,
-                    )
-                )
-                return candidates
-            ui_block = manifest.get("ui") if isinstance(manifest.get("ui"), dict) else {}
-            entry_name = ui_block.get("entry", "project.openui") if isinstance(ui_block, dict) else "project.openui"
-            if isinstance(entry_name, str) and entry_name.strip():
-                ui_abs = (abs_path.parent / entry_name).resolve(strict=False)
-                if not ui_abs.is_file():
-                    fp = compute_contract_fingerprint(
-                        rule_code="WM-MANIFEST-TARGET-MISSING",
-                        subject="ui.entry",
-                        manifest_target=entry_name,
-                    )
-                    candidates.append(
-                        self._make_candidate(
-                            relative_path=rel,
-                            rule_code="WM-MANIFEST-TARGET-MISSING",
-                            severity="error",
-                            subject="ui.entry",
-                            message=f"Manifest ui.entry target '{entry_name}' does not exist",
-                            explanation=f"Create {entry_name} in the project folder or update ui.entry in {rel}.",
-                            contract_path=rel,
-                            contract_fingerprint=fp,
-                            fix_strategy="agent",
-                            checked_revision=checked_revision,
-                        )
-                    )
-            return candidates
+        if lower.endswith(".md"):
+            for message in _inline_warnings(content):
+                candidates.append(self._make_candidate(
+                    relative_path=rel, rule_code="openui_syntax_error",
+                    severity="warning", subject=message, message=message,
+                    explanation="Fix the inline OpenUI syntax; use the Workspace UI preview for full component schema diagnostics.",
+                    contract_fingerprint=compute_contract_fingerprint(rule_code="openui_syntax_error", subject=message),
+                    fix_strategy="agent", checked_revision=checked_revision,
+                ))
 
         if not lower.endswith(".md") or lower.endswith("/readme.md") or lower == "readme.md":
             return candidates
@@ -829,7 +805,6 @@ class MaintainerBridge:
                 if (
                     lower.endswith(".md")
                     or lower.endswith(".schema.json")
-                    or lower == "project-manifest.toml"
                 ):
                     rel_paths.append(rel)
                     files_scanned += 1

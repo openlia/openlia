@@ -4,7 +4,7 @@
 
 [← Back to Documentation Index](README.md)
 
-OpenLia is a **self-hosted, AI-native workspace** for turning personal context into organized knowledge, decisions, and action—with **Hermes Agent** as its agent runtime. Chat, document editing, and interactive Mini-Projects share the same Git-versioned workspace. Profiles, features, and skills extend your workflows, while human approval boundaries keep consequential actions under your control.
+OpenLia is a **self-hosted, AI-native workspace** for turning personal context into organized knowledge, decisions, and action—with **Hermes Agent** as its agent runtime. Chat, document editing, and inline OpenUI views share the same Git-versioned workspace. Profiles, features, and skills extend your workflows, while human approval boundaries keep consequential actions under your control.
 
 ---
 
@@ -22,14 +22,14 @@ When working with OpenLia, there are two distinct roles:
 |  ├───────────────────────────────────┤  ├────────────────────────────┤  |
 |  │ • Chat on Telegram or Workspace   │  │ • Runs `openlia` CLI       │  |
 |  │ • Quick-capture notes & documents │  │ • Deploys & updates server │  |
-|  │ • Explore Mini-Project dashboards │  │ • Rotates API keys         │  |
+|  │ • Explore inline document views  │  │ • Rotates API keys         │  |
 |  │ • Edit Markdown & OpenUI views    │  │ • Manages backups & health │  |
 |  │ • Approve git checkpoints & plans │  │ • Installs template packs  │  |
 |  └───────────────────────────────────┘  └────────────────────────────┘  |
 +-------------------------------------------------------------------------+
 ```
 
-- **The End User**: The person collaborating with Lia throughout the day to organize documents, build Mini-Projects, run domain workflows, and make decisions. **This guide is for this role.**
+- **The End User**: The person collaborating with Lia throughout the day to organize documents, compose inline views, run domain workflows, and make decisions. **This guide is for this role.**
 - **The Operator**: The person managing the underlying servers, Docker containers, API keys, and backups using the `openlia` command-line tool. If you are also managing your own server, see the [Operator Guide](operator-guide.md).
 
 ---
@@ -54,7 +54,7 @@ Telegram is the primary mobile channel for quick capture and notifications on th
 ### C. Workspace UI (Documents, Projects, Git Activity & Usage)
 Accessible at `http://localhost:8089` (directly on loopback, via SSH tunnel, or via a private Locho connection):
 - **Documents (`/files/<path>`)**: Web-based explorer and editor for your entire workspace. View Markdown files with live preview, edit YAML/JSON/TOML/CSV/code files with syntax highlighting, and see real-time schema validation diagnostics.
-- **Projects (`/projects/<path>`)**: Interactive Mini-Project dashboards powered by `project-manifest.toml` and `ui.openui` for any domain folder in your workspace. See [Workspace Mini-Projects & Domain Views](workspace-domain-views.md).
+- **Inline OpenUI**: Interactive tables, charts, and domain views appear within Markdown documents in Documents. See [Inline OpenUI Views](workspace-domain-views.md).
 - **Maintainer (`/maintainer`)**: Advisory workspace structure & schema health dashboard powered by **Workspace Maintainer**, offering guided fixes without blocking normal saves.
 - **Git Activity**: Review frozen-snapshot diffs of your workspace changes and ask Lia to propose coherent commit groups (**Propose commits** → **Review & confirm** → **Confirm commits**).
 - **Migration (`/migration`)**: Inspect and approve staged folder imports into your workspace.
@@ -92,13 +92,13 @@ You can keep your workspace completely custom or install starter profiles, modul
 | :--- | :--- | :--- |
 | **`goals`** | `goals/` | High-level outcomes and milestones with OpenUI dashboard |
 | **`tasks`** | `tasks/` | Concrete action items with Kanban & table views |
-| **`calendar`** | `calendar/` | Calendar Mini-Project with Month, Week, and event-duration Timeline views, local appointment creation, companion event notes, and `reminders.rem` (automatically installs `remind` CLI into `/opt/data/.local`) |
+| **`calendar`** | `calendar/` | Calendar views in Markdown with Month, Week, event-duration Timeline, local appointment creation, companion event notes, and `reminders.rem` (automatically installs `remind` CLI into `/opt/data/.local`) |
 | **`daily-briefing`** | `inbox/daily-briefing/` | Dated morning briefing reports and `/daily-briefing` skill |
 | **`personal-finance`** | `finance/`, `finance/intake/`, `finance/accounts/`, `finance/portfolios/`, `finance/reviews/` | Read-only hledger dashboards and charts, structured account mappings, and the `personal-finance` skill (automatically installs agent-side `hledger` into `/opt/data/.local`) |
 | **`personal-health`** | `health/`, `health/profiles/`, `health/history/`, `health/conditions/`, `health/treatments/`, `health/reviews/` | `personal-health` skill & structured medical templates |
 | **`decision-analysis`** | `decisions/` | `decision-analysis` skill + option/criteria trade-off matrix |
 | **`deep-research`** | `knowledge/research/` | `deep-research` skill + source rubric & brief templates |
-| **`areas`**, **`ideas`**, **`monitors`**, **`people`**, **`shopping`**, **`travel`** | Domain folders & OpenUI Mini-Projects | Specialized personal & operational domains |
+| **`areas`**, **`ideas`**, **`monitors`**, **`people`**, **`shopping`**, **`travel`** | Domain folders & inline Markdown views | Specialized personal & operational domains |
 
 ### Customizing Templates & Skills Safely
 You can edit any installed template, schema, OpenUI view, or skill directly. OpenLia automatically detects your edits (`current_hash != base_hash`) as a local customization and preserves them with a 3-way rebase when you update upstream templates later.
@@ -141,7 +141,7 @@ OpenLia is designed around **useful autonomy with a clear human approval boundar
 | **Reading & Analyzing Workspace** | Automatic | Lia reads notes, searches files, and synthesizes answers automatically. |
 | **Writing to Inbox & Sources** | Standing delegation | Lia captures incoming notes/files to `inbox/` and `sources/`. |
 | **Routine Workspace Updates** | Standing delegation | Routine updates to records and notes within authorized domains, preserving provenance. |
-| **New Recurring Workspace Structure** | Scoped confirmation | Lia designs the folder, template, and optional Mini-Project (`project-manifest.toml` + `ui.openui`) and offers **Confirm, Adjust, or Cancel** before applying. |
+| **New Recurring Workspace Structure** | Scoped confirmation | Lia designs the folder, template, and optional inline Markdown view and offers **Confirm, Adjust, or Cancel** before applying. |
 | **Workspace Git Commits** | Explicit confirmation | Lia proposes grouped commits from a frozen diff snapshot; you confirm them in the UI. |
 | **External Communications (Email/Chat)** | Always ask | Lia drafts messages and waits for your explicit approval before sending. |
 | **Financial Transactions & Purchases** | Always ask | Local bookkeeping is separate from external money movement, which always requires approval. |

@@ -102,18 +102,30 @@ class PolicyPluginTests(unittest.TestCase):
             )
         )
 
-    def test_family_menu_mini_project_scaffolding_succeeds_without_structural_approval(self):
+    def test_family_menu_inline_view_scaffolding_succeeds_without_structural_approval(self):
         args = {
             "mode": "patch",
             "patch": (
                 "*** Add File: family-menu/menu-template.md\n+# Menu\n+## Lunch\n"
                 "*** Add File: family-menu/menu.schema.json\n+{\"type\": \"object\"}\n"
-                "*** Add File: family-menu/project-manifest.toml\n+[project]\n+id = \"family-menu\"\n"
-                "*** Add File: family-menu/ui.openui\n+root = Stack([])\n"
-                "*** Add File: family-menu/2026-10-26.md\n+# Monday\n+## Lunch\n"
+                '*** Add File: family-menu/2026-10-26.md\n+# Monday\n+## Lunch\n+```openui\n+CardHeader(title: "Menu")\n+```\n'
             ),
         }
         self.assertIsNone(self.policy.pre_tool_call("patch", args))
+
+    def test_inline_openui_findings_are_advisory_and_resolve_after_repair(self):
+        path = "family-menu/menu.md"
+        folder = self.workspace / "family-menu"
+        folder.mkdir()
+        target = self.workspace / path
+        target.write_text('# Menu\n\n```openui\nTable(columns: [], rows: [{dish: }])\n```\n')
+        findings = self.policy.maintainer.validate_and_reconcile_paths([path])
+        inline = [finding for finding in findings if finding["rule_code"] == "openui_syntax_error"]
+        self.assertTrue(inline)
+        self.assertTrue(all(finding["severity"] == "warning" for finding in inline))
+        target.write_text('# Menu\n\n```openui\nTable(columns: [{key: "dish", label: "Dish"}], rows: [{dish: "Phở"}])\n```\n')
+        repaired = self.policy.maintainer.validate_and_reconcile_paths([path])
+        self.assertFalse(any(finding["rule_code"] == "openui_syntax_error" and finding["present"] for finding in repaired))
 
     def test_template_and_schema_updates_are_allowed_while_agents_md_is_protected(self):
         for path in ("goals/goal-template.md", "goals/goal-template.schema.json"):

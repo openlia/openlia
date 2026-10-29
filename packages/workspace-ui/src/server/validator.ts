@@ -5,768 +5,25 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
-  statSync,
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { createParser } from "@openuidev/lang-core";
-import { openuiLibrary } from "@openuidev/react-ui";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import YAML from "yaml";
-import { z } from "zod";
-import {
-  DEFAULT_PROJECT_UI_ENTRY,
-  PROJECT_MANIFEST_FILENAME,
-  type ProjectManifest,
-  type ProjectQueryDefinition,
-  projectOpenUIProps,
-} from "../shared/project";
 import type {
   WorkspaceDiagnosticIssue,
   WorkspaceDiagnosticsResponse,
   WorkspaceFileValidation,
 } from "../shared/api";
+import { extractMarkdownOpenUIBlocks, openUIErrors } from "../shared/openui";
 import { isConfigurationPath, protectedPath } from "./workspace";
 
-const OPENUI_KNOWN_COMPONENTS = new Set([
-  // @openuidev/react-ui built-in components
-  "Stack",
-  "Card",
-  "CardHeader",
-  "TextContent",
-  "MarkDownRenderer",
-  "Callout",
-  "TextCallout",
-  "InlineHeader",
-  "Table",
-  "Col",
-  "EditableTable",
-  "BarChart",
-  "LineChart",
-  "AreaChart",
-  "RadarChart",
-  "HorizontalBarChart",
-  "Series",
-  "PieChart",
-  "RadialChart",
-  "SingleStackedBarChart",
-  "Slice",
-  "Form",
-  "FormControl",
-  "Label",
-  "Input",
-  "TextArea",
-  "Select",
-  "SelectItem",
-  "DatePicker",
-  "Slider",
-  "CheckBoxGroup",
-  "CheckBoxItem",
-  "RadioGroup",
-  "RadioItem",
-  "SwitchGroup",
-  "SwitchItem",
-  "Chips",
-  "ChipItem",
-  "Button",
-  "Buttons",
-  "IconButton",
-  "Tabs",
-  "TabItem",
-  "Accordion",
-  "AccordionItem",
-  "Steps",
-  "StepsItem",
-  "Separator",
-  "TagBlock",
-  "Tag",
-  "EntityList",
-  "ListBlock",
-  "ListItem",
-  "Text",
-  "BoldText",
-  "IconText",
-  "MetricIndicatorInline",
-  "OverviewCardBlock",
-  "OverviewCardItem",
-  "Modal",
-  // OpenLia custom components
-  "Grid",
-  "DomainHeader",
-  "MetricCard",
-  "RecordKanban",
-  "RecordTable",
-  "Calendar",
-  "CalendarMonth",
-  "CalendarWeek",
-  "GanttChart",
-  "SankeyDiagram",
-  "ChartPanel",
-  "Finance",
-  "FinanceOverview",
-  "FinanceChart",
-  "FinanceAccounts",
-  // Built-in OpenUI expressions
-  "Query",
-  "Mutation",
-  "Action",
-]);
-
-const OPENUI_KNOWN_FUNCTIONS = new Set([
-  // Built-in OpenUI functions
-  "Count",
-  "Sum",
-  "Avg",
-  "Min",
-  "Max",
-  "First",
-  "Last",
-  "Sort",
-  "Filter",
-  "Pluck",
-  "Each",
-  "Round",
-  "Abs",
-  "Upper",
-  "Lower",
-  "Trim",
-  "Join",
-  "Split",
-  "Default",
-  "Length",
-  "Contains",
-  "Keys",
-  "Values",
-  // OpenLia custom functions
-  "CountBy",
-  "GroupCount",
-  "FilterRecords",
-  "SumBy",
-  "Query",
-  "GetQuery",
-  "Section",
-  "Checklist",
-]);
-
-const openuiSchemaDefs = Object.fromEntries(
-  [...OPENUI_KNOWN_COMPONENTS].map((name) => [name, { type: "object" }]),
-);
-Object.assign(openuiSchemaDefs, openuiLibrary.toJSONSchema().$defs);
-for (const [name, props] of Object.entries(projectOpenUIProps)) {
-  openuiSchemaDefs[name] = z.toJSONSchema(props) as { type: string };
-}
-const openuiFunctionDefs = {
-  ...openuiLibrary.toJSONSchema().functions,
-  CountBy: {
-    params: z.toJSONSchema(
-      z.object({ field: z.string(), value: z.any().optional() }),
+export function validateMarkdownOpenUIBlocks(content: string): string[] {
+  return extractMarkdownOpenUIBlocks(content).flatMap((block) =>
+    openUIErrors(block.code).map(
+      (error) => `openui_syntax_error: line ${block.startLine}: ${error}`,
     ),
-  },
-  GroupCount: {
-    params: z.toJSONSchema(z.object({ field: z.string() })),
-  },
-  FilterRecords: {
-    params: z.toJSONSchema(
-      z.object({ field: z.string(), value: z.any().optional() }),
-    ),
-  },
-  SumBy: {
-    params: z.toJSONSchema(z.object({ field: z.string() })),
-  },
-  GetQuery: {
-    params: z.toJSONSchema(z.object({ name: z.string() })),
-  },
-};
-const openuiParser = createParser({
-  $defs: openuiSchemaDefs,
-  functions: openuiFunctionDefs,
-} as Parameters<typeof createParser>[0]);
-
-export function parseProjectManifest(content: string): {
-  manifest: ProjectManifest | null;
-  errors: string[];
-} {
-  const errors: string[] = [];
-  let raw: Record<string, unknown>;
-  try {
-    const parsed = Bun.TOML.parse(content);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {
-        errors: ["project-manifest.toml must be a TOML table"],
-        manifest: null,
-      };
-    }
-    raw = parsed as Record<string, unknown>;
-  } catch (err) {
-    return {
-      errors: [
-        `TOML syntax error: ${err instanceof Error ? err.message : String(err)}`,
-      ],
-      manifest: null,
-    };
-  }
-
-  const version = typeof raw.version === "number" ? raw.version : 1;
-  if (version !== 1) {
-    errors.push(`version must be 1 (got ${String(raw.version)})`);
-  }
-
-  const projectRaw =
-    raw.project &&
-    typeof raw.project === "object" &&
-    !Array.isArray(raw.project)
-      ? (raw.project as Record<string, unknown>)
-      : null;
-  if (!projectRaw) {
-    errors.push("missing required [project] table");
-  }
-  const id = typeof projectRaw?.id === "string" ? projectRaw.id.trim() : "";
-  const rawName =
-    typeof projectRaw?.name === "string"
-      ? projectRaw.name
-      : typeof projectRaw?.title === "string"
-        ? projectRaw.title
-        : "";
-  const name = rawName.trim();
-  if (!id) {
-    errors.push("[project].id is required and must be a non-empty string");
-  }
-  if (!name) {
-    errors.push("[project].name is required and must be a non-empty string");
-  }
-
-  const dataRaw =
-    raw.data && typeof raw.data === "object" && !Array.isArray(raw.data)
-      ? (raw.data as Record<string, unknown>)
-      : {};
-  const uiRaw =
-    raw.ui && typeof raw.ui === "object" && !Array.isArray(raw.ui)
-      ? (raw.ui as Record<string, unknown>)
-      : {};
-  const entry =
-    typeof uiRaw.entry === "string" && uiRaw.entry.trim()
-      ? uiRaw.entry.trim()
-      : DEFAULT_PROJECT_UI_ENTRY;
-
-  const queries: Record<string, ProjectQueryDefinition> = {};
-  if (
-    dataRaw.queries &&
-    typeof dataRaw.queries === "object" &&
-    !Array.isArray(dataRaw.queries)
-  ) {
-    for (const [qName, qVal] of Object.entries(
-      dataRaw.queries as Record<string, unknown>,
-    )) {
-      if (!qVal || typeof qVal !== "object" || Array.isArray(qVal)) {
-        errors.push(`[data.queries.${qName}] must be a table`);
-        continue;
-      }
-      const qObj = qVal as Record<string, unknown>;
-      const rawType = typeof qObj.type === "string" ? qObj.type : qObj.op;
-      const normalizedType =
-        rawType === "count_by" || rawType === "count"
-          ? "count"
-          : rawType === "group_count"
-            ? "group_count"
-            : rawType === "sum_by" || rawType === "sum"
-              ? "sum"
-              : rawType === "filter_records" ||
-                  rawType === "filter" ||
-                  rawType === "records"
-                ? "filter"
-                : null;
-      if (!normalizedType) {
-        errors.push(
-          `[data.queries.${qName}].op/type must be one of 'count'/'count_by', 'group_count', 'sum'/'sum_by', 'filter'/'filter_records'`,
-        );
-        continue;
-      }
-      queries[qName] = {
-        type: normalizedType,
-        ...(typeof qObj.field === "string" ? { field: qObj.field } : {}),
-        ...(qObj.value !== undefined
-          ? {
-              value: qObj.value as
-                | string
-                | number
-                | boolean
-                | Array<string | number | boolean>,
-            }
-          : {}),
-        ...(qObj.where &&
-        typeof qObj.where === "object" &&
-        !Array.isArray(qObj.where)
-          ? {
-              where: qObj.where as Record<
-                string,
-                string | number | boolean | Array<string | number | boolean>
-              >,
-            }
-          : {}),
-      };
-    }
-  }
-
-  const logicRaw =
-    raw.logic && typeof raw.logic === "object" && !Array.isArray(raw.logic)
-      ? (raw.logic as Record<string, unknown>)
-      : undefined;
-
-  const mutationsRaw =
-    logicRaw?.mutations &&
-    typeof logicRaw.mutations === "object" &&
-    !Array.isArray(logicRaw.mutations)
-      ? (logicRaw.mutations as Record<string, unknown>)
-      : undefined;
-
-  const promptsRaw = Array.isArray(logicRaw?.prompts)
-    ? logicRaw.prompts
-    : undefined;
-
-  const manifest: ProjectManifest = {
-    version,
-    project: {
-      id: id || "unnamed",
-      name: name || "Unnamed Project",
-      ...(typeof projectRaw?.description === "string"
-        ? { description: projectRaw.description }
-        : {}),
-      ...(typeof projectRaw?.icon === "string"
-        ? { icon: projectRaw.icon }
-        : {}),
-    },
-    data: {
-      ...(typeof dataRaw.records_glob === "string"
-        ? { records_glob: dataRaw.records_glob }
-        : {}),
-      ...(Array.isArray(dataRaw.exclude)
-        ? {
-            exclude: dataRaw.exclude.filter(
-              (item): item is string => typeof item === "string",
-            ),
-          }
-        : {}),
-      ...(typeof dataRaw.template === "string"
-        ? { template: dataRaw.template }
-        : {}),
-      ...(typeof dataRaw.schema === "string" ? { schema: dataRaw.schema } : {}),
-      ...(typeof dataRaw.status_field === "string"
-        ? { status_field: dataRaw.status_field }
-        : {}),
-      ...(dataRaw.default_sort &&
-      typeof dataRaw.default_sort === "object" &&
-      !Array.isArray(dataRaw.default_sort) &&
-      typeof (dataRaw.default_sort as Record<string, unknown>).field ===
-        "string"
-        ? {
-            default_sort: {
-              field: (dataRaw.default_sort as Record<string, unknown>)
-                .field as string,
-              direction:
-                (dataRaw.default_sort as Record<string, unknown>).direction ===
-                "desc"
-                  ? "desc"
-                  : "asc",
-            },
-          }
-        : {}),
-      ...(Object.keys(queries).length > 0 ? { queries } : {}),
-    },
-    ui: {
-      entry,
-    },
-    ...(logicRaw
-      ? {
-          logic: {
-            ...(Array.isArray(logicRaw.skills)
-              ? {
-                  skills: logicRaw.skills.filter(
-                    (s): s is string => typeof s === "string",
-                  ),
-                }
-              : {}),
-            ...(mutationsRaw
-              ? {
-                  mutations: {
-                    ...(Array.isArray(mutationsRaw.editable_fields)
-                      ? {
-                          editable_fields: mutationsRaw.editable_fields.filter(
-                            (f): f is string => typeof f === "string",
-                          ),
-                        }
-                      : {}),
-                    ...(Array.isArray(mutationsRaw.checklist_sections)
-                      ? {
-                          checklist_sections:
-                            mutationsRaw.checklist_sections.filter(
-                              (s): s is string => typeof s === "string",
-                            ),
-                        }
-                      : {}),
-                  },
-                }
-              : {}),
-            ...(promptsRaw
-              ? {
-                  prompts: promptsRaw
-                    .filter(
-                      (p): p is Record<string, unknown> =>
-                        Boolean(p) &&
-                        typeof p === "object" &&
-                        !Array.isArray(p),
-                    )
-                    .filter(
-                      (p) =>
-                        typeof p.label === "string" &&
-                        typeof p.prompt === "string",
-                    )
-                    .map((p, idx) => ({
-                      id:
-                        typeof p.id === "string" && p.id.trim()
-                          ? p.id.trim()
-                          : `prompt-${idx + 1}`,
-                      label: p.label as string,
-                      prompt: p.prompt as string,
-                    })),
-                }
-              : {}),
-          },
-        }
-      : {}),
-  };
-
-  return { errors, manifest: errors.length === 0 ? manifest : manifest };
-}
-
-export function validateProjectManifest(
-  workspaceRoot: string,
-  manifestRelativePath: string,
-  content: string,
-): WorkspaceFileValidation {
-  const root = resolve(workspaceRoot);
-  const normalized = manifestRelativePath.replaceAll("\\", "/");
-  const projectDir = dirname(resolve(root, normalized));
-  const { manifest, errors } = parseProjectManifest(content);
-  if (!manifest) {
-    return { errors, valid: false };
-  }
-
-  const uiEntryAbs = resolve(projectDir, manifest.ui.entry);
-  if (!uiEntryAbs.startsWith(projectDir + sep) || !existsSync(uiEntryAbs)) {
-    errors.push(
-      `[ui].entry '${manifest.ui.entry}' does not exist in ${dirname(normalized)}`,
-    );
-  }
-
-  let schemaProps: Set<string> | null = null;
-  let schemaRel: string | undefined;
-  if (manifest.data.schema) {
-    const schemaAbs = resolve(projectDir, manifest.data.schema);
-    if (!schemaAbs.startsWith(projectDir + sep) || !existsSync(schemaAbs)) {
-      errors.push(
-        `[data].schema '${manifest.data.schema}' does not exist in ${dirname(normalized)}`,
-      );
-    } else {
-      schemaRel = relative(root, schemaAbs).replaceAll("\\", "/");
-      try {
-        const rawSchema = JSON.parse(readFileSync(schemaAbs, "utf-8"));
-        if (rawSchema?.properties && typeof rawSchema.properties === "object") {
-          schemaProps = new Set(Object.keys(rawSchema.properties));
-        }
-      } catch {
-        errors.push(
-          `[data].schema '${manifest.data.schema}' is not valid JSON`,
-        );
-      }
-    }
-  }
-
-  let templateSections: Set<string> | null = null;
-  let templateRel: string | undefined;
-  if (manifest.data.template) {
-    const tplAbs = resolve(projectDir, manifest.data.template);
-    if (!tplAbs.startsWith(projectDir + sep) || !existsSync(tplAbs)) {
-      errors.push(
-        `[data].template '${manifest.data.template}' does not exist in ${dirname(normalized)}`,
-      );
-    } else {
-      templateRel = relative(root, tplAbs).replaceAll("\\", "/");
-      try {
-        const tplContent = readFileSync(tplAbs, "utf-8");
-        const headings = extractHeadings(
-          parseRecordFrontmatter(tplContent).body,
-        );
-        templateSections = new Set(
-          headings
-            .filter((h) => h.level === 2)
-            .map((h) => h.text.trim().toLowerCase())
-            .filter(Boolean),
-        );
-      } catch {}
-    }
-  }
-
-  if (schemaProps && schemaProps.size > 0) {
-    if (
-      manifest.data.status_field &&
-      !schemaProps.has(manifest.data.status_field)
-    ) {
-      errors.push(
-        `contract(schema): [data].status_field '${manifest.data.status_field}' is not defined in ${schemaRel ?? manifest.data.schema}`,
-      );
-    }
-    for (const field of manifest.logic?.mutations?.editable_fields ?? []) {
-      if (!schemaProps.has(field)) {
-        errors.push(
-          `contract(schema): [logic.mutations].editable_fields '${field}' is not defined in ${schemaRel ?? manifest.data.schema}`,
-        );
-      }
-    }
-    for (const [qName, qDef] of Object.entries(manifest.data.queries ?? {})) {
-      if (
-        qDef.field &&
-        qDef.field !== "title" &&
-        qDef.field !== "filename" &&
-        qDef.field !== "path" &&
-        !schemaProps.has(qDef.field)
-      ) {
-        errors.push(
-          `contract(schema): [data.queries.${qName}].field '${qDef.field}' is not defined in ${schemaRel ?? manifest.data.schema}`,
-        );
-      }
-      for (const whereField of Object.keys(qDef.where ?? {})) {
-        if (
-          whereField !== "title" &&
-          whereField !== "filename" &&
-          whereField !== "path" &&
-          !schemaProps.has(whereField)
-        ) {
-          errors.push(
-            `contract(schema): [data.queries.${qName}].where '${whereField}' is not defined in ${schemaRel ?? manifest.data.schema}`,
-          );
-        }
-      }
-    }
-  }
-
-  if (templateSections && templateSections.size > 0) {
-    for (const heading of manifest.logic?.mutations?.checklist_sections ?? []) {
-      if (!templateSections.has(heading.trim().toLowerCase())) {
-        errors.push(
-          `contract(template): [logic.mutations].checklist_sections '## ${heading}' is not defined in ${templateRel ?? manifest.data.template}`,
-        );
-      }
-    }
-  }
-
-  return {
-    errors,
-    ...(schemaRel ? { schema_path: schemaRel } : {}),
-    ...(templateRel ? { template_path: templateRel } : {}),
-    valid: errors.length === 0,
-  };
-}
-
-export function validateOpenUIContent(
-  workspaceRoot: string,
-  relativePath: string,
-  content: string,
-): WorkspaceFileValidation {
-  const normalized = relativePath.replaceAll("\\", "/");
-  const errors: string[] = [];
-  const trimmed = content.trim();
-  if (!trimmed) {
-    return {
-      errors: ["OpenUI file must not be empty"],
-      valid: false,
-    };
-  }
-
-  const normalizedContent = content.replace(/@Query\s*\(/g, "@GetQuery(");
-  const parseResult = openuiParser.parse(normalizedContent);
-  for (const err of parseResult.meta.errors) {
-    errors.push(`openui(${err.code}): ${err.message}`);
-  }
-  if (!parseResult.root) {
-    errors.push("openui: missing required 'root = ...' statement");
-  }
-
-  // Check unknown @Function(...) calls
-  for (const match of content.matchAll(/@([A-Za-z_][A-Za-z0-9_]*)\s*\(/g)) {
-    const fnName = match[1];
-    if (fnName && !OPENUI_KNOWN_FUNCTIONS.has(fnName)) {
-      errors.push(`openui(unknown-function): Unknown function '@${fnName}'`);
-    }
-  }
-
-  // Discover domain template and schema for cross-contract validation
-  const domain = findDomainTemplate(workspaceRoot, normalized);
-  let schemaProps: Set<string> | null = null;
-  let templateSections: Set<string> | null = null;
-
-  if (domain?.schemaAbsolutePath && existsSync(domain.schemaAbsolutePath)) {
-    try {
-      const rawSchema = JSON.parse(
-        readFileSync(domain.schemaAbsolutePath, "utf-8"),
-      );
-      if (rawSchema?.properties && typeof rawSchema.properties === "object") {
-        schemaProps = new Set(Object.keys(rawSchema.properties));
-      }
-    } catch {}
-  }
-
-  if (domain?.templateRelativePath) {
-    const tplAbs = resolve(workspaceRoot, domain.templateRelativePath);
-    if (existsSync(tplAbs)) {
-      try {
-        const tplContent = readFileSync(tplAbs, "utf-8");
-        const headings = extractHeadings(
-          parseRecordFrontmatter(tplContent).body,
-        );
-        templateSections = new Set(
-          headings
-            .filter((h) => h.level === 2)
-            .map((h) => h.text.trim().toLowerCase())
-            .filter(Boolean),
-        );
-      } catch {}
-    }
-  }
-
-  if (schemaProps && schemaProps.size > 0) {
-    for (const match of content.matchAll(/RecordKanban\s*\(\s*"([^"]+)"/g)) {
-      const field = match[1];
-      if (field && !schemaProps.has(field)) {
-        errors.push(
-          `contract(schema): RecordKanban group field '${field}' is not defined in ${domain?.schemaRelativePath ?? "domain schema"}`,
-        );
-      }
-    }
-    // Check $record.frontmatter.<key> references
-    for (const match of content.matchAll(
-      /\$[A-Za-z0-9_]+\.frontmatter\.([A-Za-z0-9_-]+)/g,
-    )) {
-      const key = match[1];
-      if (key && key !== "$schema" && !schemaProps.has(key)) {
-        errors.push(
-          `contract(schema): frontmatter field '${key}' is not defined in ${domain?.schemaRelativePath ?? "domain schema"}`,
-        );
-      }
-    }
-
-    // Check FrontmatterEditorCard($record, ["field1", "field2"])
-    for (const match of content.matchAll(
-      /FrontmatterEditorCard\s*\([^,]+,\s*\[([^\]]*)\]/g,
-    )) {
-      const listRaw = match[1] ?? "";
-      for (const strMatch of listRaw.matchAll(/"([^"]+)"|'([^']+)'/g)) {
-        const field = strMatch[1] ?? strMatch[2];
-        if (field && field !== "$schema" && !schemaProps.has(field)) {
-          errors.push(
-            `contract(schema): FrontmatterEditorCard field '${field}' is not defined in ${domain?.schemaRelativePath ?? "domain schema"}`,
-          );
-        }
-      }
-    }
-
-    // Check RecordKanban($records.records, "groupField", ...)
-    for (const match of content.matchAll(
-      /RecordKanban\s*\([^,]+,\s*(?:"([^"]+)"|'([^']+)')/g,
-    )) {
-      const groupField = match[1] ?? match[2];
-      if (
-        groupField &&
-        groupField !== "$schema" &&
-        !schemaProps.has(groupField)
-      ) {
-        errors.push(
-          `contract(schema): RecordKanban group field '${groupField}' is not defined in ${domain?.schemaRelativePath ?? "domain schema"}`,
-        );
-      }
-    }
-
-    // Check @CountBy / @GroupCount / @FilterRecords / @SumBy field argument (supports @CountBy("field", ...) or @CountBy($records, "field", ...))
-    for (const match of content.matchAll(
-      /@(?:CountBy|GroupCount|FilterRecords|SumBy)\s*\(\s*(?:\$[A-Za-z0-9_.]+\s*,\s*)?(?:"([^"]+)"|'([^']+)')/g,
-    )) {
-      const field = match[1] ?? match[2];
-      if (
-        field &&
-        field !== "$schema" &&
-        field !== "title" &&
-        field !== "filename" &&
-        field !== "path" &&
-        !schemaProps.has(field)
-      ) {
-        errors.push(
-          `contract(schema): query function field '${field}' is not defined in ${domain?.schemaRelativePath ?? "domain schema"}`,
-        );
-      }
-    }
-  }
-
-  // If project-manifest.toml is in the same folder, check @Query("name") against [data.queries]
-  const manifestAbs = resolve(
-    dirname(resolve(workspaceRoot, normalized)),
-    PROJECT_MANIFEST_FILENAME,
   );
-  if (existsSync(manifestAbs)) {
-    try {
-      const { manifest } = parseProjectManifest(
-        readFileSync(manifestAbs, "utf-8"),
-      );
-      if (manifest) {
-        const definedQueries = new Set(
-          Object.keys(manifest.data.queries ?? {}),
-        );
-        for (const match of content.matchAll(
-          /@(?:Query|GetQuery)\s*\(\s*(?:"([^"]+)"|'([^']+)')\s*\)/g,
-        )) {
-          const queryName = match[1] ?? match[2];
-          if (queryName && !definedQueries.has(queryName)) {
-            errors.push(
-              `contract(manifest): query '${queryName}' is not defined in [data.queries] of ${PROJECT_MANIFEST_FILENAME}`,
-            );
-          }
-        }
-      }
-    } catch {}
-  }
-
-  if (templateSections && templateSections.size > 0) {
-    for (const match of content.matchAll(
-      /(?:RecordSectionView|ChecklistSection|MarkdownSectionCard)\s*\(\s*"([^"]+)"/g,
-    )) {
-      const heading = match[1]?.trim();
-      if (heading && !templateSections.has(heading.toLowerCase())) {
-        errors.push(
-          `contract(template): section '## ${heading}' is not defined in ${domain?.templateRelativePath ?? "domain template"}`,
-        );
-      }
-    }
-    // Check @Section(..., "Heading") and @Checklist(..., "Heading")
-    for (const match of content.matchAll(
-      /@(?:Section|Checklist)\s*\([^,]+,\s*(?:"([^"]+)"|'([^']+)')/g,
-    )) {
-      const heading = (match[1] ?? match[2] ?? "").trim();
-      if (heading && !templateSections.has(heading.toLowerCase())) {
-        errors.push(
-          `contract(template): section '## ${heading}' is not defined in ${domain?.templateRelativePath ?? "domain template"}`,
-        );
-      }
-    }
-  }
-
-  return {
-    errors,
-    ...(domain?.schemaRelativePath
-      ? { schema_path: domain.schemaRelativePath }
-      : {}),
-    ...(domain?.templateRelativePath
-      ? { template_path: domain.templateRelativePath }
-      : {}),
-    valid: errors.length === 0,
-  };
 }
 
 const compiledValidators = new Map<
@@ -779,31 +36,20 @@ export function parseRecordFrontmatter(content: string): {
   body: string;
   hasFrontmatter: boolean;
 } {
-  if (!content.startsWith("---")) {
-    return { body: content, hasFrontmatter: false, metadata: null };
-  }
-
   const match = content.match(
     /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/,
   );
-  if (!match || match[1] === undefined) {
+  if (!match || match[1] === undefined)
     return { body: content, hasFrontmatter: false, metadata: null };
-  }
-
-  const rawYaml = match[1].trim();
   try {
-    const parsed = YAML.parse(rawYaml);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const parsed = YAML.parse(match[1].trim());
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
       return {
         body: match[2] ?? "",
         hasFrontmatter: true,
         metadata: parsed as Record<string, unknown>,
       };
-    }
-  } catch {
-    return { body: match[2] ?? "", hasFrontmatter: true, metadata: null };
-  }
-
+  } catch {}
   return { body: match[2] ?? "", hasFrontmatter: true, metadata: null };
 }
 
@@ -814,80 +60,59 @@ export interface MarkdownHeading {
 
 export function extractHeadings(content: string): MarkdownHeading[] {
   const headings: MarkdownHeading[] = [];
-  let inCodeBlock = false;
-  let codeFenceChar = "";
-  let codeFenceLen = 0;
-
+  let fence = "";
   for (const line of content.split(/\r?\n/)) {
-    const fenceMatch = line.match(/^[ \t]{0,3}(`{3,}|~{3,})/);
-    if (inCodeBlock) {
+    const match = line.match(/^[ \t]{0,3}(`{3,}|~{3,})/);
+    if (fence) {
       if (
-        fenceMatch &&
-        fenceMatch[1] &&
-        fenceMatch[1][0] === codeFenceChar &&
-        fenceMatch[1].length >= codeFenceLen
-      ) {
-        inCodeBlock = false;
-        codeFenceChar = "";
-        codeFenceLen = 0;
-      }
+        match?.[1] &&
+        match[1][0] === fence[0] &&
+        match[1].length >= fence.length
+      )
+        fence = "";
       continue;
     }
-    if (fenceMatch && fenceMatch[1] && fenceMatch[1].length > 0) {
-      inCodeBlock = true;
-      codeFenceChar = fenceMatch[1][0] ?? "";
-      codeFenceLen = fenceMatch[1].length;
+    if (match?.[1]) {
+      fence = match[1];
       continue;
     }
-
-    const headingMatch = line.match(
-      /^[ \t]{0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/,
-    );
-    if (headingMatch && headingMatch[1] && headingMatch[2]) {
-      const level = headingMatch[1].length;
-      const text = headingMatch[2].replace(/[ \t]+#+[ \t]*$/, "").trim();
-      headings.push({ level, text });
-    }
+    const heading = line.match(/^[ \t]{0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/);
+    if (heading?.[1] && heading[2])
+      headings.push({
+        level: heading[1].length,
+        text: heading[2].replace(/[ \t]+#+[ \t]*$/, "").trim(),
+      });
   }
-
   return headings;
 }
 
 export function levenshteinDistance(a: string, b: string): number {
   const s1 = a.toLowerCase();
   const s2 = b.toLowerCase();
-  const m = s1.length;
-  const n = s2.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () =>
-    new Array(n + 1).fill(0),
+  const dp: number[][] = Array.from({ length: s1.length + 1 }, () =>
+    new Array(s2.length + 1).fill(0),
   );
-
-  for (let i = 0; i <= m; i++) dp[i]![0] = i;
-  for (let j = 0; j <= n; j++) dp[0]![j] = j;
-
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+  for (let i = 0; i <= s1.length; i++) dp[i]![0] = i;
+  for (let j = 0; j <= s2.length; j++) dp[0]![j] = j;
+  for (let i = 1; i <= s1.length; i++)
+    for (let j = 1; j <= s2.length; j++)
       dp[i]![j] = Math.min(
         dp[i - 1]![j]! + 1,
         dp[i]![j - 1]! + 1,
-        dp[i - 1]![j - 1]! + cost,
+        dp[i - 1]![j - 1]! + (s1[i - 1] === s2[j - 1] ? 0 : 1),
       );
-    }
-  }
-
-  return dp[m]![n]!;
+  return dp[s1.length]![s2.length]!;
 }
 
 export function isSimilarHeading(expected: string, actual: string): boolean {
   const e = expected.toLowerCase().trim();
   const a = actual.toLowerCase().trim();
-  if (e === a) return true;
-  const dist = levenshteinDistance(e, a);
-  const maxLen = Math.max(e.length, a.length);
-  if (maxLen === 0) return true;
-  const similarity = 1 - dist / maxLen;
-  return dist <= 2 || similarity >= 0.75;
+  const distance = levenshteinDistance(e, a);
+  return (
+    e === a ||
+    distance <= 2 ||
+    1 - distance / Math.max(e.length, a.length) >= 0.75
+  );
 }
 
 export interface DomainTemplateInfo {
@@ -908,16 +133,14 @@ function resolveLocalSchema(
     reference !== reference.trim() ||
     /^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(reference) ||
     /[\\?#]/.test(reference)
-  ) {
+  )
     throw new Error("frontmatter $schema must be a local relative path");
-  }
   const path = resolve(dirname(document), reference);
   if (!path.startsWith(root + sep))
     throw new Error("frontmatter $schema resolves outside the template root");
   if (lstatSync(path).isSymbolicLink())
     throw new Error("frontmatter $schema must not reference a symbolic link");
-  const actual = realpathSync(path);
-  if (!actual.startsWith(realpathSync(root) + sep))
+  if (!realpathSync(path).startsWith(realpathSync(root) + sep))
     throw new Error("frontmatter $schema resolves outside the template root");
   return path;
 }
@@ -934,30 +157,27 @@ function templateInfo(
   const content = readFileSync(templateAbsolute, "utf-8");
   const { hasFrontmatter, metadata, body } = parseRecordFrontmatter(content);
   const titles = extractHeadings(body).filter((heading) => heading.level === 1);
-  if (titles.length !== 1 || !titles[0]?.text.trim()) {
+  if (titles.length !== 1 || !titles[0]?.text.trim())
     return {
       ...info,
       error: `Template body must contain exactly one non-empty level-one title: ${templateRelativePath}`,
     };
-  }
-  if (!hasFrontmatter) {
+  if (!hasFrontmatter)
     return content.startsWith("---")
       ? {
           ...info,
           error: `Malformed template frontmatter: ${templateRelativePath}`,
         }
       : info;
-  }
   if (
     !metadata ||
     typeof metadata.$schema !== "string" ||
     !metadata.$schema.trim()
-  ) {
+  )
     return {
       ...info,
       error: `Invalid template frontmatter or missing $schema: ${templateRelativePath}`,
     };
-  }
   let schemaAbsolutePath: string;
   try {
     schemaAbsolutePath = resolveLocalSchema(
@@ -987,17 +207,12 @@ function templateInfo(
         Object.entries(metadata).filter(([key]) => key !== "$schema"),
       ),
     )
-  ) {
+  )
     return {
       ...info,
       error: `Invalid template frontmatter: ${templateRelativePath}`,
     };
-  }
-  return {
-    ...info,
-    schemaAbsolutePath,
-    schemaRelativePath,
-  };
+  return { ...info, schemaAbsolutePath, schemaRelativePath };
 }
 
 export function findDomainTemplate(
@@ -1005,9 +220,9 @@ export function findDomainTemplate(
   recordRelativePath: string,
 ): DomainTemplateInfo | null {
   const root = resolve(workspaceRoot);
-  const normalized = recordRelativePath.replaceAll("\\", "/");
-  const recordAbsolute = resolve(root, normalized);
-  const directory = dirname(recordAbsolute);
+  const directory = dirname(
+    resolve(root, recordRelativePath.replaceAll("\\", "/")),
+  );
   if (!directory.startsWith(root + sep) || !existsSync(directory)) return null;
   const templates = readdirSync(directory, { withFileTypes: true }).filter(
     (entry) =>
@@ -1040,8 +255,6 @@ function getCompiledValidator(schemaPath: string): ValidateFunction | null {
     const raw = readFileSync(absolutePath, "utf-8");
     const cached = compiledValidators.get(absolutePath);
     if (cached?.content === raw) return cached.validate;
-
-    // Isolate schema IDs across paths and discard old registrations on edits.
     const ajv = new Ajv2020({ allErrors: true, strict: false });
     addFormats(ajv);
     const jsonSchema = JSON.parse(raw);
@@ -1051,20 +264,20 @@ function getCompiledValidator(schemaPath: string): ValidateFunction | null {
       Array.isArray(jsonSchema)
     )
       return null;
-    const localRefs = (value: unknown): boolean => {
-      if (!value || typeof value !== "object") return true;
-      return Object.entries(value).every(
+    const localRefs = (value: unknown): boolean =>
+      !value ||
+      typeof value !== "object" ||
+      Object.entries(value).every(
         ([key, item]) =>
           (key !== "$ref" ||
             (typeof item === "string" && item.startsWith("#"))) &&
           localRefs(item),
       );
-    };
     if (!localRefs(jsonSchema)) return null;
     const validate = ajv.compile(jsonSchema);
     compiledValidators.set(absolutePath, { content: raw, validate });
     return validate;
-  } catch (_err) {
+  } catch {
     compiledValidators.delete(absolutePath);
     return null;
   }
@@ -1079,8 +292,11 @@ function configurationSchemaPath(
   if (lower.endsWith("/workspace-ui.yaml") || lower === "workspace-ui.yaml")
     return null;
   if (lower.endsWith(".schema.json")) return resolve(workspaceRoot, normalized);
-  if (!isConfigurationPath(normalized)) return null;
-  if (!lower.endsWith(".yaml") && !lower.endsWith(".yml")) return null;
+  if (
+    !isConfigurationPath(normalized) ||
+    (!lower.endsWith(".yaml") && !lower.endsWith(".yml"))
+  )
+    return null;
   return resolve(
     workspaceRoot,
     normalized.replace(/\.(yaml|yml)$/i, ".schema.json"),
@@ -1094,60 +310,35 @@ function schemaValidation(
   location: string,
 ): WorkspaceFileValidation {
   const validator = getCompiledValidator(schemaPath);
-  const schemaRelativePath = relative(
-    resolve(workspaceRoot),
-    schemaPath,
-  ).replaceAll("\\", "/");
-  if (!validator) {
+  const schema_path = relative(resolve(workspaceRoot), schemaPath).replaceAll(
+    "\\",
+    "/",
+  );
+  if (!validator)
     return {
-      errors: [`Failed to load schema from ${schemaRelativePath}`],
-      schema_path: schemaRelativePath,
+      errors: [`Failed to load schema from ${schema_path}`],
+      schema_path,
       valid: false,
     };
-  }
-  if (validator(data)) {
-    return { errors: [], schema_path: schemaRelativePath, valid: true };
-  }
-  const errors = (validator.errors ?? []).map((error) => {
-    const path = error.instancePath
-      ? `${location}${error.instancePath}`
-      : location;
-    return `${path}: ${error.message ?? "validation error"}`;
-  });
+  if (validator(data)) return { errors: [], schema_path, valid: true };
+  const errors = (validator.errors ?? []).map(
+    (error) =>
+      `${error.instancePath ? `${location}${error.instancePath}` : location}: ${error.message ?? "validation error"}`,
+  );
   return {
-    errors: errors.length > 0 ? errors : [`${location} does not match schema`],
-    schema_path: schemaRelativePath,
+    errors: errors.length ? errors : [`${location} does not match schema`],
+    schema_path,
     valid: false,
   };
 }
 
-function schemaDocumentValidation(
-  workspaceRoot: string,
-  schemaPath: string,
-): WorkspaceFileValidation {
-  const schemaRelativePath = relative(
-    resolve(workspaceRoot),
-    schemaPath,
-  ).replaceAll("\\", "/");
-  return getCompiledValidator(schemaPath)
-    ? { errors: [], schema_path: schemaRelativePath, valid: true }
-    : {
-        errors: [`File is not a valid JSON Schema`],
-        schema_path: schemaRelativePath,
-        valid: false,
-      };
-}
-
-export function validateRecordContent(
+function validateRecordStructure(
   workspaceRoot: string,
   recordRelativePath: string,
   content: string,
 ): WorkspaceFileValidation {
   const normalized = recordRelativePath.replaceAll("\\", "/");
-  if (protectedPath(normalized)) {
-    return { errors: [], valid: true };
-  }
-
+  if (protectedPath(normalized)) return { errors: [], valid: true };
   const configurationSchema = configurationSchemaPath(
     workspaceRoot,
     normalized,
@@ -1156,9 +347,19 @@ export function validateRecordContent(
     configurationSchema &&
     normalized.toLowerCase().endsWith(".schema.json")
   ) {
+    const schema_path = relative(
+      resolve(workspaceRoot),
+      configurationSchema,
+    ).replaceAll("\\", "/");
     try {
       JSON.parse(content);
-      return schemaDocumentValidation(workspaceRoot, configurationSchema);
+      return getCompiledValidator(configurationSchema)
+        ? { errors: [], schema_path, valid: true }
+        : {
+            errors: ["File is not a valid JSON Schema"],
+            schema_path,
+            valid: false,
+          };
     } catch {
       return {
         errors: ["File is not valid JSON"],
@@ -1188,77 +389,34 @@ export function validateRecordContent(
       "document",
     );
   }
-
-  if (
-    normalized === PROJECT_MANIFEST_FILENAME ||
-    normalized.endsWith(`/${PROJECT_MANIFEST_FILENAME}`)
-  ) {
-    return validateProjectManifest(workspaceRoot, normalized, content);
-  }
-
-  if (normalized.toLowerCase().endsWith(".openui")) {
-    return validateOpenUIContent(workspaceRoot, normalized, content);
-  }
-
-  if (!normalized.toLowerCase().endsWith(".md")) {
+  if (!normalized.toLowerCase().endsWith(".md"))
     return { errors: [], valid: true };
-  }
-
+  const { hasFrontmatter, metadata, body } = parseRecordFrontmatter(content);
   const domain = findDomainTemplate(workspaceRoot, normalized);
   if (!domain) {
-    const { hasFrontmatter, metadata } = parseRecordFrontmatter(content);
     if (
       (hasFrontmatter && !metadata) ||
       (!hasFrontmatter && content.startsWith("---"))
-    ) {
+    )
       return {
         errors: ["YAML frontmatter is malformed or not a valid object"],
         valid: false,
       };
-    }
     if (hasFrontmatter && metadata && "$schema" in metadata) {
-      const recordAbsolute = resolve(workspaceRoot, normalized);
       try {
         const schemaAbsolute = resolveLocalSchema(
           resolve(workspaceRoot),
-          recordAbsolute,
+          resolve(workspaceRoot, normalized),
           metadata.$schema,
         );
-        const schemaRelative = relative(
-          resolve(workspaceRoot),
+        return schemaValidation(
+          workspaceRoot,
+          Object.fromEntries(
+            Object.entries(metadata).filter(([key]) => key !== "$schema"),
+          ),
           schemaAbsolute,
-        ).replaceAll("\\", "/");
-        const validator = getCompiledValidator(schemaAbsolute);
-        if (!validator) {
-          return {
-            errors: [`Failed to load schema from ${schemaRelative}`],
-            schema_path: schemaRelative,
-            valid: false,
-          };
-        }
-        const dataWithoutSchema: Record<string, unknown> = {};
-        for (const [key, val] of Object.entries(metadata)) {
-          if (key !== "$schema") dataWithoutSchema[key] = val;
-        }
-        const isValid = validator(dataWithoutSchema);
-        if (isValid) {
-          return { errors: [], schema_path: schemaRelative, valid: true };
-        }
-        const errors: string[] = [];
-        if (validator.errors) {
-          for (const error of validator.errors) {
-            const location = error.instancePath
-              ? `frontmatter${error.instancePath}`
-              : "frontmatter";
-            errors.push(`${location}: ${error.message ?? "validation error"}`);
-          }
-        }
-        return {
-          errors:
-            errors.length > 0 ? errors : ["Frontmatter does not match schema"],
-          schema_path: schemaRelative,
-          valid: false,
-        };
+          "frontmatter",
+        );
       } catch {
         return {
           errors: ["Invalid or missing local record $schema"],
@@ -1268,149 +426,130 @@ export function validateRecordContent(
     }
     return { errors: [], valid: true };
   }
-
-  const { hasFrontmatter, metadata } = parseRecordFrontmatter(content);
-  if (domain.error) {
+  const paths = {
+    template_path: domain.templateRelativePath,
+    ...(domain.schemaRelativePath
+      ? { schema_path: domain.schemaRelativePath }
+      : {}),
+  };
+  if (domain.error)
     return {
       errors: [domain.error],
       template_path: domain.templateRelativePath,
       valid: false,
     };
-  }
-  if (domain.schemaAbsolutePath && !hasFrontmatter) {
+  if (domain.schemaAbsolutePath && !hasFrontmatter)
     return {
       errors: [
         `File must begin with YAML frontmatter conforming to ${domain.templateRelativePath}`,
       ],
-      ...(domain.schemaRelativePath
-        ? { schema_path: domain.schemaRelativePath }
-        : {}),
-      template_path: domain.templateRelativePath,
+      ...paths,
       valid: false,
     };
-  }
-
   if (
     (hasFrontmatter && metadata === null) ||
     (!hasFrontmatter && /^---\r?\n/.test(content))
-  ) {
+  )
     return {
       errors: ["YAML frontmatter is malformed or not a valid object"],
-      ...(domain.schemaRelativePath
-        ? { schema_path: domain.schemaRelativePath }
-        : {}),
-      template_path: domain.templateRelativePath,
+      ...paths,
       valid: false,
     };
-  }
-
   const validator = domain.schemaAbsolutePath
     ? getCompiledValidator(domain.schemaAbsolutePath)
     : null;
-  if (domain.schemaAbsolutePath && !validator) {
+  if (domain.schemaAbsolutePath && !validator)
     return {
       errors: [`Failed to load schema from ${domain.schemaRelativePath}`],
-      ...(domain.schemaRelativePath
-        ? { schema_path: domain.schemaRelativePath }
-        : {}),
-      template_path: domain.templateRelativePath,
+      ...paths,
       valid: false,
     };
-  }
-
-  const dataWithoutSchema: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(metadata ?? {})) {
-    if (key !== "$schema") dataWithoutSchema[key] = val;
-  }
-
-  const isValid = validator ? validator(dataWithoutSchema) : true;
+  const data = Object.fromEntries(
+    Object.entries(metadata ?? {}).filter(([key]) => key !== "$schema"),
+  );
+  const isValid = validator ? validator(data) : true;
   const errors: string[] = [];
-  if (!isValid && validator?.errors) {
+  if (!isValid && validator?.errors)
     for (const error of validator.errors) {
       const location = error.instancePath
         ? `frontmatter${error.instancePath}`
         : "frontmatter";
-      if (
-        error.keyword === "required" &&
-        error.params &&
-        "missingProperty" in error.params
-      ) {
+      if (error.keyword === "required" && "missingProperty" in error.params)
         errors.push(
           `${location}: missing required property '${String(error.params.missingProperty)}'`,
         );
-      } else if (
+      else if (
         error.keyword === "additionalProperties" &&
-        error.params &&
         "additionalProperty" in error.params
-      ) {
+      )
         errors.push(
           `${location}: unrecognized property '${String(error.params.additionalProperty)}'`,
         );
-      } else {
-        errors.push(`${location}: ${error.message ?? "validation error"}`);
-      }
+      else errors.push(`${location}: ${error.message ?? "validation error"}`);
     }
-  }
-
-  const fileHeadings = extractHeadings(parseRecordFrontmatter(content).body);
+  const fileHeadings = extractHeadings(body);
   if (normalized.endsWith("-template.md")) {
     const titles = fileHeadings.filter((h) => h.level === 1);
-    if (titles.length !== 1 || !titles[0]?.text.trim()) {
+    if (titles.length !== 1 || !titles[0]?.text.trim())
       errors.push(
         "template body must contain exactly one non-empty level-one title",
       );
-    }
   } else {
     const templateAbsolute = resolve(
       workspaceRoot,
       domain.templateRelativePath,
     );
-    if (existsSync(templateAbsolute)) {
+    if (existsSync(templateAbsolute))
       try {
-        const templateContent = readFileSync(templateAbsolute, "utf-8");
         const templateHeadings = extractHeadings(
-          parseRecordFrontmatter(templateContent).body,
+          parseRecordFrontmatter(readFileSync(templateAbsolute, "utf-8")).body,
         );
         const expectedSections = templateHeadings
           .filter((h) => h.level === 2)
           .map((h) => h.text.trim())
           .filter(Boolean);
-
         const titles = fileHeadings.filter((h) => h.level === 1);
-        if (titles.length === 0 || !titles[0]?.text.trim()) {
+        if (!titles.length || !titles[0]?.text.trim())
           errors.push("file must contain a level-one title ('# ...')");
-        }
-
-        const fileSections = fileHeadings.filter((h) => h.level === 2);
-        for (const expected of expectedSections) {
-          const exactMatch = fileSections.some(
-            (h) => h.text.trim().toLowerCase() === expected.toLowerCase(),
-          );
-          if (!exactMatch) {
-            const typo = fileSections.find((h) =>
+        const sections = fileHeadings.filter((h) => h.level === 2);
+        for (const expected of expectedSections)
+          if (
+            !sections.some(
+              (h) => h.text.trim().toLowerCase() === expected.toLowerCase(),
+            )
+          ) {
+            const typo = sections.find((h) =>
               isSimilarHeading(expected, h.text.trim()),
             );
-            if (typo) {
-              errors.push(
-                `heading: missing section '## ${expected}' (found misspelled '## ${typo.text.trim()}')`,
-              );
-            } else {
-              errors.push(`heading: missing required section '## ${expected}'`);
-            }
+            errors.push(
+              typo
+                ? `heading: missing section '## ${expected}' (found misspelled '## ${typo.text.trim()}')`
+                : `heading: missing required section '## ${expected}'`,
+            );
           }
-        }
       } catch {}
-    }
   }
+  return { errors, ...paths, valid: errors.length === 0 };
+}
 
-  return {
-    errors,
-    ...(domain.schemaRelativePath
-      ? { schema_path: domain.schemaRelativePath }
-      : {}),
-    template_path: domain.templateRelativePath,
-    valid: errors.length === 0,
-  };
+export function validateRecordContent(
+  workspaceRoot: string,
+  recordRelativePath: string,
+  content: string,
+): WorkspaceFileValidation {
+  const validation = validateRecordStructure(
+    workspaceRoot,
+    recordRelativePath,
+    content,
+  );
+  if (
+    protectedPath(recordRelativePath) ||
+    !recordRelativePath.toLowerCase().endsWith(".md")
+  )
+    return validation;
+  // Presentation findings are advisory and do not invalidate a record's contract.
+  const warnings = validateMarkdownOpenUIBlocks(content);
+  return warnings.length ? { ...validation, warnings } : validation;
 }
 
 export function validateEntireWorkspace(
@@ -1418,45 +557,38 @@ export function validateEntireWorkspace(
 ): WorkspaceDiagnosticsResponse {
   const root = resolve(workspaceRoot);
   const issues: WorkspaceDiagnosticIssue[] = [];
-
   const visit = (directory: string): void => {
-    let entries: Dirent[] = [];
+    let entries: Dirent[];
     try {
       entries = readdirSync(directory, { withFileTypes: true });
     } catch {
       return;
     }
-
     for (const entry of entries) {
       const absolute = join(directory, entry.name);
-      const relPath = relative(root, absolute).replaceAll("\\", "/");
-
-      if (protectedPath(relPath)) continue;
-
-      let info: ReturnType<typeof statSync> | undefined;
+      const path = relative(root, absolute).replaceAll("\\", "/");
+      if (protectedPath(path)) continue;
       try {
-        info = statSync(absolute);
+        if (lstatSync(absolute).isSymbolicLink()) continue;
       } catch {
         continue;
       }
-      if (!info || info.isSymbolicLink()) continue;
-
-      if (entry.isDirectory()) {
-        visit(absolute);
-      } else if (
+      if (entry.isDirectory()) visit(absolute);
+      else if (
         entry.isFile() &&
-        (relPath.toLowerCase().endsWith(".md") ||
-          relPath.toLowerCase().endsWith(".openui") ||
-          entry.name === PROJECT_MANIFEST_FILENAME ||
-          isConfigurationPath(relPath))
-      ) {
+        (path.toLowerCase().endsWith(".md") || isConfigurationPath(path))
+      )
         try {
-          const content = readFileSync(absolute, "utf-8");
-          const validation = validateRecordContent(root, relPath, content);
-          if (!validation.valid) {
+          const validation = validateRecordContent(
+            root,
+            path,
+            readFileSync(absolute, "utf-8"),
+          );
+          if (!validation.valid || validation.warnings?.length)
             issues.push({
+              path,
               errors: validation.errors,
-              path: relPath,
+              ...(validation.warnings ? { warnings: validation.warnings } : {}),
               ...(validation.schema_path
                 ? { schema_path: validation.schema_path }
                 : {}),
@@ -1464,18 +596,14 @@ export function validateEntireWorkspace(
                 ? { template_path: validation.template_path }
                 : {}),
             });
-          }
         } catch {}
-      }
     }
   };
-
   visit(root);
   issues.sort((a, b) => a.path.localeCompare(b.path));
-
   return {
     issues,
     schema: 1,
-    valid: issues.length === 0,
+    valid: issues.every((issue) => !issue.errors.length),
   };
 }

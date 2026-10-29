@@ -11,7 +11,6 @@ import { UsageSummary } from "../UsageSummary";
 import { MaintainerPage } from "../MaintainerPage";
 import { MaintainerFixModal } from "../MaintainerFixModal";
 import { MigrationSection } from "../migration/MigrationSection";
-import { ProjectPage } from "../features/projects/ProjectPage";
 import { action, file, finding, storyData, storyLoader } from "./fixtures";
 import { PageFrame } from "./frames";
 import type { CheckpointProposal } from "../../shared/checkpoints";
@@ -33,7 +32,6 @@ const meta = {
       "MaintainerPage.tsx#MaintainerPage",
       "MaintainerFixModal.tsx#MaintainerFixModal",
       "migration/MigrationSection.tsx#MigrationSection",
-      "features/projects/ProjectPage.tsx#ProjectPage",
     ],
   },
 } satisfies Meta;
@@ -256,24 +254,6 @@ export const MigrationReview: Story = {
           onSubmitFeedback={async (...args) => {
             action("feedback")(...args);
           }}
-        />
-      </PageFrame>
-    );
-  },
-};
-export const Projects: Story = {
-  render: function ProjectsStory(_args, { loaded }) {
-    const data = storyData(loaded);
-    const [path, setPath] = useState("tasks");
-    return (
-      <PageFrame>
-        <ProjectPage
-          api={data.api}
-          selectedProjectPath={path}
-          onSelectProject={setPath}
-          onOpenFile={action("openFile")}
-          onCreateFile={action("createFile")}
-          onAskLia={action("askLia")}
         />
       </PageFrame>
     );

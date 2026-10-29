@@ -22,19 +22,5 @@ export function createOpenLiaToolProvider(
       }
       navigateRoute({ path, tab: "documents" });
     },
-    async createRecord(args: Record<string, unknown>) {
-      const domain =
-        typeof args.domain === "string" ? args.domain : (ctx.domainPath ?? "");
-      return ctx.api.loadDomainOverview(domain);
-    },
-    async updateFrontmatter(args: Record<string, unknown>) {
-      const path = typeof args.path === "string" ? args.path : "";
-      const updates =
-        args.updates && typeof args.updates === "object"
-          ? (args.updates as Record<string, unknown>)
-          : {};
-      const doc = await ctx.api.loadFile(path);
-      return { doc, updates };
-    },
   };
 }

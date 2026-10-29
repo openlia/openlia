@@ -59,7 +59,7 @@ flowchart TD
 2. **Agent Runtime Plane (`operator/` + `docker/`)**:
    - **`openlia-operator`**: Standalone Linux binary (`amd64` / `arm64`) that executes atomic profile synchronization, template catalog syncing, 3-way feature/skill rebasing, `/opt/data/.local` dependency provisioning, secret rotation, tar+Age backup creation/restoration, workspace folder migrations, and Docker Compose orchestration on the target machine.
    - **Hermes Container**: Pinned `hermes-agent` base image extended with `bun`, `uv`, Poppler, `ffmpeg`, `yt-dlp`, OpenLia Python plugins, and system skills. Domain-specific CLIs (`hledger`, `remind`, `jq`, `sqlite3`) and skill virtual environments are installed on demand into `/opt/data/.local`.
-   - **Workspace UI Container**: Single Bun process serving the React/TanStack Start web app, document editor, OpenUI Mini-Projects, and native Chat proxy.
+   - **Workspace UI Container**: Single Bun process serving the React/TanStack Start web app, document editor with inline OpenUI, and native Chat proxy.
 3. **Browser Plane (`packages/openlia-browser/`)**:
    - Supervises a host-local Playwright MCP process (`127.0.0.1:8931`) and exposes a Streamable HTTP `/mcp` relay (`127.0.0.1:8932`) with FIFO workflow leases and idempotency checks.
 
@@ -76,7 +76,7 @@ flowchart TD
 | [`operator/`](../operator) | Go | Core target operational plane: Compose lifecycle, backups, template catalog sync, `/opt/data/.local` tools, 3-way rebase, migrations. |
 | [`operator/migration/`](../operator/migration) | Go | SQLite-backed schema-v2 workspace folder migration engine and Git proposal runner. |
 | [`internal/`](../internal) | Go | Shared internal packages: `awscredentials`, `errors`, `releaseinfo`, `toolcatalog`. |
-| [`packages/workspace-ui/`](../packages/workspace-ui) | TypeScript / React / Bun | Workspace UI (Documents, Native Chat, Mini-Projects, Migration, Usage, Git Checkpoints). |
+| [`packages/workspace-ui/`](../packages/workspace-ui) | TypeScript / React / Bun | Workspace UI (Documents with inline OpenUI, Native Chat, Migration, Usage, Git Checkpoints). |
 | [`packages/openlia-browser/`](../packages/openlia-browser) | TypeScript / Node / Bun | Playwright MCP supervisor and lease-enforcing Streamable HTTP `/mcp` relay. |
 | [`profile/`](../profile) | YAML / Markdown / Python | Hermes profile config (`config.yaml`, `SOUL.md`, `AGENTS.md`), plugins, and read-only `system-skills/`. |
 | [`workspace-template/`](../workspace-template) | Markdown / JSON Schema | Ultra-minimal core workspace (`AGENTS.md`, `README.md`, `inbox/ingestion/`, `sources/`, `feature.schema.json`). |
@@ -130,7 +130,7 @@ The Workspace UI is a React client and Bun HTTP server built with **TanStack Sta
 - **Key Subsystems**:
   - **Documents & Memory Editor**: File tree explorer, Markdown preview/editor, CodeMirror syntax editor, advisory JSON Schema validation, and optional Hermes `USER.md` / `MEMORY.md` editing with file lock coordination.
   - **Native Chat (`/chat`)**: Connects to Hermes' private `/v1/runs` API using server-side credentials (`api-server.env`) and stores session lineage/idempotency metadata in `chat.sqlite`.
-  - **Mini-Projects (`/projects/<path>`)**: Renders interactive domain dashboards defined by `project-manifest.toml` and `ui.openui` for any workspace folder.
+  - **Inline OpenUI**: Renders fenced `openui` blocks within Markdown documents using shared syntax normalization and block-isolated diagnostics.
   - **Migration (`/migration`) & Usage (`/usage`)**: Reads `migration.sqlite` proposal repositories and `usage.sqlite` LLM telemetry.
 
 See [`packages/workspace-ui/README.md`](../packages/workspace-ui/README.md) for frontend commands and Playwright screenshot suites.

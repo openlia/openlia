@@ -2,7 +2,7 @@
 
 The Calendar feature lives in `openlia/templates`. Workspace UI supplies reusable
 OpenUI components in `packages/workspace-ui/src/client/openui/calendar/`; the
-feature's `project-manifest.toml` and `ui.openui` compose them. The runtime does not
+feature's Markdown documents compose them in fenced `openui` blocks. The runtime does not
 install Calendar content or replace user calendar files when it upgrades.
 
 ## Components
@@ -16,7 +16,7 @@ root = Calendar([Tabs([
 ```
 
 `Calendar(children, source?, timezone?)` resolves `source` (default `reminders.rem`)
-relative to the project. It owns range loading, selected date, appointment
+relative to the containing Markdown document's folder. It owns range loading, selected date, appointment
 selection/details, and the draft editor. Views share that context. `GanttChart`
 also works standalone with `items: [{id, title, start, end, group?}]`, and supports
 day/week/month zoom. It is an event-duration timeline, without task dependencies,

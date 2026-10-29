@@ -11,7 +11,6 @@ export type MaintainerViewTab = "open" | "ignored" | "resolved" | "collections";
 export interface MaintainerPageProps {
   api: WorkspaceApi;
   onOpenFile: (path: string) => void;
-  onOpenProject?: ((projectPath: string) => void) | undefined;
   onAskLia?: ((prompt: string) => void) | undefined;
   onChanged?: (() => void) | undefined;
 }
@@ -19,7 +18,6 @@ export interface MaintainerPageProps {
 export function MaintainerPage({
   api,
   onOpenFile,
-  onOpenProject,
   onAskLia,
   onChanged,
 }: MaintainerPageProps) {
@@ -490,9 +488,8 @@ export function MaintainerPage({
               </h3>
               <p className="mt-1 text-xs text-base-content/60">
                 Discovered automatically from workspace folders, local{" "}
-                <code>*-template.md</code> files, schemas, and{" "}
-                <code>project-manifest.toml</code>. No registration file is
-                required.
+                <code>*-template.md</code> files, schemas, and Markdown records.
+                No registration file is required.
               </p>
             </div>
 
@@ -553,15 +550,6 @@ export function MaintainerPage({
                         type="button"
                       >
                         Schema: {col.schema_path}
-                      </button>
-                    )}
-                    {col.manifest_path && onOpenProject && (
-                      <button
-                        className="btn btn-primary btn-outline btn-xs ml-auto"
-                        onClick={() => onOpenProject(col.path)}
-                        type="button"
-                      >
-                        Open Project UI →
                       </button>
                     )}
                   </div>

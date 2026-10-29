@@ -16,6 +16,7 @@ import {
   buildCanonicalWorkspaceUri,
   buildWorkspaceLink,
 } from "../../openliaLinks";
+import { OpenLiaOpenUIProvider, useOpenLiaOpenUI } from "../../openui/context";
 import { DocumentInspector } from "./DocumentInspector";
 
 export type WorkspaceView = "edit" | "preview" | "info";
@@ -307,7 +308,7 @@ function ArtifactPane({
 }
 
 export function DocumentPane({
-  api: _api,
+  api,
   artifact,
   conflict,
   detailsOpen = false,
@@ -331,6 +332,7 @@ export function DocumentPane({
   view,
   onViewChange,
   onNavigateLink,
+  onSendChatPrompt,
   activity,
   activityLoading,
   diagnostics,
@@ -375,6 +377,7 @@ export function DocumentPane({
   view: WorkspaceView;
   onViewChange: (view: WorkspaceView) => void;
   onNavigateLink?: ((href: string) => void) | undefined;
+  onSendChatPrompt?: ((prompt: string) => void) | undefined;
   activity?: WorkspaceActivityResponse | null | undefined;
   activityLoading?: boolean | undefined;
   diagnostics?: WorkspaceDiagnosticsResponse | null | undefined;
@@ -405,6 +408,7 @@ export function DocumentPane({
   onIgnoreFinding?: ((finding: MaintainerFinding) => void) | undefined;
   onShare?: (() => void) | undefined;
 }) {
+  const parentOpenUIContext = useOpenLiaOpenUI();
   const dirty = file !== null && file.content !== draft;
   const canEdit = Boolean(file?.editable);
   const isMemory = Boolean(file && isMemoryDocument(file.path));
@@ -754,10 +758,7 @@ export function DocumentPane({
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="font-semibold">
-                    {file.path.endsWith(".openui") ||
-                    file.path.endsWith("project-manifest.toml")
-                      ? "Project UI & Manifest Warning"
-                      : "Template & Schema Warning"}
+                    Template & Schema Warning
                     {file.validation.template_path && (
                       <span className="font-normal font-mono opacity-80 ml-1">
                         [template: {file.validation.template_path}]
@@ -773,9 +774,7 @@ export function DocumentPane({
                     (!onFixFinding ||
                       !file.validation.findings ||
                       file.validation.findings.filter((f) => f.state === "open")
-                        .length === 0) &&
-                    !file.path.endsWith(".openui") &&
-                    !file.path.endsWith("project-manifest.toml") && (
+                        .length === 0) && (
                       <button
                         className="btn btn-warning btn-xs shrink-0"
                         disabled={fixingTemplate}
@@ -860,11 +859,25 @@ export function DocumentPane({
           ) : (
             <section aria-label="Preview" className="workspace-preview-pane">
               <div className="workspace-pane-label sr-only">Preview</div>
-              <MarkdownPreview
-                content={draft}
-                currentFilePath={file.path}
-                onNavigateLink={onNavigateLink}
-              />
+              <OpenLiaOpenUIProvider
+                value={{
+                  ...parentOpenUIContext,
+                  calendarApi: parentOpenUIContext.calendarApi ?? api,
+                  financeApi: parentOpenUIContext.financeApi ?? api,
+                  loadFile:
+                    parentOpenUIContext.loadFile ??
+                    (api ? (p) => api.loadFile(p) : undefined),
+                  onOpenRecord: parentOpenUIContext.onOpenRecord ?? onOpenFile,
+                  onSendChatPrompt:
+                    parentOpenUIContext.onSendChatPrompt ?? onSendChatPrompt,
+                }}
+              >
+                <MarkdownPreview
+                  content={draft}
+                  currentFilePath={file.path}
+                  onNavigateLink={onNavigateLink}
+                />
+              </OpenLiaOpenUIProvider>
             </section>
           )}
         </>

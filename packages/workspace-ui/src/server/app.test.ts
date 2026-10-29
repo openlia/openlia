@@ -418,7 +418,7 @@ describe("workspace HTTP handler", () => {
     });
   });
 
-  test("hidden OpenUI layouts remain explicitly editable without exposing protected paths", async () => {
+  test("legacy OpenUI files remain accessible as source without exposing protected paths", async () => {
     mkdirSync(join(root, "travel"));
     const path = "travel/ui.openui";
     writeFileSync(join(root, path), 'root = DomainHeader("Travel")');
@@ -431,7 +431,7 @@ describe("workspace HTTP handler", () => {
     ).json()) as WorkspaceTreeResponse;
     expect(
       tree.entries.some((entry: { path: string }) => entry.path === path),
-    ).toBe(false);
+    ).toBe(true);
     const loaded = await request(`/api/workspace/file?path=${path}`);
     expect(loaded.status).toBe(200);
     const document = (await loaded.json()) as WorkspaceFile;
@@ -448,9 +448,9 @@ describe("workspace HTTP handler", () => {
         "Content-Length": String(Buffer.byteLength(body)),
       },
     });
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(415);
     expect(readFileSync(join(root, path), "utf8")).toBe(
-      'root = DomainHeader("Trips")',
+      'root = DomainHeader("Travel")',
     );
     expect(
       (await request("/api/workspace/file?path=travel/._private.openui"))

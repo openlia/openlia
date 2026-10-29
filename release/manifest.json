@@ -3,7 +3,7 @@
   "openlia": "0.1.0",
   "templates": {
     "repository": "https://github.com/openlia/templates.git",
-    "revision": "2ae32cab7f9ad32b164ccb83b9bd711bff0224fe"
+    "revision": "d417f11599876236add6a3062a741d4789e7666f"
   },
   "remind": {
     "version": "06.03.06",

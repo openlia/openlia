@@ -8,7 +8,7 @@ without replacing existing workspace files.
 
 **Workspace Maintainer** discovers collections automatically from workspace
 folders, local `*-template.md` templates, referenced `*.schema.json` schemas,
-and `project-manifest.toml` manifests. Structural findings are advisory and
+and Markdown records. Structural findings are advisory and
 never block saving content.
 
 Consequential runtime permissions live in `/opt/data/permissions.yaml` and
@@ -30,7 +30,7 @@ Every workspace starts with a clean, unopinionated foundation:
 
 ## Templates Catalog: Profiles, Features, and Skills
 
-Optional profiles, domain features, Mini-Projects, and skills live in the
+Optional profiles, domain features, inline views, and skills live in the
 community templates repository (`https://github.com/openlia/templates.git`) and
 can be synced, installed, imported, or packaged on demand via `openlia features`
 / `openlia skills` or the Workspace UI:
@@ -72,12 +72,12 @@ skill, or run this in Hermes:
   --skill-templates-root /opt/data/skills
 ```
 
-## Mini-Projects & OpenUI
+## Inline OpenUI
 
-Any structured folder can become an interactive Mini-Project by adding
-`project-manifest.toml` and `ui.openui`. Workspace UI renders Mini-Projects
-in the dedicated **Projects** view (`/projects/<path>`) and can share them
-publicly via Locho tunnels.
+Add fenced `openui` blocks to Markdown documents for interactive tables, cards,
+charts, Calendar, or Finance views. Workspace UI renders them inline in Documents;
+no separate manifest or UI entry file is needed. Public snapshots render literal
+views without granting access to live private workspace data or mutations.
 
 This template contains no personal records. Keep credentials, tokens, private
 exports, session logs, and service caches outside the tracked template.

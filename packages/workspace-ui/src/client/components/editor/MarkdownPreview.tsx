@@ -1,10 +1,19 @@
+import { Renderer } from "@openuidev/react-lang";
+import { ThemeProvider } from "@openuidev/react-ui";
+import "@openuidev/react-ui/index.css";
 import type { ComponentProps } from "react";
-import { useMemo } from "react";
+import { isValidElement, useMemo } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FrontmatterBlock } from "../../FrontmatterBlock";
 import { parseMarkdownFrontmatter } from "../../frontmatter";
 import { extractOriginalMessage } from "../../markdown";
+import { CHART_THEME } from "../../openui/charts/palette";
+import { OpenLiaOpenUIProvider, useOpenLiaOpenUI } from "../../openui/context";
+import { normalizeOpenUIProgram, openliaLibrary } from "../../openui/library";
+import { OpenUIDiagnostics } from "../../openui/OpenUIDiagnostics";
+import { OpenUIErrorBoundary } from "../../openui/OpenUIErrorBoundary";
+import { openUIErrors } from "../../../shared/openui";
 
 export function transformMarkdownUrl(url: string): string {
   if (
@@ -18,9 +27,110 @@ export function transformMarkdownUrl(url: string): string {
   return defaultUrlTransform(url);
 }
 
+function InlineOpenUIBlock({
+  code,
+  currentFilePath,
+  onNavigateLink,
+}: {
+  code: string;
+  currentFilePath?: string | undefined;
+  onNavigateLink?: ((href: string) => void) | undefined;
+}) {
+  const parentContext = useOpenLiaOpenUI();
+
+  const { normalized, hasErrors } = useMemo(() => {
+    const errors = openUIErrors(code);
+    return {
+      normalized: errors.length ? "" : normalizeOpenUIProgram(code),
+      hasErrors: errors.length > 0,
+    };
+  }, [code]);
+
+  const inferredDomainPath = useMemo(() => {
+    if (!currentFilePath) return undefined;
+    const clean = currentFilePath.replace(/^\/+/, "");
+    const slashIdx = clean.lastIndexOf("/");
+    return slashIdx >= 0 ? clean.slice(0, slashIdx) : "";
+  }, [currentFilePath]);
+
+  const contextValue = useMemo(
+    () => ({
+      ...parentContext,
+      domainPath: inferredDomainPath ?? parentContext.domainPath,
+      filePath: currentFilePath,
+      onOpenRecord: parentContext.onOpenRecord ?? onNavigateLink,
+    }),
+    [parentContext, inferredDomainPath, currentFilePath, onNavigateLink],
+  );
+
+  if (hasErrors) {
+    return (
+      <div
+        className="my-4 rounded-xl border border-warning/30 bg-warning/5 overflow-hidden"
+        data-testid="inline-openui-error"
+      >
+        <OpenUIDiagnostics content={code} />
+        <pre className="m-0 border-t border-warning/20 bg-base-300/50 p-3 text-xs font-mono overflow-x-auto">
+          <code>{code}</code>
+        </pre>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="workspace-inline-openui my-4"
+      data-testid="inline-openui-block"
+    >
+      <ThemeProvider
+        mode="dark"
+        darkTheme={CHART_THEME}
+        cssSelector=".workspace-inline-openui"
+      >
+        <OpenLiaOpenUIProvider value={contextValue}>
+          <OpenUIErrorBoundary
+            key={normalized}
+            source={code}
+            uiPath={
+              currentFilePath
+                ? `${currentFilePath} (openui)`
+                : "inline OpenUI block"
+            }
+          >
+            <Renderer
+              library={openliaLibrary}
+              response={normalized}
+              onAction={(event) => {
+                if (event.type === "continue_conversation") {
+                  const message =
+                    typeof event.params.message === "string"
+                      ? event.params.message
+                      : event.humanFriendlyMessage;
+                  if (message) contextValue.onSendChatPrompt?.(message);
+                } else if (
+                  event.type === "open_url" &&
+                  typeof event.params.url === "string"
+                ) {
+                  const url = event.params.url;
+                  if (
+                    /^(?:openlia:\/\/(?:workspace|skills)\/|\/files\/|\.\.?\/)/.test(
+                      url,
+                    )
+                  )
+                    onNavigateLink?.(url);
+                }
+              }}
+            />
+          </OpenUIErrorBoundary>
+        </OpenLiaOpenUIProvider>
+      </ThemeProvider>
+    </div>
+  );
+}
+
 export function MarkdownPreview({
   content,
-  currentFilePath: _currentFilePath,
+  currentFilePath,
   onNavigateLink,
 }: {
   content: string;
@@ -39,6 +149,36 @@ export function MarkdownPreview({
 
   const customComponents = useMemo(() => {
     return {
+      pre: ({ children, ...props }: ComponentProps<"pre">) => {
+        if (
+          isValidElement<{ className?: string }>(children) &&
+          typeof children.props?.className === "string" &&
+          /^language-openui(?:-lang)?$/i.test(children.props.className)
+        ) {
+          return <>{children}</>;
+        }
+        return <pre {...props}>{children}</pre>;
+      },
+      code: ({ className, children, ...props }: ComponentProps<"code">) => {
+        if (
+          typeof className === "string" &&
+          /^language-openui(?:-lang)?$/i.test(className)
+        ) {
+          const rawCode = String(children ?? "").replace(/\n$/, "");
+          return (
+            <InlineOpenUIBlock
+              code={rawCode}
+              currentFilePath={currentFilePath}
+              onNavigateLink={onNavigateLink}
+            />
+          );
+        }
+        return (
+          <code className={className} {...props}>
+            {children}
+          </code>
+        );
+      },
       a: ({ children, href, onClick, ...props }: ComponentProps<"a">) => {
         const isRelative =
           href &&
@@ -92,7 +232,7 @@ export function MarkdownPreview({
         <input {...props} checked={checked} disabled type="checkbox" />
       ),
     };
-  }, [onNavigateLink]);
+  }, [currentFilePath, onNavigateLink]);
 
   if (!content)
     return (

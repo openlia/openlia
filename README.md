@@ -4,7 +4,7 @@
 
 OpenLia helps you organize documents, connect projects and daily context, and act with a clear human approval boundary. Your information lives in a **Git-versioned plain-text workspace**, not proprietary app silos or a fixed domain layout. Start small and extend it with profiles, domain features, and workflow skills from the public **[`openlia/templates`](https://github.com/openlia/templates.git)** catalog.
 
-**Hermes Agent** powers Lia, the assistant you collaborate with through chat and **Workspace UI**. **Durable multi-format ingestion** retains your sources, while **OpenUI Mini-Projects** provide interactive views over workspace records. An **on-demand dependency store**, private connectivity through **[Locho](https://github.com/trchopan/locho)**, and a **separate operator control plane** support deployment and ongoing operations.
+**Hermes Agent** powers Lia, the assistant you collaborate with through chat and **Workspace UI**. **Durable multi-format ingestion** retains your sources, while **inline OpenUI** provides interactive views inside Markdown documents. An **on-demand dependency store**, private connectivity through **[Locho](https://github.com/trchopan/locho)**, and a **separate operator control plane** support deployment and ongoing operations.
 
 ---
 
@@ -35,7 +35,7 @@ To use and understand OpenLia, distinguish between **two distinct roles** (even 
 |  │ • Workspace UI Chat & Editor      │     │ • Workstation `openlia` CLI   │  |
 |  │ • Telegram (Bot DM / Home Channel)│     │ • Deployment (Local / SSH VM) │  |
 |  │ • Quick-notes & document intake   │     │ • Secret rotation & API keys  │  |
-|  │ • OpenUI Mini-Project dashboards  │     │ • Encrypted backups & restore │  |
+|  │ • Inline OpenUI document views   │     │ • Encrypted backups & restore │  |
 |  │ • Git checkpoints & approvals     │     │ • Profiles, features & skills │  |
 |  └─────────────────▲─────────────────┘     └───────────────┬───────────────┘  |
 +--------------------┼───────────────────────────────────────┼------------------+
@@ -49,9 +49,9 @@ To use and understand OpenLia, distinguish between **two distinct roles** (even 
 
 | Dimension | The End User | The Operator |
 | :--- | :--- | :--- |
-| **Primary Interface** | Workspace UI (`/chat`, `/files`, `/projects`) & Telegram | `openlia` CLI (terminal on operator workstation) |
+| **Primary Interface** | Workspace UI (`/chat`, `/files`) & Telegram | `openlia` CLI (terminal on operator workstation) |
 | **Responsibilities** | Daily workflows, quick capture, document intake, reviews, approvals | Deployment, VM/Docker setup, API keys, backups, updates |
-| **Data Handled** | Workspace documents, Mini-Project records, ingested sources | SSH keys, LLM API keys, Age recovery keys, Locho capabilities |
+| **Data Handled** | Workspace documents, inline views, ingested sources | SSH keys, LLM API keys, Age recovery keys, Locho capabilities |
 | **Cadence** | Multiple times daily | Initial setup + periodic updates, secret rotation & backup checks |
 
 > [!TIP]
@@ -67,7 +67,7 @@ Browse the full documentation in **[`docs/README.md`](docs/README.md)**:
 | Audience | Guide | What It Covers |
 | :--- | :--- | :--- |
 | **End Users** | 📖 **[End User Guide](docs/user-guide.md)** | Daily workflows, Telegram & Workspace UI, Minimal Core Workspace, Public Templates Catalog (`openlia/templates`), and approval rules. |
-| **End Users** | 📊 **[Workspace Mini-Projects](docs/workspace-domain-views.md)** | Interactive domain views (`/projects/<path>`), `project-manifest.toml`, `ui.openui`, and structured Markdown records. |
+| **End Users** | 📊 **[Inline OpenUI Views](docs/workspace-domain-views.md)** | Interactive tables, charts, Calendar, and Finance inside Markdown documents. |
 | **Operators** | 🛠️ **[Operator Guide](docs/operator-guide.md)** | Complete `openlia` CLI handbook, `config.toml` & `secrets.env`, templates catalog & on-demand dependencies (`/opt/data/.local`), Locho & Browser hosts, migrations, and Age-encrypted backups. |
 | **Operators** | 📈 **[LLM Usage Monitoring](docs/usage-monitoring.md)** | Token and USD cost tracking across Hermes, Ingestion, and Migration, plus custom pricing overrides. |
 | **Operators / QA** | 🧪 **[End-to-End Drills](docs/e2e-drills.md)** | Repeatable verification runbook and troubleshooting guide for disposable or remote deployments. |
@@ -104,11 +104,11 @@ Customize any installed feature template or skill directly in your workspace—n
 ### 4. Durable Multi-Format Ingestion
 Send chat text, PDFs, images (processed via your configured vision LLM), Excel spreadsheets, CSVs, or YouTube links. OpenLia retains the originals under `sources/` and creates structured provenance and intake records automatically.
 
-### 5. Built-in Workspace UI, Mini-Projects & OpenUI
+### 5. Built-in Workspace UI & Inline OpenUI
 When `[workspace-ui]` is enabled, a single Bun service provides:
 - **Native Chat (`/chat`)**: Streaming conversations over Hermes' private `/v1/runs` API with live tool activity, inline approvals, and detached execution.
 - **Document Explorer & Editor (`/files`)**: Markdown preview, CodeMirror editor, and advisory JSON Schema validation.
-- **Mini-Projects (`/projects`)**: Interactive OpenUI dashboards powered by `project-manifest.toml` and `ui.openui` for any workspace folder.
+- **Inline OpenUI**: Interactive tables, charts, Calendar, and Finance rendered from fenced `openui` blocks inside Markdown documents.
 - **Git Checkpoints & Folder Migration (`/migration`)**: Review and confirm AI-grouped Git commits or staged folder imports before they touch your live workspace.
 
 ---
@@ -211,7 +211,7 @@ Operator Machine (macOS / Linux Workstation)
 ### Step 2: Connect & Use Lia (End User Step)
 
 1. **Workspace UI Chat**: Open [http://localhost:8089/chat](http://localhost:8089/chat) and start collaborating with your agent.
-2. **Workspace UI Editor & Projects**: Open [http://localhost:8089](http://localhost:8089) to browse your Markdown files, install feature packages, or inspect OpenUI Mini-Project dashboards.
+2. **Workspace UI Editor**: Open [http://localhost:8089](http://localhost:8089) to browse Markdown files, install feature packages, or inspect inline OpenUI views.
 3. **Telegram**: If configured, message `/start` to your bot on Telegram for mobile capture and notifications.
 
 👉 Next steps: Read the **[End User Guide](docs/user-guide.md)** and **[Operator Guide](docs/operator-guide.md)**.

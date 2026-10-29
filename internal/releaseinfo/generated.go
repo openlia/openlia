@@ -18,7 +18,7 @@ var Default = Manifest{
 	},
 	Templates: TemplatesPin{
 		Repository: "https://github.com/openlia/templates.git",
-		Revision:   "2ae32cab7f9ad32b164ccb83b9bd711bff0224fe",
+		Revision:   "d417f11599876236add6a3062a741d4789e7666f",
 	},
 	Remind: SourcePin{
 		Version:      "06.03.06",

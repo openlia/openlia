@@ -119,6 +119,16 @@ export function DocumentInspector({
                   Template: {file.validation.template_path}
                 </p>
               )}
+              {file.validation.warnings?.length ? (
+                <ul
+                  aria-label="Inline OpenUI warnings"
+                  className="list-disc list-inside text-xs text-warning space-y-1 pt-1"
+                >
+                  {file.validation.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              ) : null}
               {file.validation.schema_path && (
                 <p className="text-[11px] font-mono text-base-content/60 truncate">
                   Schema: {file.validation.schema_path}

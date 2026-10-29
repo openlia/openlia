@@ -47,9 +47,11 @@ export function CalendarView({
   source?: string | undefined;
   timezone?: string | undefined;
 }) {
-  const { calendarApi, project, domainPath, onOpenRecord } = useOpenLiaOpenUI();
+  const { calendarApi, domainPath, onOpenRecord } = useOpenLiaOpenUI();
   const timezoneId = useId();
-  const sourcePath = `${project?.path ?? domainPath ?? "calendar"}/${source}`;
+  const sourcePath = [domainPath ?? "calendar", source]
+    .filter(Boolean)
+    .join("/");
   const [timezone, setTimezone] = useState(configuredTimezone ?? "UTC");
   const [timezoneInput, setTimezoneInput] = useState(
     configuredTimezone ?? "UTC",

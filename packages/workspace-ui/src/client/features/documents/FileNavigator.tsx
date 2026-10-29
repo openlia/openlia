@@ -15,7 +15,6 @@ export interface TreeNode {
   name: string;
   kind: WorkspaceTreeEntry["kind"];
   editable?: boolean;
-  project?: boolean;
   children: TreeNode[];
 }
 
@@ -48,17 +47,8 @@ export function buildTree(entries: WorkspaceTreeEntry[]): TreeNode[] {
         if (isLeaf && entry.kind === "file") {
           createdNode.editable = entry.editable;
         }
-        if (isLeaf && entry.kind === "directory" && entry.project) {
-          createdNode.project = true;
-        }
         node = createdNode;
         parent.children.push(node);
-      } else if (
-        index === parts.length - 1 &&
-        entry.kind === "directory" &&
-        entry.project
-      ) {
-        node.project = true;
       }
       parent = node;
     });
@@ -115,7 +105,6 @@ export function FileNavigator({
   onCreateFile,
   onFilterChange,
   onOpenFile,
-  onOpenProject,
   onRenameFile,
   onMoveFile,
   onDeleteFile,
@@ -136,7 +125,6 @@ export function FileNavigator({
   onCreateFile?: ((domain?: string) => void) | undefined;
   onFilterChange: (value: string) => void;
   onOpenFile: (path: string) => void;
-  onOpenProject?: ((projectPath: string) => void) | undefined;
   onRenameFile?: ((path: string) => void) | undefined;
   onMoveFile?: ((path: string) => void) | undefined;
   onDeleteFile?: ((path: string) => void) | undefined;
@@ -254,7 +242,6 @@ export function FileNavigator({
           const childrenVisible = hasChildren && (!isCollapsed || forcedOpen);
           const directoryId = `workspace-directory-${encodeURIComponent(node.path)}`;
           const isCreatable = creatableDomainSet.has(node.path);
-          const hasProjectAction = Boolean(node.project && onOpenProject);
           return (
             <li key={node.path}>
               {isDirectory ? (
@@ -305,20 +292,6 @@ export function FileNavigator({
                         />
                         <span className="truncate">{node.name}</span>
                       </div>
-                    )}
-                    {hasProjectAction && (
-                      <button
-                        aria-label={`Open ${node.name} project UI`}
-                        className={`badge badge-xs badge-primary/15 text-primary hover:bg-primary hover:text-primary-content border-primary/20 cursor-pointer transition-colors shrink-0 mr-1 ${onCreateFile && isCreatable ? "mr-7" : "mr-1"}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onOpenProject?.(node.path);
-                        }}
-                        title={`Open ${node.name} in Projects`}
-                        type="button"
-                      >
-                        UI
-                      </button>
                     )}
                     {onCreateFile && isCreatable && (
                       <button

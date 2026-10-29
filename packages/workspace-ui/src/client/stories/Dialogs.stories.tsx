@@ -6,7 +6,6 @@ import { MoveFileDialog } from "../MoveFileDialog";
 import { GoToModal } from "../GoToModal";
 import { DeleteFileDialog } from "../components/common/DeleteFileDialog";
 import { DirtyDraftDialog } from "../components/common/DirtyDraftDialog";
-import { ConfirmChatPromptModal } from "../features/projects/ConfirmChatPromptModal";
 import { mockCreatableDomains } from "../mockApi";
 import { action, file, storyData, storyLoader } from "./fixtures";
 
@@ -21,7 +20,6 @@ const meta = {
       "GoToModal.tsx#GoToModal",
       "components/common/DeleteFileDialog.tsx#DeleteFileDialog",
       "components/common/DirtyDraftDialog.tsx#DirtyDraftDialog",
-      "features/projects/ConfirmChatPromptModal.tsx#ConfirmChatPromptModal",
     ],
     docs: {
       story: { inline: false },
@@ -125,14 +123,4 @@ export const GoTo: Story = {
       />
     );
   },
-};
-export const ConfirmChatPrompt: Story = {
-  render: () => (
-    <ConfirmChatPromptModal
-      projectName="Calendar"
-      initialPrompt="Review next week’s appointments and prepare an agenda. Do not send invitations."
-      onCancel={action("cancel")}
-      onConfirm={action("confirmPrompt")}
-    />
-  ),
 };

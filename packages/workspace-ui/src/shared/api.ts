@@ -9,7 +9,7 @@ export interface WorkspaceFileMetadata {
 }
 
 export type WorkspaceTreeEntry =
-  | { path: string; kind: "directory"; project?: boolean | undefined }
+  | { path: string; kind: "directory" }
   | (WorkspaceFileMetadata & { kind: "file" });
 
 export interface WorkspaceTreeResponse {
@@ -51,11 +51,9 @@ export interface MaintainerFinding {
 export interface MaintainerDiscoveredCollection {
   path: string;
   label: string;
-  kind: "core" | "project" | "template" | "freeform";
+  kind: "core" | "template" | "freeform";
   template_path?: string | undefined;
   schema_path?: string | undefined;
-  manifest_path?: string | undefined;
-  ui_path?: string | undefined;
   inferred_purpose: string;
   record_count: number;
   open_finding_count: number;
@@ -142,6 +140,7 @@ export interface ConsequentialPermissionsResponse {
 
 export interface WorkspaceFileValidation {
   valid: boolean;
+  warnings?: string[] | undefined;
   schema_path?: string;
   template_path?: string;
   errors: string[];
@@ -253,6 +252,7 @@ export interface WorkspaceRenameRequest {
 
 export interface WorkspaceDiagnosticIssue {
   path: string;
+  warnings?: string[] | undefined;
   schema_path?: string | undefined;
   template_path?: string | undefined;
   errors: string[];
@@ -837,8 +837,6 @@ export interface WorkspaceDomainInfo {
   label: string;
   template_path?: string | undefined;
   schema_path?: string | undefined;
-  dashboard_openui_path?: string | undefined;
-  record_openui_path?: string | undefined;
   purpose?: string | undefined;
   kind?: "core" | "extension" | undefined;
   lifecycle?: string | undefined;
@@ -882,8 +880,6 @@ export interface WorkspaceDomainRecordsResponse {
   template_defaults?: Record<string, unknown> | undefined;
   template_sections?: Record<string, string> | undefined;
   starter_templates?: WorkspaceStarterTemplate[] | undefined;
-  dashboard_openui?: string | undefined;
-  record_openui?: string | undefined;
 }
 
 export interface WorkspaceDomainsResponse {
@@ -1086,15 +1082,3 @@ export interface PublicShareResponse {
     files: PublicShareFileEntry[];
   };
 }
-
-export type {
-  ProjectManifest,
-  ProjectMutationsDefinition,
-  ProjectPromptDefinition,
-  ProjectQueryDefinition,
-  ProjectQueryType,
-  ProjectSortDefinition,
-  ProjectSummary,
-  WorkspaceProjectResponse,
-  WorkspaceProjectsResponse,
-} from "./project";

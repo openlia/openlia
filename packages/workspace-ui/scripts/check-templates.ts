@@ -10,10 +10,8 @@ import {
 import { join, relative, resolve } from "node:path";
 import YAML from "yaml";
 import { FeatureService } from "../src/server/features";
-import {
-  validateOpenUIContent,
-  validateProjectManifest,
-} from "../src/server/validator";
+import { validateMarkdownOpenUIBlocks } from "../src/server/validator";
+import { extractMarkdownOpenUIBlocks } from "../src/shared/openui";
 
 const templates = resolve(process.argv[2] ?? "");
 const sandbox = resolve(process.argv[3] ?? "");
@@ -56,20 +54,31 @@ for (const entry of readdirSync(join(templates, "features"), {
     featuresRoot: join(templates, "features"),
     runtimeReleasePath,
   }).install(manifest.id);
+  const requiredView = {
+    calendar: "calendar/overview.md",
+    "personal-finance": "finance/overview.md",
+  }[manifest.id as string];
+  if (requiredView) {
+    const viewPath = join(workspaceRoot, requiredView);
+    if (
+      !existsSync(viewPath) ||
+      extractMarkdownOpenUIBlocks(readFileSync(viewPath, "utf8")).length === 0
+    ) {
+      throw new Error(
+        `${manifest.id}: missing inline OpenUI view ${requiredView}; select a catalog migrated for this runtime`,
+      );
+    }
+  }
   let diagnostics = 0;
   if (existsSync(workspaceRoot)) {
     for (const path of files(workspaceRoot)) {
       const rel = relative(workspaceRoot, path).replaceAll("\\", "/");
       const content = readFileSync(path, "utf8");
-      const result = path.endsWith("project-manifest.toml")
-        ? validateProjectManifest(workspaceRoot, rel, content)
-        : path.endsWith(".openui")
-          ? validateOpenUIContent(workspaceRoot, rel, content)
-          : undefined;
-      if (result) {
-        diagnostics++;
-        if (!result.valid) {
-          throw new Error(`${manifest.id}/${rel}: ${result.errors.join("; ")}`);
+      if (path.endsWith(".md")) {
+        const errors = validateMarkdownOpenUIBlocks(content);
+        diagnostics += extractMarkdownOpenUIBlocks(content).length;
+        if (errors.length) {
+          throw new Error(`${manifest.id}/${rel}: ${errors.join("; ")}`);
         }
       }
     }

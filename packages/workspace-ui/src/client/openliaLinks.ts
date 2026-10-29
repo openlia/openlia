@@ -13,12 +13,6 @@ export type ResolvedTarget =
       exists?: boolean | undefined;
     }
   | {
-      kind: "project";
-      projectPath: string;
-      label: string;
-      exists?: boolean | undefined;
-    }
-  | {
       kind: "skill";
       skillId: string;
       skillFile?: string | undefined;
@@ -41,7 +35,7 @@ export type ResolvedTarget =
   | null;
 
 export interface GoToSuggestion {
-  kind: "workspace" | "project" | "skill" | "git-activity" | "ingestion";
+  kind: "workspace" | "skill" | "git-activity" | "ingestion";
   id: string;
   title: string;
   subtitle?: string | undefined;
@@ -282,17 +276,6 @@ export function resolveLinkTarget(
         };
       }
 
-      if (host === "project" || host === "projects" || host === "domain") {
-        const cleanProj = rawPath.replace(/^\/+|\/+$/g, "");
-        if (!cleanProj) return null;
-        return {
-          exists: true,
-          kind: "project",
-          label: `Project / ${cleanProj}`,
-          projectPath: cleanProj,
-        };
-      }
-
       if (host === "skills") {
         if (!rawPath && !querySkillFile) return null;
         const { skillId, skillFile } = parseSkillRemainder(
@@ -429,21 +412,6 @@ export function resolveLinkTarget(
       label: `Assistant memory / ${name}`,
       exists: knownDocPaths.has(path),
     };
-  }
-
-  // /projects/... or /project/...
-  if (candidate.startsWith("/projects/") || candidate.startsWith("/project/")) {
-    const withoutPrefix = candidate.replace(/^\/projects?\//, "");
-    const pathPart = withoutPrefix.split("?")[0]?.split("#")[0] ?? "";
-    const projectPath = safeDecode(pathPart).replace(/^\/+|\/+$/g, "");
-    if (projectPath) {
-      return {
-        exists: true,
-        kind: "project",
-        label: `Project / ${projectPath}`,
-        projectPath,
-      };
-    }
   }
 
   // /files/... or /file/... or files/... or file/...
@@ -683,25 +651,6 @@ export function buildCanonicalWorkspaceUri(path: string): string {
   if (isMemoryDocument(path)) return `openlia://memory/${memoryFilename(path)}`;
   const cleanPath = path.replace(/^\/+/, "");
   return `openlia://workspace/${cleanPath}`;
-}
-
-export function buildCanonicalProjectUri(projectPath: string): string {
-  const cleanPath = projectPath.replace(/^\/+|\/+$/g, "");
-  return `openlia://project/${cleanPath}`;
-}
-
-export function buildProjectLink(
-  projectPath: string,
-  baseOrigin?: string,
-): string {
-  const cleanPath = projectPath.replace(/^\/+|\/+$/g, "");
-  const origin =
-    baseOrigin !== undefined
-      ? baseOrigin.replace(/\/+$/, "")
-      : typeof window !== "undefined" && window.location?.origin
-        ? window.location.origin
-        : "";
-  return `${origin}/projects/${cleanPath}`;
 }
 
 export function buildCanonicalSkillUri(

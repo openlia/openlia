@@ -67,10 +67,8 @@ if (!process.env.OPENLIA_WORKSPACE_ROOT || e2eFixture) {
 if (e2eFixture) {
   // Self-contained copy of the Calendar feature's OpenUI integration contract.
   const calendarFiles: Record<string, string> = {
-    "project-manifest.toml":
-      'version = 1\n[project]\nid = "calendar"\nname = "Calendar"\n[ui]\nentry = "ui.openui"\n',
-    "ui.openui":
-      'root = Calendar([Tabs([TabItem("month", "Month", [CalendarMonth()]), TabItem("week", "Week", [CalendarWeek()]), TabItem("timeline", "Timeline", [GanttChart()])])])\n',
+    "overview.md":
+      '# Calendar\n\n```openui\nCalendar([Tabs([TabItem("month", "Month", [CalendarMonth()]), TabItem("week", "Week", [CalendarWeek()]), TabItem("timeline", "Timeline", [GanttChart()])])])\n```\n',
     "reminders.rem":
       "# Calendar browser fixture\nINCLUDE holidays.rem\nREM Mon AT 09:30 DURATION 30 MSG Weekly standup\n",
     "holidays.rem":
@@ -82,9 +80,7 @@ if (e2eFixture) {
   }
   mkdirSync(join(workspaceRoot, "finance/accounts"), { recursive: true });
   const financeFiles: Record<string, string> = {
-    "project-manifest.toml":
-      'version = 1\n[project]\nid = "finance"\nname = "Personal Finance"\n[ui]\nentry = "ui.openui"\n',
-    "ui.openui": financeProgram,
+    "overview.md": `# Personal Finance\n\n\`\`\`openui\n${financeProgram}\n\`\`\`\n`,
     "accounts/accounts-template.md": financeAccountTemplate,
     "accounts/accounts-template.schema.json":
       JSON.stringify(financeAccountSchema),

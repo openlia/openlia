@@ -67,7 +67,7 @@ timezone = "America/New_York"
 [ingestion]
 max_concurrent_jobs = 1
 
-# Optional Workspace UI (Chat, Document Editor, Mini-Projects, Migration, Usage)
+# Optional Workspace UI (Chat, Document Editor with inline OpenUI, Migration, Usage)
 [workspace-ui]
 host = "127.0.0.1"
 port = 8089

@@ -58,7 +58,7 @@ System skills are distribution-owned and cannot be forked or modified by Hermes 
 
 ## 3. Modular Feature Packages (`features/<id>/`)
 
-Feature packages bundle workspace directories, Markdown templates, JSON Schemas, OpenUI Mini-Project views, skills, and tool dependencies into a single installable unit.
+Feature packages bundle workspace directories, Markdown templates and inline OpenUI views, JSON Schemas, skills, and tool dependencies into a single installable unit.
 
 ### Anatomy of a Feature Package
 ```text
@@ -73,8 +73,7 @@ features/<feature-id>/
     └── <domain>/
         ├── <domain>-template.md
         ├── <domain>-template.schema.json
-        ├── project-manifest.toml   # Optional: Mini-Project configuration
-        └── ui.openui               # Optional: OpenUI dashboard layout
+        └── overview.md             # Optional: narrative with inline OpenUI blocks
 ```
 
 ### Declaring `requires` in `feature.yaml`
@@ -105,7 +104,7 @@ Supported curated tools in `internal/toolcatalog`:
 2. **Author Workspace Templates & Schemas**:
    - Every frontmatter template (`*-template.md`) declares `$schema: ./<name>-template.schema.json` as a local relative path.
    - Only one `*-template.md` is permitted per directory.
-   - If the domain includes a dedicated **Projects** view (`/projects/<path>`), include `project-manifest.toml` and `ui.openui`. See [Workspace Mini-Projects & Domain Views](workspace-domain-views.md).
+   - Put interactive views in fenced `openui` blocks inside Markdown. See [Inline OpenUI Views](workspace-domain-views.md).
 3. **Sync, Install, Package, or Import via CLI**:
    ```bash
    # Sync the catalog from https://github.com/openlia/templates.git

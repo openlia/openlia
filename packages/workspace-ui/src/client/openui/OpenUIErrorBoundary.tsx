@@ -5,6 +5,7 @@ export interface OpenUIErrorBoundaryProps {
   uiPath?: string | undefined;
   onEditUI?: (() => void) | undefined;
   onReset?: (() => void) | undefined;
+  source?: string | undefined;
 }
 
 interface OpenUIErrorBoundaryState {
@@ -31,7 +32,7 @@ export class OpenUIErrorBoundary extends Component<
 
   override render() {
     if (this.state.hasError) {
-      const targetPath = this.props.uiPath ?? "ui.openui";
+      const targetPath = this.props.uiPath ?? "inline OpenUI block";
       return (
         <div
           aria-label="OpenUI render error"
@@ -71,6 +72,11 @@ export class OpenUIErrorBoundary extends Component<
               Retry
             </button>
           </div>
+          {this.props.source !== undefined && (
+            <pre className="overflow-x-auto text-xs">
+              <code>{this.props.source}</code>
+            </pre>
+          )}
         </div>
       );
     }

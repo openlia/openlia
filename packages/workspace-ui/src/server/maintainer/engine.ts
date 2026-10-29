@@ -10,17 +10,11 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import {
-  DEFAULT_PROJECT_UI_ENTRY,
-  PROJECT_MANIFEST_FILENAME,
-} from "../../shared/project";
-import {
   extractHeadings,
   findDomainTemplate,
   isSimilarHeading,
-  parseProjectManifest,
   parseRecordFrontmatter,
-  validateOpenUIContent,
-  validateProjectManifest,
+  validateMarkdownOpenUIBlocks,
 } from "../validator";
 import { protectedPath, revision } from "../workspace";
 import {
@@ -41,11 +35,9 @@ import {
 export interface DiscoveredCollection {
   path: string;
   label: string;
-  kind: "core" | "project" | "template" | "freeform";
+  kind: "core" | "template" | "freeform";
   template_path?: string | undefined;
   schema_path?: string | undefined;
-  manifest_path?: string | undefined;
-  ui_path?: string | undefined;
   inferred_purpose: string;
   record_count: number;
   open_finding_count: number;
@@ -280,95 +272,28 @@ export function evaluateFileFindings(
     return findings;
   }
 
-  // 2. Project manifest (project-manifest.toml)
-  if (
-    normalized === PROJECT_MANIFEST_FILENAME ||
-    normalized.endsWith(`/${PROJECT_MANIFEST_FILENAME}`)
-  ) {
-    const val = validateProjectManifest(root, normalized, content);
-    for (const errMsg of val.errors) {
-      let ruleCode = "WM-MANIFEST-INVALID";
-      let subject = "manifest";
-      let severity: MaintainerSeverity = "error";
-
-      if (errMsg.includes("does not exist")) {
-        ruleCode = "WM-MANIFEST-ENTRY-MISSING";
-        const match = errMsg.match(/'([^']+)'/);
-        subject = match?.[1] ?? "reference";
-      } else if (errMsg.startsWith("contract(")) {
-        ruleCode = "WM-MANIFEST-CONTRACT-DRIFT";
-        severity = "warning";
-        const match = errMsg.match(/'([^']+)'/);
-        subject = match?.[1] ?? errMsg;
-      }
-
-      const fp = computeContractFingerprint({
-        ruleCode,
-        subject,
-        manifestTarget: val.schema_path ?? val.template_path ?? normalized,
-      });
+  if (lower.endsWith(".md")) {
+    for (const message of validateMarkdownOpenUIBlocks(content)) {
+      const subject = message;
       findings.push(
         makeCandidate({
           workspaceId,
           relativePath: normalized,
-          ruleCode,
-          severity,
+          ruleCode: "openui_syntax_error",
+          severity: "warning",
           subject,
-          message: errMsg,
+          message,
           explanation:
-            "Mini-project manifests should reference existing local templates/schemas/UI entries and fields defined by those contracts.",
-          contractPath: val.schema_path ?? val.template_path ?? normalized,
-          contractFingerprint: fp,
+            "Fix this inline OpenUI block. Presentation diagnostics do not invalidate Markdown records or block saving.",
+          contractFingerprint: computeContractFingerprint({
+            ruleCode: "openui_syntax_error",
+            subject,
+          }),
           fixStrategy: "agent",
           checkedRevision,
         }),
       );
     }
-    return findings;
-  }
-
-  // 3. OpenUI files (*.openui)
-  if (lower.endsWith(".openui")) {
-    const val = validateOpenUIContent(root, normalized, content);
-    for (const errMsg of val.errors) {
-      let ruleCode = "WM-OPENUI-SYNTAX";
-      let subject = "root";
-      let severity: MaintainerSeverity = "error";
-
-      if (errMsg.startsWith("openui(unknown-function):")) {
-        ruleCode = "WM-OPENUI-UNKNOWN-FN";
-        const match = errMsg.match(/'([^']+)'/);
-        subject = match?.[1] ?? "function";
-      } else if (errMsg.startsWith("contract(")) {
-        ruleCode = "WM-OPENUI-CONTRACT-DRIFT";
-        severity = "warning";
-        const match = errMsg.match(/'([^']+)'/);
-        subject = match?.[1] ?? errMsg;
-      }
-
-      const fp = computeContractFingerprint({
-        ruleCode,
-        subject,
-        manifestTarget: val.schema_path ?? val.template_path ?? normalized,
-      });
-      findings.push(
-        makeCandidate({
-          workspaceId,
-          relativePath: normalized,
-          ruleCode,
-          severity,
-          subject,
-          message: errMsg,
-          explanation:
-            "OpenUI views must parse cleanly with a root assignment and reference fields/sections/queries defined in the project contract.",
-          contractPath: val.schema_path ?? val.template_path ?? normalized,
-          contractFingerprint: fp,
-          fixStrategy: "agent",
-          checkedRevision,
-        }),
-      );
-    }
-    return findings;
   }
 
   // 4. Markdown files (*.md)
@@ -878,7 +803,7 @@ export class MaintainerService {
   /**
    * Expands a list of changed relative paths to include any files in the same folder
    * whose validation depends on them (e.g. changing a template or schema revalidates
-   * records, project-manifest.toml, and *.openui in that folder).
+   * Markdown records in that folder).
    */
   expandDependentPaths(changedRelativePaths: string[]): string[] {
     const expanded = new Set<string>();
@@ -894,12 +819,7 @@ export class MaintainerService {
           ? this.workspaceRoot
           : resolve(this.workspaceRoot, folderRel);
 
-      if (
-        lower.endsWith("-template.md") ||
-        lower.endsWith(".schema.json") ||
-        lower === PROJECT_MANIFEST_FILENAME ||
-        lower.endsWith(`/${PROJECT_MANIFEST_FILENAME}`)
-      ) {
+      if (lower.endsWith("-template.md") || lower.endsWith(".schema.json")) {
         if (existsSync(folderAbs)) {
           try {
             const entries = readdirSync(folderAbs, { withFileTypes: true });
@@ -987,7 +907,7 @@ export class MaintainerService {
 
   /**
    * Discovers collections/domains from workspace folders, local templates,
-   * schemas, and mini-project manifests without requiring workspace.yaml.
+   * schemas, and Markdown records without requiring workspace.yaml.
    */
   discoverCollections(): DiscoveredCollection[] {
     const collections: DiscoveredCollection[] = [];
@@ -1033,9 +953,6 @@ export class MaintainerService {
             !e.name.startsWith(".") &&
             e.name.toLowerCase().endsWith(".schema.json"),
         );
-        const hasManifest = entries.some(
-          (e) => e.isFile() && e.name === PROJECT_MANIFEST_FILENAME,
-        );
         const mdRecords = entries.filter(
           (e) =>
             e.isFile() &&
@@ -1049,7 +966,6 @@ export class MaintainerService {
 
         if (
           isCore ||
-          hasManifest ||
           templates.length > 0 ||
           schemas.length > 0 ||
           mdRecords.length > 0 ||
@@ -1057,29 +973,9 @@ export class MaintainerService {
         ) {
           seenPaths.add(relDir);
           const coreMeta = CORE_DOMAIN_PURPOSES[relDir];
-          let label = coreMeta?.label ?? humanizeDomainLabel(relDir);
+          const label = coreMeta?.label ?? humanizeDomainLabel(relDir);
           let inferredPurpose =
             coreMeta?.purpose ?? `Workspace collection in ${relDir}.`;
-          let uiPath: string | undefined;
-
-          if (hasManifest) {
-            try {
-              const rawManifest = readFileSync(
-                join(dirAbs, PROJECT_MANIFEST_FILENAME),
-                "utf8",
-              );
-              const { manifest } = parseProjectManifest(rawManifest);
-              if (manifest) {
-                label = manifest.project.name || label;
-                if (manifest.project.description) {
-                  inferredPurpose = manifest.project.description;
-                }
-                uiPath = `${relDir}/${manifest.ui.entry || DEFAULT_PROJECT_UI_ENTRY}`;
-              }
-            } catch {}
-          } else if (existsSync(join(dirAbs, DEFAULT_PROJECT_UI_ENTRY))) {
-            uiPath = `${relDir}/${DEFAULT_PROJECT_UI_ENTRY}`;
-          }
 
           const templateInfo = findDomainTemplate(
             this.workspaceRoot,
@@ -1092,15 +988,13 @@ export class MaintainerService {
             templateInfo?.schemaRelativePath ??
             (schemas[0] ? `${relDir}/${schemas[0].name}` : undefined);
 
-          const kind: DiscoveredCollection["kind"] = hasManifest
-            ? "project"
-            : isCore
-              ? "core"
-              : templatePath
-                ? "template"
-                : "freeform";
+          const kind: DiscoveredCollection["kind"] = isCore
+            ? "core"
+            : templatePath
+              ? "template"
+              : "freeform";
 
-          if (!coreMeta && !hasManifest) {
+          if (!coreMeta) {
             if (templatePath) {
               inferredPurpose = `Structured records governed by ${templatePath} (suggested description).`;
             } else {
@@ -1114,10 +1008,6 @@ export class MaintainerService {
             kind,
             ...(templatePath ? { template_path: templatePath } : {}),
             ...(schemaPath ? { schema_path: schemaPath } : {}),
-            ...(hasManifest
-              ? { manifest_path: `${relDir}/${PROJECT_MANIFEST_FILENAME}` }
-              : {}),
-            ...(uiPath ? { ui_path: uiPath } : {}),
             inferred_purpose: inferredPurpose,
             record_count: mdRecords.length,
             open_finding_count: openByFolder.get(relDir) ?? 0,
@@ -1210,10 +1100,7 @@ export class MaintainerService {
         }
 
         const shouldValidate =
-          lower.endsWith(".md") ||
-          lower.endsWith(".schema.json") ||
-          lower.endsWith(".openui") ||
-          entry.name === PROJECT_MANIFEST_FILENAME;
+          lower.endsWith(".md") || lower.endsWith(".schema.json");
 
         if (!shouldValidate) continue;
 
