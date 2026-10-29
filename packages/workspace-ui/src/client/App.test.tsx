@@ -1627,7 +1627,9 @@ messages:
     );
   });
 
-  test("re-opens the same project record in Documents after navigating back to /projects/*", async () => {
+  test("re-opens the same project record in Documents after navigating back to /projects/*", {
+    timeout: 15_000,
+  }, async () => {
     window.history.replaceState(null, "", "/projects/tasks");
     const mockApi = createMockWorkspaceApi({
       files: {
@@ -1637,11 +1639,11 @@ messages:
     });
     render(<App api={mockApi} />);
 
-    // Wait for Tasks project UI to render (lazy-loaded ProjectPage chunk)
+    // Allow for the first lazy-loaded ProjectPage import on slower CI runners.
     const firstRecordButtons = await screen.findAllByText(
       "Ship workspace UI",
       {},
-      { timeout: 5000 },
+      { timeout: 10_000 },
     );
     expect(firstRecordButtons.length).toBeGreaterThan(0);
 

@@ -355,6 +355,10 @@ export function ProjectPage({
                   <span className="badge badge-outline badge-xs font-mono">
                     {projectData.project.path}/
                   </span>
+                  <OpenUIDiagnostics
+                    content={projectData.ui_content}
+                    variant="toolbar"
+                  />
                   <CopyLinkButton
                     className="btn btn-ghost btn-xs btn-square text-base-content/60"
                     iconOnly
@@ -701,7 +705,10 @@ export function ProjectPage({
                           )}
                       </div>
                     )}
-                    <OpenUIDiagnostics content={projectData.ui_content} />
+                    <OpenUIDiagnostics
+                      content={projectData.ui_content}
+                      variant="errors-only"
+                    />
                     <OpenUIErrorBoundary
                       key={projectData.project.ui_path}
                       onEditUI={() => onOpenFile(projectData.project.ui_path)}
