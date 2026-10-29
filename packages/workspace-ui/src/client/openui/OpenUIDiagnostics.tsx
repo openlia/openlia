@@ -4,7 +4,13 @@ import { normalizeOpenUIProgram, openliaLibrary } from "./library";
 
 const parser = createParser(openliaLibrary.toJSONSchema());
 
-export function OpenUIDiagnostics({ content }: { content: string }) {
+export function OpenUIDiagnostics({
+  content,
+  variant = "default",
+}: {
+  content: string;
+  variant?: "default" | "toolbar" | "errors-only";
+}) {
   const errors = useMemo(() => {
     const result = parser.parse(normalizeOpenUIProgram(content));
     return [
@@ -12,13 +18,20 @@ export function OpenUIDiagnostics({ content }: { content: string }) {
       ...(!result.root ? ["Missing required root statement"] : []),
     ];
   }, [content]);
+  if (
+    (variant === "toolbar" && errors.length > 0) ||
+    (variant === "errors-only" && errors.length === 0)
+  ) {
+    return null;
+  }
+
   return (
     <section
       aria-label="OpenUI diagnostics"
       role="status"
-      className={`shrink-0 px-3 py-2 text-xs ${errors.length ? "bg-warning/10 text-warning" : "text-success"}`}
+      className={`shrink-0 text-xs ${variant === "toolbar" ? "text-success/80" : `px-3 py-2 ${errors.length ? "bg-warning/10 text-warning" : "text-success"}`}`}
     >
-      <p className="font-semibold">
+      <p className={variant === "toolbar" ? "font-medium" : "font-semibold"}>
         {errors.length
           ? "OpenUI layout diagnostics"
           : "OpenUI layout is valid."}

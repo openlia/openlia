@@ -29,6 +29,15 @@ describe("ProjectPage", () => {
         .length,
     ).toBeGreaterThan(0);
 
+    const diagnostics = screen.getByRole("status", {
+      name: "OpenUI diagnostics",
+    });
+    const copyProjectLink = screen.getByRole("button", {
+      name: /Copy project link/,
+    });
+    expect(diagnostics).toHaveTextContent("OpenUI layout is valid.");
+    expect(diagnostics.nextElementSibling).toBe(copyProjectLink);
+
     // Switch to Project Files inspector and verify view callback
     fireEvent.click(screen.getByRole("button", { name: "Project Files" }));
     expect(onViewChange).toHaveBeenCalledWith("files");
