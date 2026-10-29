@@ -11,6 +11,7 @@ import { join, relative, resolve } from "node:path";
 import YAML from "yaml";
 import { FeatureService } from "../src/server/features";
 import { validateMarkdownOpenUIBlocks } from "../src/server/validator";
+import { extractMarkdownOpenUIBlocks } from "../src/shared/openui";
 
 const templates = resolve(process.argv[2] ?? "");
 const sandbox = resolve(process.argv[3] ?? "");
@@ -53,6 +54,21 @@ for (const entry of readdirSync(join(templates, "features"), {
     featuresRoot: join(templates, "features"),
     runtimeReleasePath,
   }).install(manifest.id);
+  const requiredView = {
+    calendar: "calendar/overview.md",
+    "personal-finance": "finance/overview.md",
+  }[manifest.id as string];
+  if (requiredView) {
+    const viewPath = join(workspaceRoot, requiredView);
+    if (
+      !existsSync(viewPath) ||
+      extractMarkdownOpenUIBlocks(readFileSync(viewPath, "utf8")).length === 0
+    ) {
+      throw new Error(
+        `${manifest.id}: missing inline OpenUI view ${requiredView}; select a catalog migrated for this runtime`,
+      );
+    }
+  }
   let diagnostics = 0;
   if (existsSync(workspaceRoot)) {
     for (const path of files(workspaceRoot)) {
@@ -60,7 +76,7 @@ for (const entry of readdirSync(join(templates, "features"), {
       const content = readFileSync(path, "utf8");
       if (path.endsWith(".md")) {
         const errors = validateMarkdownOpenUIBlocks(content);
-        diagnostics++;
+        diagnostics += extractMarkdownOpenUIBlocks(content).length;
         if (errors.length) {
           throw new Error(`${manifest.id}/${rel}: ${errors.join("; ")}`);
         }
