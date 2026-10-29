@@ -4,7 +4,7 @@ import { OpenUIDiagnostics } from "./OpenUIDiagnostics";
 
 it("updates diagnostics from the live draft without saving it", () => {
   const { rerender } = render(
-    <OpenUIDiagnostics content={'root = DomainHeader("Travel")'} />,
+    <OpenUIDiagnostics content={'CardHeader(title: "Travel")'} />,
   );
   expect(screen.getByRole("status").textContent).toContain(
     "OpenUI layout is valid.",
@@ -17,7 +17,7 @@ it("updates diagnostics from the live draft without saving it", () => {
   );
   rerender(
     <OpenUIDiagnostics
-      content={'root = MetricCard("Active", @Query("active_count"), "Ready")'}
+      content={'CardHeader(title: "Active", subtitle: "Ready")'}
     />,
   );
   expect(screen.getByRole("status").textContent).toContain(
@@ -28,7 +28,7 @@ it("updates diagnostics from the live draft without saving it", () => {
 it("only shows valid layouts in the toolbar", () => {
   const { rerender } = render(
     <OpenUIDiagnostics
-      content={'root = DomainHeader("Travel")'}
+      content={'CardHeader(title: "Travel")'}
       variant="toolbar"
     />,
   );
@@ -47,7 +47,7 @@ it("only shows valid layouts in the toolbar", () => {
 it("keeps errors visible without reserving content space for valid layouts", () => {
   const { rerender } = render(
     <OpenUIDiagnostics
-      content={'root = DomainHeader("Travel")'}
+      content={'CardHeader(title: "Travel")'}
       variant="errors-only"
     />,
   );

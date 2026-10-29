@@ -38,13 +38,8 @@ export function FinanceView({
   children: ReactNode;
   journal?: string | undefined;
 }) {
-  const {
-    financeApi: api,
-    project,
-    domainPath,
-    onOpenRecord,
-  } = useOpenLiaOpenUI();
-  const path = project?.path ?? domainPath ?? "finance";
+  const { financeApi: api, domainPath, onOpenRecord } = useOpenLiaOpenUI();
+  const path = domainPath ?? "finance";
   const [data, setData] = useState<FinanceContextResponse | null>(null);
   const [report, setReport] = useState<FinanceReport | null>(null);
   const [journal, setJournal] = useState("");

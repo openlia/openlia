@@ -40,8 +40,6 @@ import type {
   WorkspaceFixTemplateResponse,
   WorkspaceGitStatus,
   WorkspaceMoveResponse,
-  WorkspaceProjectResponse,
-  WorkspaceProjectsResponse,
   WorkspaceRenameResponse,
   WorkspaceSettings,
   WorkspaceSystemInfo,
@@ -1138,104 +1136,6 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         template_defaults: templateDefaults,
         template_sections: templateSections,
         starter_templates: builtinContract?.starter_templates,
-      };
-    },
-    async loadProjects(): Promise<WorkspaceProjectsResponse> {
-      requireAuthentication();
-      const projects = [
-        {
-          path: "tasks",
-          id: "tasks",
-          name: "Tasks",
-          description: "Concrete actions that can be completed.",
-          icon: "check-square",
-          manifest_path: "tasks/project-manifest.toml",
-          ui_path: "tasks/ui.openui",
-          template_path: "tasks/task-template.md",
-          schema_path: "tasks/task-template.schema.json",
-          skills: ["workspace-template-customization"],
-          record_count: Object.keys(fileContents).filter(
-            (p) =>
-              p.startsWith("tasks/") &&
-              p.endsWith(".md") &&
-              !p.endsWith("-template.md"),
-          ).length,
-          invalid_record_count: 0,
-        },
-        {
-          path: "goals",
-          id: "goals",
-          name: "Goals",
-          description: "Outcomes and the reasons they matter.",
-          icon: "target",
-          manifest_path: "goals/project-manifest.toml",
-          ui_path: "goals/ui.openui",
-          template_path: "goals/goal-template.md",
-          schema_path: "goals/goal-template.schema.json",
-          skills: ["workspace-template-customization"],
-          record_count: Object.keys(fileContents).filter(
-            (p) =>
-              p.startsWith("goals/") &&
-              p.endsWith(".md") &&
-              !p.endsWith("-template.md"),
-          ).length,
-          invalid_record_count: 0,
-        },
-      ];
-      return { schema: 1, projects };
-    },
-    async loadProject(projectPath: string): Promise<WorkspaceProjectResponse> {
-      requireAuthentication();
-      const clean = projectPath.replace(/^\/+|\/+$/g, "");
-      const overview = await this.loadDomainOverview(clean);
-      const manifestRaw =
-        fileContents[`${clean}/project-manifest.toml`] ??
-        `version = 1\n\n[project]\nid = "${clean}"\nname = "${overview.domain.label}"\n\n[data]\ntemplate = "${overview.domain.template_path?.split("/").at(-1) ?? ""}"\n\n[ui]\nentry = "ui.openui"\n`;
-      const uiContent =
-        fileContents[`${clean}/ui.openui`] ??
-        `root = Stack([DomainHeader("${overview.domain.label}", "${overview.domain.purpose ?? ""}"), RecordTable()])\n`;
-      return {
-        schema: 1,
-        project: {
-          path: clean,
-          id: clean,
-          name: overview.domain.label,
-          description: overview.domain.purpose,
-          manifest_path: `${clean}/project-manifest.toml`,
-          ui_path: `${clean}/ui.openui`,
-          template_path: overview.domain.template_path,
-          schema_path: overview.domain.schema_path,
-          skills: overview.domain.skills ?? [],
-          record_count: overview.records.length,
-          invalid_record_count: overview.domain.invalid_record_count ?? 0,
-        },
-        manifest: {
-          version: 1,
-          project: {
-            id: clean,
-            name: overview.domain.label,
-            description: overview.domain.purpose,
-          },
-          data: {
-            template: overview.domain.template_path?.split("/").at(-1),
-            schema: overview.domain.schema_path?.split("/").at(-1),
-            status_field: "status",
-          },
-          ui: { entry: "ui.openui" },
-          logic: {
-            skills: ["workspace-template-customization"],
-            mutations: {
-              editable_fields: ["status", "priority", "due"],
-            },
-          },
-        },
-        manifest_raw: manifestRaw,
-        ui_content: uiContent,
-        records: overview.records,
-        queries: {},
-        schema_json: overview.schema_json,
-        template_headings: overview.template_headings,
-        project_files: [],
       };
     },
     async createFile(

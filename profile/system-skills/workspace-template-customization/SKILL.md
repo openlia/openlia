@@ -129,28 +129,21 @@ When the user edits templates or schemas through Workspace UI, validation is
 available on demand using the command above. Never overwrite a workspace
 customization with the bundled default.
 
-## Mini-Projects (`project-manifest.toml` + `ui.openui`)
+## Inline OpenUI in Markdown
 
-Select workspace folders can opt into becoming a **Mini-Project** by adding `project-manifest.toml` and `ui.openui`. Mini-Projects connect four layers in one self-contained directory and render under the dedicated **Projects** view (`/projects/<path>`):
+Compose interactive views in fenced `openui` blocks within the requested Markdown
+document. Keep narrative and rich tables/charts together; no project manifest,
+standalone UI entry file, or separate Projects view is used.
 
-1. **Project Metadata (`[project]`)**: `id`, `title`, `description`, `icon`, `version`.
-2. **Data Contract (`[data]`)**: `records_glob`, `template`, `schema`, `primary_status_field`, `default_sort`, and named server-evaluated queries (`[data.queries.<name>]`).
-3. **UI Presentation (`[ui]`)**: `entry = "ui.openui"`, written in OpenUI Lang (`thesysdev/openui`).
-4. **Logic & Skills (`[logic]`)**: `skills`, `mutations.status_field`, `mutations.editable_fields`, and `[[logic.prompts]]` quick actions for Hermes.
-
-### Guidelines for Hermes & Chat Agents:
-1. **When NOT to Create a Mini-Project UI**:
-   - Do **not** add `project-manifest.toml` or `ui.openui` to unstructured notes, inbox captures, daily briefings, plain knowledge docs, or low-volume sub-folders. Keep those as fast, clean Markdown in the **Documents** view.
-   - Only create or enable a Mini-Project when the folder holds structured, recurring records with frontmatter status/metrics where visual aggregation (Kanban, KPI metrics, charts, comparison tables, or hledger overview) provides clear value.
-2. **Presentation & Query Customization**:
-   - When the user asks to improve a Mini-Project's UI (e.g., via **"Improve UI with Lia"**), inspect `<folder>/project-manifest.toml`, `<folder>/ui.openui`, `<folder>/*-template.md`, and `<folder>/*.schema.json`.
-   - Prefer adding or updating server-evaluated queries under `[data.queries.<name>]` in `project-manifest.toml` and referencing them via `@Query("<name>")` in `ui.openui`.
-   - Modifying `project-manifest.toml` queries or `ui.openui` alone is a pure presentation update and NEVER invalidates Markdown records on disk.
-3. **Contract Safety with Schemas & Templates**:
-   - Refer to `references/openui-spec.md` for full manifest, component, and DSL documentation.
-   - Referenced frontmatter properties (in `[data]`, `[data.queries]`, `[logic.mutations]`, `RecordKanban`, `RecordTable`, `@CountBy`, `@GroupCount`, `@FilterRecords`, `@SumBy`) must be present in `*.schema.json`.
-   - When adding new frontmatter fields, keep them optional/nullable in `*.schema.json` unless the user explicitly requests a required field, ensuring existing records remain 100% valid.
-4. **Chat Response & Linking**:
-   - After updating or creating a Mini-Project and validating with `validate_workspace.py`, reply with a canonical Workspace UI link:
-     - For Mini-Projects: `[Tasks Project](openlia://projects/tasks)`
-     - For Markdown documents: `[Task Record](openlia://workspace/tasks/task-1.md)`
+- Bare roots (`Card(...)`), named arguments (`CardHeader(title: "Menu")`), and
+  row tables (`Table(columns: [{key: "dish", label: "Dish"}], rows: [{dish: "Phở"}])`)
+  are supported. See `references/openui-spec.md`.
+- Retain upstream components, charts, Calendar, and Finance. Legacy record
+  widgets and manifest-backed aggregation functions are not supported.
+- Relative data paths resolve from the containing Markdown document's folder.
+- Python checks syntax offline; Workspace UI validates against component schemas.
+  Inline diagnostics are advisory and do not invalidate record contracts.
+- Preserve local templates/schemas and unrelated Markdown. Changes to presentation
+  are not permission to weaken a record contract.
+- Reply with a canonical link to the document, such as
+  `[Menu](openlia://workspace/family-menu/menu.md)`.

@@ -96,19 +96,11 @@ describe("Workspace Maintainer & Consequential Permissions", () => {
       false,
     );
 
-    // Create a family-menu template, manifest, and UI without any registry entry
+    // Create a family-menu template with an inline view without any registry entry
     mkdirSync(join(workspaceRoot, "family-menu"), { recursive: true });
     writeFileSync(
       join(workspaceRoot, "family-menu", "menu-template.md"),
-      "---\ntitle: Weekly Menu\nweek: 2026-W44\n---\n# Weekly Menu\n\n## Meals\n\n## Shopping\n",
-    );
-    writeFileSync(
-      join(workspaceRoot, "family-menu", "project-manifest.toml"),
-      `version = 1\n[project]\nid = "family-menu"\nname = "Family Menu"\n[data]\ntemplate = "menu-template.md"\n[ui]\nentry = "ui.openui"\n`,
-    );
-    writeFileSync(
-      join(workspaceRoot, "family-menu", "ui.openui"),
-      `root = Stack([DomainHeader("Family Menu")])\n`,
+      '---\ntitle: Weekly Menu\nweek: 2026-W44\n---\n# Weekly Menu\n\n## Meals\n\n```openui\nCardHeader(title: "Family Menu")\n```\n\n## Shopping\n',
     );
 
     // Create a new file via /api/workspace/create-file in the unregistered family-menu folder
@@ -133,19 +125,13 @@ describe("Workspace Maintainer & Consequential Permissions", () => {
     expect(createdFile.path).toBe("family-menu/2026-10-26.md");
     expect(createdFile.content).toContain("## Shopping");
 
-    // Project loads and renders cleanly
-    const projRes = await handler(
-      new Request("http://localhost/api/workspace/project?path=family-menu"),
+    const fileRes = await handler(
+      new Request(
+        "http://localhost/api/workspace/file?path=family-menu/2026-10-26.md",
+      ),
     );
-    expect(projRes.status).toBe(200);
-    const projData = (await projRes.json()) as {
-      renderable: boolean;
-      records: Array<{ path: string }>;
-    };
-    expect(projData.renderable).toBe(true);
-    expect(projData.records.map((r) => r.path)).toContain(
-      "family-menu/2026-10-26.md",
-    );
+    expect(fileRes.status).toBe(200);
+    expect(createdFile.content).toContain('CardHeader(title: "Family Menu")');
   });
 
   test("2 & 3. Free-form folders without templates/schemas produce zero errors; local templates govern only direct children", async () => {
@@ -415,7 +401,7 @@ describe("Workspace Maintainer & Consequential Permissions", () => {
     );
   });
 
-  test("10. Broken project UI is reported as renderable: false while preserving record & file access", async () => {
+  test("10. Broken inline UI remains advisory while preserving file access; project APIs are removed", async () => {
     const handler = createWorkspaceHandler({
       workspaceRoot,
       maintainerDatabasePath: maintainerDbPath,
@@ -424,26 +410,29 @@ describe("Workspace Maintainer & Consequential Permissions", () => {
 
     mkdirSync(join(workspaceRoot, "broken-app"), { recursive: true });
     writeFileSync(
-      join(workspaceRoot, "broken-app", "project-manifest.toml"),
-      `schema = 1\n[project]\nid = "broken-app"\nname = "Broken App"\n[data]\nqueries = [{ name = "bad_q", filter = "status == 'open'" }]\n[ui]\nentry = "missing-ui.openui"\n`,
-    );
-    writeFileSync(
       join(workspaceRoot, "broken-app", "item.md"),
-      "# First Item\n\nStill accessible.\n",
+      "# First Item\n\nStill accessible.\n\n```openui\nUnknownWidget()\n```\n",
     );
 
     const projRes = await handler(
       new Request("http://localhost/api/workspace/project?path=broken-app"),
     );
-    expect(projRes.status).toBe(200);
-    const proj = (await projRes.json()) as {
-      renderable: boolean;
-      render_errors: string[];
-      records: Array<{ path: string }>;
+    expect(projRes.status).toBe(404);
+    expect(
+      (await handler(new Request("http://localhost/api/workspace/projects")))
+        .status,
+    ).toBe(404);
+    const fileRes = await handler(
+      new Request(
+        "http://localhost/api/workspace/file?path=broken-app/item.md",
+      ),
+    );
+    expect(fileRes.status).toBe(200);
+    const file = (await fileRes.json()) as {
+      validation: { valid: boolean; warnings: string[] };
     };
-    expect(proj.renderable).toBe(false);
-    expect(proj.render_errors.length).toBeGreaterThan(0);
-    expect(proj.records.map((r) => r.path)).toContain("broken-app/item.md");
+    expect(file.validation.valid).toBe(true);
+    expect(file.validation.warnings.join(" ")).toContain("openui_syntax_error");
   });
 
   test("11. Consequential permissions persist in permissions.yaml and govern cron policy", async () => {

@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentProps } from "react";
 import type { PublicShareResponse } from "../shared/api";
 import { ApiError, httpWorkspaceApi, type WorkspaceApi } from "./api";
 import { isMarkdownPath } from "./CodeEditor";
-import { MarkdownPreview } from "./components/editor/MarkdownPreview";
+import { MarkdownPreview as WorkspaceMarkdownPreview } from "./components/editor/MarkdownPreview";
+import { OpenLiaOpenUIProvider } from "./openui/context";
 import { copyToClipboard } from "./openliaLinks";
 import {
   formatByteSize,
@@ -13,6 +14,17 @@ import {
 export interface SharePublicViewProps {
   shareId: string;
   api?: WorkspaceApi | undefined;
+}
+
+// Public snapshots must not inherit authenticated workspace capabilities.
+function MarkdownPreview(
+  props: ComponentProps<typeof WorkspaceMarkdownPreview>,
+) {
+  return (
+    <OpenLiaOpenUIProvider value={{}}>
+      <WorkspaceMarkdownPreview {...props} />
+    </OpenLiaOpenUIProvider>
+  );
 }
 
 type SkillSubTab = "instructions" | "files" | "overview";

@@ -37,8 +37,6 @@ import type {
   WorkspaceFileValidation,
   WorkspaceGitStatus,
   WorkspaceMoveResponse,
-  WorkspaceProjectResponse,
-  WorkspaceProjectsResponse,
   WorkspaceRenameResponse,
   WorkspaceSettings,
   WorkspaceTreeResponse,
@@ -51,22 +49,12 @@ import {
   mergeBuiltinSchemaProperties,
 } from "../shared/domainContracts";
 import { MEMORY_DOCUMENT_PREFIX } from "../shared/memory";
-import {
-  DEFAULT_PROJECT_UI_ENTRY,
-  PROJECT_MANIFEST_FILENAME,
-  type ProjectManifest,
-  type ProjectQueryDefinition,
-  type ProjectSummary,
-} from "../shared/project";
 import { evaluateFileFindings, MaintainerService } from "./maintainer/engine";
 import {
   extractHeadings,
   findDomainTemplate,
-  parseProjectManifest,
   parseRecordFrontmatter,
   validateEntireWorkspace,
-  validateOpenUIContent,
-  validateProjectManifest,
   validateRecordContent,
 } from "./validator";
 
@@ -94,7 +82,6 @@ const editableExtensions = new Set([
   ".hledger",
   ".rem",
   ".remind",
-  ".openui",
 ]);
 
 const protectedDirectoryNames = new Set([
@@ -249,8 +236,6 @@ export function isTemplateOrSchemaPath(path: string): boolean {
   return (
     basename.endsWith("-template.md") ||
     basename.endsWith(".schema.json") ||
-    basename.endsWith(".openui") ||
-    basename === PROJECT_MANIFEST_FILENAME ||
     templatePaths.has(normalized)
   );
 }
@@ -302,17 +287,7 @@ function validateRelativePath(
       "protected_path",
     );
   }
-  // Layouts and project manifests stay hidden in the navigator by default when
-  // hide_template_schema_files is enabled, but project rendering and editing
-  // must still be able to read/write them.
-  const lowerNormalized = normalized.toLowerCase();
-  const accessSettings =
-    lowerNormalized.endsWith(".openui") ||
-    lowerNormalized === PROJECT_MANIFEST_FILENAME ||
-    lowerNormalized.endsWith(`/${PROJECT_MANIFEST_FILENAME}`)
-      ? { ...settings, hide_template_schema_files: false }
-      : settings;
-  if (hiddenFromNavigator(normalized, accessSettings)) {
+  if (hiddenFromNavigator(normalized, settings)) {
     throw new WorkspaceError(
       "workspace path is not available in the navigator",
       403,
@@ -326,102 +301,6 @@ function fileExtension(path: string): string {
   const lastSlash = path.lastIndexOf("/");
   const lastDot = path.lastIndexOf(".");
   return lastDot > lastSlash ? path.slice(lastDot).toLowerCase() : "";
-}
-
-function getRecordFieldValue(
-  record: WorkspaceDomainRecordSummary,
-  field: string,
-): unknown {
-  if (field === "title") return record.title;
-  if (field === "filename") return record.filename;
-  if (field === "path") return record.path;
-  return record.frontmatter[field];
-}
-
-function matchesExpectedValue(
-  actual: unknown,
-  expected: string | number | boolean | Array<string | number | boolean>,
-): boolean {
-  if (Array.isArray(expected)) {
-    return expected.some((item) => matchesExpectedValue(actual, item));
-  }
-  if (Array.isArray(actual)) {
-    return actual.some((item) => String(item) === String(expected));
-  }
-  if (actual === undefined || actual === null) return false;
-  return String(actual) === String(expected);
-}
-
-export function evaluateProjectQueries(
-  records: WorkspaceDomainRecordSummary[],
-  queries?: Record<string, ProjectQueryDefinition>,
-): Record<string, unknown> {
-  if (!queries) return {};
-  const results: Record<string, unknown> = {};
-
-  for (const [name, q] of Object.entries(queries)) {
-    const filtered = q.where
-      ? records.filter((rec) =>
-          Object.entries(q.where ?? {}).every(([f, exp]) =>
-            matchesExpectedValue(getRecordFieldValue(rec, f), exp),
-          ),
-        )
-      : records;
-
-    if (q.type === "filter") {
-      if (q.field && q.value !== undefined) {
-        results[name] = filtered.filter((rec) =>
-          matchesExpectedValue(getRecordFieldValue(rec, q.field!), q.value!),
-        );
-      } else {
-        results[name] = filtered;
-      }
-    } else if (q.type === "count") {
-      if (q.field && q.value !== undefined) {
-        results[name] = filtered.filter((rec) =>
-          matchesExpectedValue(getRecordFieldValue(rec, q.field!), q.value!),
-        ).length;
-      } else if (q.field) {
-        results[name] = filtered.filter((rec) => {
-          const val = getRecordFieldValue(rec, q.field!);
-          return val !== undefined && val !== null && val !== "";
-        }).length;
-      } else {
-        results[name] = filtered.length;
-      }
-    } else if (q.type === "group_count") {
-      const counts: Record<string, number> = {};
-      if (q.field) {
-        for (const rec of filtered) {
-          const val = getRecordFieldValue(rec, q.field);
-          if (Array.isArray(val)) {
-            for (const item of val) {
-              const key = String(item || "unset");
-              counts[key] = (counts[key] ?? 0) + 1;
-            }
-          } else {
-            const key =
-              val === undefined || val === null || val === ""
-                ? "unset"
-                : String(val);
-            counts[key] = (counts[key] ?? 0) + 1;
-          }
-        }
-      }
-      results[name] = counts;
-    } else if (q.type === "sum") {
-      let total = 0;
-      if (q.field) {
-        for (const rec of filtered) {
-          const val = Number(getRecordFieldValue(rec, q.field));
-          if (Number.isFinite(val)) total += val;
-        }
-      }
-      results[name] = total;
-    }
-  }
-
-  return results;
 }
 
 function asNodeError(error: unknown): { code?: string } {
@@ -505,9 +384,16 @@ export class WorkspaceService {
     );
 
     if (presentFindings.length > 0) {
+      const contractFindings = openFindings.filter(
+        (f) => f.rule_code !== "openui_syntax_error",
+      );
+      const warnings = openFindings
+        .filter((f) => f.rule_code === "openui_syntax_error")
+        .map((f) => f.message);
       return {
-        valid: openFindings.length === 0,
-        errors: openFindings.map((f) => f.message),
+        valid: contractFindings.length === 0,
+        errors: contractFindings.map((f) => f.message),
+        ...(warnings.length ? { warnings } : {}),
         ...(rawVal.schema_path ? { schema_path: rawVal.schema_path } : {}),
         ...(rawVal.template_path
           ? { template_path: rawVal.template_path }
@@ -635,13 +521,9 @@ export class WorkspaceService {
         }
         if (info.isSymbolicLink()) continue;
         if (entry.isDirectory()) {
-          const hasProjectManifest = existsSync(
-            join(absolute, PROJECT_MANIFEST_FILENAME),
-          );
           entries.push({
             path,
             kind: "directory",
-            ...(hasProjectManifest ? { project: true } : {}),
           });
           visit(absolute);
         } else if (entry.isFile()) {
@@ -1108,7 +990,6 @@ export class WorkspaceService {
             }
             if (!templateRel) continue;
 
-            const openuiPaths = this.findDomainOpenUIPaths(domainPath);
             byPath.set(domainPath, {
               path: domainPath,
               label: typeof item.label === "string" ? item.label : domainPath,
@@ -1117,12 +998,6 @@ export class WorkspaceService {
               template_path: templateRel,
               ...(info?.schemaRelativePath
                 ? { schema_path: info.schemaRelativePath }
-                : {}),
-              ...(openuiPaths.dashboard_openui_path
-                ? { dashboard_openui_path: openuiPaths.dashboard_openui_path }
-                : {}),
-              ...(openuiPaths.record_openui_path
-                ? { record_openui_path: openuiPaths.record_openui_path }
                 : {}),
               ...(item.kind === "core" || item.kind === "extension"
                 ? { kind: item.kind }
@@ -1147,12 +1022,10 @@ export class WorkspaceService {
       if (
         col.path !== "knowledge" &&
         !col.template_path &&
-        !col.manifest_path &&
         col.record_count === 0
       ) {
         continue;
       }
-      const openuiPaths = this.findDomainOpenUIPaths(col.path);
       const resolvedTemplatePath = col.template_path ?? builtin?.template_path;
       const resolvedSchemaPath = col.schema_path ?? builtin?.schema_path;
       byPath.set(col.path, {
@@ -1163,12 +1036,6 @@ export class WorkspaceService {
           ? { template_path: resolvedTemplatePath }
           : {}),
         ...(resolvedSchemaPath ? { schema_path: resolvedSchemaPath } : {}),
-        ...(openuiPaths.dashboard_openui_path
-          ? { dashboard_openui_path: openuiPaths.dashboard_openui_path }
-          : {}),
-        ...(openuiPaths.record_openui_path
-          ? { record_openui_path: openuiPaths.record_openui_path }
-          : {}),
         kind: col.kind === "core" ? "core" : "extension",
       });
     }
@@ -1178,25 +1045,6 @@ export class WorkspaceService {
     }
 
     return DEFAULT_CREATABLE_DOMAINS;
-  }
-
-  private findDomainOpenUIPaths(domainPath: string): {
-    dashboard_openui_path?: string | undefined;
-    record_openui_path?: string | undefined;
-  } {
-    const dirAbs = resolve(this.workspaceRoot, domainPath);
-    if (!this.insideWorkspace(dirAbs) || !existsSync(dirAbs)) return {};
-    try {
-      const uiPath = join(dirAbs, DEFAULT_PROJECT_UI_ENTRY);
-      if (existsSync(uiPath) && lstatSync(uiPath).isFile()) {
-        return {
-          dashboard_openui_path: `${domainPath}/${DEFAULT_PROJECT_UI_ENTRY}`,
-        };
-      }
-      return {};
-    } catch {
-      return {};
-    }
   }
 
   domainOverview(domainPathValue: unknown): WorkspaceDomainRecordsResponse {
@@ -1240,7 +1088,6 @@ export class WorkspaceService {
     const templateInfo = dirExists
       ? findDomainTemplate(this.workspaceRoot, `${domainPath}/dummy.md`)
       : null;
-    const openuiPaths = dirExists ? this.findDomainOpenUIPaths(domainPath) : {};
 
     if (!domainInfo) {
       const label =
@@ -1258,25 +1105,12 @@ export class WorkspaceService {
         ...(builtin?.purpose ? { purpose: builtin.purpose } : {}),
         ...(tplRel ? { template_path: tplRel } : {}),
         ...(schRel ? { schema_path: schRel } : {}),
-        ...(openuiPaths.dashboard_openui_path
-          ? { dashboard_openui_path: openuiPaths.dashboard_openui_path }
-          : {}),
-        ...(openuiPaths.record_openui_path
-          ? { record_openui_path: openuiPaths.record_openui_path }
-          : {}),
       };
     } else {
       const schRel = templateInfo?.schemaRelativePath ?? builtin?.schema_path;
       domainInfo = {
         ...domainInfo,
         ...(schRel && !domainInfo.schema_path ? { schema_path: schRel } : {}),
-        ...(openuiPaths.dashboard_openui_path &&
-        !domainInfo.dashboard_openui_path
-          ? { dashboard_openui_path: openuiPaths.dashboard_openui_path }
-          : {}),
-        ...(openuiPaths.record_openui_path && !domainInfo.record_openui_path
-          ? { record_openui_path: openuiPaths.record_openui_path }
-          : {}),
       };
     }
 
@@ -1343,29 +1177,6 @@ export class WorkspaceService {
       templateSections = builtin.template_sections;
     }
 
-    let dashboardOpenui: string | undefined;
-    if (domainInfo.dashboard_openui_path) {
-      const dashAbs = resolve(
-        this.workspaceRoot,
-        domainInfo.dashboard_openui_path,
-      );
-      if (this.insideWorkspace(dashAbs) && existsSync(dashAbs)) {
-        try {
-          dashboardOpenui = readFileSync(dashAbs, "utf-8");
-        } catch {}
-      }
-    }
-
-    let recordOpenui: string | undefined;
-    if (domainInfo.record_openui_path) {
-      const recAbs = resolve(this.workspaceRoot, domainInfo.record_openui_path);
-      if (this.insideWorkspace(recAbs) && existsSync(recAbs)) {
-        try {
-          recordOpenui = readFileSync(recAbs, "utf-8");
-        } catch {}
-      }
-    }
-
     const records: WorkspaceDomainRecordSummary[] = [];
     let invalidCount = 0;
 
@@ -1392,7 +1203,6 @@ export class WorkspaceService {
           const childAbs = join(scanAbs, fname);
           if (
             !protectedPath(childRel) &&
-            !existsSync(join(childAbs, PROJECT_MANIFEST_FILENAME)) &&
             !findDomainTemplate(this.workspaceRoot, `${childRel}/dummy.md`)
           ) {
             collectDirectoryRecords(childAbs, childRel, false);
@@ -1501,473 +1311,6 @@ export class WorkspaceService {
       ...(builtin?.starter_templates
         ? { starter_templates: builtin.starter_templates }
         : {}),
-      ...(dashboardOpenui !== undefined
-        ? { dashboard_openui: dashboardOpenui }
-        : {}),
-      ...(recordOpenui !== undefined ? { record_openui: recordOpenui } : {}),
-    };
-  }
-
-  listProjects(): WorkspaceProjectsResponse {
-    const projects: ProjectSummary[] = [];
-
-    const visit = (directory: string): void => {
-      let entries: Dirent<string>[] = [];
-      try {
-        entries = readdirSync(directory, {
-          encoding: "utf8",
-          withFileTypes: true,
-        });
-      } catch {
-        return;
-      }
-
-      const hasManifest = entries.some(
-        (e) => e.isFile() && e.name === PROJECT_MANIFEST_FILENAME,
-      );
-      if (hasManifest && directory !== this.workspaceRoot) {
-        const relDir = relative(this.workspaceRoot, directory)
-          .split(sep)
-          .join("/");
-        if (!protectedPath(relDir)) {
-          try {
-            const summary = this.buildProjectSummary(
-              directory,
-              relDir,
-              entries,
-            );
-            if (summary) projects.push(summary);
-          } catch {}
-        }
-      }
-
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const abs = join(directory, entry.name);
-        const rel = relative(this.workspaceRoot, abs).split(sep).join("/");
-        if (protectedPath(rel)) continue;
-        try {
-          const info = lstatSync(abs);
-          if (info.isSymbolicLink()) continue;
-          visit(abs);
-        } catch {}
-      }
-    };
-
-    visit(this.workspaceRoot);
-    projects.sort((a, b) => a.path.localeCompare(b.path));
-
-    return {
-      schema: 1,
-      projects,
-    };
-  }
-
-  private buildProjectSummary(
-    dirAbs: string,
-    projectPath: string,
-    entries?: Dirent<string>[],
-  ): ProjectSummary | null {
-    const manifestRel = `${projectPath}/${PROJECT_MANIFEST_FILENAME}`;
-    const manifestAbs = join(dirAbs, PROJECT_MANIFEST_FILENAME);
-    if (!existsSync(manifestAbs)) return null;
-
-    const raw = readFileSync(manifestAbs, "utf-8");
-    const parsedManifest = parseProjectManifest(raw);
-    const fallbackName =
-      (projectPath.split("/").at(-1) ?? projectPath)
-        .replace(/[-_]+/g, " ")
-        .replace(/\b\w/g, (c) => c.toUpperCase()) || projectPath;
-    const manifest: ProjectManifest = parsedManifest.manifest ?? {
-      version: 1,
-      project: {
-        id: projectPath.split("/").at(-1) ?? projectPath,
-        name: fallbackName,
-      },
-      data: {},
-      ui: { entry: DEFAULT_PROJECT_UI_ENTRY },
-    };
-
-    const renderErrors: string[] = [...parsedManifest.errors];
-    const uiEntry = manifest.ui.entry || DEFAULT_PROJECT_UI_ENTRY;
-    const uiRel = `${projectPath}/${uiEntry}`;
-    const uiAbs = resolve(dirAbs, uiEntry);
-    if (!uiAbs.startsWith(dirAbs + sep) || !existsSync(uiAbs)) {
-      renderErrors.push(`UI entry '${uiEntry}' is missing in '${projectPath}'`);
-    } else {
-      try {
-        const uiRaw = readFileSync(uiAbs, "utf8");
-        const uiVal = validateOpenUIContent(this.workspaceRoot, uiRel, uiRaw);
-        for (const err of uiVal.errors) {
-          if (err.startsWith("openui")) {
-            renderErrors.push(err);
-          }
-        }
-      } catch {}
-    }
-
-    const dirEntries =
-      entries ??
-      readdirSync(dirAbs, {
-        encoding: "utf8",
-        withFileTypes: true,
-      });
-
-    const excluded = new Set(
-      (manifest.data.exclude ?? ["README.md"]).map((s) => s.toLowerCase()),
-    );
-    let recordCount = 0;
-    let invalidCount = 0;
-
-    for (const entry of dirEntries) {
-      if (!entry.isFile()) continue;
-      const fname = entry.name;
-      if (fname.startsWith(".")) continue;
-      const lower = fname.toLowerCase();
-      if (!lower.endsWith(".md")) continue;
-      if (lower.endsWith("-template.md") || lower === "readme.md") continue;
-      if (excluded.has(lower)) continue;
-      if (
-        manifest.data.template &&
-        lower === manifest.data.template.toLowerCase()
-      ) {
-        continue;
-      }
-
-      recordCount++;
-      try {
-        const content = readFileSync(join(dirAbs, fname), "utf-8");
-        const v = this.validateWithMaintainer(
-          `${projectPath}/${fname}`,
-          content,
-        );
-        if (!v.valid) invalidCount++;
-      } catch {}
-    }
-
-    const templateInfo = findDomainTemplate(
-      this.workspaceRoot,
-      `${projectPath}/dummy.md`,
-    );
-    const templatePath = manifest.data.template
-      ? `${projectPath}/${manifest.data.template}`
-      : templateInfo?.templateRelativePath;
-    const schemaPath = manifest.data.schema
-      ? `${projectPath}/${manifest.data.schema}`
-      : templateInfo?.schemaRelativePath;
-
-    return {
-      path: projectPath,
-      id: manifest.project.id,
-      name: manifest.project.name,
-      ...(manifest.project.description
-        ? { description: manifest.project.description }
-        : {}),
-      ...(manifest.project.icon ? { icon: manifest.project.icon } : {}),
-      manifest_path: manifestRel,
-      ui_path: uiRel,
-      ...(templatePath ? { template_path: templatePath } : {}),
-      ...(schemaPath ? { schema_path: schemaPath } : {}),
-      skills: manifest.logic?.skills ?? [],
-      record_count: recordCount,
-      invalid_record_count: invalidCount,
-      renderable: renderErrors.length === 0,
-      ...(renderErrors.length > 0 ? { render_errors: renderErrors } : {}),
-    };
-  }
-
-  loadProject(projectPathValue: unknown): WorkspaceProjectResponse {
-    if (typeof projectPathValue !== "string" || !projectPathValue.trim()) {
-      throw new WorkspaceError(
-        "project path is required",
-        400,
-        "invalid_project",
-      );
-    }
-    const projectPath = projectPathValue
-      .trim()
-      .replaceAll("\\", "/")
-      .replace(/^\/+/, "")
-      .replace(/\/+$/, "");
-    if (
-      !projectPath ||
-      projectPath.includes("..") ||
-      projectPath.includes("\0") ||
-      protectedPath(projectPath)
-    ) {
-      throw new WorkspaceError("invalid project path", 400, "invalid_project");
-    }
-
-    const dirAbs = this.assertNoSymlink(projectPath);
-    if (!existsSync(dirAbs) || !lstatSync(dirAbs).isDirectory()) {
-      throw new WorkspaceError(
-        `project "${projectPath}" was not found`,
-        404,
-        "not_found",
-      );
-    }
-
-    const manifestRel = `${projectPath}/${PROJECT_MANIFEST_FILENAME}`;
-    const manifestAbs = join(dirAbs, PROJECT_MANIFEST_FILENAME);
-    if (!existsSync(manifestAbs)) {
-      throw new WorkspaceError(
-        `directory "${projectPath}" does not have a ${PROJECT_MANIFEST_FILENAME}`,
-        404,
-        "not_a_project",
-      );
-    }
-
-    const manifestRaw = readFileSync(manifestAbs, "utf-8");
-    const parsedManifest = parseProjectManifest(manifestRaw);
-    const fallbackName =
-      (projectPath.split("/").at(-1) ?? projectPath)
-        .replace(/[-_]+/g, " ")
-        .replace(/\b\w/g, (c) => c.toUpperCase()) || projectPath;
-    const manifest: ProjectManifest = parsedManifest.manifest ?? {
-      version: 1,
-      project: {
-        id: projectPath.split("/").at(-1) ?? projectPath,
-        name: fallbackName,
-      },
-      data: {},
-      ui: { entry: DEFAULT_PROJECT_UI_ENTRY },
-    };
-
-    const renderErrors: string[] = [];
-    const manifestVal = validateProjectManifest(
-      this.workspaceRoot,
-      manifestRel,
-      manifestRaw,
-    );
-    this.validateWithMaintainer(manifestRel, manifestRaw);
-    for (const err of parsedManifest.errors) {
-      renderErrors.push(`manifest: ${err}`);
-    }
-    for (const err of manifestVal.errors) {
-      const formatted = `manifest: ${err}`;
-      if (!renderErrors.includes(formatted)) {
-        renderErrors.push(formatted);
-      }
-    }
-
-    const uiEntry = manifest.ui.entry || DEFAULT_PROJECT_UI_ENTRY;
-    const uiRel = `${projectPath}/${uiEntry}`;
-    const uiAbs = resolve(dirAbs, uiEntry);
-    let uiContent = "";
-    if (uiAbs.startsWith(dirAbs + sep) && existsSync(uiAbs)) {
-      try {
-        uiContent = readFileSync(uiAbs, "utf-8");
-        const uiVal = this.validateWithMaintainer(uiRel, uiContent);
-        for (const err of uiVal.errors) {
-          if (err.startsWith("openui") || err.includes("must not be empty")) {
-            renderErrors.push(`ui: ${err}`);
-          }
-        }
-      } catch {}
-    } else {
-      renderErrors.push(
-        `ui: entry file '${uiEntry}' is missing in '${projectPath}'`,
-      );
-    }
-    const renderable = renderErrors.length === 0 && Boolean(uiContent.trim());
-
-    const templateInfo = findDomainTemplate(
-      this.workspaceRoot,
-      `${projectPath}/dummy.md`,
-    );
-    const templateRel = manifest.data.template
-      ? `${projectPath}/${manifest.data.template}`
-      : templateInfo?.templateRelativePath;
-    const schemaRel = manifest.data.schema
-      ? `${projectPath}/${manifest.data.schema}`
-      : templateInfo?.schemaRelativePath;
-
-    let schemaJson: Record<string, unknown> | undefined;
-    if (schemaRel) {
-      const schemaAbs = resolve(this.workspaceRoot, schemaRel);
-      if (this.insideWorkspace(schemaAbs) && existsSync(schemaAbs)) {
-        try {
-          const parsed = JSON.parse(readFileSync(schemaAbs, "utf-8"));
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            schemaJson = parsed as Record<string, unknown>;
-          }
-        } catch {}
-      }
-    }
-
-    let templateHeadings: string[] | undefined;
-    if (templateRel) {
-      const tplAbs = resolve(this.workspaceRoot, templateRel);
-      if (this.insideWorkspace(tplAbs) && existsSync(tplAbs)) {
-        try {
-          const tplRaw = readFileSync(tplAbs, "utf-8");
-          const { body } = parseRecordFrontmatter(tplRaw);
-          templateHeadings = extractHeadings(body)
-            .filter((h) => h.level === 2)
-            .map((h) => h.text.trim())
-            .filter(Boolean);
-        } catch {}
-      }
-    }
-
-    const excluded = new Set(
-      (manifest.data.exclude ?? ["README.md"]).map((s) => s.toLowerCase()),
-    );
-    const records: WorkspaceDomainRecordSummary[] = [];
-    const projectFiles: WorkspaceFileMetadata[] = [];
-    let invalidCount = 0;
-
-    let entries: Dirent<string>[] = [];
-    try {
-      entries = readdirSync(dirAbs, { encoding: "utf8", withFileTypes: true });
-    } catch {}
-
-    for (const entry of entries) {
-      if (!entry.isFile()) continue;
-      const fname = entry.name;
-      if (fname.startsWith(".")) continue;
-      const relPath = `${projectPath}/${fname}`;
-      if (protectedPath(relPath)) continue;
-
-      const absPath = join(dirAbs, fname);
-      let info: Stats;
-      try {
-        info = lstatSync(absPath);
-        if (info.isSymbolicLink() || !info.isFile()) continue;
-      } catch {
-        continue;
-      }
-
-      const lower = fname.toLowerCase();
-      const isTemplateFile =
-        lower.endsWith("-template.md") ||
-        (manifest.data.template &&
-          lower === manifest.data.template.toLowerCase());
-      const isExcludedMd =
-        lower === "readme.md" || excluded.has(lower) || isTemplateFile;
-
-      if (!lower.endsWith(".md") || isExcludedMd) {
-        try {
-          const rawBytes = readFileSync(absPath);
-          projectFiles.push({
-            ...this.fileMetadata(absPath, relPath),
-            revision: revision(rawBytes),
-          });
-        } catch {}
-        continue;
-      }
-
-      try {
-        const rawBytes = readFileSync(absPath);
-        const content = new TextDecoder("utf-8").decode(rawBytes);
-        const parsed = parseRecordFrontmatter(content);
-        const headings = extractHeadings(parsed.body);
-        const l1 = headings.find((h) => h.level === 1)?.text.trim();
-        const title =
-          l1 ||
-          (typeof parsed.metadata?.title === "string"
-            ? parsed.metadata.title
-            : "") ||
-          fname.replace(/\.md$/i, "");
-        const sections = headings
-          .filter((h) => h.level === 2)
-          .map((h) => h.text.trim())
-          .filter(Boolean);
-
-        const excerptLines = parsed.body
-          .split(/\r?\n/)
-          .map((l) => l.trim())
-          .filter(
-            (l) =>
-              l.length > 0 &&
-              !l.startsWith("#") &&
-              !l.startsWith("---") &&
-              !l.startsWith("```"),
-          );
-        const excerpt = excerptLines.slice(0, 2).join(" ").slice(0, 220);
-
-        const recRev = revision(rawBytes);
-        const validation = this.validateWithMaintainer(
-          relPath,
-          content,
-          recRev,
-        );
-        if (!validation.valid) {
-          invalidCount++;
-        }
-
-        const fm: Record<string, unknown> = {};
-        if (parsed.metadata) {
-          for (const [k, v] of Object.entries(parsed.metadata)) {
-            if (k !== "$schema") fm[k] = v;
-          }
-        }
-
-        records.push({
-          path: relPath,
-          filename: fname,
-          title,
-          modified_at: info.mtime.toISOString(),
-          size: info.size,
-          revision: recRev,
-          frontmatter: fm,
-          sections,
-          excerpt,
-          validation,
-        });
-      } catch {}
-    }
-
-    if (manifest.data.default_sort?.field) {
-      const sortField = manifest.data.default_sort.field;
-      const dir = manifest.data.default_sort.direction === "desc" ? -1 : 1;
-      records.sort((a, b) => {
-        const va = getRecordFieldValue(a, sortField);
-        const vb = getRecordFieldValue(b, sortField);
-        if (va === undefined || va === null || va === "") return 1;
-        if (vb === undefined || vb === null || vb === "") return -1;
-        return String(va).localeCompare(String(vb)) * dir;
-      });
-    } else {
-      records.sort((a, b) => a.path.localeCompare(b.path));
-    }
-
-    projectFiles.sort((a, b) => a.path.localeCompare(b.path));
-
-    const queries = evaluateProjectQueries(records, manifest.data.queries);
-
-    const summary: ProjectSummary = {
-      path: projectPath,
-      id: manifest.project.id,
-      name: manifest.project.name,
-      ...(manifest.project.description
-        ? { description: manifest.project.description }
-        : {}),
-      ...(manifest.project.icon ? { icon: manifest.project.icon } : {}),
-      manifest_path: manifestRel,
-      ui_path: uiRel,
-      ...(templateRel ? { template_path: templateRel } : {}),
-      ...(schemaRel ? { schema_path: schemaRel } : {}),
-      skills: manifest.logic?.skills ?? [],
-      record_count: records.length,
-      invalid_record_count: invalidCount,
-      renderable,
-      ...(renderErrors.length > 0 ? { render_errors: renderErrors } : {}),
-    };
-
-    return {
-      schema: 1,
-      project: summary,
-      manifest,
-      manifest_raw: manifestRaw,
-      ui_content: uiContent,
-      records,
-      queries,
-      ...(schemaJson ? { schema_json: schemaJson } : {}),
-      ...(templateHeadings ? { template_headings: templateHeadings } : {}),
-      project_files: projectFiles,
-      renderable,
-      ...(renderErrors.length > 0 ? { render_errors: renderErrors } : {}),
     };
   }
 
@@ -2017,32 +1360,6 @@ export class WorkspaceService {
     const allowed = this.creatableDomains();
     let matchedDomain = allowed.find((d) => d.path === domain);
     if (!matchedDomain) {
-      const manifestAbs = resolve(
-        this.workspaceRoot,
-        domain,
-        PROJECT_MANIFEST_FILENAME,
-      );
-      if (this.insideWorkspace(manifestAbs) && existsSync(manifestAbs)) {
-        try {
-          const { manifest } = parseProjectManifest(
-            readFileSync(manifestAbs, "utf-8"),
-          );
-          if (manifest) {
-            matchedDomain = {
-              path: domain,
-              label: manifest.project.name,
-              ...(manifest.data.template
-                ? { template_path: `${domain}/${manifest.data.template}` }
-                : {}),
-              ...(manifest.data.schema
-                ? { schema_path: `${domain}/${manifest.data.schema}` }
-                : {}),
-            };
-          }
-        } catch {}
-      }
-    }
-    if (!matchedDomain) {
       const tplInfo = findDomainTemplate(
         this.workspaceRoot,
         `${domain}/placeholder.md`,
@@ -2090,8 +1407,7 @@ export class WorkspaceService {
     const baseFilename = filename.split("/").at(-1) ?? filename;
     if (
       baseFilename.endsWith("-template.md") ||
-      baseFilename.endsWith(".schema.json") ||
-      baseFilename.endsWith(".openui")
+      baseFilename.endsWith(".schema.json")
     ) {
       throw new WorkspaceError(
         "filename cannot use protected template or schema name",

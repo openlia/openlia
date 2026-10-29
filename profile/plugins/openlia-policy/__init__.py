@@ -1,6 +1,6 @@
 """Runtime enforcement for OpenLia consequential permissions (/opt/data/permissions.yaml).
 
-Ordinary workspace creation, record updates, templates, schemas, and mini-projects
+Ordinary workspace creation, record updates, templates, schemas, and inline views
 are allowed without domain registration or structural batch gates. Consequential
 permissions (destructive actions, external side effects, scheduled work) and
 protected system/secret paths remain strictly enforced.
@@ -416,7 +416,7 @@ class PolicyEnforcer:
         scheduled_policy = authority.permissions.get("scheduled_work", {})
         if not scheduled_policy.get("enabled", True):
             return _block("OpenLia policy blocked scheduled work: scheduled_work is disabled.")
-        if relative_path.endswith(("-template.md", ".schema.json", "project-manifest.toml", ".openui")):
+        if relative_path.endswith(("-template.md", ".schema.json")):
             return _block(
                 f"OpenLia policy blocked scheduled structural edit on {relative_path}."
             )

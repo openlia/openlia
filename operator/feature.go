@@ -477,7 +477,7 @@ func RegisteredDomainPaths(workspaceDir string) (map[string]bool, error) {
 			return nil
 		}
 		name := d.Name()
-		if strings.HasSuffix(name, "-template.md") || strings.HasSuffix(name, ".schema.json") || name == "project-manifest.toml" {
+		if strings.HasSuffix(name, "-template.md") || strings.HasSuffix(name, ".schema.json") {
 			relDir, relErr := filepath.Rel(workspaceDir, filepath.Dir(p))
 			if relErr == nil && relDir != "." {
 				relSlash := filepath.ToSlash(relDir)
@@ -1676,7 +1676,7 @@ func cleanEmptyTemplateDomainDir(domainDir string) {
 			continue
 		}
 		name := entry.Name()
-		if name == ".gitkeep" || strings.HasSuffix(name, "-template.md") || strings.HasSuffix(name, ".schema.json") || name == "project-manifest.toml" || name == "ui.openui" {
+		if name == ".gitkeep" || strings.HasSuffix(name, "-template.md") || strings.HasSuffix(name, ".schema.json") {
 			_ = os.Remove(filepath.Join(domainDir, name))
 			continue
 		}

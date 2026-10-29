@@ -8,7 +8,7 @@ user-owned delegation policy authorizes the scoped update.
 
 - Workspace Maintainer discovers collections automatically from folders, local
   `*-template.md` files, referenced `*.schema.json` schemas, and
-  `project-manifest.toml` manifests. Folders do not require registration before
+  Markdown records. Folders do not require registration before
   they can be created or used.
 - Consequential permissions live in `/opt/data/permissions.yaml` and govern
   destructive actions (`delete_records`, `overwrite_records`), external side
@@ -18,9 +18,9 @@ user-owned delegation policy authorizes the scoped update.
 - Use `inbox/` as the universal intake point when classification is uncertain.
 - Retained ingestion originals and extracted provenance records live under `sources/`.
 - New top-level and nested folders are normal workspace content. For a recurring
-  use case needing reusable organization or a Mini-Project UI, design the
-  smallest useful folder, template, optional schema, and `project-manifest.toml` /
-  `ui.openui` directly alongside the user's requested artifact, or install a
+  use case needing reusable organization or an interactive view, design the
+  smallest useful folder, template, optional schema, and inline `openui` blocks
+  in the requested Markdown artifact, or install a
   feature/profile from the OpenLia Templates catalog (`https://github.com/openlia/templates.git`).
 
 ## File handling
@@ -33,7 +33,7 @@ user-owned delegation policy authorizes the scoped update.
     - `inbox/ingestion/ingestion-template.md`: durable capture and processing records.
     - `sources/records/source-template.md`: retained source provenance and extraction metadata.
   - **Optional Feature & Profile Templates** (available via `openlia features install <id>` from `https://github.com/openlia/templates.git` or custom feature packages):
-    - Install only the domains, Mini-Projects, and skills that match the user's workflow (e.g. `tasks`, `goals`, `calendar`, `daily-briefing`, `personal-finance`, `personal-health`, `decision-analysis`, `deep-research`, `monitors`, `people`, `ideas`, `areas`, `travel`, `shopping`, or custom domains).
+    - Install only the domains and skills that match the user's workflow (e.g. `tasks`, `goals`, `calendar`, `daily-briefing`, `personal-finance`, `personal-health`, `decision-analysis`, `deep-research`, `monitors`, `people`, `ideas`, `areas`, `travel`, `shopping`, or custom domains).
 - Prefer Markdown and small structured files with stable, descriptive names.
 - Distinguish semantic domain records from supporting artifacts. Use a suitable
   local template for recurring artifacts rather than forcing a checklist into
@@ -47,10 +47,10 @@ user-owned delegation policy authorizes the scoped update.
   updated Markdown record directly in that folder must conform to the referenced schema
   as well as the starter template. Run the `workspace-template-customization`
   validator on demand after template, schema, or record changes.
-- **Mini-Projects (`project-manifest.toml` + `ui.openui`)**:
-  - Structured folders can opt into becoming a Mini-Project by defining `project-manifest.toml` and `ui.openui` (powered by OpenUI Lang), rendered in the dedicated **Projects** view (`/projects/<path>`).
-  - Modifying `project-manifest.toml` queries or `ui.openui` alters the presentation layer without touching or invalidating Markdown records on disk.
-  - After updating a Mini-Project's UI, validate with `validate_workspace.py` and reply with canonical links (e.g. `openlia://projects/<path>`).
+- **Inline OpenUI**:
+  - Put interactive tables, cards, charts, Calendar, and Finance views in fenced `openui` blocks inside Markdown. No separate manifest or UI entry file is needed.
+  - Use bare component roots, schema-named arguments, and row tables (`Table(columns: [{key, label}], rows: [{...}])`). Paths resolve relative to the containing document's folder.
+  - Validate syntax with `validate_workspace.py` and use Workspace UI for full component diagnostics. Findings are advisory; link the containing document via `openlia://workspace/<path>`.
 - Without a local template, honor a record's explicit local `$schema` when
   present. A record directive cannot override a local template's contract.
 - Authorization and validation are separate: report invalid content accurately,
@@ -82,7 +82,6 @@ user-owned delegation policy authorizes the scoped update.
 When referencing or providing links to workspace documents, notes, or skills in user-facing responses or workspace records:
 - Format links using canonical `openlia://` URIs:
   - Workspace documents: `[Label](openlia://workspace/<path>)` (e.g. `[Source Record](openlia://workspace/sources/records/source-template.md)`).
-  - Mini-Projects: `[Label](openlia://projects/<path>)` (e.g. `[Project](openlia://projects/my-project)`).
   - Skills: `[Label](openlia://skills/<skill-id>)` (e.g. `[Template Customization](openlia://skills/workspace-template-customization)`).
   - Inside workspace markdown files, document-relative links (e.g. `[Specs](./specs.md)`) are also supported.
 - Never embed environment-specific HTTP origins or hostnames into workspace records.

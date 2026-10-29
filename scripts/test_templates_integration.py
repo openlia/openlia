@@ -121,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
                 run("native Calendar server regression tests", ["bun", "test", "src/server/calendar.test.ts"], cwd=UI, env={**environment, "OPENLIA_REMIND_BINARY": remind})
             report["docker_bind_mounts"] = "passed with isolated pinned Alpine container" if args.docker else "not-run (opt in with --docker)"
             sandbox = scratch / "installed"
-            run("real catalog installation and runtime OpenUI diagnostics", ["bun", "scripts/check-templates.ts", str(snapshot), str(sandbox)], cwd=UI)
+            run("real catalog installation and inline Markdown OpenUI diagnostics", ["bun", "scripts/check-templates.ts", str(snapshot), str(sandbox)], cwd=UI)
             report["catalog"] = json.loads((sandbox / "catalog-checks.json").read_text())
             calendar = sandbox / "install-calendar/workspace"
             run("installed Calendar workspace validation", [sys.executable, str(ROOT / "profile/system-skills/workspace-template-customization/scripts/validate_workspace.py"), "--workspace-root", str(calendar)])

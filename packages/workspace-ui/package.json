@@ -59,6 +59,7 @@
     "d3-sankey": "^0.12.3",
     "firebase": "^13.0.0",
     "lossless-json": "4.3.0",
+    "mdast-util-from-markdown": "^2.0.2",
     "prismjs": "^1.30.0",
     "react": "19.1.1",
     "react-dom": "19.1.1",

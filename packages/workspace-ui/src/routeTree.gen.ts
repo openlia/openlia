@@ -26,8 +26,6 @@ import { Route as MemoryIndexRouteImport } from './routes/memory/index'
 import { Route as MemorySplatRouteImport } from './routes/memory/$'
 import { Route as MigrationIndexRouteImport } from './routes/migration/index'
 import { Route as MigrationSplatRouteImport } from './routes/migration/$'
-import { Route as ProjectsIndexRouteImport } from './routes/projects/index'
-import { Route as ProjectsSplatRouteImport } from './routes/projects/$'
 import { Route as ShareSplatRouteImport } from './routes/share/$'
 import { Route as SkillsIndexRouteImport } from './routes/skills/index'
 import { Route as SkillsSplatRouteImport } from './routes/skills/$'
@@ -117,16 +115,6 @@ const MigrationSplatRoute = MigrationSplatRouteImport.update({
   path: '/migration/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
-  id: '/projects/',
-  path: '/projects/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ProjectsSplatRoute = ProjectsSplatRouteImport.update({
-  id: '/projects/$',
-  path: '/projects/$',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ShareSplatRoute = ShareSplatRouteImport.update({
   id: '/share/$',
   path: '/share/$',
@@ -157,14 +145,12 @@ export interface FileRoutesByFullPath {
   '/ingestion/$': typeof IngestionSplatRoute
   '/memory/$': typeof MemorySplatRoute
   '/migration/$': typeof MigrationSplatRoute
-  '/projects/$': typeof ProjectsSplatRoute
   '/share/$': typeof ShareSplatRoute
   '/skills/$': typeof SkillsSplatRoute
   '/files/': typeof FilesIndexRoute
   '/ingestion/': typeof IngestionIndexRoute
   '/memory/': typeof MemoryIndexRoute
   '/migration/': typeof MigrationIndexRoute
-  '/projects/': typeof ProjectsIndexRoute
   '/skills/': typeof SkillsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -181,14 +167,12 @@ export interface FileRoutesByTo {
   '/ingestion/$': typeof IngestionSplatRoute
   '/memory/$': typeof MemorySplatRoute
   '/migration/$': typeof MigrationSplatRoute
-  '/projects/$': typeof ProjectsSplatRoute
   '/share/$': typeof ShareSplatRoute
   '/skills/$': typeof SkillsSplatRoute
   '/files': typeof FilesIndexRoute
   '/ingestion': typeof IngestionIndexRoute
   '/memory': typeof MemoryIndexRoute
   '/migration': typeof MigrationIndexRoute
-  '/projects': typeof ProjectsIndexRoute
   '/skills': typeof SkillsIndexRoute
 }
 export interface FileRoutesById {
@@ -206,14 +190,12 @@ export interface FileRoutesById {
   '/ingestion/$': typeof IngestionSplatRoute
   '/memory/$': typeof MemorySplatRoute
   '/migration/$': typeof MigrationSplatRoute
-  '/projects/$': typeof ProjectsSplatRoute
   '/share/$': typeof ShareSplatRoute
   '/skills/$': typeof SkillsSplatRoute
   '/files/': typeof FilesIndexRoute
   '/ingestion/': typeof IngestionIndexRoute
   '/memory/': typeof MemoryIndexRoute
   '/migration/': typeof MigrationIndexRoute
-  '/projects/': typeof ProjectsIndexRoute
   '/skills/': typeof SkillsIndexRoute
 }
 export interface FileRouteTypes {
@@ -232,14 +214,12 @@ export interface FileRouteTypes {
     | '/ingestion/$'
     | '/memory/$'
     | '/migration/$'
-    | '/projects/$'
     | '/share/$'
     | '/skills/$'
     | '/files/'
     | '/ingestion/'
     | '/memory/'
     | '/migration/'
-    | '/projects/'
     | '/skills/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -256,14 +236,12 @@ export interface FileRouteTypes {
     | '/ingestion/$'
     | '/memory/$'
     | '/migration/$'
-    | '/projects/$'
     | '/share/$'
     | '/skills/$'
     | '/files'
     | '/ingestion'
     | '/memory'
     | '/migration'
-    | '/projects'
     | '/skills'
   id:
     | '__root__'
@@ -280,14 +258,12 @@ export interface FileRouteTypes {
     | '/ingestion/$'
     | '/memory/$'
     | '/migration/$'
-    | '/projects/$'
     | '/share/$'
     | '/skills/$'
     | '/files/'
     | '/ingestion/'
     | '/memory/'
     | '/migration/'
-    | '/projects/'
     | '/skills/'
   fileRoutesById: FileRoutesById
 }
@@ -305,14 +281,12 @@ export interface RootRouteChildren {
   IngestionSplatRoute: typeof IngestionSplatRoute
   MemorySplatRoute: typeof MemorySplatRoute
   MigrationSplatRoute: typeof MigrationSplatRoute
-  ProjectsSplatRoute: typeof ProjectsSplatRoute
   ShareSplatRoute: typeof ShareSplatRoute
   SkillsSplatRoute: typeof SkillsSplatRoute
   FilesIndexRoute: typeof FilesIndexRoute
   IngestionIndexRoute: typeof IngestionIndexRoute
   MemoryIndexRoute: typeof MemoryIndexRoute
   MigrationIndexRoute: typeof MigrationIndexRoute
-  ProjectsIndexRoute: typeof ProjectsIndexRoute
   SkillsIndexRoute: typeof SkillsIndexRoute
 }
 
@@ -437,20 +411,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MigrationSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/projects/': {
-      id: '/projects/'
-      path: '/projects'
-      fullPath: '/projects/'
-      preLoaderRoute: typeof ProjectsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/projects/$': {
-      id: '/projects/$'
-      path: '/projects/$'
-      fullPath: '/projects/$'
-      preLoaderRoute: typeof ProjectsSplatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/share/$': {
       id: '/share/$'
       path: '/share/$'
@@ -489,14 +449,12 @@ const rootRouteChildren: RootRouteChildren = {
   IngestionSplatRoute: IngestionSplatRoute,
   MemorySplatRoute: MemorySplatRoute,
   MigrationSplatRoute: MigrationSplatRoute,
-  ProjectsSplatRoute: ProjectsSplatRoute,
   ShareSplatRoute: ShareSplatRoute,
   SkillsSplatRoute: SkillsSplatRoute,
   FilesIndexRoute: FilesIndexRoute,
   IngestionIndexRoute: IngestionIndexRoute,
   MemoryIndexRoute: MemoryIndexRoute,
   MigrationIndexRoute: MigrationIndexRoute,
-  ProjectsIndexRoute: ProjectsIndexRoute,
   SkillsIndexRoute: SkillsIndexRoute,
 }
 export const routeTree = rootRouteImport

@@ -405,38 +405,8 @@ describe("route helpers", () => {
     );
   });
 
-  test("parses and builds project routes with view query parameters", () => {
-    expect(parseRoute("/projects/tasks?view=files")).toMatchObject({
-      projectPath: "tasks",
-      projectView: "files",
-      tab: "projects",
-      view: undefined,
-    });
-    expect(parseRoute("/projects/knowledge/research?view=ui")).toMatchObject({
-      projectPath: "knowledge/research",
-      projectView: "ui",
-      tab: "projects",
-      view: undefined,
-    });
-    expect(parseRoute("/projects/tasks?view=invalid")).toMatchObject({
-      projectPath: "tasks",
-      projectView: undefined,
-      tab: "projects",
-      view: undefined,
-    });
-    expect(
-      buildRouteUrl({
-        projectPath: "tasks",
-        projectView: "files",
-        tab: "projects",
-      }),
-    ).toBe("/projects/tasks?view=files");
-    expect(
-      buildRouteUrl({
-        projectPath: "knowledge/research",
-        projectView: "ui",
-        tab: "projects",
-      }),
-    ).toBe("/projects/knowledge/research?view=ui");
+  test("does not recognize removed project routes", () => {
+    expect(parseRoute("/projects/tasks").tab).not.toBe("projects");
+    expect(parseRoute("openlia://projects/tasks").tab).not.toBe("projects");
   });
 });

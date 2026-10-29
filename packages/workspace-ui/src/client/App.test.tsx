@@ -1203,7 +1203,6 @@ messages:
     ).toEqual([
       "Chat",
       "Documents",
-      "Projects",
       "Ingestion",
       "Skills",
       "Shared Links",
@@ -1627,53 +1626,21 @@ messages:
     );
   });
 
-  test("re-opens the same project record in Documents after navigating back to /projects/*", {
-    timeout: 15_000,
-  }, async () => {
-    window.history.replaceState(null, "", "/projects/tasks");
+  test("opens inline OpenUI documents without a Projects navigation tab", async () => {
+    window.history.replaceState(null, "", "/files/tasks/ship-ui.md");
     const mockApi = createMockWorkspaceApi({
       files: {
         "tasks/ship-ui.md":
-          "---\nstatus: todo\npriority: high\n---\n\n# Ship workspace UI\n",
+          '# Ship workspace UI\n\n```openui\nCardHeader(title: "Delivery status")\n```\n',
       },
     });
     render(<App api={mockApi} />);
 
-    // Allow for the first lazy-loaded ProjectPage import on slower CI runners.
-    const firstRecordButtons = await screen.findAllByText(
-      "Ship workspace UI",
-      {},
-      { timeout: 10_000 },
-    );
-    expect(firstRecordButtons.length).toBeGreaterThan(0);
-
-    // 1. Click record in Projects -> navigates to /files/tasks/ship-ui.md
-    if (firstRecordButtons[0]) {
-      fireEvent.click(firstRecordButtons[0]);
-    }
     expect(
       await screen.findByRole("article", { name: "Markdown preview" }),
     ).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/files/tasks/ship-ui.md");
-
-    // 2. Simulate browser Back navigation to /projects/tasks
-    window.history.replaceState(null, "", "/projects/tasks");
-    fireEvent(window, new PopStateEvent("popstate"));
-
-    expect(
-      await screen.findByRole("region", { name: "Projects workspace" }),
-    ).toBeInTheDocument();
-    const recordButtonsAfterBack =
-      await screen.findAllByText("Ship workspace UI");
-    expect(recordButtonsAfterBack.length).toBeGreaterThan(0);
-
-    // 3. Click the same record again -> navigates back to /files/tasks/ship-ui.md
-    if (recordButtonsAfterBack[0]) {
-      fireEvent.click(recordButtonsAfterBack[0]);
-    }
-    expect(
-      await screen.findByRole("article", { name: "Markdown preview" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Delivery status")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Projects" })).toBeNull();
     expect(window.location.pathname).toBe("/files/tasks/ship-ui.md");
   });
 

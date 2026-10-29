@@ -2,7 +2,7 @@
 
 The runtime provides chart components, a read-only native hledger adapter, and
 structured account-mapping creation. The optional `personal-finance` feature in
-`openlia/templates` owns the Finance manifest, OpenUI composition, and account
+`openlia/templates` owns the Finance Markdown/OpenUI composition and account
 templates. Runtime upgrades do not seed or overwrite financial records.
 
 ## Composition
@@ -17,8 +17,8 @@ root = Finance([Tabs([
 ])])
 ```
 
-`Finance(children, journal?)` uses the current project path. An optional journal
-argument is project-relative; otherwise only one reliably discovered include root
+`Finance(children, journal?)` uses the containing Markdown document's folder. An optional journal
+argument is document-folder-relative; otherwise only one reliably discovered include root
 is auto-selected. Ambiguous independent journals require explicit selection.
 Included source files are labelled as partial scopes, not silently combined with
 other ledgers.
@@ -31,7 +31,7 @@ accept ordinary data outside Finance and provide keyboard-accessible exact table
 Finance permits bar/line for income or balance time series, bar/pie for spending
 categories, and Sankey for posting flows. Incompatible combinations fail visibly;
 balances across months are never pie slices of a financial whole.
-Project and Storybook rendering use the upstream dark theme so tab labels, axes,
+Inline Markdown and Storybook rendering use the upstream dark theme so tab labels, axes,
 legends, and tooltips match the workspace rather than defaulting to light tokens.
 
 ### Chart color identity
@@ -58,7 +58,7 @@ encode good/bad credit/debit meaning or establish accessibility compliance.
 
 ## Account creation boundary
 
-The normal path is Projects → Personal Finance → Accounts → New account.
+Open the Finance Markdown overview in Documents, then Accounts → New account.
 
 The editor reads the **installed** local `accounts/` template and JSON schema
 through a bounded contract API, even when those files are hidden in Documents.

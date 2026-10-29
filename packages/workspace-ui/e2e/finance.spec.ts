@@ -2,11 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { captureScreenshot } from "./screenshot";
 
 async function openFinance(page: Page) {
-  await page.getByRole("button", { name: "Projects", exact: true }).click();
-  await page
-    .getByRole("complementary", { name: "Mini-projects list" })
-    .getByRole("button", { name: /Personal Finance/ })
-    .click();
+  await page.goto("/files/finance/overview.md");
   await expect(
     page.getByRole("region", { name: "Finance workspace" }),
   ).toBeVisible();
@@ -161,7 +157,7 @@ test.describe("native Finance project", () => {
   }) => {
     const title = `Future account ${crypto.randomUUID()}`;
     const journal = `finance/future-${crypto.randomUUID()}.journal`;
-    await page.goto("/projects/finance");
+    await page.goto("/files/finance/overview.md");
     await expect(
       page.getByRole("button", { name: "New account", exact: true }),
     ).toBeEnabled();

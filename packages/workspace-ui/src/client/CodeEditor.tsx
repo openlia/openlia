@@ -49,10 +49,6 @@ export function isMarkdownPath(path: string): boolean {
   return lower.endsWith(".md") || lower.endsWith(".markdown");
 }
 
-export function isOpenUIPath(path: string): boolean {
-  return path.toLowerCase().endsWith(".openui");
-}
-
 export function detectLanguage(path: string): { id: string; name: string } {
   const ext = path.toLowerCase().split(".").pop() ?? "";
   switch (ext) {

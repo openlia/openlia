@@ -10,10 +10,7 @@ import {
 import { join, relative, resolve } from "node:path";
 import YAML from "yaml";
 import { FeatureService } from "../src/server/features";
-import {
-  validateOpenUIContent,
-  validateProjectManifest,
-} from "../src/server/validator";
+import { validateMarkdownOpenUIBlocks } from "../src/server/validator";
 
 const templates = resolve(process.argv[2] ?? "");
 const sandbox = resolve(process.argv[3] ?? "");
@@ -61,15 +58,11 @@ for (const entry of readdirSync(join(templates, "features"), {
     for (const path of files(workspaceRoot)) {
       const rel = relative(workspaceRoot, path).replaceAll("\\", "/");
       const content = readFileSync(path, "utf8");
-      const result = path.endsWith("project-manifest.toml")
-        ? validateProjectManifest(workspaceRoot, rel, content)
-        : path.endsWith(".openui")
-          ? validateOpenUIContent(workspaceRoot, rel, content)
-          : undefined;
-      if (result) {
+      if (path.endsWith(".md")) {
+        const errors = validateMarkdownOpenUIBlocks(content);
         diagnostics++;
-        if (!result.valid) {
-          throw new Error(`${manifest.id}/${rel}: ${result.errors.join("; ")}`);
+        if (errors.length) {
+          throw new Error(`${manifest.id}/${rel}: ${errors.join("; ")}`);
         }
       }
     }

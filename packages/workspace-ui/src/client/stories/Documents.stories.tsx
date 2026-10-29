@@ -154,7 +154,6 @@ export const Navigator: Story = {
           mobileOpen
           onClose={action("close")}
           onOpenFile={action("openFile")}
-          onOpenProject={action("openProject")}
           onCreateFile={action("createFile")}
           onRetry={action("retry")}
           selectedPath="notes.md"

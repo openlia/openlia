@@ -1,8 +1,5 @@
-import { createParser } from "@openuidev/react-lang";
 import { useMemo } from "react";
-import { normalizeOpenUIProgram, openliaLibrary } from "./library";
-
-const parser = createParser(openliaLibrary.toJSONSchema());
+import { openUIErrors } from "../../shared/openui";
 
 export function OpenUIDiagnostics({
   content,
@@ -11,13 +8,7 @@ export function OpenUIDiagnostics({
   content: string;
   variant?: "default" | "toolbar" | "errors-only";
 }) {
-  const errors = useMemo(() => {
-    const result = parser.parse(normalizeOpenUIProgram(content));
-    return [
-      ...result.meta.errors.map((error) => `${error.code}: ${error.message}`),
-      ...(!result.root ? ["Missing required root statement"] : []),
-    ];
-  }, [content]);
+  const errors = useMemo(() => openUIErrors(content), [content]);
   if (
     (variant === "toolbar" && errors.length > 0) ||
     (variant === "errors-only" && errors.length === 0)

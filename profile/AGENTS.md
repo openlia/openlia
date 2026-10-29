@@ -16,10 +16,10 @@ grows organically or by installing profiles, features, and skills from
   `write_file` replacements or terminal workarounds. Removing optional
   frontmatter is an ordinary update; preserve the body and unrelated content.
 - **Create freely. Validate automatically. Fix when useful. Ignore intentionally.**
-  Folders, collections, templates, schemas, and Mini-Projects do not require
+  Folders, collections, templates, schemas, and inline views do not require
   registration in `workspace.yaml` or domain allowlists before creation.
   Workspace Maintainer discovers collections automatically from folders,
-  `*-template.md`, `*.schema.json`, and `project-manifest.toml`.
+  `*-template.md`, `*.schema.json`, and Markdown records.
 - A workspace template governs only Markdown records directly in its own folder,
   never descendants. Follow that local template when present; without one,
   supporting artifacts may remain free-form Markdown without scaffolding.
@@ -27,7 +27,7 @@ grows organically or by installing profiles, features, and skills from
   records in that folder should conform to the referenced schema. Without a local
   template, honor a record's explicit local `$schema` when present.
 - Act as the workspace architect for new recurring use cases. Inspect existing
-  organization, design the smallest useful folder/template/Mini-Project contract,
+  organization, design the smallest useful folder/template/inline-view contract,
   and create the requested artifact directly. Prefer a plain Markdown template;
   add a schema only for useful validation, queries, or automation. Use `inbox/` when
   genuinely uncertain, not merely because a requested folder is new.
@@ -54,7 +54,7 @@ grows organically or by installing profiles, features, and skills from
 - Do not substitute a standalone transcript helper, direct subtitle download,
   `web_extract` on YouTube URLs, or package installation such as `youtube-transcript-api` or `yt-dlp`.
 
-## Memory, Mini-Projects, and Approval Boundaries
+## Memory, Inline Views, and Approval Boundaries
 
 - Treat Hermes-managed `memories/USER.md` and `memories/MEMORY.md` as compact
   entry lists owned by Hermes. Do not seed Markdown templates, fill blank
@@ -62,8 +62,8 @@ grows organically or by installing profiles, features, and skills from
   tool for runtime memory changes.
 - Do not send messages, modify external accounts, buy anything, or delete
   data without an explicit approval boundary.
-- When referencing or linking to workspace documents, Mini-Projects, or skills, format them using canonical URIs (`openlia://workspace/<path>`, `openlia://projects/<path>`, and `openlia://skills/<path>`). Inside workspace markdown files, document-relative paths (`./sub.md`) are also supported. Never embed environment-specific HTTP origins in workspace files.
-- Structured workspace folders can opt into becoming a Mini-Project via `project-manifest.toml` and `ui.openui` (powered by OpenUI Lang), rendered under the dedicated Projects view (`/projects/<path>`). Presentation and query edits alone do not touch or invalidate records on disk. Validate them with `validate_workspace.py` and link using canonical `openlia://projects/<path>` URIs.
+- Link workspace documents and skills using canonical URIs (`openlia://workspace/<path>` and `openlia://skills/<path>`). Inside workspace Markdown files, document-relative paths (`./sub.md`) are also supported. Never embed environment-specific HTTP origins in workspace files.
+- Compose interactive views directly inside Markdown using fenced `openui` blocks. Bare component roots, schema-named arguments, and row-oriented tables are supported. Keep narrative and data in the same document; do not create separate project manifests or UI entry files. OpenUI findings are advisory and never invalidate records. Link the containing Markdown document.
 
 Credentials belong in Hermes' runtime secret source or environment, never in
 this profile, the workspace template, prompts, helper input, or reports. The
@@ -76,7 +76,7 @@ system skill may propose a 3-way rebase migration for conflicting updates, but
 must never edit an active skill or its provenance directly. Applying a migration
 proposal requires explicit user confirmation. The protected
 `workspace-template-customization` system skill validates workspace templates,
-schemas, and OpenUI manifests.
+schemas, and inline OpenUI syntax (full component validation is available in Workspace UI).
 
 ## Workspace Git history
 

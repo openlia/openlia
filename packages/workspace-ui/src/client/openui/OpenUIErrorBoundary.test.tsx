@@ -27,7 +27,8 @@ describe("OpenUIErrorBoundary", () => {
               setShouldThrow(false);
               onReset();
             }}
-            uiPath="tasks/ui.openui"
+            uiPath="tasks/overview.md"
+            source="CardHeader(title: invalid)"
           >
             <ThrowingWidget shouldThrow={shouldThrow} />
           </OpenUIErrorBoundary>
@@ -43,7 +44,7 @@ describe("OpenUIErrorBoundary", () => {
     // Error boundary displays localized error card
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(
-      screen.getByText(/Failed to render tasks\/ui\.openui/i),
+      screen.getByText(/Failed to render tasks\/overview\.md/i),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/Invalid OpenUI AST node: UnknownTable/i),
@@ -51,7 +52,7 @@ describe("OpenUIErrorBoundary", () => {
 
     // Edit button works
     fireEvent.click(
-      screen.getByRole("button", { name: "Edit tasks/ui.openui" }),
+      screen.getByRole("button", { name: "Edit tasks/overview.md" }),
     );
     expect(onEditUI).toHaveBeenCalledTimes(1);
 

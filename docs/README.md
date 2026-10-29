@@ -1,6 +1,6 @@
 # OpenLia Documentation
 
-Welcome to the OpenLia documentation hub. OpenLia is a **self-hosted, AI-native workspace** for turning personal context into organized knowledge, decisions, and action—with [Hermes Agent](https://hermes-agent.nousresearch.com/) as its agent runtime. It combines a Git-versioned workspace, chat, document editing, and interactive Mini-Projects with extensible workflows and human approval boundaries.
+Welcome to the OpenLia documentation hub. OpenLia is a **self-hosted, AI-native workspace** for turning personal context into organized knowledge, decisions, and action—with [Hermes Agent](https://hermes-agent.nousresearch.com/) as its agent runtime. It combines a Git-versioned workspace, chat, document editing, and inline OpenUI views with extensible workflows and human approval boundaries.
 
 Choose a guide below based on your role or what you want to accomplish.
 
@@ -9,10 +9,10 @@ Choose a guide below based on your role or what you want to accomplish.
 ## 1. By Role
 
 ### 📖 For End Users (Daily Companion)
-Use these guides when interacting with Lia day-to-day over Telegram or the Workspace UI to capture notes, manage Mini-Projects, ingest documents, and organize your workspace.
+Use these guides when interacting with Lia day-to-day over Telegram or the Workspace UI to capture notes, compose inline views, ingest documents, and organize your workspace.
 
-- **[End User Guide](user-guide.md)**: Daily workflows with Lia—interfaces (Telegram, Workspace UI Chat, Document Editor, Mini-Projects), the Minimal Core Workspace, installing profiles/features/skills from [`openlia/templates`](https://github.com/openlia/templates.git), and delegation boundaries.
-- **[Workspace Mini-Projects & Domain Views](workspace-domain-views.md)**: Reference for interactive Mini-Project dashboards (`/projects/<path>`), `project-manifest.toml`, `ui.openui`, and structured Markdown tables/checklists.
+- **[End User Guide](user-guide.md)**: Daily workflows with Lia—interfaces (Telegram, Workspace UI Chat, Document Editor with inline OpenUI), the Minimal Core Workspace, installing profiles/features/skills from [`openlia/templates`](https://github.com/openlia/templates.git), and delegation boundaries.
+- **[Inline OpenUI Views](workspace-domain-views.md)**: Interactive tables, charts, and domain views composed inside Markdown documents.
 
 ### 🛠️ For Operators (Self-Hosters & System Administrators)
 Use these guides when deploying, configuring, updating, backing up, or troubleshooting an OpenLia stack on your local workstation or a remote Linux server.

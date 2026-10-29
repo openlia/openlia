@@ -583,9 +583,7 @@ export class FeatureService {
             e.isDirectory() ||
             (!e.name.startsWith(".") &&
               !e.name.endsWith("-template.md") &&
-              !e.name.endsWith(".schema.json") &&
-              e.name !== "project-manifest.toml" &&
-              !e.name.endsWith(".openui")),
+              !e.name.endsWith(".schema.json")),
         );
         if (!hasUserRecords) {
           rmSync(domDir, { recursive: true, force: true });
@@ -748,10 +746,7 @@ export class FeatureService {
           const fname = entry.name;
           if (fname.startsWith(".")) continue;
           const isTplOrSchema =
-            fname === "project-manifest.toml" ||
-            fname.endsWith("-template.md") ||
-            fname.endsWith(".schema.json") ||
-            fname.endsWith(".openui");
+            fname.endsWith("-template.md") || fname.endsWith(".schema.json");
           if (!isTplOrSchema && !options?.include_records) continue;
           const relPath = `workspace/${d.path}/${fname}`;
           if (seenPaths.has(relPath)) continue;
