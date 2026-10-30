@@ -131,6 +131,10 @@ customization with the bundled default.
 
 ## Inline OpenUI in Markdown
 
+For creating or repairing views, load `inline-openui-authoring` and use
+`openui_describe` plus `openui_validate` on the final Markdown draft. The Python
+validator below is syntax-only, not proof of component validity or rendering.
+
 Compose interactive views in fenced `openui` blocks within the requested Markdown
 document. Keep narrative and rich tables/charts together; no project manifest,
 standalone UI entry file, or separate Projects view is used.
@@ -141,7 +145,7 @@ standalone UI entry file, or separate Projects view is used.
 - Retain upstream components, charts, Calendar, and Finance. Legacy record
   widgets and manifest-backed aggregation functions are not supported.
 - Relative data paths resolve from the containing Markdown document's folder.
-- Python checks syntax offline; Workspace UI validates against component schemas.
+- Python checks syntax offline; `openui_validate` and Workspace UI validate against component schemas.
   Inline diagnostics are advisory and do not invalidate record contracts.
 - Preserve local templates/schemas and unrelated Markdown. Changes to presentation
   are not permission to weaken a record contract.

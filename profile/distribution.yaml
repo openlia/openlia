@@ -14,5 +14,6 @@ distribution_owned:
   - skills/
   - cron/
 system_owned:
+  - system-skills/inline-openui-authoring/
   - system-skills/openlia-skill-migration/
   - system-skills/workspace-template-customization/

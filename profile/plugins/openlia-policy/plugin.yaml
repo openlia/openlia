@@ -1,9 +1,11 @@
 name: openlia-policy
-version: "2.0"
-description: Enforce OpenLia consequential permissions (/opt/data/permissions.yaml) and provide Workspace Maintainer advisory feedback and tools.
+version: "2.1"
+description: Enforce OpenLia consequential permissions and provide Workspace Maintainer and read-only inline OpenUI authoring tools.
 manifest_version: 2
 api_version: 1
 provides_tools:
+  - openui_describe
+  - openui_validate
   - maintainer_status
   - maintainer_audit
   - maintainer_triage_issue

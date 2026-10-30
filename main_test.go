@@ -50,6 +50,7 @@ func TestEmbeddedBunRuntimeAssets(t *testing.T) {
 	for _, path := range []string{
 		"packages/openlia-browser/dist/server.js",
 		"packages/workspace-ui/dist/server.js",
+		"packages/workspace-ui/dist/openui-authoring.js",
 		"docker/workspace-ui.Dockerfile",
 	} {
 		if _, err := fs.ReadFile(releaseAssets, path); err != nil {

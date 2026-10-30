@@ -52,11 +52,18 @@ query/mutation tool provider is exposed to inline documents.
 
 ## Validation and compatibility
 
+For agent authoring, load `inline-openui-authoring`. Use `openui_describe` for
+schema-derived properties/enums and tested recipes, and `openui_validate` for
+read-only checks of complete Markdown drafts or isolated blocks. Fix diagnostics
+and revalidate after changes. Confirm the expected block count; no fences means
+no views were checked. Schema validity does not verify rendering or live data.
+
 Browser and server use shared normalization and component schemas. Invalid
 blocks show diagnostics and raw source without breaking surrounding Markdown.
 Workspace validation reports advisory `openui_syntax_error` warnings with the
 block's document line. Python tools perform lightweight syntax checks offline;
-use Workspace UI for authoritative component/property validation.
+use `openui_validate` or Workspace UI for component/property validation, and
+browser preview for actual rendering and interactions.
 
 The former Mini-Project routes, manifests, standalone UI previews, record widgets,
 and record aggregation functions are no longer interpreted. Existing files are

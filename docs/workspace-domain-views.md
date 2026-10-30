@@ -21,6 +21,32 @@ Each block is isolated. Syntax errors show diagnostics and raw source; runtime
 errors preserve source and do not break the rest of the document. Inline
 diagnostics are advisory and separate from template/schema validity.
 
+## Reliable agent authoring
+
+The protected `inline-openui-authoring` skill guides agents to discover exact
+component APIs with `openui_describe` and check the final Markdown draft with
+`openui_validate`. Both tools are read-only and offline, using a bundled copy of
+the same TypeScript normalizer and component schemas as the preview. They do not
+need a running Workspace UI service. Describe calls return current schemas,
+argument order, and tested recipes; validation returns per-block locations and
+structured repair diagnostics. No document code is executed.
+
+Validation success means schema-valid, not visually verified or connected to
+live data. Zero extracted blocks means no views were checked. The Python workspace
+checker remains syntax-only. If the bundled tool is unavailable, agents must
+report that limitation rather than claim schema validation succeeded.
+
+For local diagnostics, build with `bun run --cwd packages/workspace-ui bundle:openui`
+and send a JSON request on stdin to
+`bun packages/workspace-ui/dist/openui-authoring.js`:
+
+```json
+{"action":"validate","format":"openui","content":"CardHeader(title: \"Hello\")"}
+```
+
+Use `{"action":"describe","component":"ChartPanel"}` for a component reference,
+or `format: "markdown"` to validate every OpenUI fence in a complete draft.
+
 Public snapshots render self-contained literal views without authenticated
 workspace reads, writes, or chat capabilities. Data-backed components display
 an unavailable state; snapshots do not fetch live private data.

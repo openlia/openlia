@@ -105,3 +105,7 @@ jobs:
         run: >-
           docker run --rm --entrypoint /opt/hermes/.venv/bin/python
           openlia-hermes:ci -c "import jsonschema; print(jsonschema.__name__)"
+
+      - name: Verify bundled offline OpenUI authoring
+        run: |
+          printf '%s' '{"action":"validate","format":"openui","content":"CardHeader(title: \"Hello\")"}' | docker run --rm -i --entrypoint /usr/local/bin/bun openlia-hermes:ci /usr/local/lib/openlia/openui-authoring.js | python -c 'import json,sys; r=json.load(sys.stdin); assert r["status"] == "ok" and r["valid"] and r["blockCount"] == 1 and r["validationLevel"] == "schema"'

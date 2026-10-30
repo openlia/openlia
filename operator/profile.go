@@ -21,6 +21,7 @@ const (
 	hashScope                  = "skill-files-v1"
 	protectedSkillName         = "openlia-skill-migration"
 	workspaceTemplateSkillName = "workspace-template-customization"
+	inlineOpenUISkillName      = "inline-openui-authoring"
 	fallbackBlockStart         = "# BEGIN OPENLIA MANAGED FALLBACK PROVIDERS"
 	fallbackBlockEnd           = "# END OPENLIA MANAGED FALLBACK PROVIDERS"
 	outputLanguageBlockStart   = "<!-- BEGIN OPENLIA MANAGED OUTPUT LANGUAGE -->"
@@ -29,7 +30,7 @@ const (
 
 func isProtectedSystemSkill(name string) bool {
 	switch name {
-	case protectedSkillName, workspaceTemplateSkillName:
+	case protectedSkillName, workspaceTemplateSkillName, inlineOpenUISkillName:
 		return true
 	default:
 		return false

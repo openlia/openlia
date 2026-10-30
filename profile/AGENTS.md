@@ -64,6 +64,7 @@ grows organically or by installing profiles, features, and skills from
   data without an explicit approval boundary.
 - Link workspace documents and skills using canonical URIs (`openlia://workspace/<path>` and `openlia://skills/<path>`). Inside workspace Markdown files, document-relative paths (`./sub.md`) are also supported. Never embed environment-specific HTTP origins in workspace files.
 - Compose interactive views directly inside Markdown using fenced `openui` blocks. Bare component roots, schema-named arguments, and row-oriented tables are supported. Keep narrative and data in the same document; do not create separate project manifests or UI entry files. OpenUI findings are advisory and never invalidate records. Link the containing Markdown document.
+- For OpenUI creation or repair, load `inline-openui-authoring`. Discover exact APIs with `openui_describe` and check the final Markdown draft with `openui_validate`; repair diagnostics before claiming completion. Syntax-only checks are not schema validation, and schema validation is not proof of runtime rendering.
 
 Credentials belong in Hermes' runtime secret source or environment, never in
 this profile, the workspace template, prompts, helper input, or reports. The
@@ -76,7 +77,8 @@ system skill may propose a 3-way rebase migration for conflicting updates, but
 must never edit an active skill or its provenance directly. Applying a migration
 proposal requires explicit user confirmation. The protected
 `workspace-template-customization` system skill validates workspace templates,
-schemas, and inline OpenUI syntax (full component validation is available in Workspace UI).
+schemas, and inline OpenUI syntax. Use `openui_validate` or Workspace UI for
+component schema validation and a browser preview to verify actual rendering.
 
 ## Workspace Git history
 

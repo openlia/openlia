@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { openUIRecipes } from "../src/shared/openuiRecipes";
 
 interface Entry {
   id: string;
@@ -45,5 +46,19 @@ for (const story of Object.values(index.entries).filter(
     await expect(page.locator(".sb-errordisplay")).not.toBeVisible();
     expect(errors).toEqual([]);
     expect(requests).toEqual([]);
+    if (story.id === "openui-inline-markdown--authoring-recipes") {
+      await expect(page.getByTestId("inline-openui-block")).toHaveCount(
+        openUIRecipes.length,
+      );
+      await expect(page.getByTestId("inline-openui-error")).toHaveCount(0);
+      await expect(
+        page.getByRole("alert", { name: "OpenUI render error" }),
+      ).toHaveCount(0);
+      await expect(page.getByRole("cell", { name: "Phở bò" })).toBeVisible();
+      await page.getByRole("tab", { name: "Details", exact: true }).click();
+      await expect(
+        page.getByText("More information", { exact: true }),
+      ).toBeVisible();
+    }
   });
 }

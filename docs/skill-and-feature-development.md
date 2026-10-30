@@ -51,6 +51,7 @@ When a skill is installed via `openlia skills install` (or as part of a feature)
 Protected system skills live under `profile/system-skills/` in the core repository and are mounted read-only into the runtime:
 - **`openlia-skill-migration`**: Analyzes an upstream skill or feature update alongside a user's local customization patch and stages a reviewable conflict-resolution proposal.
 - **`workspace-template-customization`**: Validates workspace JSON Schemas, Markdown templates, OpenUI definitions (`references/openui-spec.md`), and scoped workspace structure extensions.
+- **`inline-openui-authoring`**: Creates and repairs interactive Markdown views using schema-derived `openui_describe` discovery, tested recipes, and read-only `openui_validate` checks shared with the UI renderer.
 
 System skills are distribution-owned and cannot be forked or modified by Hermes at runtime.
 

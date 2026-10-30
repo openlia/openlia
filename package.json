@@ -21,7 +21,7 @@
     "format:check": "biome format packages tests package.json tsconfig.base.json biome.json",
     "lint": "biome lint packages tests package.json tsconfig.base.json",
     "check": "bun run format:check && bun run lint && bun run typecheck",
-    "verify-dist": "bun run build && test -s packages/openlia-browser/dist/server.js && test -s packages/workspace-ui/dist/server.js && test -d packages/workspace-ui/dist/client/assets"
+    "verify-dist": "bun run build && test -s packages/openlia-browser/dist/server.js && test -s packages/workspace-ui/dist/server.js && test -s packages/workspace-ui/dist/openui-authoring.js && test -d packages/workspace-ui/dist/client/assets"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.1",
