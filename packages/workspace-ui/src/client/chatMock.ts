@@ -20,6 +20,12 @@ export function createChatMock(): ChatApi {
       source: "hermes_browser",
       writable: true,
     },
+    {
+      id: "demo-failed",
+      title: "Recorded failed execution",
+      source: "hermes_browser",
+      writable: true,
+    },
   ];
   const messages = new Map<string, ChatMessage[]>([
     [
@@ -35,6 +41,22 @@ export function createChatMock(): ChatApi {
     ],
   ]);
   const runs = new Map<string, ChatRun>();
+  runs.set("failed-demo-run", {
+    run_id: "failed-demo-run",
+    session_id: "demo-failed",
+    request_id: "request-demo-failed",
+    status: "failed",
+    status_source: "recorded",
+    submitted_at: Date.parse("2026-10-27T09:00:00Z"),
+    status_observed_at: Date.parse("2026-10-27T09:01:00Z"),
+  });
+  messages.set("demo-failed", [
+    {
+      id: "failed-user-message",
+      role: "user",
+      content: "Please save a synthetic plan. Do not resend this request.",
+    },
+  ]);
   messages.set("demo-tools", [
     {
       id: "question",
@@ -157,6 +179,18 @@ export function createChatMock(): ChatApi {
       run:
         [...runs.values()].reverse().find((r) => r.session_id === id) ?? null,
     }),
+    runs: async (id, offset) => {
+      const data = [...runs.values()]
+        .reverse()
+        .filter((run) => run.session_id === id);
+      return {
+        data: data
+          .slice(offset, offset + 50)
+          .map((run) => ({ ...run, status_source: "recorded" as const })),
+        has_more: data.length > offset + 50,
+        next_offset: Math.min(offset + 50, data.length),
+      };
+    },
     send: async (id, input, key) => {
       const previous = keys.get(key);
       if (previous) return requireRun(previous);

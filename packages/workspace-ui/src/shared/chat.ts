@@ -27,6 +27,10 @@ export interface ChatMessage {
 export interface ChatRun {
   run_id: string;
   status: string;
+  request_id?: string;
+  status_source?: "hermes" | "recorded" | "unconfirmed";
+  submitted_at?: number;
+  status_observed_at?: number;
   session_id?: string;
   output?: string;
   error?: string;
@@ -81,6 +85,7 @@ export const terminalChatStatuses = new Set([
   "cancelled",
   "interrupted",
   "unknown",
+  "rejected",
 ]);
 
 export interface ChatApi {
@@ -102,6 +107,10 @@ export interface ChatApi {
     offset: number,
   ): Promise<{ data: ChatMessage[]; session_id: string }>;
   activeRun(id: string): Promise<{ run: ChatRun | null }>;
+  runs(
+    id: string,
+    offset: number,
+  ): Promise<{ data: ChatRun[]; has_more: boolean; next_offset: number }>;
   send(id: string, input: string, key: string, model: string): Promise<ChatRun>;
   run(id: string): Promise<ChatRun>;
   control(

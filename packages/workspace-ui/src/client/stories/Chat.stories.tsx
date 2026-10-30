@@ -6,6 +6,7 @@ import { ChatNavigation } from "../ChatNavigation";
 import { ChatMarkdown } from "../ChatMarkdown";
 import { ChatTranscript } from "../ChatTranscript";
 import { ChatPage } from "../ChatPage";
+import { ChatExecution } from "../ChatExecution";
 import { createChatMock } from "../chatMock";
 import { action, chatMessages, markdown } from "./fixtures";
 import { PageFrame } from "./frames";
@@ -20,6 +21,7 @@ const meta = {
       "ChatMarkdown.tsx#ChatMarkdown",
       "ChatTranscript.tsx#ChatTranscript",
       "ChatPage.tsx#ChatPage",
+      "ChatExecution.tsx#ChatExecution",
     ],
   },
 } satisfies Meta;
@@ -141,4 +143,46 @@ export const FullConversation: Story = {
       </PageFrame>
     );
   },
+};
+
+const recordedFailure = {
+  run_id: "run-synthetic-failed",
+  status: "failed",
+  request_id: "request-1",
+  status_source: "recorded" as const,
+  submitted_at: Date.parse("2026-10-27T09:00:00Z"),
+  status_observed_at: Date.parse("2026-10-27T09:01:00Z"),
+};
+export const FailedExecution: Story = {
+  render: () => (
+    <ChatExecution
+      run={recordedFailure}
+      history={[recordedFailure]}
+      hasMore={false}
+      busy={false}
+      historyError=""
+      onRefresh={action("refreshExecution")}
+      onRefreshRun={action("refreshRun")}
+      onMore={action("earlierExecutions")}
+    />
+  ),
+};
+export const UnknownExecution: Story = {
+  render: () => (
+    <ChatExecution
+      run={{
+        run_id: "",
+        status: "unknown",
+        status_source: "unconfirmed",
+        request_id: "request-2",
+      }}
+      history={[recordedFailure]}
+      hasMore
+      busy={false}
+      historyError=""
+      onRefresh={action("refreshExecution")}
+      onRefreshRun={action("refreshRun")}
+      onMore={action("earlierExecutions")}
+    />
+  ),
 };

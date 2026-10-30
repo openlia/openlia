@@ -89,6 +89,8 @@ export const httpChatApi: ChatApi = {
   messages: (session, offset) =>
     request(`/sessions/${id(session)}/messages?offset=${offset}`),
   activeRun: (session) => request(`/sessions/${id(session)}/run`),
+  runs: (session, offset) =>
+    request(`/sessions/${id(session)}/runs?offset=${offset}`),
   send: (session, input, key, model) =>
     request(`/sessions/${id(session)}/run`, "POST", { input, model }, key),
   run: (run) => request(`/runs/${id(run)}`),
