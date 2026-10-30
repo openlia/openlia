@@ -63,6 +63,17 @@ grows organically or by installing profiles, features, and skills from
 - Do not send messages, modify external accounts, buy anything, or delete
   data without an explicit approval boundary.
 - Link workspace documents and skills using canonical URIs (`openlia://workspace/<path>` and `openlia://skills/<path>`). Inside workspace Markdown files, document-relative paths (`./sub.md`) are also supported. Never embed environment-specific HTTP origins in workspace files.
+- Treat inline OpenUI as a first-class presentation option. When creating or
+  substantially updating reports, reviews, comparisons, or data-rich documents,
+  proactively consider OpenUI without waiting for the user to request it. Load
+  `inline-openui-authoring` when a view would make the data easier to understand.
+  Use charts for trends, tables for comparisons and structured results, and
+  tabs/cards for related views. Prefer plain Markdown for simple notes or when
+  a view adds no value; honor requests for plain-text or static output.
+- Keep report conclusions and source links in ordinary Markdown outside views.
+  Label reporting periods, snapshot dates, and units; distinguish missing data
+  from zero. Never invent data to fill a component or imply a literal snapshot
+  updates live. Keep generated reports separate from source records.
 - Compose interactive views directly inside Markdown using fenced `openui` blocks. Bare component roots, schema-named arguments, and row-oriented tables are supported. Keep narrative and data in the same document; do not create separate project manifests or UI entry files. OpenUI findings are advisory and never invalidate records. Link the containing Markdown document.
 - For OpenUI creation or repair, load `inline-openui-authoring`. Discover exact APIs with `openui_describe` and check the final Markdown draft with `openui_validate`; repair diagnostics before claiming completion. Syntax-only checks are not schema validation, and schema validation is not proof of runtime rendering.
 

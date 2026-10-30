@@ -1,16 +1,83 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { openUIDiagnostics, openUIErrors } from "../shared/openui";
 import {
   describeOpenUI,
   MAX_OPENUI_INPUT,
   openUIAuthoringRequest,
   validateOpenUI,
 } from "../shared/openuiAuthoring";
-import { openUIDiagnostics, openUIErrors } from "../shared/openui";
 import { openUIRecipes } from "../shared/openuiRecipes";
+
+test("distributed instructions proactively consider OpenUI for data-rich documents", () => {
+  for (const path of ["profile/AGENTS.md", "workspace-template/AGENTS.md"]) {
+    const instructions = readFileSync(
+      new URL(`../../../../${path}`, import.meta.url),
+      "utf8",
+    ).replace(/\s+/g, " ");
+    for (const guidance of [
+      "first-class presentation option",
+      "reports, reviews, comparisons, or data-rich documents",
+      "proactively consider OpenUI without waiting for the user to request it",
+      "Prefer plain Markdown",
+      "honor requests for plain-text or static output",
+      "conclusions and source links in ordinary Markdown outside views",
+      "distinguish missing data from zero",
+      "Never invent data",
+      "openui_describe",
+      "openui_validate",
+    ])
+      expect(instructions, `${path}: ${guidance}`).toContain(guidance);
+  }
+});
+
+test("the protected authoring skill supports report selection and ships its example", () => {
+  const skill = readFileSync(
+    new URL(
+      "../../../../profile/system-skills/inline-openui-authoring/SKILL.md",
+      import.meta.url,
+    ),
+    "utf8",
+  ).replace(/\s+/g, " ");
+  for (const guidance of [
+    "even without an explicit UI request",
+    "Choose a useful presentation",
+    "plain Markdown",
+    "never invent values",
+    "snapshot, not a live binding",
+    "references/report-example.md",
+    'format: "markdown"',
+    "schema-valid",
+  ])
+    expect(skill, guidance).toContain(guidance);
+  const distribution = readFileSync(
+    new URL("../../../../profile/distribution.yaml", import.meta.url),
+    "utf8",
+  );
+  expect(distribution).toContain("system-skills/inline-openui-authoring/");
+});
+
+test("the published report example validates every view against component schemas", () => {
+  const report = readFileSync(
+    new URL(
+      "../../../../profile/system-skills/inline-openui-authoring/references/report-example.md",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const result = validateOpenUI(report, "markdown");
+  expect(result).toMatchObject({
+    status: "ok",
+    valid: true,
+    validationLevel: "schema",
+    blockCount: 2,
+    renderingVerified: false,
+  });
+  for (const block of result.blocks) expect(block.diagnostics).toEqual([]);
+});
 
 test("every published authoring recipe validates through the UI implementation", () => {
   for (const recipe of openUIRecipes) {

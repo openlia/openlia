@@ -1,7 +1,7 @@
 ---
 name: inline-openui-authoring
-description: Write and repair interactive views inside Markdown openui fences, including tables, cards, tabs, dashboards, charts, Calendar, and Finance. Discover exact component APIs and validate drafts with OpenUI authoring tools.
-version: 0.1.0
+description: Present data in workspace reports, reviews, comparisons, and documents with inline OpenUI when useful, without requiring an explicit UI request. Choose tables, charts, cards, or tabs; discover exact component APIs, validate drafts, and repair views.
+version: 0.2.0
 system: true
 forkable: false
 protected: true
@@ -9,10 +9,37 @@ protected: true
 
 # Inline OpenUI Authoring
 
-Use this skill whenever creating, editing, or repairing fenced `openui` views
-inside workspace Markdown. Plain Markdown is preferable when interactivity adds
-no value. Do not create manifests, standalone `.openui` entry files, React/JSX,
-or executable JavaScript.
+Use this skill for reports, reviews, comparisons, and data-rich workspace
+documents when a view would improve understanding, even without an explicit UI
+request, and whenever creating, editing, or repairing fenced `openui` views.
+OpenUI is a first-class presentation option, not a requirement for every document.
+Plain Markdown is preferable when a view adds no value; honor requests for
+plain-text or static output. Do not create manifests, standalone `.openui` entry
+files, React/JSX, or executable JavaScript.
+
+## Choose a useful presentation
+
+- Trends over time: a line chart; comparisons across categories: a bar chart.
+  Use a table when exact values or mixed fields matter more than a visual trend.
+- Structured results, options, or comparisons: a table with concise columns.
+  A small Markdown table is enough when an OpenUI table adds no value.
+- Related perspectives: tabs; grouped summaries: cards. Keep the main conclusion
+  outside tabs so readers do not have to interact to find it. Do not turn a
+  simple report into a dashboard merely to use more components.
+- Simple notes, prose, short lists, and sparse or unsuitable data: plain Markdown.
+  No OpenUI block or OpenUI validation is needed for a prose-only document.
+
+Keep conclusions, caveats, and source links in ordinary Markdown outside views.
+Label reporting periods, snapshot dates, and units. Preserve provenance with
+canonical source/workspace links or document-relative paths; keep generated
+reports separate from source records. Distinguish missing data from zero, and
+never invent values to fill a component. Literal chart/table data is a snapshot,
+not a live binding; do not promise automatic refresh or embed fetch code.
+Only use Calendar/Finance when the relevant workspace data and capabilities exist.
+
+See [the sample report](references/report-example.md) for narrative, a trend
+chart, and an exact-value table in one document. Its data is explicitly fictional;
+replace it with inspected source data, never reuse it as a real report.
 
 ## Authoring workflow
 

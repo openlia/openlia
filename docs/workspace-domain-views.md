@@ -23,6 +23,21 @@ diagnostics are advisory and separate from template/schema validity.
 
 ## Reliable agent authoring
 
+OpenUI is a first-class presentation option for reports, reviews, comparisons,
+and data-rich documents. Lia should proactively consider a useful view without
+requiring you to ask for OpenUI: charts for trends, tables for structured results,
+and tabs/cards for related perspectives. Simple notes and narrative documents
+remain plain Markdown when a view adds no value. You can also request plain-text
+or static output explicitly.
+
+Reports should retain conclusions, caveats, and source links in ordinary
+Markdown outside views, with clear reporting periods, snapshot dates, and units.
+Missing values are not zero, and literal data does not refresh automatically.
+Generated reports stay separate from their source records. See the
+[illustrative report](../profile/system-skills/inline-openui-authoring/references/report-example.md)
+for narrative, a chart, and an exact-value table in one document; its counts are
+explicitly fictional, not data to reuse in real reports.
+
 The protected `inline-openui-authoring` skill guides agents to discover exact
 component APIs with `openui_describe` and check the final Markdown draft with
 `openui_validate`. Both tools are read-only and offline, using a bundled copy of
