@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { expect, test } from "@playwright/test";
 import { openUIRecipes } from "../src/shared/openuiRecipes";
 
 interface Entry {
@@ -46,6 +46,41 @@ for (const story of Object.values(index.entries).filter(
     await expect(page.locator(".sb-errordisplay")).not.toBeVisible();
     expect(errors).toEqual([]);
     expect(requests).toEqual([]);
+    if (story.id === "openui-inline-markdown--calendar") {
+      const month = page.getByRole("region", { name: "Month calendar" });
+      await expect(month).toHaveAttribute("aria-busy", "false");
+      const table = month.getByRole("table", { name: "Calendar month dates" });
+      await expect(table).toHaveCSS("display", "table");
+      await expect(table).toHaveCSS("table-layout", "fixed");
+
+      // Long appointment titles must not change the seven column widths.
+      await table
+        .getByRole("button")
+        .first()
+        .evaluate((button) => {
+          button.textContent = "A very long appointment title ".repeat(20);
+        });
+      const widths = await table
+        .getByRole("columnheader")
+        .evaluateAll((cells) =>
+          cells.map((cell) => cell.getBoundingClientRect().width),
+        );
+      expect(widths).toHaveLength(7);
+      expect(Math.max(...widths) - Math.min(...widths)).toBeLessThan(1);
+
+      const layout = await table.evaluate((element) => {
+        const wrapper = element.parentElement;
+        if (!wrapper) throw new Error("Calendar scroll wrapper is missing");
+        return {
+          table: element.getBoundingClientRect().width,
+          wrapper: wrapper.clientWidth,
+          overflow: getComputedStyle(wrapper).overflowX,
+        };
+      });
+      expect(layout.table).toBeGreaterThanOrEqual(560);
+      expect(layout.table).toBeGreaterThanOrEqual(layout.wrapper - 1);
+      expect(layout.overflow).toBe("auto");
+    }
     if (story.id === "openui-inline-markdown--authoring-recipes") {
       await expect(page.getByTestId("inline-openui-block")).toHaveCount(
         openUIRecipes.length,
