@@ -1,7 +1,7 @@
 import {
+  type CalendarDisplayEvent,
   dateInZone,
   timeInZone,
-  type CalendarEvent,
 } from "../../../shared/calendar";
 
 export function CalendarEventDetails({
@@ -10,7 +10,7 @@ export function CalendarEventDetails({
   onClose,
   onOpenFile,
 }: {
-  event: CalendarEvent;
+  event: CalendarDisplayEvent;
   timezone: string;
   onClose: () => void;
   onOpenFile?: ((path: string) => void) | undefined;
@@ -92,9 +92,11 @@ export function CalendarEventDetails({
           <div>
             <dt className="font-medium">Notifications</dt>
             <dd>
-              {event.notifications === "off"
-                ? "Off (NOQUEUE)"
-                : "Defined by calendar source; this UI does not deliver notifications"}
+              {!("notifications" in event)
+                ? "Off; inline calendars do not deliver notifications"
+                : event.notifications === "off"
+                  ? "Off (NOQUEUE)"
+                  : "Defined by calendar source; this UI does not deliver notifications"}
             </dd>
           </div>
           <div>
@@ -103,7 +105,7 @@ export function CalendarEventDetails({
           </div>
         </dl>
         <div className="flex flex-wrap gap-2">
-          {event.notePath && onOpenFile && (
+          {"notePath" in event && event.notePath && onOpenFile && (
             <button
               type="button"
               className="btn btn-sm"
@@ -112,7 +114,7 @@ export function CalendarEventDetails({
               Open event note
             </button>
           )}
-          {onOpenFile && (
+          {"sourcePath" in event && onOpenFile && (
             <button
               type="button"
               className="btn btn-sm btn-outline"
@@ -122,11 +124,14 @@ export function CalendarEventDetails({
             </button>
           )}
         </div>
-        <p className="text-xs opacity-60">
-          Source: {event.sourcePath}:{event.sourceLine}
-        </p>
+        {"sourcePath" in event && (
+          <p className="text-xs opacity-60">
+            Source: {event.sourcePath}:{event.sourceLine}
+          </p>
+        )}
       </section>
     </dialog>
   );
 }
+
 import { useEffect, useRef } from "react";

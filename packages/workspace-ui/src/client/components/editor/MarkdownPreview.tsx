@@ -5,6 +5,7 @@ import type { ComponentProps } from "react";
 import { isValidElement, useMemo } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { openUIErrors } from "../../../shared/openui";
 import { FrontmatterBlock } from "../../FrontmatterBlock";
 import { parseMarkdownFrontmatter } from "../../frontmatter";
 import { extractOriginalMessage } from "../../markdown";
@@ -13,7 +14,6 @@ import { OpenLiaOpenUIProvider, useOpenLiaOpenUI } from "../../openui/context";
 import { normalizeOpenUIProgram, openliaLibrary } from "../../openui/library";
 import { OpenUIDiagnostics } from "../../openui/OpenUIDiagnostics";
 import { OpenUIErrorBoundary } from "../../openui/OpenUIErrorBoundary";
-import { openUIErrors } from "../../../shared/openui";
 
 export function transformMarkdownUrl(url: string): string {
   if (
@@ -89,7 +89,6 @@ function InlineOpenUIBlock({
       >
         <OpenLiaOpenUIProvider value={contextValue}>
           <OpenUIErrorBoundary
-            key={normalized}
             source={code}
             uiPath={
               currentFilePath

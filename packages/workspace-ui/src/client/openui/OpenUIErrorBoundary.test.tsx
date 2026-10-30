@@ -11,6 +11,39 @@ function ThrowingWidget({ shouldThrow }: { shouldThrow: boolean }) {
 }
 
 describe("OpenUIErrorBoundary", () => {
+  it("automatically retries a failed block when its source is edited", () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { rerender } = render(
+        <OpenUIErrorBoundary source="broken">
+          <ThrowingWidget shouldThrow />
+        </OpenUIErrorBoundary>,
+      );
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+      rerender(
+        <OpenUIErrorBoundary source="repaired">
+          <ThrowingWidget shouldThrow={false} />
+        </OpenUIErrorBoundary>,
+      );
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.getByText("Rendered OpenUI Dashboard")).toBeInTheDocument();
+      rerender(
+        <OpenUIErrorBoundary source="broken again">
+          <ThrowingWidget shouldThrow />
+        </OpenUIErrorBoundary>,
+      );
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+      rerender(
+        <OpenUIErrorBoundary source="still broken">
+          <ThrowingWidget shouldThrow />
+        </OpenUIErrorBoundary>,
+      );
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
   it("isolates OpenUI render errors, offers edit action, and recovers on retry", () => {
     const onEditUI = vi.fn();
     const onReset = vi.fn();

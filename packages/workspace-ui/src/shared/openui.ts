@@ -1,5 +1,6 @@
 import { createParser } from "@openuidev/lang-core";
 import { fromMarkdown } from "mdast-util-from-markdown";
+import { validateCalendarProps } from "./calendar";
 import { openliaOpenUISchema, openUIPropOrder } from "./openuiSchema";
 
 export interface MarkdownOpenUIBlock {
@@ -342,6 +343,31 @@ export function openUIDiagnostics(source: string): OpenUIDiagnostic[] {
         code: "missing-root",
         message: "Missing required root statement",
       });
+    // JSON Schema cannot express calendar chronology, IANA zones, or unique IDs.
+    // Validate resolved props as well, including nested and referenced calendars.
+    const visited = new WeakSet<object>();
+    const validateCalendars = (value: unknown): void => {
+      if (!value || typeof value !== "object" || visited.has(value)) return;
+      visited.add(value);
+      if (
+        "typeName" in value &&
+        value.typeName === "Calendar" &&
+        "props" in value
+      ) {
+        const checked = validateCalendarProps(value.props);
+        if (!checked.success)
+          for (const issue of checked.error.issues)
+            diagnostics.push({
+              code: "invalid-calendar",
+              component: "Calendar",
+              path: `/${issue.path.join("/")}`,
+              message: issue.message,
+              hint: "Use either a Remind source or read-only inline events. Inline IDs must be unique, dates and timezones valid, and end after start.",
+            });
+      }
+      for (const child of Object.values(value)) validateCalendars(child);
+    };
+    validateCalendars(result.root);
     return diagnostics;
   } catch (error) {
     if (error instanceof OpenUIArgumentError) return [error.diagnostic];

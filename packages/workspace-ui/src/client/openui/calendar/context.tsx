@@ -1,13 +1,13 @@
 import { createContext, useContext } from "react";
-import type { CalendarEvent } from "../../../shared/calendar";
+import type { CalendarDisplayEvent } from "../../../shared/calendar";
 
 export interface CalendarContextValue {
-  events: CalendarEvent[];
+  events: CalendarDisplayEvent[];
   date: string;
   timezone: string;
   loading: boolean;
   navigate: (date: string) => void;
-  select: (event: CalendarEvent) => void;
+  select: (event: CalendarDisplayEvent) => void;
 }
 
 export const CalendarContext = createContext<CalendarContextValue | null>(null);
