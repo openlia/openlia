@@ -5,6 +5,7 @@ import { ChatTranscript } from "./ChatTranscript";
 import { ChatNavigation } from "./ChatNavigation";
 import { ChatHeader } from "./ChatHeader";
 import { ChatComposer } from "./ChatComposer";
+import { ChatExecution } from "./ChatExecution";
 import "./chat.css";
 import {
   terminalChatStatuses,
@@ -37,7 +38,7 @@ function errorText(error: unknown) {
   if (value === "chat_not_configured")
     return "Chat is not configured. Update and recreate the deployment, or set OPENLIA_HERMES_API_URL and API_SERVER_KEY on the Workspace UI server.";
   if (value === "hermes_unavailable")
-    return "Cannot reach Hermes. Check that its API server is running, then retry.";
+    return "Cannot reach Hermes. Check that its API server is running, then refresh execution status before sending again.";
   if (value === "chat_requires_durable_runs")
     return "Hermes must have durable run idempotency enabled before this UI can safely send messages.";
   if (value === "chat_retry_window_expired_inspect_hermes")
@@ -71,6 +72,11 @@ export function ChatPage({
   const [models, setModels] = useState<{ id: string }[]>([]);
   const [features, setFeatures] = useState<ChatCapabilities["features"]>({});
   const [run, setRun] = useState<ChatRun | null>(null);
+  const [runHistory, setRunHistory] = useState<ChatRun[]>([]);
+  const [runOffset, setRunOffset] = useState(0);
+  const [moreRuns, setMoreRuns] = useState(false);
+  const [runHistoryError, setRunHistoryError] = useState("");
+  const [conversationReady, setConversationReady] = useState(false);
   const [stream, setStream] = useState("");
   const [activity, setActivity] = useState<ChatEvent[]>([]);
   const [error, setError] = useState("");
@@ -98,6 +104,19 @@ export function ChatPage({
       features.run_events_sse,
   );
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  useEffect(() => {
+    if (!run || (!run.run_id && !run.request_id)) return;
+    setRunHistory((current) => {
+      const index = current.findIndex(
+        (entry) =>
+          Boolean(run.request_id && entry.request_id === run.request_id) ||
+          Boolean(run.run_id && entry.run_id === run.run_id),
+      );
+      return index < 0
+        ? [run, ...current]
+        : current.map((entry, i) => (i === index ? run : entry));
+    });
+  }, [run]);
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
@@ -145,6 +164,11 @@ export function ChatPage({
       setSelected(session);
       setMessages([]);
       setRun(null);
+      setRunHistory([]);
+      setRunOffset(0);
+      setMoreRuns(false);
+      setRunHistoryError("");
+      setConversationReady(false);
       setStream("");
       setActivity([]);
       setError("");
@@ -158,16 +182,38 @@ export function ChatPage({
       url.searchParams.set("conversation", session.id);
       window.history.replaceState(null, "", url);
       try {
-        const [history, state] = await Promise.all([
+        const [history, state, executions] = await Promise.allSettled([
           api.messages(session.id, 0),
           session.writable
             ? api.activeRun(session.id)
             : Promise.resolve({ run: null }),
+          session.writable
+            ? api.runs(session.id, 0)
+            : Promise.resolve({ data: [], has_more: false, next_offset: 0 }),
         ]);
         if (version !== generation.current) return;
-        setMessages(history.data);
-        setOlder(history.data.length === 100);
-        setRun(state.run);
+        if (history.status === "fulfilled") {
+          setMessages(history.value.data);
+          setOlder(history.value.data.length === 100);
+        } else setError(errorText(history.reason));
+        if (state.status === "fulfilled") setRun(state.value.run);
+        else {
+          setRun({
+            run_id: "",
+            session_id: session.id,
+            status: "unknown",
+            status_source: "unconfirmed",
+          });
+          setError(errorText(state.reason));
+        }
+        if (executions.status === "fulfilled") {
+          setRunHistory(executions.value.data);
+          setRunOffset(executions.value.next_offset);
+          setMoreRuns(executions.value.has_more);
+        } else setRunHistoryError(errorText(executions.reason));
+        setConversationReady(
+          history.status === "fulfilled" && state.status === "fulfilled",
+        );
       } catch (err) {
         if (version === generation.current) setError(errorText(err));
       } finally {
@@ -371,7 +417,14 @@ export function ChatPage({
   };
   const send = () =>
     act(async () => {
-      if (!selected?.writable || !draft.trim() || active || unresolved) return;
+      if (
+        !selected?.writable ||
+        !conversationReady ||
+        !draft.trim() ||
+        active ||
+        unresolved
+      )
+        return;
       const id = selected.id;
       const input = draft;
       const pendingKey = `chat-pending:${id}`;
@@ -682,12 +735,48 @@ export function ChatPage({
                   <ChatMarkdown content={stream} />
                 </article>
               )}
-              {active && (
-                <p role="status" className="chat-run-status">
-                  {run.status.replaceAll("_", " ")}…
-                </p>
+              {!loading && selected.writable && (
+                <ChatExecution
+                  run={run}
+                  history={runHistory}
+                  hasMore={moreRuns}
+                  busy={busy}
+                  historyError={runHistoryError}
+                  onRefresh={() => void act(() => select(selected))}
+                  onRefreshRun={(id) =>
+                    void act(async () => {
+                      const version = generation.current;
+                      const status = await api.run(id);
+                      if (version !== generation.current) return;
+                      setRunHistory((current) =>
+                        current.map((entry) =>
+                          entry.run_id === id ? status : entry,
+                        ),
+                      );
+                      if (runRef.current?.run_id === id) setRun(status);
+                    })
+                  }
+                  onMore={() =>
+                    void act(async () => {
+                      const version = generation.current;
+                      const page = await api.runs(selected.id, runOffset);
+                      if (version !== generation.current) return;
+                      setRunHistory((current) => [
+                        ...new Map(
+                          [...current, ...page.data].map((entry) => [
+                            entry.request_id ?? entry.run_id,
+                            entry,
+                          ]),
+                        ).values(),
+                      ]);
+                      setRunOffset(page.next_offset);
+                      setMoreRuns(page.has_more);
+                      setRunHistoryError("");
+                    })
+                  }
+                />
               )}
-              {!messages.length && !loading && !active && (
+              {!messages.length && !loading && !run && !runHistory.length && (
                 <p className="text-center opacity-50 py-12">
                   Start a conversation with Lia.
                 </p>
@@ -757,7 +846,7 @@ export function ChatPage({
                 run={run}
                 active={active}
                 busy={busy}
-                disabled={loading || !ready || unresolved}
+                disabled={loading || !conversationReady || !ready || unresolved}
                 canSteer={Boolean(features.run_steer)}
                 canStop={Boolean(features.run_stop)}
                 onDraft={(value) => {

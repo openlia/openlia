@@ -84,7 +84,7 @@ beforeEach(() => {
         let run = admissions.get(key);
         if (!run) {
           run = {
-            run_id: `run-${runs.size + 1}`,
+            run_id: `run-${admissions.size + 1}`,
             status: "running",
             session_id: String(body.session_id),
           };
@@ -161,6 +161,12 @@ async function send(id: string, input = "hello", key?: string) {
   return service.handle(
     request(`/sessions/${id}/run`, "POST", { input, model: "" }, key),
   );
+}
+
+async function executions(id: string, offset = 0) {
+  return (await (
+    await service.handle(request(`/sessions/${id}/runs?offset=${offset}`))
+  ).json()) as { data: ChatRun[]; has_more: boolean; next_offset: number };
 }
 
 describe("Hermes chat boundary", () => {
@@ -297,6 +303,142 @@ describe("Hermes chat boundary", () => {
     ).json()) as { run: ChatRun };
     expect(state.run.status).toBe("completed");
     expect((await send(id, "next", "next-message-key-12345")).status).toBe(202);
+  });
+  test("failed status and observed time survive server recreation and expired Hermes metadata", async () => {
+    service.close();
+    options.databasePath = join(root, "chat.sqlite");
+    service = new ChatService(options);
+    const id = await create();
+    const run = (await (await send(id)).json()) as ChatRun;
+    Object.assign(runs.get(run.run_id)!, {
+      status: "failed",
+      error: "SECRET_PROVIDER_KEY=never-cache",
+    });
+    const observed = (await (
+      await service.handle(request(`/runs/${run.run_id}`))
+    ).json()) as ChatRun;
+    expect(observed.status).toBe("failed");
+    expect(observed.status_source).toBe("hermes");
+    expect(observed.status_observed_at).toBeNumber();
+    service.close();
+    runs.delete(run.run_id);
+    service = new ChatService(options);
+    const reopened = (await (
+      await service.handle(request(`/sessions/${id}/run`))
+    ).json()) as { run: ChatRun };
+    expect(reopened.run.status).toBe("failed");
+    expect(reopened.run.status_source).toBe("recorded");
+    expect(reopened.run.status_observed_at).toBe(observed.status_observed_at);
+    const history = await executions(id);
+    expect(history.data[0]?.status).toBe("failed");
+    expect(JSON.stringify(history)).not.toContain("SECRET_PROVIDER_KEY");
+    expect(history.data[0]).not.toHaveProperty("error");
+    expect(history.data[0]).not.toHaveProperty("key");
+    expect(history.data[0]).not.toHaveProperty("fingerprint");
+    expect(admissions.size).toBe(1);
+  });
+  test("unconfirmed acceptance is exposed rather than hidden behind an earlier completed run", async () => {
+    const id = await create();
+    const first = (await (await send(id)).json()) as ChatRun;
+    runs.get(first.run_id)!.status = "completed";
+    await service.handle(request(`/runs/${first.run_id}`));
+    lostAcceptance = true;
+    expect(
+      (await send(id, "next request", "different-message-key-1234")).status,
+    ).toBe(502);
+    const state = (await (
+      await service.handle(request(`/sessions/${id}/run`))
+    ).json()) as { run: ChatRun };
+    expect(state.run.run_id).toBe("");
+    expect(state.run.status).toBe("unknown");
+    expect(state.run.status_source).toBe("unconfirmed");
+    const history = await executions(id);
+    expect(history.data.map((run: ChatRun) => run.status)).toEqual([
+      "unknown",
+      "completed",
+    ]);
+    expect(
+      (await send(id, "another request", "another-message-key-1234")).status,
+    ).toBe(409);
+    expect(admissions.size).toBe(2);
+  });
+  test("history preserves an earlier failure after a later run completes", async () => {
+    const id = await create();
+    const first = (await (await send(id)).json()) as ChatRun;
+    runs.get(first.run_id)!.status = "failed";
+    await service.handle(request(`/runs/${first.run_id}`));
+    const second = (await (
+      await send(id, "later message", "later-message-key-1234")
+    ).json()) as ChatRun;
+    runs.get(second.run_id)!.status = "completed";
+    await service.handle(request(`/runs/${second.run_id}`));
+    const history = await executions(id);
+    expect(
+      history.data.map((run: ChatRun) => [run.run_id, run.status]),
+    ).toEqual([
+      [second.run_id, "completed"],
+      [first.run_id, "failed"],
+    ]);
+    expect(
+      history.data.every((run: ChatRun) => run.status_source === "recorded"),
+    ).toBe(true);
+    expect(
+      calls.filter(
+        (call) => call.method === "POST" && call.path === "/v1/runs",
+      ),
+    ).toHaveLength(2);
+  });
+  test("migrates legacy routing metadata without inventing historical timestamps", async () => {
+    service.close();
+    options.databasePath = join(root, "legacy-chat.sqlite");
+    const db = new Database(options.databasePath);
+    db.exec(
+      "CREATE TABLE chat_sessions (id TEXT PRIMARY KEY, root_id TEXT NOT NULL); CREATE TABLE chat_requests (key TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL, run_id TEXT, status TEXT, retry_until REAL NOT NULL)",
+    );
+    db.query(
+      "INSERT INTO chat_sessions VALUES ('legacy-chat', 'legacy-chat')",
+    ).run();
+    db.query(
+      "INSERT INTO chat_requests VALUES ('legacy-key', 'legacy-chat', 'legacy-fingerprint', 'expired-failed-run', 'failed', 0)",
+    ).run();
+    db.close();
+    service = new ChatService(options);
+    const state = (await (
+      await service.handle(request("/sessions/legacy-chat/run"))
+    ).json()) as { run: ChatRun };
+    expect(state.run.status).toBe("failed");
+    expect(state.run.status_source).toBe("recorded");
+    expect(state.run).not.toHaveProperty("submitted_at");
+    expect(state.run).not.toHaveProperty("status_observed_at");
+    const history = await executions("legacy-chat");
+    expect(history.data).toHaveLength(1);
+    expect(history.data[0]?.run_id).toBe("expired-failed-run");
+  });
+  test("execution history is bounded, locally owned and read-only", async () => {
+    service.close();
+    options.databasePath = join(root, "chat.sqlite");
+    service = new ChatService(options);
+    const id = await create();
+    const db = new Database(options.databasePath);
+    for (let i = 0; i < 53; i++)
+      db.query(
+        "INSERT INTO chat_requests(key, session_id, fingerprint, run_id, status, retry_until) VALUES (?, ?, 'private-fingerprint', ?, 'failed', 0)",
+      ).run(`private-key-${i}`, id, `history-run-${i}`);
+    db.close();
+    const first = await executions(id);
+    expect(first.data).toHaveLength(50);
+    expect(first.has_more).toBe(true);
+    expect(first.next_offset).toBe(50);
+    const last = await executions(id, 50);
+    expect(last.data).toHaveLength(3);
+    expect(last.has_more).toBe(false);
+    expect(last.next_offset).toBe(53);
+    expect(JSON.stringify(first)).not.toContain("private-key");
+    expect(JSON.stringify(first)).not.toContain("private-fingerprint");
+    expect(
+      (await service.handle(request("/sessions/telegram-1/runs"))).status,
+    ).toBe(403);
+    expect(calls).toHaveLength(1); // Session creation only; inspection does not dispatch or query all Hermes runs.
   });
   test("prevents two tabs from dispatching overlapping runs", async () => {
     const id = await create();

@@ -55,6 +55,80 @@ describe("Workspace chat", () => {
       ),
     );
   });
+  it("restores failed execution status after reopening without a Lia response or resend", async () => {
+    const api = createChatMock();
+    const run: ChatRun = {
+      run_id: "saved-failure",
+      status: "failed",
+      status_source: "recorded",
+    };
+    api.activeRun = async () => ({ run });
+    api.messages = async () => ({
+      data: [{ id: 1, role: "user", content: "Save the synthetic trip" }],
+      session_id: "demo-chat",
+    });
+    const send = vi.spyOn(api, "send");
+    await open(api);
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Execution failed"),
+    );
+    expect(screen.getByText("Save the synthetic trip")).toBeVisible();
+    expect(
+      screen.getByText(/tools may already have changed workspace records/),
+    ).toBeVisible();
+    cleanup();
+    render(<ChatPage api={api} />);
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Execution failed"),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh execution status" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Execution failed"),
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
+  it("keeps the saved transcript readable and disables sending when run lookup fails", async () => {
+    const api = createChatMock();
+    api.activeRun = async () => {
+      throw new Error("hermes_unavailable");
+    };
+    const send = vi.spyOn(api, "send");
+    await open(api);
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Execution outcome unknown",
+      ),
+    );
+    expect(
+      screen.getByText(/Hello! Ask me about your workspace/),
+    ).toBeVisible();
+    fireEvent.change(screen.getByRole("textbox", { name: "Message Lia" }), {
+      target: { value: "Do not submit" },
+    });
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(send).not.toHaveBeenCalled();
+  });
+  it("shows older failed runs after a later turn completed", async () => {
+    const api = createChatMock();
+    const latest: ChatRun = { run_id: "later-run", status: "completed" };
+    api.activeRun = async () => ({ run: latest });
+    api.runs = async () => ({
+      data: [
+        latest,
+        { run_id: "earlier-run", status: "failed", status_source: "recorded" },
+      ],
+      has_more: false,
+      next_offset: 2,
+    });
+    const send = vi.spyOn(api, "send");
+    await open(api);
+    fireEvent.click(await screen.findByText("Execution history (2)"));
+    expect(screen.getByText("earlier-run")).toBeVisible();
+    expect(screen.getByText("Execution failed")).toBeVisible();
+    expect(send).not.toHaveBeenCalled();
+  });
   it("does not show mutation controls for other Hermes sessions", async () => {
     const api = createChatMock();
     await open(api);

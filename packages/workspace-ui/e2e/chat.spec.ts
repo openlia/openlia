@@ -1,5 +1,35 @@
 import { expect, test } from "@playwright/test";
 
+test("recorded failed execution remains visible after reload without resending", async ({
+  page,
+}) => {
+  await page.goto("/chat?conversation=demo-failed");
+  const execution = page.getByRole("region", {
+    name: "Chat execution",
+    exact: true,
+  });
+  const messages = page.getByRole("region", { name: "Conversation messages" });
+  await expect(execution.getByRole("status")).toHaveText("Execution failed");
+  await expect(
+    execution.getByText(/tools may already have changed workspace records/),
+  ).toBeVisible();
+  await expect(messages.getByRole("article")).toHaveCount(1);
+  await page.reload();
+  await expect(execution.getByRole("status")).toHaveText("Execution failed");
+  await execution.getByText("Execution history (1)", { exact: true }).click();
+  await expect(
+    execution.getByRole("button", {
+      name: "Refresh run failed-demo-run",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await execution
+    .getByRole("button", { name: "Refresh execution status", exact: true })
+    .click();
+  await expect(execution.getByRole("status")).toHaveText("Execution failed");
+  await expect(messages.getByRole("article")).toHaveCount(1);
+});
+
 test("chat allows multiline editing and submits only with Send", async ({
   page,
 }) => {

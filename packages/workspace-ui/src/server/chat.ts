@@ -36,6 +36,37 @@ export class ChatError extends Error {
   }
 }
 
+interface StoredChatRequest {
+  request_id: number;
+  session_id: string;
+  run_id: string | null;
+  status: string | null;
+  submitted_at: number | null;
+  status_observed_at: number | null;
+}
+
+const requestColumns =
+  "rowid AS request_id, session_id, run_id, status, submitted_at, status_observed_at";
+
+function recordedRun(row: StoredChatRequest): ChatRun {
+  return {
+    request_id: `request-${row.request_id}`,
+    run_id: row.run_id ?? "",
+    session_id: row.session_id,
+    status: row.run_id
+      ? (row.status ?? "unknown")
+      : row.status === "rejected"
+        ? "rejected"
+        : "unknown",
+    status_source:
+      !row.run_id && row.status !== "rejected" ? "unconfirmed" : "recorded",
+    ...(row.submitted_at === null ? {} : { submitted_at: row.submitted_at }),
+    ...(row.status_observed_at === null
+      ? {}
+      : { status_observed_at: row.status_observed_at }),
+  };
+}
+
 // Only routing/ownership metadata lives here. Hermes owns all transcripts.
 export class ChatService {
   private db: Database | undefined;
@@ -61,6 +92,15 @@ export class ChatService {
         CREATE TABLE IF NOT EXISTS chat_sessions (id TEXT PRIMARY KEY, root_id TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS chat_requests (key TEXT PRIMARY KEY, session_id TEXT NOT NULL, fingerprint TEXT NOT NULL, run_id TEXT, status TEXT, retry_until REAL NOT NULL);
         CREATE INDEX IF NOT EXISTS chat_requests_session ON chat_requests(session_id);`);
+      const columns = this.db
+        .query("PRAGMA table_info(chat_requests)")
+        .all() as { name: string }[];
+      for (const column of ["submitted_at", "status_observed_at"]) {
+        if (!columns.some((item) => item.name === column))
+          this.db.exec(
+            `ALTER TABLE chat_requests ADD COLUMN ${column} INTEGER`,
+          );
+      }
     }
     return this.db;
   }
@@ -128,8 +168,8 @@ export class ChatService {
 
   private async status(runId: string): Promise<ChatRun> {
     const row = this.store()
-      .query("SELECT session_id, status FROM chat_requests WHERE run_id = ?")
-      .get(runId) as { session_id: string; status: string } | null;
+      .query(`SELECT ${requestColumns} FROM chat_requests WHERE run_id = ?`)
+      .get(runId) as StoredChatRequest | null;
     if (!row) throw new ChatError(404, "chat_run_not_found");
     this.requireOwned(row.session_id);
     let run: ChatRun;
@@ -139,18 +179,29 @@ export class ChatService {
       if (!(error instanceof ChatError) || error.status !== 404) throw error;
       // Hermes eventually expires run records. Never let that erase readable history
       // or turn an uncertain run into a fresh dispatch.
-      run = {
-        run_id: runId,
-        session_id: row.session_id,
-        status: terminalChatStatuses.has(row.status) ? row.status : "unknown",
+      return {
+        ...recordedRun(row),
+        status: terminalChatStatuses.has(row.status ?? "")
+          ? (row.status ?? "unknown")
+          : "unknown",
       };
     }
+    const observedAt = Date.now();
     this.store()
-      .query("UPDATE chat_requests SET status = ? WHERE run_id = ?")
-      .run(run.status, runId);
+      .query(
+        "UPDATE chat_requests SET status = ?, status_observed_at = ? WHERE run_id = ?",
+      )
+      .run(run.status, observedAt, runId);
     // Compaction can rotate the live session ID. Register the Hermes-returned tip.
     if (run.session_id) this.register(run.session_id, row.session_id);
-    return run;
+    return {
+      ...run,
+      run_id: runId,
+      request_id: `request-${row.request_id}`,
+      status_source: "hermes",
+      status_observed_at: observedAt,
+      ...(row.submitted_at === null ? {} : { submitted_at: row.submitted_at }),
+    };
   }
 
   async handle(request: Request): Promise<Response> {
@@ -202,7 +253,7 @@ export class ChatService {
         return json({ session: { ...result.session, writable: true } }, 201);
       }
       const sessionMatch = path.match(
-        /^\/sessions\/([^/]+)(?:\/(messages|run))?$/,
+        /^\/sessions\/([^/]+)(?:\/(messages|run|runs))?$/,
       );
       if (sessionMatch) {
         const id = decodeURIComponent(sessionMatch[1] ?? "");
@@ -235,10 +286,37 @@ export class ChatService {
           this.requireOwned(id);
           const row = this.store()
             .query(
-              "SELECT run_id FROM chat_requests WHERE session_id IN (SELECT id FROM chat_sessions WHERE root_id = ?) AND run_id IS NOT NULL ORDER BY rowid DESC LIMIT 1",
+              `SELECT ${requestColumns} FROM chat_requests WHERE session_id IN (SELECT id FROM chat_sessions WHERE root_id = ?) ORDER BY rowid DESC LIMIT 1`,
             )
-            .get(this.rootId(id)) as { run_id: string } | null;
-          return json({ run: row ? await this.status(row.run_id) : null });
+            .get(this.rootId(id)) as StoredChatRequest | null;
+          return json({
+            run: row
+              ? row.run_id
+                ? await this.status(row.run_id)
+                : recordedRun(row)
+              : null,
+          });
+        }
+        if (method === "GET" && resource === "runs") {
+          this.requireOwned(id);
+          const offset = Math.max(
+            0,
+            Math.min(
+              1_000_000,
+              Math.floor(Number(url.searchParams.get("offset")) || 0),
+            ),
+          );
+          const rows = this.store()
+            .query(
+              `SELECT ${requestColumns} FROM chat_requests WHERE session_id IN (SELECT id FROM chat_sessions WHERE root_id = ?) ORDER BY rowid DESC LIMIT 51 OFFSET ?`,
+            )
+            .all(this.rootId(id), offset) as StoredChatRequest[];
+          const data = rows.slice(0, 50).map(recordedRun);
+          return json({
+            data,
+            has_more: rows.length > 50,
+            next_offset: offset + data.length,
+          });
         }
         this.requireOwned(id);
         if (method === "PATCH" && !resource) {
@@ -344,9 +422,9 @@ export class ChatService {
               throw new ChatError(409, "chat_run_already_active");
             this.store()
               .query(
-                "INSERT OR IGNORE INTO chat_requests(key, session_id, fingerprint, status, retry_until) VALUES (?, ?, ?, 'dispatching', ?)",
+                "INSERT OR IGNORE INTO chat_requests(key, session_id, fingerprint, status, retry_until, submitted_at, status_observed_at) VALUES (?, ?, ?, 'dispatching', ?, ?, ?)",
               )
-              .run(key, id, fingerprint, retryUntil);
+              .run(key, id, fingerprint, retryUntil, Date.now(), Date.now());
           })();
           let run: ChatRun;
           try {
@@ -368,17 +446,17 @@ export class ChatService {
             ) {
               this.store()
                 .query(
-                  "UPDATE chat_requests SET status = 'rejected' WHERE key = ?",
+                  "UPDATE chat_requests SET status = 'rejected', status_observed_at = ? WHERE key = ?",
                 )
-                .run(key);
+                .run(Date.now(), key);
             }
             throw error;
           }
           this.store()
             .query(
-              "UPDATE chat_requests SET run_id = ?, status = ? WHERE key = ?",
+              "UPDATE chat_requests SET run_id = ?, status = ?, status_observed_at = ? WHERE key = ?",
             )
-            .run(run.run_id, run.status, key);
+            .run(run.run_id, run.status, Date.now(), key);
           return json(run, 202);
         }
       }

@@ -28,6 +28,10 @@ share its chat history**; this is not a multi-tenant, per-user chat service.
 - Select a model route advertised by Hermes, or leave **Hermes default** selected.
   The run's reported model is displayed when available. This is not a separate
   provider/credential configuration or a session model-lock editor.
+- Reopening a Workspace chat shows its latest execution outcome and run ID even
+  when no assistant reply was saved. **Execution history** lists earlier
+  submissions newest-first, with bounded pagination and read-only refresh controls.
+  A later successful turn does not hide an earlier failed execution.
 - Browse other Hermes sessions, such as Telegram or CLI conversations, read-only.
 - Filter loaded chat titles and load more history. Full-history search, an archive
   browser, attachments, voice, sharing, and message editing/branching are not yet
@@ -42,6 +46,27 @@ claimed by another installation. Production stores it in
 `<root>/runtime/workspace-ui/chat.sqlite`; standalone servers use
 `OPENLIA_RUNTIME_ROOT/chat.sqlite` or `~/.openlia/cache/workspace-ui/chat.sqlite`.
 This runtime metadata is not included in the default durable backup.
+
+Execution history stores only request/run identity, observed status and optional
+submission/status-observation timestamps alongside the existing routing metadata;
+it does not copy transcripts, tool outputs or provider-error text. Existing
+databases are upgraded in place with nullable timestamps: missing historical dates
+are not invented. A recorded terminal outcome remains readable if Hermes expires
+its live run metadata; the UI labels it **Last recorded status**, not a fresh
+observation. Cached non-terminal observations must be refreshed before relying on
+them. Lost acceptance is shown explicitly as **Execution outcome unknown**, not
+as an empty execution history, and blocks sending after reopening. If the current
+run lookup is unavailable, the saved transcript remains readable but sending is
+disabled until the lookup succeeds. Definitive pre-acceptance refusal is labelled
+separately from an admitted run that failed during execution.
+
+**Failed, cancelled or interrupted does not mean no workspace changes happened.**
+Inspect the saved conversation, tool results and actual output records before
+another consequential request. Refreshing execution status never resends a
+message, retries a run or alters the transcript. No automatic resend or manual
+"mark safe" override is provided. If no terminal outcome was ever observed and
+Hermes no longer retains it, it remains unknown; this UI cannot retroactively
+establish a terminal state or prove the absence of downstream effects.
 
 The UI uses detached `/v1/runs`, not the disconnect-sensitive session chat stream.
 Navigating away or refreshing disconnects the observer, not the agent. Replay uses
