@@ -11,11 +11,11 @@ func TestValidateRequiresStableImmutableImagePins(t *testing.T) {
 		Hermes: image{
 			Image:   "nousresearch/hermes-agent",
 			Channel: "stable",
-			Tag:     "v0.22.4",
+			Tag:     "v0.22.5",
 			Digest:  "sha256:" + repeatedHex('a'),
 		},
 		Locho: locho{
-			Version:       "1.3.0-beta.2",
+			Version:       "1.3.0",
 			LinuxX8664SHA: repeatedHex('c'),
 			LinuxARM64SHA: repeatedHex('d'),
 		},

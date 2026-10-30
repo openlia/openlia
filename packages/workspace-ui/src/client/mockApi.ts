@@ -1335,8 +1335,8 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     async loadSystemInfo(): Promise<WorkspaceSystemInfo> {
       requireAuthentication();
       return {
-        hermes_version: "v0.22.4",
-        locho_version: "1.3.0-beta.2",
+        hermes_version: "v0.22.5",
+        locho_version: "1.3.0",
         openlia_hash: "471234288494f25aca1bce5c2b8355a308",
         openlia_version: "0.1.0",
         schema: 1,

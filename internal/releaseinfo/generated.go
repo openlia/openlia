@@ -8,13 +8,13 @@ var Default = Manifest{
 	Hermes: ImagePin{
 		Image:   "nousresearch/hermes-agent",
 		Channel: "stable",
-		Tag:     "v0.22.4",
-		Digest:  "sha256:7a69201726bc64db2072a1371557137c23312d29705cda2b8ea2a0214a50a4cf",
+		Tag:     "v0.22.5",
+		Digest:  "sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d",
 	},
 	Locho: LochoPin{
-		Version:       "1.3.0-beta.2",
-		LinuxX8664SHA: "5efec3f6d1e6ac86017f86bb3dd6f60bb9234cbab223bc9028ee63161ad550a0",
-		LinuxARM64SHA: "235fb616581636f9f34c47c707fa8af620748d86e1cd86afc49fcbfae14b4267",
+		Version:       "1.3.0",
+		LinuxX8664SHA: "24ef0edb7c7203f4e6c0dff0d33132e57a815fc5f0dfbbb49c54915e96d57809",
+		LinuxARM64SHA: "28a125314d193c1cc9d91fe65482716598d7644cfa61d359fd8f6f2801f01890",
 	},
 	Templates: TemplatesPin{
 		Repository: "https://github.com/openlia/templates.git",

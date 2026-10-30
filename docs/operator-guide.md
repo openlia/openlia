@@ -169,13 +169,13 @@ After deployment, export a mode-`0600` client attachment file on the operator ma
 openlia locho-host share --output openlia-attachments.toml
 ```
 
-Install [Locho `1.3.0-beta.2`](https://github.com/trchopan/locho/releases/tag/v1.3.0-beta.2)
+Install [Locho `1.3.0`](https://github.com/trchopan/locho/releases/tag/v1.3.0)
 on your client machine, copy `openlia-attachments.toml` over a trusted channel, and start the local listener:
 ```bash
 locho attach --config openlia-attachments.toml
 ```
 
-Locho `1.3.0-beta.2` also supports custom relay transports and configurable HTTP
+Locho `1.3.0` also supports custom relay transports and configurable HTTP
 timeouts. Configure `relay_config` and optional `relay_secrets` (mode `0600`) under `[locho]` in `config.toml`. See [`examples/locho/hosts/example/README.md`](../examples/locho/hosts/example/README.md) for relay templates and service-role mapping (`openlia attachments rotate|map|list`).
 
 ### Browser Host (`openlia-browser`)

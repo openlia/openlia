@@ -10,8 +10,8 @@ replacement for the license files shipped by those projects or images.
 
 | Component | Version or pin | License | Source or notice |
 | --- | --- | --- | --- |
-| Hermes Agent | `nousresearch/hermes-agent:v0.22.4` at `sha256:7a69201726bc64db2072a1371557137c23312d29705cda2b8ea2a0214a50a4cf` | MIT | [Upstream repository](https://github.com/NousResearch/hermes-agent) |
-| Locho | `v1.3.0-beta.2`; architecture-specific SHA-256 values are recorded in [`release/manifest.json`](release/manifest.json) | MIT | [Upstream repository](https://github.com/trchopan/locho) and [release downloads](https://github.com/trchopan/locho/releases/tag/v1.3.0-beta.2) |
+| Hermes Agent | `nousresearch/hermes-agent:v0.22.5` at `sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d` | MIT | [Upstream repository](https://github.com/NousResearch/hermes-agent) |
+| Locho | `v1.3.0`; architecture-specific SHA-256 values are recorded in [`release/manifest.json`](release/manifest.json) | MIT | [Upstream repository](https://github.com/trchopan/locho) and [release downloads](https://github.com/trchopan/locho/releases/tag/v1.3.0) |
 | Bun | `1.2.22`; architecture-specific SHA-256 values are recorded in [`docker/Dockerfile`](docker/Dockerfile) | MIT, with additional bundled component licenses | [Upstream licensing information](https://github.com/oven-sh/bun/blob/main/LICENSE.md) |
 | uv | `0.8.14`; architecture-specific SHA-256 values are recorded in [`docker/Dockerfile`](docker/Dockerfile) | MIT and Apache-2.0 | [MIT License](https://github.com/astral-sh/uv/blob/0.8.14/LICENSE-MIT) and [Apache License 2.0](https://github.com/astral-sh/uv/blob/0.8.14/LICENSE-APACHE) |
 | PyYAML | `6.0.2` | MIT | [Upstream license](https://github.com/yaml/pyyaml/blob/6.0.2/LICENSE) |
@@ -33,7 +33,7 @@ and are also used by the development requirements file.
 
 The derived images use these pinned base images:
 
-- Hermes image base: `nousresearch/hermes-agent:v0.22.4` at the digest
+- Hermes image base: `nousresearch/hermes-agent:v0.22.5` at the digest
   listed above.
 - Locho image base: `debian:13.4-slim` at
   `sha256:109e2c65005bf160609e4ba6acf7783752f8502ad218e298253428690b9eaa4b`.

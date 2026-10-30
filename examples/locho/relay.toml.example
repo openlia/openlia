@@ -1,4 +1,4 @@
-# Optional Locho 1.3.0-beta.2 relay transport configuration.
+# Optional Locho 1.3.0 relay transport configuration.
 # Set relay_config in a [locho] section to a protected copy of this file.
 include_n0_relays = false
 
