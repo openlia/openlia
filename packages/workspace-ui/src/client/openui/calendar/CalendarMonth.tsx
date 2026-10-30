@@ -33,7 +33,7 @@ export function CalendarMonthView({
       />
       <div className="overflow-x-auto">
         <table
-          className="table-fixed w-full min-w-[560px]"
+          className="calendar-month-table table-fixed w-full min-w-[560px]"
           aria-label="Calendar month dates"
         >
           <thead>

@@ -481,6 +481,11 @@ textarea {
   border-collapse: collapse;
 }
 
+/* Keep fixed calendar columns; its wrapper handles horizontal scrolling. */
+.workspace-markdown .calendar-month-table {
+  display: table;
+}
+
 .workspace-markdown th,
 .workspace-markdown td {
   border: 1px solid
