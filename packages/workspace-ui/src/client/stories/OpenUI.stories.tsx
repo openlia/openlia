@@ -4,6 +4,7 @@ import { OpenLiaOpenUIProvider } from "../openui/context";
 import { OpenUIDiagnostics } from "../openui/OpenUIDiagnostics";
 import { OpenUIErrorBoundary } from "../openui/OpenUIErrorBoundary";
 import { action, storyData, storyLoader } from "./fixtures";
+import { openUIRecipes } from "../../shared/openuiRecipes";
 
 const meta = {
   title: "OpenUI/Inline Markdown",
@@ -28,6 +29,16 @@ export const Menu: Story = {
         "Thực đơn ngày 29/10/2026",
         'Table(title: "Thực đơn", columns: [{key: "meal", label: "Bữa ăn"}, {key: "dish", label: "Món ăn"}], rows: [{meal: "Bữa sáng", dish: "Phở bò"}, {meal: "Bữa trưa", dish: "Cơm gà"}, {meal: "Bữa tối", dish: "Canh rau"}])',
       )}
+    />
+  ),
+};
+export const AuthoringRecipes: Story = {
+  render: () => (
+    <MarkdownPreview
+      currentFilePath="examples/recipes.md"
+      content={openUIRecipes
+        .map((recipe) => document(recipe.name, recipe.code))
+        .join("\n\n")}
     />
   ),
 };

@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import shlex
+import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +48,34 @@ DEFAULT_HELPER = Path(
     "/opt/data/skills/workspace-template-customization/scripts/workspace_registry.py"
 )
 DEFAULT_WORKSPACE = Path("/opt/data/workspace")
+OPENUI_CLI = "/usr/local/lib/openlia/openui-authoring.js"
+MAX_OPENUI_INPUT = 262_144
+
+
+def _openui_request(request: dict[str, Any]) -> str:
+    """Invoke the bundled UI implementation, never a shell or document code."""
+    try:
+        result = subprocess.run(
+            ["/usr/local/bin/bun", OPENUI_CLI],
+            cwd=str(Path(OPENUI_CLI).parent),
+            input=json.dumps(request, ensure_ascii=False),
+            text=True,
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+        response = json.loads(result.stdout)
+        if not isinstance(response, dict) or "status" not in response:
+            raise ValueError("invalid authoring service response")
+        if result.returncode and response.get("status") == "ok":
+            raise ValueError("authoring service exited unsuccessfully")
+        return json.dumps(response, ensure_ascii=False)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return json.dumps({
+            "status": "unavailable",
+            "validationLevel": "none",
+            "message": "The bundled OpenUI authoring validator is unavailable. Do not claim schema validation or rendering success; report the blocker and use Workspace UI preview.",
+        })
 
 _PATCH_FILE_HEADER = re.compile(
     r"^\*\*\*\s*(?P<operation>Update|Add|Delete)\s+File:\s*(?P<path>.+?)\s*$",
@@ -79,6 +108,8 @@ _READ_ONLY_TOOLS = {
     "ingestion_suggest_passwords",
     "maintainer_status",
     "maintainer_audit",
+    "openui_describe",
+    "openui_validate",
 }
 _READ_ONLY_COMMANDS = {
     "basename",
@@ -815,6 +846,18 @@ class PolicyEnforcer:
         res = self.maintainer.status(relative_path=path, state=state)
         return json.dumps(res, ensure_ascii=False, sort_keys=True)
 
+    def tool_openui_describe(self, component: str | None = None, **_: Any) -> str:
+        if component is not None and (not isinstance(component, str) or len(component) > 100):
+            return json.dumps({"status": "error", "message": "component must be a string of at most 100 characters"})
+        return _openui_request({"action": "describe", "component": component} if component is not None else {"action": "describe"})
+
+    def tool_openui_validate(self, content: str, format: str = "markdown", **_: Any) -> str:
+        if not isinstance(content, str) or len(content) > MAX_OPENUI_INPUT:
+            return json.dumps({"status": "error", "validationLevel": "none", "message": f"content must be a string of at most {MAX_OPENUI_INPUT} characters"})
+        if not isinstance(format, str) or format not in {"markdown", "openui"}:
+            return json.dumps({"status": "error", "validationLevel": "none", "message": "format must be markdown or openui"})
+        return _openui_request({"action": "validate", "content": content, "format": format})
+
     def tool_maintainer_audit(self, **_: Any) -> str:
         res = self.maintainer.run_audit()
         return json.dumps(res, ensure_ascii=False, sort_keys=True)
@@ -843,6 +886,33 @@ def register(ctx: Any) -> None:
     ctx.register_hook("pre_tool_call", enforcer.pre_tool_call)
     ctx.register_hook("post_tool_call", enforcer.post_tool_call)
     if hasattr(ctx, "register_tool"):
+        for name, description, parameters, handler in [
+            (
+                "openui_describe",
+                "Discover supported inline OpenUI components, or inspect one component's runtime schema, exact property names, enums, argument order, and tested recipes. Read-only and offline.",
+                {"type": "object", "properties": {"component": {"type": "string", "maxLength": 100}}, "additionalProperties": False},
+                enforcer.tool_openui_describe,
+            ),
+            (
+                "openui_validate",
+                "Validate an unsaved Markdown draft's OpenUI fences (or a raw block) using the UI normalizer and component schemas. Returns block locations and repair diagnostics. Read-only; does not verify runtime rendering or live data. Validate the final document before claiming completion.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "content": {"type": "string", "maxLength": MAX_OPENUI_INPUT, "description": "Exact final Markdown draft or raw OpenUI source; not a file path."},
+                        "format": {"type": "string", "enum": ["markdown", "openui"], "default": "markdown"},
+                    },
+                    "required": ["content"],
+                    "additionalProperties": False,
+                },
+                enforcer.tool_openui_validate,
+            ),
+        ]:
+            ctx.register_tool(
+                name=name, toolset="openlia-policy",
+                schema={"name": name, "description": description, "parameters": parameters},
+                handler=handler, is_async=False, description=description,
+            )
         status_schema = {
             "name": "maintainer_status",
             "description": "Inspect Workspace Maintainer open, ignored, and resolved structural findings for the workspace or a specific relative file path.",

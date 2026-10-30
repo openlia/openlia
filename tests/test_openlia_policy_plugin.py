@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import shutil
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +64,59 @@ class PolicyPluginTests(unittest.TestCase):
 
         self.assertIsNone(policy.pre_tool_call("web_search", {"query": "Kyoto itinerary"}))
         self.assertIsNone(policy.pre_tool_call("read_file", {"path": "travel/trip.md"}))
+
+    def test_openui_tools_use_fixed_read_only_json_protocol(self):
+        self.assertIsNone(self.policy.pre_tool_call("openui_describe", {}))
+        self.assertIsNone(self.policy.pre_tool_call("openui_validate", {"content": "draft"}))
+        with patch.object(self.module.subprocess, "run") as run:
+            run.return_value.stdout = json.dumps({"status": "ok", "validationLevel": "schema", "valid": True})
+            run.return_value.returncode = 0
+            result = json.loads(self.policy.tool_openui_validate('CardHeader(title: "Phở")', format="openui"))
+            self.assertTrue(result["valid"])
+            args, kwargs = run.call_args
+            self.assertEqual(args[0], ["/usr/local/bin/bun", self.module.OPENUI_CLI])
+            self.assertEqual(kwargs["cwd"], str(Path(self.module.OPENUI_CLI).parent))
+            self.assertEqual(json.loads(kwargs["input"]), {"action": "validate", "format": "openui", "content": 'CardHeader(title: "Phở")'})
+            self.assertFalse(kwargs.get("shell", False))
+            self.assertEqual(kwargs["timeout"], 15)
+            self.policy.tool_openui_describe(component="Tabs")
+            self.assertEqual(json.loads(run.call_args.kwargs["input"]), {"action": "describe", "component": "Tabs"})
+
+    def test_openui_tool_failure_never_claims_validation(self):
+        with patch.object(self.module.subprocess, "run", side_effect=FileNotFoundError):
+            result = json.loads(self.policy.tool_openui_validate("draft"))
+            self.assertEqual(result["status"], "unavailable")
+            self.assertEqual(result["validationLevel"], "none")
+            self.assertNotIn("valid", result)
+        with patch.object(self.module.subprocess, "run") as run:
+            run.return_value.stdout = "not json"
+            result = json.loads(self.policy.tool_openui_describe())
+            self.assertEqual(result["status"], "unavailable")
+        with patch.object(self.module.subprocess, "run") as run:
+            self.assertEqual(json.loads(self.policy.tool_openui_validate("x" * (self.module.MAX_OPENUI_INPUT + 1)))["status"], "error")
+            self.assertEqual(json.loads(self.policy.tool_openui_validate("x", format="js"))["status"], "error")
+            self.assertEqual(json.loads(self.policy.tool_openui_describe(component=12))["status"], "error")
+            run.assert_not_called()
+
+    def test_openui_tools_are_registered_with_read_only_draft_schemas(self):
+        class Context:
+            def __init__(self):
+                self.tools = {}
+
+            def register_hook(self, *_):
+                pass
+
+            def register_tool(self, **tool):
+                self.tools[tool["name"]] = tool
+
+        context = Context()
+        with patch.object(self.module, "PolicyEnforcer", return_value=self.policy):
+            self.module.register(context)
+        self.assertIn("openui_describe", context.tools)
+        validate = context.tools["openui_validate"]
+        self.assertEqual(validate["schema"]["parameters"]["required"], ["content"])
+        self.assertFalse(validate["schema"]["parameters"]["additionalProperties"])
+        self.assertFalse(validate["is_async"])
 
     def test_checkpoint_proposals_are_interactive_and_commits_are_ui_only(self):
         self.assertIsNone(self.policy.pre_tool_call("workspace_git_inspect", {}))

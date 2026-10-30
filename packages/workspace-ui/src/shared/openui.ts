@@ -15,6 +15,12 @@ interface Token {
   kind: "string" | "word" | "punct";
 }
 
+class OpenUIArgumentError extends Error {
+  constructor(readonly diagnostic: OpenUIDiagnostic) {
+    super(diagnostic.message);
+  }
+}
+
 // Scan once, never interpreting calls or delimiters inside strings/comments.
 function tokens(source: string): Token[] {
   const result: Token[] = [];
@@ -243,19 +249,41 @@ function transform(source: string): string {
     });
     const keys = args.flatMap((arg) => (arg.key ? [arg.key] : []));
     if (new Set(keys).size !== keys.length)
-      throw new Error(`Duplicate named argument in ${token.text}`);
+      throw new OpenUIArgumentError({
+        code: "duplicate-argument",
+        component: token.text,
+        message: `Duplicate named argument in ${token.text}`,
+        hint: "Specify each named argument only once.",
+      });
     let replacement = token.text === "Table" ? rowTable(args) : null;
     if (replacement === null) {
       if (keys.length) {
         if (keys.length !== args.length)
-          throw new Error("Do not mix named and positional arguments");
+          throw new OpenUIArgumentError({
+            code: "mixed-arguments",
+            component: token.text,
+            message: "Do not mix named and positional arguments",
+            hint: "Prefer all named arguments in this call.",
+          });
         const order = openUIPropOrder[token.text];
-        if (!order) throw new Error(`Unknown component '${token.text}'`);
+        if (!order)
+          throw new OpenUIArgumentError({
+            code: "unknown-component",
+            component: token.text,
+            message: `Unknown component '${token.text}'`,
+            hint: "Call openui_describe without a component to discover supported names.",
+          });
         const positional: string[] = [];
         for (const arg of args) {
           const index = order.indexOf(arg.key ?? "");
           if (index < 0)
-            throw new Error(`Unknown ${token.text} argument '${arg.key}'`);
+            throw new OpenUIArgumentError({
+              code: "unknown-property",
+              component: token.text,
+              path: `/${arg.key}`,
+              message: `Unknown ${token.text} argument '${arg.key}'`,
+              hint: `Allowed arguments: ${order.join(", ")}. Use openui_describe for types and required fields.`,
+            });
           while (positional.length <= index) positional.push("null");
           positional[index] = transform(arg.value);
         }
@@ -281,16 +309,56 @@ export function normalizeOpenUIProgram(source: string): string {
 
 const parser = createParser(openliaOpenUISchema);
 
-export function openUIErrors(source: string): string[] {
+export interface OpenUIDiagnostic {
+  code: string;
+  message: string;
+  component?: string;
+  path?: string;
+  statementId?: string;
+  hint?: string;
+}
+
+/** Complete-document validation, unlike the upstream streaming parser. */
+export function openUIDiagnostics(source: string): OpenUIDiagnostic[] {
   try {
     const result = parser.parse(normalizeOpenUIProgram(source));
-    return [
-      ...result.meta.errors.map((error) => `${error.code}: ${error.message}`),
-      ...(!result.root ? ["Missing required root statement"] : []),
-    ];
+    const diagnostics: OpenUIDiagnostic[] = result.meta.errors.map((error) => ({
+      ...error,
+      hint: `Use openui_describe for ${error.component} and check the field type, required arguments, and allowed values.`,
+    }));
+    if (result.meta.incomplete)
+      diagnostics.push({
+        code: "incomplete-program",
+        message: "OpenUI program is incomplete",
+      });
+    if (result.meta.unresolved.length)
+      diagnostics.push({
+        code: "unresolved-reference",
+        message: `Unresolved references: ${result.meta.unresolved.join(", ")}`,
+        hint: "Define referenced values in this block; blocks do not share variables.",
+      });
+    if (!result.root && !diagnostics.length)
+      diagnostics.push({
+        code: "missing-root",
+        message: "Missing required root statement",
+      });
+    return diagnostics;
   } catch (error) {
-    return [error instanceof Error ? error.message : String(error)];
+    if (error instanceof OpenUIArgumentError) return [error.diagnostic];
+    return [
+      {
+        code: "normalization-error",
+        message: error instanceof Error ? error.message : String(error),
+        hint: "Use schema-named arguments without mixing positional arguments. Check delimiters and literal table data; use openui_describe for exact properties.",
+      },
+    ];
   }
+}
+
+export function openUIErrors(source: string): string[] {
+  return openUIDiagnostics(source).map(
+    (error) => `${error.code}: ${error.message}`,
+  );
 }
 
 export function extractMarkdownOpenUIBlocks(

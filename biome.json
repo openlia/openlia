@@ -5,6 +5,8 @@
       "packages/**/*.{js,jsx,ts,tsx,json,jsonc,css}",
       "!packages/**/dist",
       "!packages/**/.playwright",
+      "!packages/**/.storybook-static",
+      "!packages/**/.e2e-workspace",
       "package.json",
       "tsconfig*.json"
     ]
