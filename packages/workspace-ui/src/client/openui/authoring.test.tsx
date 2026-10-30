@@ -1,12 +1,33 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
-import { MarkdownPreview } from "../components/editor/MarkdownPreview";
+import reportExample from "../../../../../profile/system-skills/inline-openui-authoring/references/report-example.md?raw";
 import { openUIRecipes } from "../../shared/openuiRecipes";
 import {
   openliaOpenUISchema,
   openUIPropOrder,
 } from "../../shared/openuiSchema";
+import { MarkdownPreview } from "../components/editor/MarkdownPreview";
 import { openliaLibrary } from "./library";
+
+test("the sample report renders narrative, a chart, and exact values without fallback", () => {
+  const { container } = render(
+    <MarkdownPreview
+      currentFilePath="reports/weekly-review.md"
+      content={reportExample}
+    />,
+  );
+  expect(screen.getAllByTestId("inline-openui-block")).toHaveLength(2);
+  expect(screen.queryByTestId("inline-openui-error")).toBeNull();
+  expect(
+    container.querySelector('[aria-label="OpenUI render error"]'),
+  ).toBeNull();
+  expect(
+    screen.getByRole("heading", { name: "Conclusion" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("cell", { name: "Not recorded" }),
+  ).toBeInTheDocument();
+});
 
 test("the server catalog stays aligned with the actual renderer registry", () => {
   const renderer = openliaLibrary.toJSONSchema();
