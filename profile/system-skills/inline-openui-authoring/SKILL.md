@@ -101,8 +101,17 @@ The workspace Python checker is syntax-only; it cannot certify components or
 properties. Saving remains separate from validity; OpenUI findings are advisory
 and never invalidate record contracts.
 
-Calendar and Finance require their respective parent containers and authenticated
-workspace capabilities. Relative source/journal paths resolve from the containing
+Calendar views and Finance views require their respective parent containers.
+Source-backed Calendar and Finance require authenticated workspace capabilities.
+For self-contained, read-only calendars, use `Calendar(events: [...], children:
+[CalendarMonth(), CalendarWeek(), GanttChart()])` without `source`. Inline events
+require unique `id`, `title`, `start`, and `end`; timed intervals need explicit ISO
+offsets, all-day intervals use `allDay: true` with date-only exclusive ends. An
+empty `events: []` stays inline; omitting both `events` and `source` loads the
+default Remind file. Inline calendars do not load/save through the calendar API
+or need private capabilities. Discover the full event schema and examples with
+`openui_describe(component: "Calendar")`, then validate the complete Markdown.
+Relative source/journal paths resolve from the containing
 Markdown folder. Public snapshots can render literal views but do not inherit
 private reads, mutations, navigation, or chat. An unavailable-data state is not a
 syntax failure. Chat actions prepare a draft for user review, never send it.

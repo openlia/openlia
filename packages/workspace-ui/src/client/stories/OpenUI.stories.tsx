@@ -1,10 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import {
+  inlineCalendarExample,
+  openUIRecipes,
+} from "../../shared/openuiRecipes";
 import { MarkdownPreview } from "../components/editor/MarkdownPreview";
 import { OpenLiaOpenUIProvider } from "../openui/context";
 import { OpenUIDiagnostics } from "../openui/OpenUIDiagnostics";
 import { OpenUIErrorBoundary } from "../openui/OpenUIErrorBoundary";
 import { action, storyData, storyLoader } from "./fixtures";
-import { openUIRecipes } from "../../shared/openuiRecipes";
 
 const meta = {
   title: "OpenUI/Inline Markdown",
@@ -13,6 +16,8 @@ const meta = {
     componentExports: [
       "openui/OpenUIDiagnostics.tsx#OpenUIDiagnostics",
       "openui/OpenUIErrorBoundary.tsx#OpenUIErrorBoundary",
+      "openui/calendar/InlineCalendar.tsx#InlineCalendarView",
+      "openui/calendar/CalendarPresentation.tsx#CalendarPresentation",
     ],
   },
 } satisfies Meta;
@@ -73,6 +78,27 @@ export const Finance: Story = {
         content={document(
           "Finances",
           'Finance(children: [FinanceOverview(title: "Overview"), FinanceChart(report: "balances", kind: "bar", title: "Balances"), FinanceAccounts(title: "Accounts")])',
+        )}
+      />
+    </OpenLiaOpenUIProvider>
+  ),
+};
+export const InlineCalendar: Story = {
+  render: () => (
+    <OpenLiaOpenUIProvider value={{}}>
+      <MarkdownPreview
+        content={document("Inline appointments", inlineCalendarExample)}
+      />
+    </OpenLiaOpenUIProvider>
+  ),
+};
+export const EmptyInlineCalendar: Story = {
+  render: () => (
+    <OpenLiaOpenUIProvider value={{}}>
+      <MarkdownPreview
+        content={document(
+          "Empty inline calendar",
+          "Calendar(events: [], children: [CalendarMonth(), CalendarWeek(), GanttChart()])",
         )}
       />
     </OpenLiaOpenUIProvider>

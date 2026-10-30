@@ -30,6 +30,19 @@ export class OpenUIErrorBoundary extends Component<
     console.error("OpenUI Render Error caught by boundary:", error, errorInfo);
   }
 
+  override componentDidUpdate(
+    previousProps: OpenUIErrorBoundaryProps,
+    previousState: OpenUIErrorBoundaryState,
+  ) {
+    // Retry repaired blocks without remounting healthy views on every edit.
+    if (
+      previousState.hasError &&
+      this.state.hasError &&
+      previousProps.source !== this.props.source
+    )
+      this.setState({ hasError: false, error: null });
+  }
+
   override render() {
     if (this.state.hasError) {
       const targetPath = this.props.uiPath ?? "inline OpenUI block";

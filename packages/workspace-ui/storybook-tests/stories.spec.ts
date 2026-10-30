@@ -46,7 +46,10 @@ for (const story of Object.values(index.entries).filter(
     await expect(page.locator(".sb-errordisplay")).not.toBeVisible();
     expect(errors).toEqual([]);
     expect(requests).toEqual([]);
-    if (story.id === "openui-inline-markdown--calendar") {
+    if (
+      story.id === "openui-inline-markdown--calendar" ||
+      story.id === "openui-inline-markdown--inline-calendar"
+    ) {
       const month = page.getByRole("region", { name: "Month calendar" });
       await expect(month).toHaveAttribute("aria-busy", "false");
       const table = month.getByRole("table", { name: "Calendar month dates" });
@@ -54,12 +57,13 @@ for (const story of Object.values(index.entries).filter(
       await expect(table).toHaveCSS("table-layout", "fixed");
 
       // Long appointment titles must not change the seven column widths.
-      await table
-        .getByRole("button")
-        .first()
-        .evaluate((button) => {
-          button.textContent = "A very long appointment title ".repeat(20);
-        });
+      if (story.id === "openui-inline-markdown--calendar")
+        await table
+          .getByRole("button")
+          .first()
+          .evaluate((button) => {
+            button.textContent = "A very long appointment title ".repeat(20);
+          });
       const widths = await table
         .getByRole("columnheader")
         .evaluateAll((cells) =>
@@ -80,6 +84,73 @@ for (const story of Object.values(index.entries).filter(
       expect(layout.table).toBeGreaterThanOrEqual(560);
       expect(layout.table).toBeGreaterThanOrEqual(layout.wrapper - 1);
       expect(layout.overflow).toBe("auto");
+    }
+    if (story.id === "openui-inline-markdown--inline-calendar") {
+      await expect(page.getByText("Inline events · read-only")).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "New appointment" }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole("button", { name: "Reload calendar" }),
+      ).toHaveCount(0);
+      await expect(page.getByTestId("inline-openui-error")).toHaveCount(0);
+      const month = page.getByRole("region", { name: "Month calendar" });
+      await expect(
+        month
+          .getByRole("cell", { name: "2026-10-28", exact: true })
+          .getByRole("button", { name: "Conference" }),
+      ).toHaveCount(1);
+      await expect(
+        month
+          .getByRole("cell", { name: "2026-10-29", exact: true })
+          .getByRole("button", { name: "Conference" }),
+      ).toHaveCount(0);
+      await month.getByRole("button", { name: /09:00 Project review/ }).click();
+      const details = page.getByRole("region", { name: "Appointment details" });
+      await expect(details).toContainText("Review milestones");
+      await expect(details).toContainText("Alice, Bob");
+      await expect(details).not.toContainText("NOQUEUE");
+      await expect(details).not.toContainText("Source:");
+      await expect(
+        details.getByRole("button", { name: "Open calendar source" }),
+      ).toHaveCount(0);
+      await details.getByRole("button", { name: "Close details" }).click();
+      await page.getByLabel("Display timezone").fill("Asia/Ho_Chi_Minh");
+      await page.getByLabel("Display timezone").press("Tab");
+      await expect(
+        month.getByRole("button", { name: /16:00 Project review/ }),
+      ).toHaveCount(1);
+      await month.getByRole("button", { name: "Next month" }).click();
+      await expect(month).toContainText("2026-11-01");
+      await month.getByRole("button", { name: "Today", exact: true }).click();
+      await expect(month).toContainText("2026-10-27");
+      const week = page.getByRole("region", { name: "Week calendar" });
+      await expect(
+        week.getByRole("button", { name: "Conference", exact: true }),
+      ).toHaveCount(3);
+      const review = week.getByRole("button", { name: /16:00 Project review/ });
+      await expect(review).toHaveAttribute("style", /width: 50%/);
+      const timeline = page.getByRole("region", {
+        name: "Event duration timeline",
+      });
+      await expect(
+        timeline.getByRole("heading", { name: "Inline events", exact: true }),
+      ).toHaveCount(1);
+      await timeline.getByLabel("Timeline zoom").selectOption("month");
+      await timeline
+        .getByRole("button", { name: /Open Project review/ })
+        .click();
+      await expect(details).toContainText("Asia/Ho_Chi_Minh");
+      await details.getByRole("button", { name: "Close details" }).click();
+      expect(requests).toEqual([]);
+    }
+    if (story.id === "openui-inline-markdown--empty-inline-calendar") {
+      await expect(page.getByText("Inline events · read-only")).toBeVisible();
+      await expect(page.getByText("No events in this range.")).toHaveCount(1);
+      await expect(page.getByRole("alert")).toHaveCount(0);
+      await expect(
+        page.getByRole("button", { name: "New appointment" }),
+      ).toHaveCount(0);
     }
     if (story.id === "openui-inline-markdown--authoring-recipes") {
       await expect(page.getByTestId("inline-openui-block")).toHaveCount(

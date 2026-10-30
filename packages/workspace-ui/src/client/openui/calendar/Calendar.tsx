@@ -1,19 +1,21 @@
 import { defineComponent } from "@openuidev/react-lang";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
-import { ApiError } from "../../api";
-import { notifyWorkspaceFileChange } from "../../workspaceFileChanges";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
+  type CalendarCreateRequest,
+  type CalendarDisplayEvent,
+  type CalendarResponse,
   calendarOpenUIProps,
   dateInZone,
+  type InlineCalendarEvent,
+  validateCalendarProps,
   validTimezone,
-  type CalendarCreateRequest,
-  type CalendarEvent,
-  type CalendarResponse,
 } from "../../../shared/calendar";
+import { ApiError } from "../../api";
+import { notifyWorkspaceFileChange } from "../../workspaceFileChanges";
 import { useOpenLiaOpenUI } from "../context";
-import { CalendarContext } from "./context";
-import { CalendarEventDetails } from "./CalendarEventDetails";
 import { CalendarEventEditor } from "./CalendarEventEditor";
+import { CalendarPresentation } from "./CalendarPresentation";
+import { InlineCalendarView } from "./InlineCalendar";
 import { shiftMonth } from "./layout";
 
 function errorMessage(error: unknown): string {
@@ -40,6 +42,49 @@ function errorMessage(error: unknown): string {
 
 export function CalendarView({
   children,
+  source,
+  timezone,
+  events,
+}: {
+  children: ReactNode;
+  source?: string | undefined;
+  timezone?: string | undefined;
+  events?: InlineCalendarEvent[] | undefined;
+}) {
+  const checked = validateCalendarProps({
+    children: [],
+    source,
+    timezone,
+    events,
+  });
+  if (!checked.success)
+    return (
+      <p role="alert">
+        Invalid Calendar:{" "}
+        {checked.error.issues
+          .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+          .join("; ")}
+      </p>
+    );
+  return checked.data.events !== undefined ? (
+    <InlineCalendarView
+      events={checked.data.events}
+      timezone={checked.data.timezone}
+    >
+      {children}
+    </InlineCalendarView>
+  ) : (
+    <RemindCalendarView
+      source={checked.data.source}
+      timezone={checked.data.timezone}
+    >
+      {children}
+    </RemindCalendarView>
+  );
+}
+
+function RemindCalendarView({
+  children,
   source = "reminders.rem",
   timezone: configuredTimezone,
 }: {
@@ -47,15 +92,11 @@ export function CalendarView({
   source?: string | undefined;
   timezone?: string | undefined;
 }) {
-  const { calendarApi, domainPath, onOpenRecord } = useOpenLiaOpenUI();
-  const timezoneId = useId();
+  const { calendarApi, domainPath } = useOpenLiaOpenUI();
   const sourcePath = [domainPath ?? "calendar", source]
     .filter(Boolean)
     .join("/");
   const [timezone, setTimezone] = useState(configuredTimezone ?? "UTC");
-  const [timezoneInput, setTimezoneInput] = useState(
-    configuredTimezone ?? "UTC",
-  );
   const [date, setDate] = useState(
     dateInZone(
       Date.now(),
@@ -68,7 +109,7 @@ export function CalendarView({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
-  const [selected, setSelected] = useState<CalendarEvent | null>(null);
+  const [selected, setSelected] = useState<CalendarDisplayEvent | null>(null);
   const [editing, setEditing] = useState(false);
   const initializedSource = useRef("");
   const from = shiftMonth(date, -1);
@@ -93,7 +134,6 @@ export function CalendarView({
         const key = `${sourcePath}:${configuredTimezone ?? ""}`;
         if (initializedSource.current !== key) {
           setTimezone(configuredTimezone ?? next.timezone);
-          setTimezoneInput(configuredTimezone ?? next.timezone);
           initializedSource.current = key;
         }
       })
@@ -127,7 +167,7 @@ export function CalendarView({
   if (!validTimezone(timezone))
     return <p role="alert">Calendar requires a valid IANA timezone.</p>;
   return (
-    <CalendarContext.Provider
+    <CalendarPresentation
       value={{
         events: data?.events ?? [],
         date,
@@ -136,95 +176,58 @@ export function CalendarView({
         navigate: setDate,
         select: setSelected,
       }}
+      onTimezoneChange={setTimezone}
+      selected={selected}
+      onClose={() => setSelected(null)}
+      description={`Local appointments · ${sourcePath}`}
+      error={error}
+      actions={
+        <>
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={editing || loading}
+            onClick={() => setRefresh((value) => value + 1)}
+          >
+            Reload calendar
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={loading || !data || editing}
+            onClick={() => setEditing(true)}
+          >
+            New appointment
+          </button>
+        </>
+      }
     >
-      <section className="space-y-4" aria-label="Calendar workspace">
-        <header className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-bold">Calendar</h2>
-            <p className="text-xs opacity-70">
-              Local appointments · {sourcePath}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <div>
-              <label htmlFor={timezoneId} className="block text-xs">
-                Display timezone
-              </label>
-              <input
-                id={timezoneId}
-                className="input input-bordered input-sm"
-                value={timezoneInput}
-                onChange={(event) => setTimezoneInput(event.target.value)}
-                onBlur={() => {
-                  if (validTimezone(timezoneInput)) setTimezone(timezoneInput);
-                }}
-                aria-invalid={!validTimezone(timezoneInput)}
-              />
-            </div>
-            <button
-              type="button"
-              className="btn btn-sm"
-              disabled={editing || loading}
-              onClick={() => setRefresh((value) => value + 1)}
-            >
-              Reload calendar
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={loading || !data || editing}
-              onClick={() => setEditing(true)}
-            >
-              New appointment
-            </button>
-          </div>
-        </header>
-        {!validTimezone(timezoneInput) && (
-          <p role="alert" className="text-error text-xs">
-            Enter a valid IANA timezone, for example Europe/London.
-          </p>
-        )}
-        {loading && (
-          <p role="status" className="text-sm">
-            Loading calendar…
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="text-error text-sm">
-            {error}
-          </p>
-        )}
-        {children}
-        {selected && (
-          <CalendarEventDetails
-            event={selected}
-            timezone={timezone}
-            onClose={() => setSelected(null)}
-            onOpenFile={onOpenRecord}
-          />
-        )}
-        {editing && data && (
-          <CalendarEventEditor
-            date={date}
-            timezone={timezone}
-            source={sourcePath}
-            revision={data.revision}
-            onSave={save}
-            onCancel={() => setEditing(false)}
-          />
-        )}
-      </section>
-    </CalendarContext.Provider>
+      {children}
+      {editing && data && (
+        <CalendarEventEditor
+          date={date}
+          timezone={timezone}
+          source={sourcePath}
+          revision={data.revision}
+          onSave={save}
+          onCancel={() => setEditing(false)}
+        />
+      )}
+    </CalendarPresentation>
   );
 }
 
 export const Calendar = defineComponent({
   name: "Calendar",
   description:
-    "Remind-backed calendar data, appointment creation, and selection shared by Month, Week, and Gantt views",
+    "Calendar shared by Month, Week, and Gantt views. Use source for Remind-backed loading and appointment creation, or events for read-only inline data without API access.",
   props: calendarOpenUIProps.Calendar,
   component: ({ props, renderNode }) => (
-    <CalendarView source={props.source} timezone={props.timezone}>
+    <CalendarView
+      source={props.source}
+      timezone={props.timezone}
+      events={props.events}
+    >
       {renderNode(props.children)}
     </CalendarView>
   ),

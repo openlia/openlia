@@ -1,7 +1,7 @@
 import {
   addDays,
+  type CalendarDisplayEvent,
   dateInZone,
-  type CalendarEvent,
   timeInZone,
   validDate,
   wallTimeToInstant,
@@ -34,7 +34,7 @@ export function shiftMonth(date: string, months: number): string {
 }
 
 export function onDay(
-  event: CalendarEvent,
+  event: CalendarDisplayEvent,
   day: string,
   timezone: string,
 ): boolean {
@@ -48,7 +48,7 @@ export function onDay(
 }
 
 export interface WeekBlock {
-  event: CalendarEvent;
+  event: CalendarDisplayEvent;
   top: number;
   bottom: number;
   column: number;
@@ -57,7 +57,7 @@ export interface WeekBlock {
 
 /** Lay out overlap clusters independently; touching intervals do not overlap. */
 export function weekBlocks(
-  events: CalendarEvent[],
+  events: CalendarDisplayEvent[],
   day: string,
   timezone: string,
 ): WeekBlock[] {

@@ -1,3 +1,13 @@
+export const inlineCalendarExample = `Calendar(
+  timezone: "UTC",
+  events: [
+    {id: "review", title: "Project review with a long appointment title", start: "2026-10-27T09:00:00Z", end: "2026-10-27T10:00:00Z", agenda: "Review milestones", attendees: ["Alice", "Bob"], location: "Office"},
+    {id: "planning", title: "Planning", start: "2026-10-27T09:30:00Z", end: "2026-10-27T10:30:00Z"},
+    {id: "conference", title: "Conference", allDay: true, start: "2026-10-26", end: "2026-10-29"}
+  ],
+  children: [CalendarMonth(), CalendarWeek(), GanttChart(groupBy: "source")]
+)`;
+
 /** Executable documentation: validated and rendered by the authoring tests. */
 export const openUIRecipes = [
   {
@@ -39,6 +49,11 @@ export const openUIRecipes = [
     name: "calendar",
     components: ["Calendar", "CalendarMonth", "CalendarWeek", "GanttChart"],
     code: 'Calendar(children: [CalendarMonth(title: "Month"), CalendarWeek(title: "Week"), GanttChart()])',
+  },
+  {
+    name: "inline-calendar",
+    components: ["Calendar", "CalendarMonth", "CalendarWeek", "GanttChart"],
+    code: inlineCalendarExample,
   },
   {
     name: "finance",

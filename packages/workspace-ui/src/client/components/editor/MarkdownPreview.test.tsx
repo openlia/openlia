@@ -1,9 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
-import { MarkdownPreview } from "./MarkdownPreview";
+import { addDays, dateInZone } from "../../../shared/calendar";
+import { createMockWorkspaceApi } from "../../mockApi";
 import { OpenLiaOpenUIProvider } from "../../openui/context";
 import { SharePublicView } from "../../SharePublicView";
-import { createMockWorkspaceApi } from "../../mockApi";
+import { MarkdownPreview } from "./MarkdownPreview";
 
 const fence = (code: string) => `\`\`\`openui\n${code}\n\`\`\``;
 
@@ -123,4 +124,48 @@ test("public snapshots render literal blocks without inheriting workspace capabi
   fireEvent.click(screen.getByRole("button", { name: "Ask privately" }));
   expect(loadCalendar).not.toHaveBeenCalled();
   expect(onSendChatPrompt).not.toHaveBeenCalled();
+});
+
+test("public snapshots render inline calendars without inheriting private calendar APIs", async () => {
+  const today = dateInZone(Date.now(), "UTC");
+  const events = [
+    {
+      id: "public-event",
+      title: "Shared event",
+      allDay: true,
+      start: today,
+      end: addDays(today, 1),
+    },
+  ];
+  const api = createMockWorkspaceApi({
+    files: {
+      "schedule.md": fence(
+        `Calendar(events: ${JSON.stringify(events)}, children: [CalendarMonth(), CalendarWeek(), GanttChart()])`,
+      ),
+    },
+  });
+  const { share } = await api.createShare({
+    kind: "workspace",
+    target_path: "schedule.md",
+  });
+  const loadCalendar = vi.fn();
+  const createCalendarEvent = vi.fn();
+  render(
+    <OpenLiaOpenUIProvider
+      value={{ calendarApi: { loadCalendar, createCalendarEvent } }}
+    >
+      <SharePublicView api={api} shareId={share.id} />
+    </OpenLiaOpenUIProvider>,
+  );
+  expect(
+    await screen.findByText("Inline events · read-only"),
+  ).toBeInTheDocument();
+  expect(screen.getByLabelText("Month calendar")).toBeInTheDocument();
+  expect(screen.getByLabelText("Week calendar")).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Open Shared event" }),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(loadCalendar).not.toHaveBeenCalled();
+  expect(createCalendarEvent).not.toHaveBeenCalled();
 });

@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { action, calendarEvents } from "./fixtures";
-import { CalendarContext } from "../openui/calendar/context";
+import type { CalendarDisplayEvent } from "../../shared/calendar";
 import { CalendarEventDetails } from "../openui/calendar/CalendarEventDetails";
-import type { CalendarEvent } from "../../shared/calendar";
+import { CalendarContext } from "../openui/calendar/context";
+import { action, calendarEvents } from "./fixtures";
 
 export function Panel({ children }: { children: ReactNode }) {
   return <div className="p-4 min-h-[320px]">{children}</div>;
@@ -22,12 +22,12 @@ export function CalendarFrame({
   timezone = "UTC",
 }: {
   children: ReactNode;
-  events?: CalendarEvent[];
+  events?: CalendarDisplayEvent[];
   date?: string;
   timezone?: string;
 }) {
   const [date, navigate] = useState(initialDate);
-  const [selected, select] = useState<CalendarEvent | null>(null);
+  const [selected, select] = useState<CalendarDisplayEvent | null>(null);
   return (
     <CalendarContext.Provider
       value={{ events, date, timezone, navigate, select, loading: false }}

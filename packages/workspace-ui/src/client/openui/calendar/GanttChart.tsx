@@ -70,7 +70,9 @@ export function GanttChartView({
       end: event.end,
       group:
         groupBy === "source"
-          ? event.sourcePath
+          ? "sourcePath" in event
+            ? event.sourcePath
+            : "Inline events"
           : groupBy === "location"
             ? (event.location ?? "No location")
             : undefined,
