@@ -21,3 +21,7 @@ type Story = StoryObj<typeof meta>;
 export const LocalWorkspace: Story = {
   render: (_args, { loaded }) => <App api={storyData(loaded).api} />,
 };
+export const MobileWorkspace: Story = {
+  ...LocalWorkspace,
+  globals: { viewport: { value: "mobile", isRotated: false } },
+};

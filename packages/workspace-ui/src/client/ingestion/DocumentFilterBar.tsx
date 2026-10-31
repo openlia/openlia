@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { SourceSearchFacets } from "../../shared/api";
+import { ActionMenu } from "../components/common/ActionMenu";
 
 export type IngestionScope = "library" | "processing" | "archived" | "workers";
 export type ReviewFilter = "all" | "needs-review" | "reviewed";
@@ -70,8 +71,21 @@ export function DocumentFilterBar({
   return (
     <div className="shrink-0 space-y-2 border-b border-base-content/10 bg-base-100 px-3 py-2 sm:space-y-3 sm:p-4">
       {/* Top row: Scope tabs and action buttons */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="tabs tabs-boxed flex-nowrap overflow-x-auto no-scrollbar bg-base-200 p-1">
+      <div className="flex flex-wrap md:flex-nowrap items-center justify-between gap-2">
+        <select
+          aria-label="Document library view"
+          className="select select-bordered w-full md:hidden"
+          value={scope}
+          onChange={(event) =>
+            onScopeChange(event.target.value as IngestionScope)
+          }
+        >
+          <option value="library">Library</option>
+          <option value="processing">Processing ({processingCount})</option>
+          <option value="archived">Archived</option>
+          <option value="workers">Queue & Workers</option>
+        </select>
+        <div className="hidden md:flex tabs tabs-boxed flex-nowrap overflow-x-auto no-scrollbar bg-base-200 p-1">
           <button
             type="button"
             className={`tab tab-xs sm:tab-sm whitespace-nowrap text-xs font-medium ${
@@ -115,7 +129,7 @@ export function DocumentFilterBar({
           </button>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+        <div className="flex w-full md:w-auto shrink-0 items-center justify-between md:justify-end gap-1.5 sm:gap-2">
           {scope !== "workers" && (
             <button
               type="button"
@@ -142,7 +156,7 @@ export function DocumentFilterBar({
                   d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
                 />
               </svg>
-              <span className="hidden xs:inline">Filters</span>
+              <span>Filters</span>
               {activeFilterCount > 0 && (
                 <span className="badge badge-xs badge-neutral">
                   {activeFilterCount}
@@ -151,32 +165,8 @@ export function DocumentFilterBar({
             </button>
           )}
           {(onOpenPasswordManager || onRebuildFts) && (
-            <div className="dropdown dropdown-end">
-              <button
-                type="button"
-                className="btn btn-ghost btn-xs sm:btn-sm gap-1"
-                aria-haspopup="menu"
-                aria-label="Ingestion tools"
-                tabIndex={0}
-                title="Ingestion tools"
-              >
-                Tools
-                <svg
-                  aria-hidden="true"
-                  className="h-3.5 w-3.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M19 9l-7 7-7-7"
-                  />
-                </svg>
-              </button>
-              <ul className="dropdown-content menu z-30 mt-1 w-48 rounded-box border border-base-content/10 bg-base-100 p-1.5 text-xs shadow-lg">
+            <ActionMenu label="Ingestion tools" className="btn-xs sm:btn-sm">
+              <ul className="menu w-full p-0">
                 {onOpenPasswordManager && (
                   <li>
                     <button
@@ -203,7 +193,7 @@ export function DocumentFilterBar({
                   </li>
                 )}
               </ul>
-            </div>
+            </ActionMenu>
           )}
           <button
             type="button"
@@ -233,10 +223,8 @@ export function DocumentFilterBar({
       {scope !== "workers" && (
         <div
           className={`${
-            mobileFiltersOpen || activeFilterCount > 0
-              ? "flex"
-              : "hidden md:flex"
-          } flex-wrap items-center gap-2 pt-0.5 sm:pt-1`}
+            mobileFiltersOpen ? "flex" : "hidden md:flex"
+          } max-h-[40dvh] overflow-y-auto md:max-h-none flex-wrap items-center gap-2 pt-0.5 sm:pt-1`}
         >
           {scope === "library" && (
             <select
@@ -255,9 +243,10 @@ export function DocumentFilterBar({
             </select>
           )}
           {/* Full-text search */}
-          <div className="relative min-w-[200px] flex-1">
+          <div className="relative min-w-0 basis-full md:basis-auto flex-1">
             <input
               type="text"
+              aria-label="Search documents"
               className="input input-bordered input-sm w-full pr-8"
               placeholder="Search documents by content, title, tags, correspondent..."
               value={searchQuery}
@@ -266,6 +255,7 @@ export function DocumentFilterBar({
             {searchQuery && (
               <button
                 type="button"
+                aria-label="Clear document search"
                 className="btn btn-ghost btn-xs btn-circle absolute right-1 top-1/2 -translate-y-1/2 text-base-content/50 hover:text-base-content"
                 onClick={() => onSearchChange("")}
               >
@@ -277,6 +267,7 @@ export function DocumentFilterBar({
           {/* Document Type Facet */}
           {docTypesList.length > 0 && (
             <select
+              aria-label="Document type"
               className="select select-bordered select-sm max-w-[150px] text-xs"
               value={selectedDocType ?? ""}
               onChange={(e) => onDocTypeChange(e.target.value || undefined)}
@@ -293,6 +284,7 @@ export function DocumentFilterBar({
           {/* Correspondent Facet */}
           {correspondentsList.length > 0 && (
             <select
+              aria-label="Correspondent"
               className="select select-bordered select-sm max-w-[150px] text-xs"
               value={selectedCorrespondent ?? ""}
               onChange={(e) =>
@@ -311,6 +303,7 @@ export function DocumentFilterBar({
           {/* Tag Facet */}
           {tagsList.length > 0 && (
             <select
+              aria-label="Document tag"
               className="select select-bordered select-sm max-w-[130px] text-xs"
               value={selectedTag ?? ""}
               onChange={(e) => onTagChange(e.target.value || undefined)}

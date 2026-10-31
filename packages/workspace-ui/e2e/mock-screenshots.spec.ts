@@ -4,9 +4,7 @@ import { captureScreenshot } from "./screenshot";
 const realWorkspace = process.env.WORKSPACE_UI_E2E_MODE === "real";
 
 async function openFiles(page: Page) {
-  await expect(
-    page.getByRole("navigation", { name: "Workspace navigation" }),
-  ).toBeVisible();
+  await expect(page.locator(".workspace-header")).toBeVisible();
   const filesButton = page.getByRole("button", {
     exact: true,
     name: "Open files drawer",
@@ -15,7 +13,7 @@ async function openFiles(page: Page) {
     await filesButton.click();
     await expect(
       page
-        .locator("aside.fixed")
+        .getByRole("dialog", { name: "Workspace files" })
         .getByRole("heading", { exact: true, name: "Files" })
         .first(),
     ).toBeVisible();
@@ -61,7 +59,9 @@ test.describe("mock visual catalog", () => {
     );
     await page.goto("/");
     await openFiles(page);
-    await expect(page.locator("aside.fixed")).toBeVisible();
+    await expect(
+      page.getByRole("dialog", { name: "Workspace files" }),
+    ).toBeVisible();
     await captureScreenshot(page, testInfo, "mobile-files-drawer");
   });
 
@@ -203,7 +203,11 @@ test.describe("mock visual catalog", () => {
 
   test("skills overview subtab", async ({ page }, testInfo) => {
     await page.goto("/skills/productivity/notion");
-    await page.getByRole("button", { name: "Overview & Details" }).click();
+    if (testInfo.project.name === "mobile")
+      await page
+        .getByRole("combobox", { name: "Skill section" })
+        .selectOption("overview");
+    else await page.getByRole("button", { name: "Overview & Details" }).click();
     await expect(
       page.getByRole("heading", { name: "Prerequisites" }),
     ).toBeVisible();
@@ -212,8 +216,19 @@ test.describe("mock visual catalog", () => {
 
   test("skills auxiliary files subtab", async ({ page }, testInfo) => {
     await page.goto("/skills/deep-research");
-    await page.getByRole("button", { name: /Files \(/ }).click();
-    await expect(page.getByText("templates/report.md")).toBeVisible();
+    if (testInfo.project.name === "mobile") {
+      await page
+        .getByRole("combobox", { name: "Skill section" })
+        .selectOption("files");
+      const files = page.getByRole("combobox", { name: "Skill file" });
+      await files.selectOption("templates/report.md");
+      await expect(files).toHaveValue("templates/report.md");
+    } else {
+      await page.getByRole("button", { name: /Files \(/ }).click();
+      await expect(
+        page.getByRole("button", { name: /templates\/report\.md/ }),
+      ).toBeVisible();
+    }
     await captureScreenshot(page, testInfo, "skills-auxiliary-files");
   });
 

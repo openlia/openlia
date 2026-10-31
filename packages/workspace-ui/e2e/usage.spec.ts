@@ -6,6 +6,8 @@ test("usage dashboard, filters, and advanced pricing", async ({
   await page.goto("/usage");
   await expect(page.getByRole("heading", { name: "LLM usage" })).toBeVisible();
   await expect(page.getByText("Estimated cost", { exact: true })).toBeVisible();
+  const filters = page.getByRole("button", { name: "Usage filters" });
+  if (await filters.isVisible()) await filters.click();
   await page
     .getByRole("combobox", { name: "Period", exact: true })
     .selectOption("all");
@@ -14,6 +16,8 @@ test("usage dashboard, filters, and advanced pricing", async ({
     .selectOption("ingestion");
   await expect(page).toHaveURL(/activity=ingestion/);
   await page.reload();
+  await expect(page.getByRole("heading", { name: "LLM usage" })).toBeVisible();
+  if (await filters.isVisible()) await filters.click();
   await expect(
     page.getByRole("combobox", { name: "Period", exact: true }),
   ).toHaveValue("all");
@@ -30,6 +34,10 @@ test("usage dashboard, filters, and advanced pricing", async ({
     path: testInfo.outputPath("usage.png"),
     fullPage: true,
   });
+  const navigation = page.getByRole("button", {
+    name: "Open workspace navigation",
+  });
+  if (await navigation.isVisible()) await navigation.click();
   await page
     .getByRole("button", { name: "Configuration", exact: true })
     .click();

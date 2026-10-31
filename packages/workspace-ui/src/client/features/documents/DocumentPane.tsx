@@ -11,6 +11,7 @@ import { ActivitySection } from "../../ActivitySection";
 import type { WorkspaceApi } from "../../api";
 import { CodeEditor, isMarkdownPath } from "../../CodeEditor";
 import { CopyLinkButton } from "../../components/common/CopyLinkButton";
+import { ActionMenu } from "../../components/common/ActionMenu";
 import { MarkdownPreview } from "../../components/editor/MarkdownPreview";
 import {
   buildCanonicalWorkspaceUri,
@@ -155,54 +156,56 @@ function ArtifactPane({
           >
             Open in New Tab ↗
           </a>
-          {onShare && (
-            <button
-              aria-label="Share document"
-              className="btn btn-xs sm:btn-sm btn-outline gap-1.5"
-              onClick={onShare}
-              type="button"
-            >
-              <span>Share</span>
-            </button>
-          )}
-          <CopyLinkButton
-            className="btn btn-xs sm:btn-sm btn-ghost"
-            label="Copy Link"
-            link={buildWorkspaceLink(artifact.path)}
-            title="Copy link"
-          />
-          <button
-            className="btn btn-xs sm:btn-sm btn-ghost"
-            onClick={onDownload}
-            type="button"
-          >
-            Download
-          </button>
-          {onDelete && (
-            <button
-              aria-label="Delete file"
-              className="btn btn-xs sm:btn-sm btn-ghost text-error hover:bg-error/10 hover:text-error gap-1.5"
-              disabled={deleting}
-              onClick={onDelete}
-              type="button"
-            >
-              <svg
-                aria-hidden="true"
-                className="h-3.5 w-3.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                viewBox="0 0 24 24"
+          <ActionMenu label="Artifact actions" className="btn-xs sm:btn-sm">
+            {onShare && (
+              <button
+                aria-label="Share document"
+                className="btn btn-xs sm:btn-sm btn-outline gap-1.5"
+                onClick={onShare}
+                type="button"
               >
-                <path
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span>Delete</span>
+                <span>Share</span>
+              </button>
+            )}
+            <CopyLinkButton
+              className="btn btn-xs sm:btn-sm btn-ghost"
+              label="Copy Link"
+              link={buildWorkspaceLink(artifact.path)}
+              title="Copy link"
+            />
+            <button
+              className="btn btn-xs sm:btn-sm btn-ghost"
+              onClick={onDownload}
+              type="button"
+            >
+              Download
             </button>
-          )}
+            {onDelete && (
+              <button
+                aria-label="Delete file"
+                className="btn btn-xs sm:btn-sm btn-ghost text-error hover:bg-error/10 hover:text-error gap-1.5"
+                disabled={deleting}
+                onClick={onDelete}
+                type="button"
+              >
+                <svg
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <span>Delete</span>
+              </button>
+            )}
+          </ActionMenu>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 border-b border-base-content/10 bg-base-200/30 px-3 py-2.5 sm:grid-cols-3 sm:gap-4 sm:px-5 sm:py-4">
@@ -512,7 +515,7 @@ export function DocumentPane({
               {!isMemory && !file.missing && onShare && (
                 <button
                   aria-label="Share document"
-                  className="btn btn-xs sm:btn-sm btn-outline gap-1.5"
+                  className="hidden sm:inline-flex btn btn-xs sm:btn-sm btn-outline gap-1.5"
                   onClick={onShare}
                   title="Share document"
                   type="button"
@@ -537,7 +540,7 @@ export function DocumentPane({
               <button
                 aria-label="Details"
                 aria-pressed={detailsOpen}
-                className={`btn btn-xs sm:btn-sm gap-1.5 ${detailsOpen ? "btn-secondary" : "btn-outline"}`}
+                className={`hidden sm:inline-flex btn btn-xs sm:btn-sm gap-1.5 ${detailsOpen ? "btn-secondary" : "btn-outline"}`}
                 onClick={onOpenDetails}
                 title="Details"
                 type="button"
@@ -558,26 +561,20 @@ export function DocumentPane({
                 </svg>
                 <span className="hidden sm:inline">Details</span>
               </button>
-              <div className="dropdown dropdown-end shrink-0">
-                <button
-                  aria-label="Document actions"
-                  className="btn btn-ghost btn-xs sm:btn-sm btn-square"
-                  tabIndex={0}
-                  title="Document actions"
-                  type="button"
-                >
-                  <svg
-                    className="h-4 w-4"
-                    fill="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <title>Document actions</title>
-                    <circle cx="12" cy="5" r="2" />
-                    <circle cx="12" cy="12" r="2" />
-                    <circle cx="12" cy="19" r="2" />
-                  </svg>
-                </button>
-                <ul className="dropdown-content menu z-30 rounded-box border border-base-content/10 bg-base-100 p-1.5 shadow-lg text-xs w-48">
+              <ActionMenu label="Document actions" className="btn-xs sm:btn-sm">
+                <ul className="menu w-full p-0">
+                  {!isMemory && !file.missing && onShare && (
+                    <li className="sm:hidden">
+                      <button type="button" onClick={onShare}>
+                        Share document
+                      </button>
+                    </li>
+                  )}
+                  <li className="sm:hidden">
+                    <button type="button" onClick={onOpenDetails}>
+                      Details
+                    </button>
+                  </li>
                   {onRevealInTree && (
                     <li>
                       <button
@@ -707,7 +704,7 @@ export function DocumentPane({
                     </li>
                   )}
                 </ul>
-              </div>
+              </ActionMenu>
             </div>
           </div>
           {isMemory && (

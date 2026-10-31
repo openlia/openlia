@@ -206,8 +206,9 @@ The **original** message.
     const navigator = screen.getByLabelText("Workspace files");
     const treeButtons = within(navigator)
       .getAllByRole("button")
+      .filter((button) => button.classList.contains("workspace-tree-row"))
       .map((button) => button.textContent?.replace(/[▾▸]/, ""));
-    expect(treeButtons).toEqual(["Close", "alpha", "root.md"]);
+    expect(treeButtons).toEqual(["alpha", "root.md"]);
     expect(screen.getByLabelText("zeta, empty folder")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "alpha" }));
@@ -412,6 +413,7 @@ describe("CopyLinkButton and document copy integration", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Document actions" }));
     const revealBtn = screen.getByRole("button", {
       name: "Reveal in tree",
     });
@@ -454,6 +456,7 @@ describe("CopyLinkButton and document copy integration", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Document actions" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete file" }));
     expect(deleted).toBe(true);
   });
@@ -490,6 +493,7 @@ describe("CopyLinkButton and document copy integration", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Artifact actions" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete file" }));
     expect(deleted).toBe(true);
   });
@@ -557,6 +561,7 @@ describe("CopyLinkButton and document copy integration", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Document actions" }));
     const copyUriBtn = screen.getByRole("button", {
       name: `Copy URI (${expectedUri})`,
     });

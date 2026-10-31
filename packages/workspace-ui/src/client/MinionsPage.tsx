@@ -12,6 +12,8 @@ import type {
 import { extractFormDataFromOpenUIEvent, openUIErrors } from "../shared/openui";
 import type { WorkspaceApi } from "./api";
 import { CodeEditor } from "./CodeEditor";
+import { ResponsiveDrawer } from "./components/common/ResponsiveDrawer";
+import { ActionMenu } from "./components/common/ActionMenu";
 import { MarkdownPreview } from "./components/editor/MarkdownPreview";
 import { buildCanonicalMinionUri } from "./openliaLinks";
 import { CHART_THEME } from "./openui/charts/palette";
@@ -158,6 +160,7 @@ export function MinionsPage({
   onNavigateLink?: ((href: string) => void) | undefined;
   onAskLia?: ((prompt: string) => void) | undefined;
 }) {
+  const [navigatorOpen, setNavigatorOpen] = useState(false);
   const [minions, setMinions] = useState<MinionSummary[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [detail, setDetail] = useState<MinionDetail | null>(null);
@@ -775,7 +778,12 @@ export function MinionsPage({
       data-testid="minions-page"
     >
       {/* Left Sidebar: Minion Selector */}
-      <aside className="workspace-sidebar flex flex-col border-r border-base-content/10 bg-base-100 min-h-0">
+      <ResponsiveDrawer
+        title="Minions"
+        open={navigatorOpen}
+        onClose={() => setNavigatorOpen(false)}
+        className="workspace-sidebar"
+      >
         <div className="flex items-center justify-between gap-2 border-b border-base-content/10 p-3">
           <div>
             <h2 className="text-sm font-bold tracking-tight">Minions</h2>
@@ -785,7 +793,10 @@ export function MinionsPage({
           </div>
           <button
             className="btn btn-primary btn-xs"
-            onClick={() => setCreateModalOpen(true)}
+            onClick={() => {
+              setNavigatorOpen(false);
+              setCreateModalOpen(true);
+            }}
             type="button"
             data-testid="create-minion-button"
           >
@@ -813,7 +824,10 @@ export function MinionsPage({
               <p>No minions found in `minions/`.</p>
               <button
                 className="btn btn-outline btn-xs"
-                onClick={() => setCreateModalOpen(true)}
+                onClick={() => {
+                  setNavigatorOpen(false);
+                  setCreateModalOpen(true);
+                }}
                 type="button"
               >
                 Create Starter Minion
@@ -826,7 +840,10 @@ export function MinionsPage({
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => onSelectMinion(m.id)}
+                  onClick={() => {
+                    onSelectMinion(m.id);
+                    setNavigatorOpen(false);
+                  }}
                   className={`w-full text-left rounded-lg p-2.5 transition-colors border ${
                     selected
                       ? "bg-primary/10 border-primary/30 text-base-content"
@@ -867,10 +884,26 @@ export function MinionsPage({
             })
           )}
         </div>
-      </aside>
+      </ResponsiveDrawer>
 
       {/* Main Minion Workspace */}
       <section className="workspace-document flex flex-col min-h-0 overflow-hidden bg-base-100">
+        <div className="border-b border-base-content/10 p-2 xl:hidden">
+          <button
+            type="button"
+            className="btn btn-ghost w-full justify-start"
+            aria-expanded={navigatorOpen}
+            onClick={(event) => {
+              event.currentTarget.focus();
+              setNavigatorOpen(true);
+            }}
+          >
+            Browse minions{" "}
+            <span aria-hidden="true" className="ml-auto">
+              ▾
+            </span>
+          </button>
+        </div>
         {error && (
           <div className="alert alert-error m-3 mb-0 py-2 text-xs flex justify-between">
             <span>{error}</span>
@@ -901,17 +934,15 @@ export function MinionsPage({
             Loading minion...
           </div>
         ) : !detail ? (
-          <div className="flex-1 grid place-items-center p-8 text-center">
-            <div className="max-w-md space-y-3">
+          <div className="flex-1 min-h-0 overflow-auto grid place-items-center p-5 sm:p-8 text-center">
+            <div className="min-w-0 w-full max-w-md space-y-3">
               <h2 className="text-xl font-bold">Workspace Minions</h2>
               <p className="text-sm text-base-content/60">
-                Minions are autonomous workspace apps (`minions/&lt;slug&gt;/`)
-                with `dashboard.openui`, `input.openui` + `input.schema.json`
-                validated via `input.py` / `input.ts`, and `main.py` / `main.ts`
-                triggered both on cron heartbeats and right after every new
-                entry.
+                Small apps that collect data, show dashboards, and run
+                workflows. Browse your minions or create a new one to get
+                started.
               </p>
-              <div className="flex items-center justify-center gap-2 pt-2">
+              <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-center gap-2 pt-2">
                 <button
                   className="btn btn-primary btn-sm"
                   onClick={() => setCreateModalOpen(true)}
@@ -997,45 +1028,47 @@ export function MinionsPage({
                       ? "Enriching..."
                       : "Run Heartbeat"}
                   </button>
-                  <button
-                    className="btn btn-xs btn-outline"
-                    disabled={runningState !== "idle"}
-                    onClick={() => void handleScheduleHeartbeatCron()}
-                    type="button"
-                    data-testid="minion-schedule-heartbeat"
-                    title="Create a scheduled cron job for this Minion's heartbeat trigger"
-                  >
-                    {runningState === "schedule"
-                      ? "Scheduling..."
-                      : "Schedule Heartbeat"}
-                  </button>
-                  <button
-                    className="btn btn-xs btn-outline"
-                    disabled={runningState !== "idle"}
-                    onClick={() => void handleInstallDeps()}
-                    type="button"
-                    data-testid="minion-install-deps"
-                  >
-                    {runningState === "install"
-                      ? "Installing..."
-                      : "Install Deps"}
-                  </button>
-                  <button
-                    className="btn btn-xs btn-outline"
-                    disabled={runningState !== "idle"}
-                    onClick={() => void handleRunTests()}
-                    type="button"
-                    data-testid="minion-run-tests"
-                  >
-                    {runningState === "test" ? "Testing..." : "Run Tests"}
-                  </button>
-                  <button
-                    className="btn btn-xs btn-ghost"
-                    onClick={() => onOpenFile(`${detail.path}/README.md`)}
-                    type="button"
-                  >
-                    Open in Documents
-                  </button>
+                  <ActionMenu label="Minion actions" className="btn-xs">
+                    <button
+                      className="btn btn-xs btn-outline"
+                      disabled={runningState !== "idle"}
+                      onClick={() => void handleScheduleHeartbeatCron()}
+                      type="button"
+                      data-testid="minion-schedule-heartbeat"
+                      title="Create a scheduled cron job for this Minion's heartbeat trigger"
+                    >
+                      {runningState === "schedule"
+                        ? "Scheduling..."
+                        : "Schedule Heartbeat"}
+                    </button>
+                    <button
+                      className="btn btn-xs btn-outline"
+                      disabled={runningState !== "idle"}
+                      onClick={() => void handleInstallDeps()}
+                      type="button"
+                      data-testid="minion-install-deps"
+                    >
+                      {runningState === "install"
+                        ? "Installing..."
+                        : "Install Deps"}
+                    </button>
+                    <button
+                      className="btn btn-xs btn-outline"
+                      disabled={runningState !== "idle"}
+                      onClick={() => void handleRunTests()}
+                      type="button"
+                      data-testid="minion-run-tests"
+                    >
+                      {runningState === "test" ? "Testing..." : "Run Tests"}
+                    </button>
+                    <button
+                      className="btn btn-xs btn-ghost"
+                      onClick={() => onOpenFile(`${detail.path}/README.md`)}
+                      type="button"
+                    >
+                      Open in Documents
+                    </button>
+                  </ActionMenu>
                   {onAskLia && (
                     <button
                       className="btn btn-xs btn-secondary"
@@ -1077,7 +1110,8 @@ export function MinionsPage({
                 )}
                 <input
                   type="text"
-                  className="input input-bordered input-xs flex-1 min-w-[14rem]"
+                  className="input input-bordered input-xs flex-1 min-w-0 basis-full sm:basis-auto sm:min-w-[14rem]"
+                  aria-label="Quick input"
                   placeholder={
                     activeQuickAction?.placeholder ??
                     `Quick entry via ${detail.input_entrypoint ?? detail.entrypoint} (or JSON payload)...`
@@ -1155,7 +1189,31 @@ export function MinionsPage({
               )}
 
               {/* Sub-tab Navigation */}
-              <div className="tabs tabs-boxed bg-base-200/60 p-0.5 w-fit">
+              <select
+                aria-label="Minion section"
+                className="select select-bordered w-full sm:hidden"
+                value={activeSubTab}
+                onChange={(event) => {
+                  const tab = event.target.value as MinionSubTab;
+                  setActiveSubTab(tab);
+                  if (
+                    tab === "data" &&
+                    detail.data_files[0] &&
+                    !activeFile?.path.startsWith(`${detail.path}/data/`)
+                  )
+                    void openMinionFile(detail.id, detail.data_files[0].path);
+                  if (tab === "code")
+                    void openMinionFile(detail.id, detail.entrypoint);
+                }}
+              >
+                <option value="dashboard">Dashboard</option>
+                <option value="input">Input Form</option>
+                <option value="config">Config</option>
+                <option value="data">Data ({detail.data_file_count})</option>
+                <option value="code">Code & Tests</option>
+                <option value="readme">README</option>
+              </select>
+              <div className="hidden sm:flex flex-wrap tabs tabs-boxed bg-base-200/60 p-0.5 w-fit max-w-full">
                 <button
                   type="button"
                   className={`tab tab-xs ${activeSubTab === "dashboard" ? "tab-active" : ""}`}
@@ -1220,18 +1278,22 @@ export function MinionsPage({
             <div className="flex-1 overflow-y-auto p-4 min-h-0">
               {activeSubTab === "dashboard" && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono text-base-content/60">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 min-w-0">
+                    <span className="break-all text-xs font-mono text-base-content/60">
                       {detail.path}/{dashboardUiFile}
                     </span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {detail.ui_contents[inputUiFile] && !editingOpenUI && (
                         <button
                           type="button"
                           className="btn btn-outline btn-xs"
                           onClick={() => setActiveSubTab("input")}
                         >
-                          Open Input Form ({inputUiFile})
+                          Input form
+                          <span className="hidden sm:inline">
+                            {" "}
+                            ({inputUiFile})
+                          </span>
                         </button>
                       )}
                       {editingOpenUI && (
@@ -1251,9 +1313,7 @@ export function MinionsPage({
                         className="btn btn-ghost btn-xs"
                         onClick={() => setEditingOpenUI((v) => !v)}
                       >
-                        {editingOpenUI
-                          ? "Preview Dashboard"
-                          : `Edit ${dashboardUiFile}`}
+                        {editingOpenUI ? "Preview Dashboard" : "Edit dashboard"}
                       </button>
                     </div>
                   </div>
@@ -1538,7 +1598,32 @@ export function MinionsPage({
                     <div className="text-xs font-semibold uppercase tracking-wider text-base-content/60">
                       data/ Files (Nested Supported)
                     </div>
-                    <div className="flex-1 overflow-y-auto space-y-1">
+                    <select
+                      aria-label="Minion data file"
+                      className="select select-bordered w-full lg:hidden"
+                      value={
+                        detail.data_files.some(
+                          (file) => file.path === activeFile?.path,
+                        )
+                          ? activeFile?.path
+                          : ""
+                      }
+                      onChange={(event) =>
+                        void openMinionFile(detail.id, event.target.value)
+                      }
+                    >
+                      <option value="" disabled>
+                        {detail.data_files.length
+                          ? "Select a data file"
+                          : "No data files yet"}
+                      </option>
+                      {detail.data_files.map((file) => (
+                        <option key={file.path} value={file.path}>
+                          {file.path.replace(`${detail.path}/`, "")}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="hidden lg:block flex-1 overflow-y-auto space-y-1">
                       {detail.data_files.length === 0 ? (
                         <p className="text-xs text-base-content/50">
                           No files in `data/` yet.
@@ -1596,8 +1681,8 @@ export function MinionsPage({
                       </div>
                     ) : activeFile ? (
                       <>
-                        <div className="flex items-center justify-between border-b border-base-content/10 px-3 py-2 bg-base-200/40">
-                          <span className="text-xs font-mono">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-base-content/10 px-3 py-2 bg-base-200/40">
+                          <span className="break-all text-xs font-mono">
                             {activeFile.path}
                           </span>
                           <div className="flex items-center gap-2">
@@ -1643,7 +1728,32 @@ export function MinionsPage({
                     <div className="text-xs font-semibold uppercase tracking-wider text-base-content/60">
                       Input, Main, Schema & Tests
                     </div>
-                    <div className="flex-1 overflow-y-auto space-y-1">
+                    <select
+                      aria-label="Minion code file"
+                      className="select select-bordered w-full lg:hidden"
+                      value={
+                        [...detail.code_files, ...detail.test_files].some(
+                          (file) => file.path === activeFile?.path,
+                        )
+                          ? activeFile?.path
+                          : ""
+                      }
+                      onChange={(event) =>
+                        void openMinionFile(detail.id, event.target.value)
+                      }
+                    >
+                      <option value="" disabled>
+                        Select a code or test file
+                      </option>
+                      {[...detail.code_files, ...detail.test_files].map(
+                        (file) => (
+                          <option key={file.path} value={file.path}>
+                            {file.path.replace(`${detail.path}/`, "")}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                    <div className="hidden lg:block flex-1 overflow-y-auto space-y-1">
                       {[...detail.code_files, ...detail.test_files].map((f) => {
                         const isSelected = activeFile?.path === f.path;
                         const shortPath = f.path.replace(

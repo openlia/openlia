@@ -1,10 +1,11 @@
-import type { RefObject } from "react";
+import { useState, type RefObject } from "react";
 import type {
   WorkspaceFile,
   WorkspaceFileMetadata,
   WorkspaceGitStatus,
 } from "../../../shared/api";
 import { CopyLinkButton } from "../common/CopyLinkButton";
+import { ResponsiveDrawer } from "../common/ResponsiveDrawer";
 
 export function WorkspaceHeader({
   activeTab = "documents",
@@ -60,20 +61,48 @@ export function WorkspaceHeader({
       ) => void)
     | undefined;
 }) {
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const gitText = git?.configured
     ? `${git.branch ?? "Git"}${git.dirty ? " / changes" : " / clean"}`
     : "Version control unavailable";
 
   return (
     <header className="workspace-header">
+      {(onTabChange || onOpenDocuments) && (
+        <button
+          type="button"
+          className="btn btn-ghost btn-square xl:hidden"
+          aria-label="Open workspace navigation"
+          aria-expanded={navigationOpen}
+          onClick={(event) => {
+            event.currentTarget.focus();
+            setNavigationOpen(true);
+          }}
+        >
+          <svg
+            aria-hidden="true"
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          >
+            <path d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+      )}
       {(activeTab === "documents" || activeTab === "skills") && (
         <button
           aria-label={
             activeTab === "skills" ? "Open skills drawer" : "Open files drawer"
           }
-          className="btn btn-ghost btn-xs sm:btn-sm shrink-0 px-2 xl:hidden"
+          className="workspace-context-trigger btn btn-ghost btn-xs sm:btn-sm shrink-0 px-2 xl:hidden"
           ref={filesButtonRef}
-          onClick={onOpenFiles}
+          onClick={(event) => {
+            event.currentTarget.focus();
+            onOpenFiles();
+          }}
           type="button"
         >
           <svg
@@ -95,162 +124,201 @@ export function WorkspaceHeader({
       )}
 
       {(onTabChange || onOpenDocuments) && (
-        <nav
-          aria-label="Workspace navigation"
-          className="workspace-nav join order-3 flex w-full max-w-full shrink-0 flex-nowrap overflow-x-auto border border-base-content/15 rounded-lg bg-base-200/60 p-0.5 xl:order-none xl:w-auto xl:mr-2"
+        <ResponsiveDrawer
+          title="Workspace navigation"
+          open={navigationOpen}
+          onClose={() => setNavigationOpen(false)}
+          className="workspace-navigation-drawer"
         >
-          {onTabChange && (
-            <button
-              aria-current={activeTab === "chat" ? "page" : undefined}
-              className={`btn btn-xs join-item shrink-0 ${activeTab === "chat" ? "btn-primary shadow-xs" : "btn-ghost text-base-content/70"}`}
-              onClick={() => onTabChange("chat")}
-              type="button"
-            >
-              Chat
-            </button>
-          )}
-          {(onOpenDocuments || onTabChange) && (
-            <button
-              aria-current={activeTab === "documents" ? "page" : undefined}
-              className={`btn btn-xs join-item shrink-0 ${
-                activeTab === "documents"
-                  ? "btn-primary shadow-xs"
-                  : "btn-ghost text-base-content/70"
-              }`}
-              onClick={() => {
-                if (onOpenDocuments) onOpenDocuments();
-                else onTabChange?.("documents");
-              }}
-              title={`View recent workspace changes (${gitText})`}
-              type="button"
-            >
-              Documents
-            </button>
-          )}
-          {onTabChange && (
-            <button
-              aria-current={activeTab === "ingestion" ? "page" : undefined}
-              className={`btn btn-xs join-item shrink-0 ${
-                activeTab === "ingestion"
-                  ? "btn-primary shadow-xs"
-                  : "btn-ghost text-base-content/70"
-              }`}
-              onClick={() => onTabChange("ingestion")}
-              type="button"
-            >
-              Ingestion
-            </button>
-          )}
-          {onTabChange && (
-            <button
-              aria-current={activeTab === "minions" ? "page" : undefined}
-              className={`btn btn-xs join-item shrink-0 ${
-                activeTab === "minions"
-                  ? "btn-primary shadow-xs"
-                  : "btn-ghost text-base-content/70"
-              }`}
-              onClick={() => onTabChange("minions")}
-              type="button"
-            >
-              Minions
-            </button>
-          )}
-          {onTabChange && (
-            <button
-              aria-current={activeTab === "skills" ? "page" : undefined}
-              className={`btn btn-xs join-item shrink-0 ${
-                activeTab === "skills"
-                  ? "btn-primary shadow-xs"
-                  : "btn-ghost text-base-content/70"
-              }`}
-              onClick={() => onTabChange("skills")}
-              type="button"
-            >
-              Skills
-            </button>
-          )}
-          {onTabChange && (
-            <button
-              aria-current={activeTab === "shares" ? "page" : undefined}
-              className={`btn btn-xs join-item shrink-0 ${
-                activeTab === "shares"
-                  ? "btn-primary shadow-xs"
-                  : "btn-ghost text-base-content/70"
-              }`}
-              onClick={() => onTabChange("shares")}
-              type="button"
-            >
-              Shared Links
-            </button>
-          )}
-          {onTabChange && (
-            <button
-              aria-current={activeTab === "maintainer" ? "page" : undefined}
-              className={`btn btn-xs join-item shrink-0 ${
-                activeTab === "maintainer"
-                  ? "btn-primary shadow-xs"
-                  : "btn-ghost text-base-content/70"
-              }`}
-              onClick={() => onTabChange("maintainer")}
-              title="Open Workspace Maintainer"
-              type="button"
-            >
-              Maintainer
-            </button>
-          )}
-          {onTabChange && (
-            <button
-              aria-current={activeTab === "migration" ? "page" : undefined}
-              aria-label="Migrations"
-              className={`btn btn-xs join-item shrink-0 ${
-                activeTab === "migration"
-                  ? "btn-primary shadow-xs"
-                  : "btn-ghost text-base-content/70"
-              }`}
-              onClick={() => onTabChange("migration")}
-              type="button"
-            >
-              <span>Migrations</span>
-              <span className="badge badge-xs badge-warning/80 font-mono text-[9px] uppercase px-1 py-0 ml-1">
-                Beta
-              </span>
-            </button>
-          )}
-          {onTabChange && (
-            <button
-              type="button"
-              aria-current={activeTab === "usage" ? "page" : undefined}
-              className={`btn btn-xs join-item shrink-0 ${activeTab === "usage" ? "btn-primary shadow-xs" : "btn-ghost text-base-content/70"}`}
-              onClick={() => onTabChange("usage")}
-            >
-              Usage
-            </button>
-          )}
-          {onTabChange && (
-            <button
-              type="button"
-              aria-current={activeTab === "schedule" ? "page" : undefined}
-              className={`btn btn-xs join-item shrink-0 ${activeTab === "schedule" ? "btn-primary shadow-xs" : "btn-ghost text-base-content/70"}`}
-              onClick={() => onTabChange("schedule")}
-            >
-              Schedule
-            </button>
-          )}
-          {onTabChange && (
-            <button
-              aria-current={activeTab === "git-activity" ? "page" : undefined}
-              className={`btn btn-xs join-item shrink-0 ${
-                activeTab === "git-activity"
-                  ? "btn-primary shadow-xs"
-                  : "btn-ghost text-base-content/70"
-              }`}
-              onClick={() => onTabChange("git-activity")}
-              type="button"
-            >
-              Git
-            </button>
-          )}
-        </nav>
+          <nav
+            aria-label="Workspace navigation"
+            className="workspace-nav join flex max-w-full shrink-0 border border-base-content/15 rounded-lg bg-base-200/60 p-0.5 xl:w-auto xl:mr-2"
+            onClick={(event) => {
+              if ((event.target as HTMLElement).closest("button"))
+                setNavigationOpen(false);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setNavigationOpen(false);
+            }}
+          >
+            <p className="workspace-nav-group xl:hidden">Workspace</p>
+            {onTabChange && (
+              <button
+                aria-current={activeTab === "chat" ? "page" : undefined}
+                className={`btn btn-xs join-item shrink-0 ${activeTab === "chat" ? "btn-primary shadow-xs" : "btn-ghost text-base-content/70"}`}
+                onClick={() => onTabChange("chat")}
+                type="button"
+              >
+                Chat
+              </button>
+            )}
+            {(onOpenDocuments || onTabChange) && (
+              <button
+                aria-current={activeTab === "documents" ? "page" : undefined}
+                className={`btn btn-xs join-item shrink-0 ${
+                  activeTab === "documents"
+                    ? "btn-primary shadow-xs"
+                    : "btn-ghost text-base-content/70"
+                }`}
+                onClick={() => {
+                  if (onOpenDocuments) onOpenDocuments();
+                  else onTabChange?.("documents");
+                }}
+                title={`View recent workspace changes (${gitText})`}
+                type="button"
+              >
+                Documents
+              </button>
+            )}
+            {onTabChange && (
+              <button
+                aria-current={activeTab === "ingestion" ? "page" : undefined}
+                className={`btn btn-xs join-item shrink-0 ${
+                  activeTab === "ingestion"
+                    ? "btn-primary shadow-xs"
+                    : "btn-ghost text-base-content/70"
+                }`}
+                onClick={() => onTabChange("ingestion")}
+                type="button"
+              >
+                Ingestion
+              </button>
+            )}
+            {onTabChange && (
+              <button
+                aria-current={activeTab === "minions" ? "page" : undefined}
+                className={`btn btn-xs join-item shrink-0 ${
+                  activeTab === "minions"
+                    ? "btn-primary shadow-xs"
+                    : "btn-ghost text-base-content/70"
+                }`}
+                onClick={() => onTabChange("minions")}
+                type="button"
+              >
+                Minions
+              </button>
+            )}
+            {onTabChange && (
+              <button
+                aria-current={activeTab === "skills" ? "page" : undefined}
+                className={`btn btn-xs join-item shrink-0 ${
+                  activeTab === "skills"
+                    ? "btn-primary shadow-xs"
+                    : "btn-ghost text-base-content/70"
+                }`}
+                onClick={() => onTabChange("skills")}
+                type="button"
+              >
+                Skills
+              </button>
+            )}
+            {onTabChange && (
+              <button
+                aria-current={activeTab === "shares" ? "page" : undefined}
+                className={`btn btn-xs join-item shrink-0 ${
+                  activeTab === "shares"
+                    ? "btn-primary shadow-xs"
+                    : "btn-ghost text-base-content/70"
+                }`}
+                onClick={() => onTabChange("shares")}
+                type="button"
+              >
+                Shared Links
+              </button>
+            )}
+            <p className="workspace-nav-group xl:hidden">
+              Tools & administration
+            </p>
+            {onTabChange && (
+              <button
+                aria-current={activeTab === "maintainer" ? "page" : undefined}
+                className={`btn btn-xs join-item shrink-0 ${
+                  activeTab === "maintainer"
+                    ? "btn-primary shadow-xs"
+                    : "btn-ghost text-base-content/70"
+                }`}
+                onClick={() => onTabChange("maintainer")}
+                title="Open Workspace Maintainer"
+                type="button"
+              >
+                Maintainer
+              </button>
+            )}
+            {onTabChange && (
+              <button
+                aria-current={activeTab === "migration" ? "page" : undefined}
+                aria-label="Migrations"
+                className={`btn btn-xs join-item shrink-0 ${
+                  activeTab === "migration"
+                    ? "btn-primary shadow-xs"
+                    : "btn-ghost text-base-content/70"
+                }`}
+                onClick={() => onTabChange("migration")}
+                type="button"
+              >
+                <span>Migrations</span>
+                <span className="badge badge-xs badge-warning/80 font-mono text-[9px] uppercase px-1 py-0 ml-1">
+                  Beta
+                </span>
+              </button>
+            )}
+            {onTabChange && (
+              <button
+                type="button"
+                aria-current={activeTab === "usage" ? "page" : undefined}
+                className={`btn btn-xs join-item shrink-0 ${activeTab === "usage" ? "btn-primary shadow-xs" : "btn-ghost text-base-content/70"}`}
+                onClick={() => onTabChange("usage")}
+              >
+                Usage
+              </button>
+            )}
+            {onTabChange && (
+              <button
+                type="button"
+                aria-current={activeTab === "schedule" ? "page" : undefined}
+                className={`btn btn-xs join-item shrink-0 ${activeTab === "schedule" ? "btn-primary shadow-xs" : "btn-ghost text-base-content/70"}`}
+                onClick={() => onTabChange("schedule")}
+              >
+                Schedule
+              </button>
+            )}
+            {onTabChange && (
+              <button
+                aria-current={activeTab === "git-activity" ? "page" : undefined}
+                className={`btn btn-xs join-item shrink-0 ${
+                  activeTab === "git-activity"
+                    ? "btn-primary shadow-xs"
+                    : "btn-ghost text-base-content/70"
+                }`}
+                onClick={() => onTabChange("git-activity")}
+                type="button"
+              >
+                Git
+              </button>
+            )}
+            {onTabChange && (
+              <button
+                type="button"
+                aria-current={
+                  activeTab === "configuration" ? "page" : undefined
+                }
+                className={`btn btn-xs join-item shrink-0 ${activeTab === "configuration" ? "btn-primary" : "btn-ghost"}`}
+                onClick={() => onTabChange("configuration")}
+              >
+                Configuration
+              </button>
+            )}
+            {authRequired && (
+              <button
+                type="button"
+                className="btn btn-xs btn-ghost text-primary"
+                onClick={onSignOut}
+              >
+                Sign out
+              </button>
+            )}
+          </nav>
+        </ResponsiveDrawer>
       )}
 
       <div className="min-w-0 flex-1">
@@ -333,7 +401,7 @@ export function WorkspaceHeader({
         {onOpenGoTo && (
           <button
             aria-label="Go to document or skill (Cmd+P or Ctrl+P)"
-            className="btn btn-ghost btn-xs sm:btn-sm gap-1.5 px-2 text-base-content/80 hover:text-base-content"
+            className="workspace-search-trigger btn btn-ghost btn-xs sm:btn-sm gap-1.5 px-2 text-base-content/80 hover:text-base-content"
             onClick={onOpenGoTo}
             title="Go To (Cmd+P or Ctrl+P)"
             type="button"
@@ -356,25 +424,6 @@ export function WorkspaceHeader({
             <kbd className="kbd kbd-xs hidden md:inline-flex bg-base-200/80 text-[10px]">
               ⌘P
             </kbd>
-          </button>
-        )}
-        {onTabChange && (
-          <button
-            aria-current={activeTab === "configuration" ? "page" : undefined}
-            className={`btn btn-xs sm:btn-sm px-2 sm:px-3 ${activeTab === "configuration" ? "btn-primary" : "btn-ghost"}`}
-            onClick={() => onTabChange("configuration")}
-            type="button"
-          >
-            Configuration
-          </button>
-        )}
-        {authRequired && (
-          <button
-            className="btn btn-ghost btn-xs sm:btn-sm px-2 text-primary"
-            onClick={onSignOut}
-            type="button"
-          >
-            Sign out
           </button>
         )}
       </div>

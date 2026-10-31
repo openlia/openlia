@@ -36,9 +36,7 @@ test.describe("native Finance project", () => {
       }),
     );
     await page.goto("/");
-    await expect(
-      page.getByRole("navigation", { name: "Workspace navigation" }),
-    ).toBeVisible();
+    await expect(page.locator(".workspace-header")).toBeVisible();
     await openFinance(page);
     const finance = page.getByRole("region", { name: "Finance workspace" });
     await finance.getByLabel("From month").fill("2026-09");

@@ -4,6 +4,7 @@ import type {
   SkillFileResponse,
 } from "../shared/api";
 import { CodeEditor } from "./CodeEditor";
+import { ActionMenu } from "./components/common/ActionMenu";
 import {
   CopyLinkButton,
   MarkdownPreview,
@@ -101,7 +102,33 @@ export function SkillDetailPane({
             )}
           </div>
 
-          <div className="flex flex-wrap shrink-0 items-center gap-1 sm:gap-2">
+          <div className="sm:hidden">
+            <ActionMenu label="Skill actions">
+              {onShare && (
+                <button type="button" onClick={onShare}>
+                  Share skill
+                </button>
+              )}
+              <CopyLinkButton
+                link={buildSkillLink(skill.id)}
+                label="Copy link"
+              />
+              <CopyLinkButton
+                link={buildCanonicalSkillUri(skill.id)}
+                label="Copy URI"
+              />
+              <button type="button" onClick={() => onTogglePin(!skill.pinned)}>
+                {skill.pinned ? "Unpin skill" : "Pin skill"}
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleEnable(!skill.enabled)}
+              >
+                {skill.enabled ? "Disable Skill" : "Enable Skill"}
+              </button>
+            </ActionMenu>
+          </div>
+          <div className="hidden sm:flex flex-wrap shrink-0 items-center gap-1 sm:gap-2">
             {onShare && (
               <button
                 aria-label="Share skill"
@@ -169,8 +196,20 @@ export function SkillDetailPane({
         </div>
 
         {/* Sub-tabs & Combined Actions Toolbar on Row 2 */}
-        <div className="mt-2 flex items-center justify-between gap-2 border-b border-base-content/10">
-          <div className="flex overflow-x-auto no-scrollbar">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-b border-base-content/10 pb-2 sm:pb-0">
+          <select
+            aria-label="Skill section"
+            className="select select-bordered w-full sm:hidden"
+            value={activeSubTab}
+            onChange={(event) =>
+              onSubTabChange(event.target.value as SkillSubTab)
+            }
+          >
+            <option value="instructions">Instructions</option>
+            <option value="files">Files ({skill.files.length})</option>
+            <option value="overview">Overview & Details</option>
+          </select>
+          <div className="hidden sm:flex overflow-x-auto no-scrollbar">
             <button
               className={`cursor-pointer whitespace-nowrap px-2.5 py-1 text-xs sm:px-4 sm:py-1.5 sm:text-sm font-medium transition-colors ${
                 activeSubTab === "instructions"
@@ -305,8 +344,30 @@ export function SkillDetailPane({
 
         {activeSubTab === "files" && (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row overflow-hidden">
+            <div className="border-b border-base-content/10 p-2 md:hidden">
+              <select
+                aria-label="Skill file"
+                className="select select-bordered w-full"
+                value={selectedFile?.path ?? ""}
+                onChange={(event) => {
+                  const file = skill.files.find(
+                    (entry) => entry.path === event.target.value,
+                  );
+                  if (file) onSelectFile(file);
+                }}
+              >
+                <option value="" disabled>
+                  Select a file
+                </option>
+                {skill.files.map((file) => (
+                  <option key={file.path} value={file.path}>
+                    {file.path}
+                  </option>
+                ))}
+              </select>
+            </div>
             {/* File list on left (top on mobile) */}
-            <div className="min-h-0 max-h-20 w-full md:max-h-none md:w-64 shrink-0 border-b md:border-b-0 md:border-r border-base-content/10 overflow-y-auto p-2 bg-base-200/30">
+            <div className="hidden md:block min-h-0 md:w-64 shrink-0 border-r border-base-content/10 overflow-y-auto p-2 bg-base-200/30">
               <p className="px-2 py-1 text-xs font-semibold uppercase text-base-content/50">
                 Skill Files
               </p>

@@ -342,7 +342,7 @@ export function SchedulePage({ api, onOpenDocument }: SchedulePageProps) {
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-base-content/10 bg-base-200/20">
-              <table className="table w-full">
+              <table className="table responsive-record-table w-full">
                 <thead>
                   <tr className="border-b border-base-content/10 text-xs text-base-content/50 uppercase tracking-wider">
                     <th>Name</th>
@@ -364,7 +364,7 @@ export function SchedulePage({ api, onOpenDocument }: SchedulePageProps) {
                         key={job.id}
                         className="hover:bg-base-200/40 transition"
                       >
-                        <td className="font-medium">
+                        <td data-label="Name" className="font-medium">
                           <div>{job.name}</div>
                           {isSystemJob && (
                             <span className="badge badge-xs badge-info/20 text-info mt-1">
@@ -372,18 +372,19 @@ export function SchedulePage({ api, onOpenDocument }: SchedulePageProps) {
                             </span>
                           )}
                         </td>
-                        <td>
+                        <td data-label="Schedule">
                           <span className="font-mono text-xs bg-base-200 px-2 py-1 rounded border border-base-content/10">
                             {schedExpr || "No schedule"}
                           </span>
                         </td>
                         <td
+                          data-label="Prompt"
                           className="max-w-xs truncate text-xs text-base-content/70"
                           title={job.prompt}
                         >
                           {job.prompt}
                         </td>
-                        <td>
+                        <td data-label="Skills">
                           {job.skills && job.skills.length > 0 ? (
                             <div className="flex flex-wrap gap-1">
                               {job.skills.map((s) => (
@@ -401,7 +402,7 @@ export function SchedulePage({ api, onOpenDocument }: SchedulePageProps) {
                             </span>
                           )}
                         </td>
-                        <td>
+                        <td data-label="Status">
                           <span
                             className={`badge badge-sm font-medium ${
                               job.state === "scheduled"
@@ -412,7 +413,7 @@ export function SchedulePage({ api, onOpenDocument }: SchedulePageProps) {
                             {job.state === "scheduled" ? "Scheduled" : "Paused"}
                           </span>
                         </td>
-                        <td className="text-right">
+                        <td data-label="Actions" className="text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               className="btn btn-ghost btn-xs"
