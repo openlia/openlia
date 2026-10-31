@@ -2340,11 +2340,7 @@ test("loads config.json with required trigger", () => {
     const inputCmd = before.input_entrypoint.endsWith(".py")
       ? this.resolvePythonBin(dir)
       : "bun";
-    const inputArgs = [
-      before.input_entrypoint,
-      "--data",
-      serializedPayload,
-    ];
+    const inputArgs = [before.input_entrypoint, "--data", serializedPayload];
     const inputRes = await this.execSubprocess(inputCmd, inputArgs, dir, {
       OPENLIA_WORKSPACE_ROOT: this.workspaceRoot,
       OPENLIA_MINION_ID: before.id,
