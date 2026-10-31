@@ -15,7 +15,6 @@ import { python } from "@codemirror/lang-python";
 import { yaml } from "@codemirror/lang-yaml";
 import {
   bracketMatching,
-  defaultHighlightStyle,
   indentOnInput,
   syntaxHighlighting,
 } from "@codemirror/language";
@@ -131,16 +130,16 @@ export function CodeEditor({
   minHeight = "100%",
   className = "",
 }: CodeEditorProps) {
-  const [highlightEnabled, setHighlightEnabled] = useState(true);
+  const [wrapEnabled, setWrapEnabled] = useState(false);
   const [language, setLanguage] = useState(() => detectLanguage(filePath));
   const parentRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const valueRef = useRef(value);
-  const highlightCompartmentRef = useRef(new Compartment());
+  const wrapCompartmentRef = useRef(new Compartment());
   const readOnlyCompartmentRef = useRef(new Compartment());
-  const editorOptionsRef = useRef({ highlightEnabled, readOnly });
-  editorOptionsRef.current = { highlightEnabled, readOnly };
+  const editorOptionsRef = useRef({ wrapEnabled, readOnly });
+  editorOptionsRef.current = { wrapEnabled, readOnly };
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -177,10 +176,9 @@ export function CodeEditor({
           history(),
           oneDarkTheme,
           ...(cspNonce ? [EditorView.cspNonce.of(cspNonce)] : []),
-          highlightCompartmentRef.current.of(
-            editorOptionsRef.current.highlightEnabled
-              ? syntaxHighlighting(oneDarkHighlightStyle)
-              : syntaxHighlighting(defaultHighlightStyle),
+          syntaxHighlighting(oneDarkHighlightStyle),
+          wrapCompartmentRef.current.of(
+            editorOptionsRef.current.wrapEnabled ? EditorView.lineWrapping : [],
           ),
           readOnlyCompartmentRef.current.of(
             readOnlyExtension(editorOptionsRef.current.readOnly),
@@ -217,13 +215,11 @@ export function CodeEditor({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: highlightCompartmentRef.current.reconfigure(
-        highlightEnabled
-          ? syntaxHighlighting(oneDarkHighlightStyle)
-          : syntaxHighlighting(defaultHighlightStyle),
+      effects: wrapCompartmentRef.current.reconfigure(
+        wrapEnabled ? EditorView.lineWrapping : [],
       ),
     });
-  }, [highlightEnabled]);
+  }, [wrapEnabled]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -253,15 +249,14 @@ export function CodeEditor({
         </div>
         <button
           className={`btn btn-ghost btn-xs h-6 min-h-0 text-[11px] ${
-            highlightEnabled
-              ? "font-medium text-primary"
-              : "text-base-content/50"
+            wrapEnabled ? "font-medium text-primary" : "text-base-content/50"
           }`}
-          onClick={() => setHighlightEnabled((enabled) => !enabled)}
-          title="Toggle live syntax highlighting"
+          aria-pressed={wrapEnabled}
+          onClick={() => setWrapEnabled((enabled) => !enabled)}
+          title="Toggle line wrapping"
           type="button"
         >
-          {highlightEnabled ? "Syntax On" : "Syntax Off"}
+          {wrapEnabled ? "Wrap On" : "Wrap Off"}
         </button>
       </div>
       <div
