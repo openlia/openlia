@@ -82,15 +82,31 @@ const editableExtensions = new Set([
   ".hledger",
   ".rem",
   ".remind",
+  ".openui",
 ]);
+
+const minionCodeExtensions = new Set([".py", ".ts", ".js", ".sh", ".bash"]);
+
+function isEditablePath(relativePath: string): boolean {
+  const ext = fileExtension(relativePath);
+  if (editableExtensions.has(ext)) return true;
+  if (relativePath.startsWith("minions/") && minionCodeExtensions.has(ext)) {
+    return true;
+  }
+  return false;
+}
 
 const protectedDirectoryNames = new Set([
   "browser-profile",
   "cache",
   "logs",
   "mcp-tokens",
+  "node_modules",
   "pairing",
   "sessions",
+  "__pycache__",
+  ".venv",
+  ".pytest_cache",
 ]);
 
 const navigationHiddenBasenames = new Set([
@@ -629,7 +645,7 @@ export class WorkspaceService {
       );
     }
 
-    if (!editableExtensions.has(fileExtension(path))) {
+    if (!isEditablePath(path)) {
       throw new WorkspaceError(
         "file type is not editable",
         415,
@@ -839,7 +855,7 @@ export class WorkspaceService {
       );
     }
     validateRelativePath(destinationPath, settings);
-    if (!editableExtensions.has(fileExtension(destinationPath))) {
+    if (!isEditablePath(destinationPath)) {
       throw new WorkspaceError(
         "file type is not editable",
         415,
@@ -878,7 +894,7 @@ export class WorkspaceService {
         "protected_path",
       );
     }
-    if (!editableExtensions.has(fileExtension(destinationPath))) {
+    if (!isEditablePath(destinationPath)) {
       throw new WorkspaceError(
         "file type is not editable",
         415,
@@ -2028,8 +2044,7 @@ export class WorkspaceService {
       size: info.size,
       modified_at: info.mtime.toISOString(),
       editable:
-        editableExtensions.has(fileExtension(relativePath)) &&
-        info.size <= this.maxEditableBytes,
+        isEditablePath(relativePath) && info.size <= this.maxEditableBytes,
     };
   }
 

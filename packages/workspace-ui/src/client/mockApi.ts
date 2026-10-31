@@ -10,6 +10,12 @@ import type {
   MaintainerFixApplyResponse,
   MaintainerFixPreviewResponse,
   MaintainerOverviewResponse,
+  MinionCreateRequest,
+  MinionDetail,
+  MinionDetailResponse,
+  MinionRunRequest,
+  MinionRunResponse,
+  MinionsListResponse,
   PublicShareFileEntry,
   PublicShareResponse,
   ShareCreateRequest,
@@ -2366,6 +2372,93 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         schema: 1,
         version: 1,
         permissions,
+      };
+    },
+    async listMinions(): Promise<MinionsListResponse> {
+      requireAuthentication();
+      return {
+        schema: 1,
+        minions: [],
+      };
+    },
+    async getMinion(id: string): Promise<MinionDetailResponse> {
+      requireAuthentication();
+      const detail: MinionDetail = {
+        id,
+        path: `minions/${id}`,
+        name: id,
+        description: `${id} minion`,
+        runtime: "python",
+        entrypoint: "main.py",
+        ui_files: ["ui.openui"],
+        primary_ui_file: "ui.openui",
+        ui_contents: {
+          "ui.openui": 'root = Stack([\n  Text("Minion Dashboard", "h2")\n])\n',
+        },
+        data_file_count: 1,
+        script_file_count: 1,
+        test_file_count: 1,
+        renderable: true,
+        readme_content: `# ${id}\n\n${id} minion`,
+        quick_actions: [
+          {
+            id: "add",
+            label: "Quick Add",
+            placeholder: "Type an item...",
+          },
+        ],
+        data_files: [],
+        code_files: [],
+        test_files: [],
+      };
+      return { schema: 1, minion: detail };
+    },
+    async createMinion(
+      request: MinionCreateRequest,
+    ): Promise<MinionDetailResponse> {
+      requireAuthentication();
+      return this.getMinion(request.id || "sample-minion");
+    },
+    async installMinionDependencies(id: string): Promise<MinionRunResponse> {
+      requireAuthentication();
+      const { minion } = await this.getMinion(id);
+      return {
+        schema: 1,
+        ok: true,
+        exit_code: 0,
+        stdout: "Dependencies installed",
+        stderr: "",
+        duration_ms: 42,
+        minion,
+      };
+    },
+    async runMinion(
+      id: string,
+      _request?: MinionRunRequest,
+    ): Promise<MinionRunResponse> {
+      requireAuthentication();
+      const { minion } = await this.getMinion(id);
+      return {
+        schema: 1,
+        ok: true,
+        exit_code: 0,
+        stdout: '{"ok": true}',
+        stderr: "",
+        duration_ms: 25,
+        minion,
+      };
+    },
+    async testMinion(id: string): Promise<MinionRunResponse> {
+      requireAuthentication();
+      const { minion } = await this.getMinion(id);
+      return {
+        schema: 1,
+        ok: true,
+        exit_code: 0,
+        stdout: "Ran 1 test in 0.01s\nOK",
+        stderr: "",
+        duration_ms: 15,
+        minion,
       };
     },
   };

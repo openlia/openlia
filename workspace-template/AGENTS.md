@@ -22,6 +22,16 @@ user-owned delegation policy authorizes the scoped update.
   smallest useful folder, template, optional schema, and inline `openui` blocks
   in the requested Markdown artifact, or install a
   feature/profile from the OpenLia Templates catalog (`https://github.com/openlia/templates.git`).
+- **Minions (`minions/<slug>/`)**: Programmable workspace apps that
+  OpenLia/Hermes develops and maintains with the user as **Project Owner** (e.g.,
+  `minions/family-menu/`, `minions/gym-tracker/`, `minions/shopping-list/`). Each
+  Minion folder contains `README.md`, `main.py` or `main.ts` entrypoint,
+  `requirements.txt` or `package.json`, scripts and tests (`scripts/`, `tests/`),
+  standalone `.openui` dashboard files (`ui.openui`), and freely structured data
+  files under `data/` (`.json`, `.yaml`/`.yml`, `.csv`, `.hledger`/`.journal`,
+  `.rem`/`.remind`, `.md`, including nested subfolders). Hermes has full autonomy
+  inside `minions/<slug>/` to install dependencies, run scripts/tests/entrypoints,
+  and update code, `.openui` views, and `data/` files.
 
 ## File handling
 
@@ -51,7 +61,7 @@ user-owned delegation policy authorizes the scoped update.
   - Treat inline OpenUI as a first-class presentation option. When creating or substantially updating reports, reviews, comparisons, or data-rich documents, proactively consider OpenUI without waiting for the user to request it. Load `inline-openui-authoring` when a view would make the data easier to understand.
   - Use charts for trends, tables for comparisons and structured results, and tabs/cards for related views. Prefer plain Markdown for simple notes or when a view adds no value; honor requests for plain-text or static output.
   - Keep report conclusions and source links in ordinary Markdown outside views. Label reporting periods, snapshot dates, and units; distinguish missing data from zero. Never invent data to fill a component or imply a literal snapshot updates live. Keep generated reports separate from source records.
-  - Put interactive tables, cards, charts, Calendar, and Finance views in fenced `openui` blocks inside Markdown. No separate manifest or UI entry file is needed.
+  - Put interactive tables, cards, charts, Calendar, and Finance views in fenced `openui` blocks inside Markdown documents (or `ui.openui` inside a Minion folder).
   - Load `inline-openui-authoring`, discover exact component APIs with `openui_describe`, and check the final Markdown draft with `openui_validate`. Repair diagnostics; do not equate schema validity with verified rendering.
   - Use bare component roots, schema-named arguments, and row tables (`Table(columns: [{key, label}], rows: [{...}])`). Paths resolve relative to the containing document's folder.
   - Validate syntax with `validate_workspace.py` and use Workspace UI for full component diagnostics. Findings are advisory; link the containing document via `openlia://workspace/<path>`.
@@ -86,6 +96,7 @@ user-owned delegation policy authorizes the scoped update.
 When referencing or providing links to workspace documents, notes, or skills in user-facing responses or workspace records:
 - Format links using canonical `openlia://` URIs:
   - Workspace documents: `[Label](openlia://workspace/<path>)` (e.g. `[Source Record](openlia://workspace/sources/records/source-template.md)`).
+  - Minions: `[Label](openlia://minions/<slug>)` (e.g. `[Family Menu](openlia://minions/family-menu)`).
   - Skills: `[Label](openlia://skills/<skill-id>)` (e.g. `[Template Customization](openlia://skills/workspace-template-customization)`).
   - Inside workspace markdown files, document-relative links (e.g. `[Specs](./specs.md)`) are also supported.
 - Never embed environment-specific HTTP origins or hostnames into workspace records.

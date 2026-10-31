@@ -29,7 +29,18 @@ from workspace_registry import (
     policy_path,
     registry_path,
 )
-from openui_validation import validate_inline_openui
+from openui_validation import validate_inline_openui, validate_openui_source
+
+
+_IGNORED_DIR_NAMES = {"node_modules", "__pycache__", ".venv", ".pytest_cache"}
+
+
+def _is_ignored_workspace_path(path: Path, root: Path) -> bool:
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        return True
+    return any(part.startswith(".") or part in _IGNORED_DIR_NAMES for part in parts)
 
 
 FRONT_MATTER = re.compile(
@@ -413,6 +424,35 @@ def validate_workspace_policy(workspace_root: Path) -> tuple[list[str], set[Path
     return [], set()
 
 
+def validate_minions(workspace_root: Path) -> list[str]:
+    """Validate structure of Minions under minions/<slug>/."""
+    root = workspace_root.expanduser().resolve()
+    minions_dir = root / "minions"
+    if not minions_dir.exists():
+        return []
+    if minions_dir.is_symlink() or not minions_dir.is_dir():
+        return ["minions: must be a regular directory"]
+
+    errors: list[str] = []
+    for entry in sorted(minions_dir.iterdir()):
+        if entry.name.startswith(".") or entry.name in _IGNORED_DIR_NAMES:
+            continue
+        rel = _relative(entry, root)
+        if entry.is_symlink():
+            errors.append(f"{rel}: symbolic links are not validated")
+            continue
+        if not entry.is_dir():
+            continue
+        readme = entry / "README.md"
+        if readme.is_symlink() or not readme.is_file():
+            errors.append(f"{rel}: minion requires a README.md file")
+        has_py = (entry / "main.py").is_file() and not (entry / "main.py").is_symlink()
+        has_ts = (entry / "main.ts").is_file() and not (entry / "main.ts").is_symlink()
+        if not (has_py or has_ts):
+            errors.append(f"{rel}: minion requires a main.py or main.ts entrypoint")
+    return errors
+
+
 def validate_workspace(workspace_root: Path) -> list[str]:
     """Validate workspace templates and Markdown records in their domains."""
     root = workspace_root.expanduser().resolve()
@@ -424,7 +464,11 @@ def validate_workspace(workspace_root: Path) -> list[str]:
     errors.extend(registry_errors)
     policy_errors, referenced_policy_schemas = validate_workspace_policy(root)
     errors.extend(policy_errors)
-    templates = sorted(root.rglob(f"*{TEMPLATE_SUFFIX}"))
+    errors.extend(validate_minions(root))
+    templates = [
+        p for p in sorted(root.rglob(f"*{TEMPLATE_SUFFIX}"))
+        if not _is_ignored_workspace_path(p, root)
+    ]
     templates_by_domain: dict[Path, list[Path]] = {}
     schemas_by_template: dict[Path, dict[str, Any]] = {}
     invalid_templates: set[Path] = set()
@@ -476,7 +520,7 @@ def validate_workspace(workspace_root: Path) -> list[str]:
             # An invalid schema is not permission to fall back or skip its errors.
             continue
         for record in sorted(domain.glob("*.md")):
-            if record.name.endswith(TEMPLATE_SUFFIX):
+            if record.name.endswith(TEMPLATE_SUFFIX) or record.name.lower() == "readme.md":
                 continue
             if record.is_symlink():
                 errors.append(f"{_relative(record, root)}: symbolic links are not validated")
@@ -484,13 +528,18 @@ def validate_workspace(workspace_root: Path) -> list[str]:
             errors.extend(_validate_document(record, schema, root, template_path=template))
 
     for record in sorted(root.rglob("*.md")):
+        if _is_ignored_workspace_path(record, root):
+            continue
         if record.name.endswith(TEMPLATE_SUFFIX) or record.parent in templates_by_domain:
             continue
         errors.extend(
             _validate_document(record, None, root, referenced_schemas=referenced_schemas)
         )
 
-    schema_paths = sorted(root.rglob("*.schema.json"))
+    schema_paths = [
+        p for p in sorted(root.rglob("*.schema.json"))
+        if not _is_ignored_workspace_path(p, root)
+    ]
     errors.extend(_validate_unreferenced_schemas(schema_paths, referenced_schemas, root))
 
     return sorted(set(errors))
@@ -500,10 +549,17 @@ def inline_openui_warnings(workspace_root: Path) -> list[str]:
     warnings: list[str] = []
     root = workspace_root.expanduser().resolve()
     for path in sorted(root.rglob("*.md")):
-        if path.is_symlink() or any(part.startswith(".") for part in path.relative_to(root).parts):
+        if path.is_symlink() or _is_ignored_workspace_path(path, root):
             continue
         try:
             warnings.extend(f"{_relative(path, root)}: {warning}" for warning in validate_inline_openui(path.read_text(encoding="utf-8")))
+        except (OSError, UnicodeError):
+            continue
+    for path in sorted(root.rglob("*.openui")):
+        if path.is_symlink() or _is_ignored_workspace_path(path, root):
+            continue
+        try:
+            warnings.extend(f"{_relative(path, root)}: {warning}" for warning in validate_openui_source(path.read_text(encoding="utf-8")))
         except (OSError, UnicodeError):
             continue
     return warnings

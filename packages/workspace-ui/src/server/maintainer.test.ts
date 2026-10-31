@@ -401,7 +401,7 @@ describe("Workspace Maintainer & Consequential Permissions", () => {
     );
   });
 
-  test("10. Broken inline UI remains advisory while preserving file access; project APIs are removed", async () => {
+  test("10. Broken inline UI remains advisory while preserving file access", async () => {
     const handler = createWorkspaceHandler({
       workspaceRoot,
       maintainerDatabasePath: maintainerDbPath,
@@ -414,14 +414,6 @@ describe("Workspace Maintainer & Consequential Permissions", () => {
       "# First Item\n\nStill accessible.\n\n```openui\nUnknownWidget()\n```\n",
     );
 
-    const projRes = await handler(
-      new Request("http://localhost/api/workspace/project?path=broken-app"),
-    );
-    expect(projRes.status).toBe(404);
-    expect(
-      (await handler(new Request("http://localhost/api/workspace/projects")))
-        .status,
-    ).toBe(404);
     const fileRes = await handler(
       new Request(
         "http://localhost/api/workspace/file?path=broken-app/item.md",

@@ -1082,3 +1082,73 @@ export interface PublicShareResponse {
     files: PublicShareFileEntry[];
   };
 }
+
+export type MinionRuntime = "python" | "typescript";
+
+export interface MinionQuickAction {
+  id: string;
+  label: string;
+  description?: string | undefined;
+  placeholder?: string | undefined;
+  args?: string[] | undefined;
+}
+
+export interface MinionSummary {
+  id: string;
+  path: string;
+  name: string;
+  description: string;
+  icon?: string | undefined;
+  runtime: MinionRuntime;
+  entrypoint: "main.py" | "main.ts";
+  dependency_file?: "requirements.txt" | "package.json" | undefined;
+  ui_files: string[];
+  primary_ui_file?: string | undefined;
+  data_file_count: number;
+  script_file_count: number;
+  test_file_count: number;
+  renderable: boolean;
+  render_errors?: string[] | undefined;
+  quick_actions: MinionQuickAction[];
+}
+
+export interface MinionDetail extends MinionSummary {
+  readme_content: string;
+  ui_contents: Record<string, string>;
+  data_files: WorkspaceFileMetadata[];
+  code_files: WorkspaceFileMetadata[];
+  test_files: WorkspaceFileMetadata[];
+}
+
+export interface MinionsListResponse {
+  schema: 1;
+  minions: MinionSummary[];
+}
+
+export interface MinionDetailResponse {
+  schema: 1;
+  minion: MinionDetail;
+}
+
+export interface MinionCreateRequest {
+  id: string;
+  name: string;
+  description?: string | undefined;
+  runtime: MinionRuntime;
+}
+
+export interface MinionRunRequest {
+  action?: string | undefined;
+  input?: string | undefined;
+  args?: string[] | undefined;
+}
+
+export interface MinionRunResponse {
+  schema: 1;
+  ok: boolean;
+  exit_code: number;
+  stdout: string;
+  stderr: string;
+  duration_ms: number;
+  minion: MinionDetail;
+}

@@ -143,6 +143,41 @@ class WorkspaceStructureTests(unittest.TestCase):
         self.assertTrue(any("openui_syntax_error: line 4:" in warning for warning in warnings))
         self.assertEqual(validator.validate_workspace(self.workspace), [])
 
+    def test_minion_discovery_validation_and_nested_data_support(self):
+        minion_dir = self.workspace / "minions" / "gym-tracker"
+        (minion_dir / "data" / "2026" / "october").mkdir(parents=True)
+        (minion_dir / "tests").mkdir(parents=True)
+        (minion_dir / "node_modules" / "pkg").mkdir(parents=True)
+        (minion_dir / "node_modules" / "pkg" / "broken.schema.json").write_text("{not-json")
+        (minion_dir / "README.md").write_text("# Gym Tracker\n\nTrack workouts and personal records.\n")
+        (minion_dir / "main.py").write_text("print('ok')\n")
+        (minion_dir / "requirements.txt").write_text("pyyaml>=6.0\n")
+        (minion_dir / "ui.openui").write_text(
+            'Table(title: "Workouts", columns: [{key: "lift", label: "Lift"}], rows: [{lift: "Squat"}])\n'
+        )
+        (minion_dir / "data" / "workouts.json").write_text('[{"lift": "Squat"}]')
+        (minion_dir / "data" / "2026" / "october" / "notes.md").write_text("# October PRs\n")
+        (minion_dir / "tests" / "test_main.py").write_text("def test_ok(): assert True\n")
+
+        self.assertEqual(validator.validate_workspace(self.workspace), [])
+        self.assertEqual(validator.inline_openui_warnings(self.workspace), [])
+
+        reg = validator.load_registry(self.workspace)
+        self.assertIsNotNone(reg)
+        by_path = {d["path"]: d for d in reg["domains"]}
+        self.assertIn("minions/gym-tracker", by_path)
+        self.assertTrue(by_path["minions/gym-tracker"].get("minion"))
+        self.assertEqual(by_path["minions/gym-tracker"].get("entrypoint"), "main.py")
+        self.assertEqual(by_path["minions/gym-tracker"].get("label"), "Gym Tracker")
+
+        (minion_dir / "ui.openui").write_text("Table(columns: [)\n")
+        warnings = validator.inline_openui_warnings(self.workspace)
+        self.assertTrue(any("minions/gym-tracker/ui.openui: openui_syntax_error:" in w for w in warnings))
+
+        (minion_dir / "main.py").unlink()
+        errors = validator.validate_workspace(self.workspace)
+        self.assertTrue(any("minions/gym-tracker: minion requires a main.py or main.ts entrypoint" in e for e in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

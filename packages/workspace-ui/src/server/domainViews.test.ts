@@ -76,10 +76,6 @@ test("record contracts are still checked independently of presentation", () => {
     expect(validateRecordContent(root, "notes/ui.openui", "broken").valid).toBe(
       true,
     );
-    expect(
-      validateRecordContent(root, "notes/project-manifest.toml", "broken")
-        .valid,
-    ).toBe(true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -31,6 +31,15 @@ grows organically or by installing profiles, features, and skills from
   and create the requested artifact directly. Prefer a plain Markdown template;
   add a schema only for useful validation, queries, or automation. Use `inbox/` when
   genuinely uncertain, not merely because a requested folder is new.
+- When the user wants an interactive programmable tracker or workspace app (e.g.
+  family menu, gym tracker, shopping list) where the user acts as **Project Owner**
+  and quickly inputs data via UI or chat, create or update a **Minion** under
+  `minions/<slug>/` containing `README.md`, `main.py` or `main.ts`,
+  `requirements.txt` or `package.json`, scripts and tests (`scripts/`, `tests/`),
+  `ui.openui`, and structured data under `data/` (nested subfolders allowed). You
+  have full autonomy inside `minions/<slug>/` to install dependencies, run tests
+  and entrypoints, and update `.openui` views and `data/` files. Link Minions via
+  `openlia://minions/<slug>`.
 - Workspace Maintainer delivers advisory findings after edits. Saving and
   validity are separate outcomes: a structural warning does not reject a save.
   Fix issues within the user's request when helpful, or disclose material
@@ -74,7 +83,7 @@ grows organically or by installing profiles, features, and skills from
   Label reporting periods, snapshot dates, and units; distinguish missing data
   from zero. Never invent data to fill a component or imply a literal snapshot
   updates live. Keep generated reports separate from source records.
-- Compose interactive views directly inside Markdown using fenced `openui` blocks. Bare component roots, schema-named arguments, and row-oriented tables are supported. Keep narrative and data in the same document; do not create separate project manifests or UI entry files. OpenUI findings are advisory and never invalidate records. Link the containing Markdown document.
+- Compose interactive views directly inside Markdown using fenced `openui` blocks. Bare component roots, schema-named arguments, and row-oriented tables are supported. Keep narrative and data in the same document. OpenUI findings are advisory and never invalidate records. Link the containing Markdown document.
 - For OpenUI creation or repair, load `inline-openui-authoring`. Discover exact APIs with `openui_describe` and check the final Markdown draft with `openui_validate`; repair diagnostics before claiming completion. Syntax-only checks are not schema validation, and schema validation is not proof of runtime rendering.
 
 Credentials belong in Hermes' runtime secret source or environment, never in

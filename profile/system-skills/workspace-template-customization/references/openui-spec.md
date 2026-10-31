@@ -65,9 +65,5 @@ block's document line. Python tools perform lightweight syntax checks offline;
 use `openui_validate` or Workspace UI for component/property validation, and
 browser preview for actual rendering and interactions.
 
-The former Mini-Project routes, manifests, standalone UI previews, record widgets,
-and record aggregation functions are no longer interpreted. Existing files are
-not automatically deleted or converted. Move supported view expressions into a
-Markdown fence manually and replace legacy bindings with explicit data.
-
-Link the containing document: `openlia://workspace/family-menu/menu.md`.
+Link the containing document: `openlia://workspace/family-menu/menu.md`, or a
+Minion dashboard (`minions/<slug>/ui.openui`): `openlia://minions/family-menu`.

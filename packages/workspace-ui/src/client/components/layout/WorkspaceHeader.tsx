@@ -22,6 +22,7 @@ export function WorkspaceHeader({
   activeTab?:
     | "chat"
     | "documents"
+    | "minions"
     | "skills"
     | "shares"
     | "ingestion"
@@ -46,6 +47,7 @@ export function WorkspaceHeader({
         tab:
           | "chat"
           | "documents"
+          | "minions"
           | "skills"
           | "shares"
           | "ingestion"
@@ -137,6 +139,20 @@ export function WorkspaceHeader({
               type="button"
             >
               Ingestion
+            </button>
+          )}
+          {onTabChange && (
+            <button
+              aria-current={activeTab === "minions" ? "page" : undefined}
+              className={`btn btn-xs join-item shrink-0 ${
+                activeTab === "minions"
+                  ? "btn-primary shadow-xs"
+                  : "btn-ghost text-base-content/70"
+              }`}
+              onClick={() => onTabChange("minions")}
+              type="button"
+            >
+              Minions
             </button>
           )}
           {onTabChange && (
@@ -246,25 +262,27 @@ export function WorkspaceHeader({
               ? "USAGE"
               : activeTab === "schedule"
                 ? "SCHEDULE"
-                : activeTab === "skills"
-                  ? "SKILLS"
-                  : activeTab === "shares"
-                    ? "SHARED LINKS"
-                    : activeTab === "git-activity"
-                      ? "GIT ACTIVITY"
-                      : activeTab === "ingestion"
-                        ? "INGESTION RUNTIME"
-                        : activeTab === "migration"
-                          ? "MIGRATION"
-                          : activeTab === "maintainer"
-                            ? "MAINTAINER"
-                            : activeTab === "configuration"
-                              ? "CONFIGURATION"
-                              : file
-                                ? file.source === "memory"
-                                  ? "ASSISTANT MEMORY"
-                                  : "WORKSPACE"
-                                : "ACTIVITY"}
+                : activeTab === "minions"
+                  ? "MINIONS"
+                  : activeTab === "skills"
+                    ? "SKILLS"
+                    : activeTab === "shares"
+                      ? "SHARED LINKS"
+                      : activeTab === "git-activity"
+                        ? "GIT ACTIVITY"
+                        : activeTab === "ingestion"
+                          ? "INGESTION RUNTIME"
+                          : activeTab === "migration"
+                            ? "MIGRATION"
+                            : activeTab === "maintainer"
+                              ? "MAINTAINER"
+                              : activeTab === "configuration"
+                                ? "CONFIGURATION"
+                                : file
+                                  ? file.source === "memory"
+                                    ? "ASSISTANT MEMORY"
+                                    : "WORKSPACE"
+                                  : "ACTIVITY"}
         </p>
         <div className="flex items-center gap-1 min-w-0">
           <h1 className="workspace-title" title={file?.path}>
@@ -275,21 +293,23 @@ export function WorkspaceHeader({
                   ? "Usage"
                   : activeTab === "schedule"
                     ? "Schedule"
-                    : activeTab === "skills"
-                      ? "Skills"
-                      : activeTab === "shares"
-                        ? "Shared Links"
-                        : activeTab === "git-activity"
-                          ? "Git Activity"
-                          : activeTab === "ingestion"
-                            ? "Ingestion"
-                            : activeTab === "migration"
-                              ? "Migrations"
-                              : activeTab === "maintainer"
-                                ? "Workspace Maintainer"
-                                : activeTab === "configuration"
-                                  ? "Configuration"
-                                  : "Activity")}
+                    : activeTab === "minions"
+                      ? "Minions"
+                      : activeTab === "skills"
+                        ? "Skills"
+                        : activeTab === "shares"
+                          ? "Shared Links"
+                          : activeTab === "git-activity"
+                            ? "Git Activity"
+                            : activeTab === "ingestion"
+                              ? "Ingestion"
+                              : activeTab === "migration"
+                                ? "Migrations"
+                                : activeTab === "maintainer"
+                                  ? "Workspace Maintainer"
+                                  : activeTab === "configuration"
+                                    ? "Configuration"
+                                    : "Activity")}
           </h1>
           {currentLink && (
             <CopyLinkButton

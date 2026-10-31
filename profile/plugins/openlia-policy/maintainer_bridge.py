@@ -45,6 +45,21 @@ def _inline_warnings(content: str) -> list[str]:
     return []
 
 
+def _openui_file_warnings(content: str) -> list[str]:
+    helper = Path(os.environ.get("OPENLIA_POLICY_HELPER", "/opt/data/skills/workspace-template-customization/scripts/workspace_registry.py"))
+    candidates = [helper.with_name("openui_validation.py"), Path(__file__).resolve().parents[2] / "system-skills/workspace-template-customization/scripts/openui_validation.py"]
+    for path in candidates:
+        if not path.is_file() or path.is_symlink():
+            continue
+        spec = importlib.util.spec_from_file_location("openlia_inline_openui", path)
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            if hasattr(module, "validate_openui_source"):
+                return module.validate_openui_source(content)
+    return []
+
+
 def sha256_hex(value: str | bytes) -> str:
     data = value.encode("utf-8") if isinstance(value, str) else value
     return hashlib.sha256(data).hexdigest()
@@ -343,6 +358,17 @@ class MaintainerBridge:
                         checked_revision=checked_revision,
                     )
                 )
+            return candidates
+
+        if lower.endswith(".openui"):
+            for message in _openui_file_warnings(content):
+                candidates.append(self._make_candidate(
+                    relative_path=rel, rule_code="openui_syntax_error",
+                    severity="warning", subject=message, message=message,
+                    explanation="Fix the OpenUI syntax; use the Workspace UI preview for full component schema diagnostics.",
+                    contract_fingerprint=compute_contract_fingerprint(rule_code="openui_syntax_error", subject=message),
+                    fix_strategy="agent", checked_revision=checked_revision,
+                ))
             return candidates
 
         if lower.endswith(".md"):
@@ -789,7 +815,12 @@ class MaintainerBridge:
         rel_paths: list[str] = []
 
         for root, dirs, files in os.walk(self.workspace_root):
-            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            dirs[:] = sorted(
+                d
+                for d in dirs
+                if not d.startswith(".")
+                and d not in {"node_modules", "__pycache__", ".venv", ".pytest_cache"}
+            )
             for name in sorted(files):
                 if name.startswith("."):
                     continue
@@ -805,6 +836,7 @@ class MaintainerBridge:
                 if (
                     lower.endswith(".md")
                     or lower.endswith(".schema.json")
+                    or lower.endswith(".openui")
                 ):
                     rel_paths.append(rel)
                     files_scanned += 1
