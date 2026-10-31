@@ -4,7 +4,10 @@ GO ?= go
 VENV ?= .venv
 PYTHON ?= $(shell if [ -f "$(VENV)/bin/python3" ]; then echo "$(VENV)/bin/python3"; else echo "python3"; fi)
 
-.PHONY: help build install build-host build-cli build-operator build-operator-linux-amd64 build-operator-linux-arm64 test test-go lint lint-go format-go compose-config versions-generate versions-check venv bun-install bun-check bun-build skills-test skills-verify workspace-templates-test clean-logs smoke smoke-local smoke-local-live
+.PHONY: help git-hooks build install build-host build-cli build-operator build-operator-linux-amd64 build-operator-linux-arm64 test test-go lint lint-go format-go compose-config versions-generate versions-check venv bun-install bun-check bun-build skills-test skills-verify workspace-templates-test clean-logs smoke smoke-local smoke-local-live
+
+git-hooks:
+	@git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true
 
 help:
 	@printf '%s\n' \
@@ -35,7 +38,7 @@ help:
 		'smoke-local        Deploy and remove a provider-free local stack' \
 		'smoke-local-live   Deploy a credential-backed local stack; cleanup is opt-in'
 
-build: versions-check
+build: git-hooks versions-check
 	$(MAKE) bun-install bun-build build-host build-operator
 
 install: build
@@ -107,7 +110,7 @@ bun-check:
 bun-build:
 	bun run build
 
-lint:
+lint: git-hooks
 	bun run format:check
 	bun run lint
 	gofmt -d main.go cli operator cmd internal
