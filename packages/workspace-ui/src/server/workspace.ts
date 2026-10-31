@@ -85,13 +85,7 @@ const editableExtensions = new Set([
   ".openui",
 ]);
 
-const minionCodeExtensions = new Set([
-  ".py",
-  ".ts",
-  ".js",
-  ".sh",
-  ".bash",
-]);
+const minionCodeExtensions = new Set([".py", ".ts", ".js", ".sh", ".bash"]);
 
 function isEditablePath(relativePath: string): boolean {
   const ext = fileExtension(relativePath);
@@ -2050,8 +2044,7 @@ export class WorkspaceService {
       size: info.size,
       modified_at: info.mtime.toISOString(),
       editable:
-        isEditablePath(relativePath) &&
-        info.size <= this.maxEditableBytes,
+        isEditablePath(relativePath) && info.size <= this.maxEditableBytes,
     };
   }
 

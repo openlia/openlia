@@ -266,23 +266,23 @@ export function WorkspaceHeader({
                   ? "MINIONS"
                   : activeTab === "skills"
                     ? "SKILLS"
-                  : activeTab === "shares"
-                    ? "SHARED LINKS"
-                    : activeTab === "git-activity"
-                      ? "GIT ACTIVITY"
-                      : activeTab === "ingestion"
-                        ? "INGESTION RUNTIME"
-                        : activeTab === "migration"
-                          ? "MIGRATION"
-                          : activeTab === "maintainer"
-                            ? "MAINTAINER"
-                            : activeTab === "configuration"
-                              ? "CONFIGURATION"
-                              : file
-                                ? file.source === "memory"
-                                  ? "ASSISTANT MEMORY"
-                                  : "WORKSPACE"
-                                : "ACTIVITY"}
+                    : activeTab === "shares"
+                      ? "SHARED LINKS"
+                      : activeTab === "git-activity"
+                        ? "GIT ACTIVITY"
+                        : activeTab === "ingestion"
+                          ? "INGESTION RUNTIME"
+                          : activeTab === "migration"
+                            ? "MIGRATION"
+                            : activeTab === "maintainer"
+                              ? "MAINTAINER"
+                              : activeTab === "configuration"
+                                ? "CONFIGURATION"
+                                : file
+                                  ? file.source === "memory"
+                                    ? "ASSISTANT MEMORY"
+                                    : "WORKSPACE"
+                                  : "ACTIVITY"}
         </p>
         <div className="flex items-center gap-1 min-w-0">
           <h1 className="workspace-title" title={file?.path}>
@@ -297,19 +297,19 @@ export function WorkspaceHeader({
                       ? "Minions"
                       : activeTab === "skills"
                         ? "Skills"
-                      : activeTab === "shares"
-                        ? "Shared Links"
-                        : activeTab === "git-activity"
-                          ? "Git Activity"
-                          : activeTab === "ingestion"
-                            ? "Ingestion"
-                            : activeTab === "migration"
-                              ? "Migrations"
-                              : activeTab === "maintainer"
-                                ? "Workspace Maintainer"
-                                : activeTab === "configuration"
-                                  ? "Configuration"
-                                  : "Activity")}
+                        : activeTab === "shares"
+                          ? "Shared Links"
+                          : activeTab === "git-activity"
+                            ? "Git Activity"
+                            : activeTab === "ingestion"
+                              ? "Ingestion"
+                              : activeTab === "migration"
+                                ? "Migrations"
+                                : activeTab === "maintainer"
+                                  ? "Workspace Maintainer"
+                                  : activeTab === "configuration"
+                                    ? "Configuration"
+                                    : "Activity")}
           </h1>
           {currentLink && (
             <CopyLinkButton

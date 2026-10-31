@@ -394,7 +394,9 @@ export function MinionsPage({
       setEditingOpenUI(false);
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Failed to save OpenUI file.",
+        caught instanceof Error
+          ? caught.message
+          : "Failed to save OpenUI file.",
       );
     } finally {
       setOpenUISaving(false);
@@ -439,17 +441,15 @@ export function MinionsPage({
         .replace(/^\/+/, "")
         .replace(/^data\//, "");
       const initialContent = cleanRel.endsWith(".json")
-        ? "{\n  \"items\": []\n}\n"
+        ? '{\n  "items": []\n}\n'
         : cleanRel.endsWith(".csv")
           ? "id,name,notes\n"
           : cleanRel.endsWith(".yaml") || cleanRel.endsWith(".yml")
             ? "items: []\n"
             : `# ${cleanRel}\n`;
-      const created = await api.createFile(
-        `${detail.path}/data`,
-        cleanRel,
-        { content: initialContent },
-      );
+      const created = await api.createFile(`${detail.path}/data`, cleanRel, {
+        content: initialContent,
+      });
       setNewDataFilePath("");
       await loadMinionDetail(detail.id);
       setActiveFile(created);
@@ -802,8 +802,7 @@ export function MinionsPage({
                     setActiveSubTab("data");
                     if (
                       detail.data_files[0] &&
-                      (!activeFile ||
-                        !activeFile.path.startsWith(`${detail.path}/data/`))
+                      !activeFile?.path.startsWith(`${detail.path}/data/`)
                     ) {
                       void openMinionFile(detail.id, detail.data_files[0].path);
                     }
@@ -872,7 +871,9 @@ export function MinionsPage({
                         />
                       </div>
                     </div>
-                  ) : detail.ui_contents[detail.primary_ui_file ?? "ui.openui"] ? (
+                  ) : detail.ui_contents[
+                      detail.primary_ui_file ?? "ui.openui"
+                    ] ? (
                     <MinionOpenUIView
                       api={api}
                       code={

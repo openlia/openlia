@@ -1204,6 +1204,7 @@ messages:
       "Chat",
       "Documents",
       "Ingestion",
+      "Minions",
       "Skills",
       "Shared Links",
       "Maintainer",
@@ -1626,7 +1627,7 @@ messages:
     );
   });
 
-  test("opens inline OpenUI documents without a Projects navigation tab", async () => {
+  test("opens inline OpenUI documents in Markdown preview", async () => {
     window.history.replaceState(null, "", "/files/tasks/ship-ui.md");
     const mockApi = createMockWorkspaceApi({
       files: {
@@ -1640,7 +1641,6 @@ messages:
       await screen.findByRole("article", { name: "Markdown preview" }),
     ).toBeInTheDocument();
     expect(await screen.findByText("Delivery status")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Projects" })).toBeNull();
     expect(window.location.pathname).toBe("/files/tasks/ship-ui.md");
   });
 

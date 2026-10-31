@@ -733,7 +733,10 @@ test("loads items and renders OpenUI table", () => {
             exitCode,
             stdout: String(stdout ?? ""),
             stderr:
-              stderrStr || (typeof anyErr.message === "string" ? anyErr.message : "execution_failed"),
+              stderrStr ||
+              (typeof anyErr.message === "string"
+                ? anyErr.message
+                : "execution_failed"),
             durationMs,
           });
         },

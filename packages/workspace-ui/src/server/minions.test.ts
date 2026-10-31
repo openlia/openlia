@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorkspaceHandler } from "./app";
@@ -68,9 +74,9 @@ describe("Minions service and HTTP API", () => {
     expect(detailRes.status).toBe(200);
     const detailBody = (await detailRes.json()) as any;
     expect(detailBody.minion.data_file_count).toBe(2);
-    expect(
-      detailBody.minion.data_files.map((f: any) => f.path),
-    ).toContain("minions/gym-tracker/data/2026/october/workouts.csv");
+    expect(detailBody.minion.data_files.map((f: any) => f.path)).toContain(
+      "minions/gym-tracker/data/2026/october/workouts.csv",
+    );
 
     // 5. Run quick-input action via POST /api/minions/gym-tracker/run
     const runRes = await handler(

@@ -1380,6 +1380,7 @@ export function App({
     artifact?.path,
     file?.path,
     publicShareId,
+    selectedMinionId,
     selectedSkillDetail,
   ]);
 

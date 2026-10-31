@@ -766,17 +766,15 @@ function isSkillSuccessResponse(value: unknown): value is SkillSuccessResponse {
 }
 
 function isMinionsListResponse(value: unknown): value is MinionsListResponse {
-  return (
-    isObject(value) && value.schema === 1 && Array.isArray((value as any).minions)
-  );
+  return isObject(value) && value.schema === 1 && Array.isArray(value.minions);
 }
 
 function isMinionDetailResponse(value: unknown): value is MinionDetailResponse {
   return (
     isObject(value) &&
     value.schema === 1 &&
-    isObject((value as any).minion) &&
-    typeof (value as any).minion.id === "string"
+    isObject(value.minion) &&
+    typeof value.minion.id === "string"
   );
 }
 
@@ -784,10 +782,10 @@ function isMinionRunResponse(value: unknown): value is MinionRunResponse {
   return (
     isObject(value) &&
     value.schema === 1 &&
-    typeof (value as any).ok === "boolean" &&
-    typeof (value as any).exit_code === "number" &&
-    typeof (value as any).stdout === "string" &&
-    typeof (value as any).stderr === "string"
+    typeof value.ok === "boolean" &&
+    typeof value.exit_code === "number" &&
+    typeof value.stdout === "string" &&
+    typeof value.stderr === "string"
   );
 }
 
