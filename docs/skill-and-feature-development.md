@@ -6,7 +6,7 @@
 
 OpenLia separates its core runtime from installable domain templates:
 1. **Public Templates Repository ([`https://github.com/openlia/templates.git`](https://github.com/openlia/templates.git))**: Hosts starter **Profiles** (`profiles/<id>/`), modular **Feature Packages** (`features/<id>/`), and standalone **Skills** (`skills/<id>/`). Anyone can also point OpenLia to a custom Git repository, local directory, or `.zip` package.
-2. **Core System Skills (`profile/system-skills/<name>/`)**: Read-only system skills bundled in the OpenLia core repository (`openlia-skill-migration` and `workspace-template-customization`).
+2. **Core System Skills (`profile/system-skills/<name>/`)**: Read-only system skills bundled in the OpenLia core repository (`openlia-skill-migration`, `workspace-template-customization`, `inline-openui-authoring`, and `minion-authoring`).
 
 ---
 
@@ -52,6 +52,7 @@ Protected system skills live under `profile/system-skills/` in the core reposito
 - **`openlia-skill-migration`**: Analyzes an upstream skill or feature update alongside a user's local customization patch and stages a reviewable conflict-resolution proposal.
 - **`workspace-template-customization`**: Validates workspace JSON Schemas, Markdown templates, OpenUI definitions (`references/openui-spec.md`), and scoped workspace structure extensions.
 - **`inline-openui-authoring`**: Creates and repairs interactive Markdown views using schema-derived `openui_describe` discovery, tested recipes, and read-only `openui_validate` checks shared with the UI renderer.
+- **`minion-authoring`**: Scaffolds, configures, validates, and runs Workspace Minions (`minions/<slug>/`) with `dashboard.openui`, `input.openui`, `input.schema.json`, `config.schema.json`, `config.json`, `input.py`/`input.ts`, and dual-triggered `main.py`/`main.ts`.
 
 System skills are distribution-owned and cannot be forked or modified by Hermes at runtime.
 
