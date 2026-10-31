@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "build": "bun run build:openlia-browser && bun run build:ui",
     "build:openlia-browser": "bun build packages/openlia-browser/src/server.ts --target=node --format=esm --outfile=packages/openlia-browser/dist/server.js",
     "build:ui": "bun run --cwd packages/workspace-ui build",

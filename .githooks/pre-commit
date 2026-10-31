@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+biome_files=()
+go_files=()
+touched_workspace_ui=0
+
+while IFS= read -r file; do
+  [[ -z "$file" || ! -f "$file" ]] && continue
+  case "$file" in
+    *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.json|*.css)
+      biome_files+=("$file")
+      if [[ "$file" == packages/workspace-ui/* ]]; then
+        touched_workspace_ui=1
+      fi
+      ;;
+    *.go)
+      go_files+=("$file")
+      ;;
+  esac
+done < <(git diff --cached --name-only --diff-filter=ACMR)
+
+if [[ ${#biome_files[@]} -gt 0 ]]; then
+  echo "[pre-commit] Formatting ${#biome_files[@]} staged file(s) with Biome..."
+  bunx biome format --write --no-errors-on-unmatched "${biome_files[@]}"
+  git add -- "${biome_files[@]}"
+  bun run format:check
+  if [[ "$touched_workspace_ui" -eq 1 ]]; then
+    bun run --cwd packages/workspace-ui format:check
+  fi
+fi
+
+if [[ ${#go_files[@]} -gt 0 ]]; then
+  echo "[pre-commit] Formatting ${#go_files[@]} staged Go file(s) with gofmt..."
+  gofmt -s -w "${go_files[@]}"
+  git add -- "${go_files[@]}"
+fi
