@@ -675,6 +675,67 @@ class PolicyPluginTests(unittest.TestCase):
         self.assertFalse(failed_tests["ok"])
         self.assertIn("Unknown Callout argument 'tone'", failed_tests["stderr"])
 
+        # Verify Hermes ToolRegistry.dispatch positional dict calling convention: handler(args_dict)
+        dict_scaffold = json.loads(
+            self.policy.tool_minion_scaffold(
+                {
+                    "id": "thuc-don-gia-dinh",
+                    "name": "Thực đơn gia đình",
+                    "description": "Lập và theo dõi thực đơn trưa/tối cho gia đình.",
+                    "runtime": "python",
+                    "heartbeat_schedule": "0 6 * * *",
+                }
+            )
+        )
+        self.assertTrue(dict_scaffold["ok"], dict_scaffold)
+
+        dict_validate = json.loads(
+            self.policy.tool_minion_validate({"id": "thuc-don-gia-dinh"})
+        )
+        self.assertTrue(dict_validate["ok"], dict_validate)
+
+        dict_run = json.loads(
+            self.policy.tool_minion_run(
+                {
+                    "id": "thuc-don-gia-dinh",
+                    "mode": "input",
+                    "data": {"item": "Cá lóc hấp gừng", "category": "dinner"},
+                }
+            )
+        )
+        self.assertTrue(dict_run["ok"], dict_run)
+
+        with patch.object(self.module.subprocess, "run") as run:
+            run.return_value.stdout = json.dumps(
+                {"status": "ok", "validationLevel": "schema", "valid": True}
+            )
+            run.return_value.returncode = 0
+            dict_openui_val = json.loads(
+                self.policy.tool_openui_validate(
+                    {
+                        "content": 'Callout(variant: "info", title: "Thực đơn", description: "Hợp lệ")',
+                        "format": "openui",
+                    }
+                )
+            )
+            self.assertEqual(dict_openui_val["status"], "ok")
+            self.assertTrue(dict_openui_val["valid"])
+            self.policy.tool_openui_describe({"component": "Callout"})
+            self.assertEqual(
+                json.loads(run.call_args.kwargs["input"]),
+                {"action": "describe", "component": "Callout"},
+            )
+
+        # Terminal invocation of minion_tool.py with --id is also allowed autonomously
+        self.assertIsNone(
+            self.policy.pre_tool_call(
+                "terminal",
+                {
+                    "command": "python3 /opt/data/skills/minion-authoring/scripts/minion_tool.py --action validate --workspace-root /opt/data/workspace --id thuc-don-gia-dinh"
+                },
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

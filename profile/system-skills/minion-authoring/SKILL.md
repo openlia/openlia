@@ -88,9 +88,10 @@ Always use the built-in Hermes Minion and OpenUI tools rather than hand-crafting
 3. **Design `input.schema.json`, `input.openui`, and `input.py`/`input.ts`**:
    - Define the domain fields in `input.schema.json`.
    - Update `input.openui` so every `Input(name: ...)` / `Select(name: ...)` matches a property in `input.schema.json`.
-   - Update `input.py` or `input.ts` if custom normalization or derived fields are needed when saving to `data/`.
+   - Update `input.py` or `input.ts` if custom normalization or derived fields are needed when saving to `data/` (accept `--data` and `--input`, and use `parser.parse_known_args()` in Python).
 4. **Implement `main.py`/`main.ts` & `dashboard.openui`**:
-   - Implement `analyze_new_entry` (`--trigger entry`) to analyze the newly recorded entry with existing context and produce actionable recommendations.
+   - Must accept `--trigger` (`entry` or `heartbeat`) AND `--entry` (`<json>`) via CLI flags (use `parser.parse_known_args()` in Python so post-entry execution `main.py --trigger entry --entry '<json>'` never fails with `unrecognized arguments`).
+   - Implement `analyze_new_entry` (`--trigger entry`) to analyze the newly recorded entry with existing context and `load_config()` (`config.json`) and produce actionable recommendations.
    - Implement `run_heartbeat` (`--trigger heartbeat`) using settings from `load_config()` (`config.json`) to enrich data and refresh `dashboard.openui`.
    - Update `tests/` to cover your customized schema and logic.
 5. **Validate & Test (Mandatory Self-Repair)**:

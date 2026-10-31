@@ -592,7 +592,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Validate and record a new Minion entry")
     parser.add_argument("--data", default="", help="JSON object conforming to input.schema.json")
     parser.add_argument("--input", default="", help="Quick text entry mapped to item")
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     payload = parse_cli_payload(args.data, args.input)
     entry = record_entry(payload)
@@ -790,7 +790,7 @@ def main() -> int:
     parser.add_argument("--entry", default="", help="JSON payload of the newly recorded entry")
     parser.add_argument("--action", default="")
     parser.add_argument("--input", default="")
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     direct_input = args.input.strip()
     trigger = (
@@ -1481,6 +1481,18 @@ def validate_minion(workspace_root: Path | str, minion_id: str) -> dict[str, Any
                 warnings.append(
                     f"input.openui: required input.schema.json field(s) {missing_req} have no matching Input/Select control in input.openui"
                 )
+
+    # Check main.py / input.py CLI argument parser compatibility
+    if has_main_py and resolved_triggers.get("after_entry", True):
+        main_py_src = (minion_dir / "main.py").read_text(encoding="utf-8")
+        if (
+            "ArgumentParser" in main_py_src
+            and ".parse_args(" in main_py_src
+            and "--entry" not in main_py_src
+        ):
+            errors.append(
+                "main.py: uses ArgumentParser.parse_args() without accepting '--entry'; add parser.add_argument('--entry', default='') or use parser.parse_known_args() so post-entry trigger ('main.py --trigger entry --entry <json>') succeeds"
+            )
 
     # Check .openui syntax and component schemas on all .openui files
     openui_files: list[str] = []

@@ -1184,7 +1184,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Validate and record a new Minion entry")
     parser.add_argument("--data", default="", help="JSON object conforming to input.schema.json")
     parser.add_argument("--input", default="", help="Quick text entry mapped to item")
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     payload = parse_cli_payload(args.data, args.input)
     entry = record_entry(payload)
@@ -1382,7 +1382,7 @@ def main() -> int:
     parser.add_argument("--entry", default="", help="JSON payload of the newly recorded entry")
     parser.add_argument("--action", default="")
     parser.add_argument("--input", default="")
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     direct_input = args.input.strip()
     trigger = (
@@ -2344,7 +2344,6 @@ test("loads config.json with required trigger", () => {
       before.input_entrypoint,
       "--data",
       serializedPayload,
-      ...(textInput ? ["--input", textInput] : []),
     ];
     const inputRes = await this.execSubprocess(inputCmd, inputArgs, dir, {
       OPENLIA_WORKSPACE_ROOT: this.workspaceRoot,

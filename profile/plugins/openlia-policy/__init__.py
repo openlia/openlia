@@ -783,9 +783,34 @@ class PolicyEnforcer:
             if bin_name in {"python", "python3"} and "-c" in tokens[1:]:
                 return False
 
+            # Support invoking the protected minion_tool.py helper directly via terminal
+            if (
+                bin_name in {"python", "python3"}
+                and len(tokens) >= 2
+                and tokens[1].endswith("/minion-authoring/scripts/minion_tool.py")
+            ):
+                if "--self-test" in tokens[2:]:
+                    return True
+                if "--id" in tokens[2:]:
+                    idx = tokens.index("--id")
+                    if idx + 1 < len(tokens):
+                        candidate_slug = tokens[idx + 1].strip()
+                        if _is_minion_path(f"minions/{candidate_slug}"):
+                            active_minion = candidate_slug
+                            continue
+
             segment_minion = active_minion
             skip_next_as_payload = False
-            value_flags = {"--data", "--entry", "--input", "--action", "--trigger"}
+            value_flags = {
+                "--data",
+                "--entry",
+                "--input",
+                "--action",
+                "--trigger",
+                "--name",
+                "--description",
+                "--heartbeat-schedule",
+            }
             for arg in tokens[1:]:
                 if skip_next_as_payload:
                     skip_next_as_payload = False
@@ -1051,6 +1076,11 @@ class PolicyEnforcer:
                 slug = m.group(1)
                 if slug not in slugs and _is_minion_path(f"minions/{slug}"):
                     slugs.append(slug)
+            if "minion_tool.py" in cmd:
+                for m in re.finditer(r"--id\s+([A-Za-z0-9][A-Za-z0-9._-]*)", cmd):
+                    slug = m.group(1)
+                    if slug not in slugs and _is_minion_path(f"minions/{slug}"):
+                        slugs.append(slug)
         return slugs
 
     def _format_minion_post_validation_advisory(self, slugs: list[str]) -> str | None:
@@ -1117,74 +1147,120 @@ class PolicyEnforcer:
             return {"advisory": combined, "message": combined}
         return None
 
+    @staticmethod
+    def _unpack_tool_args(
+        first_arg: Any = None,
+        kwargs: dict[str, Any] | None = None,
+        primary_key: str | None = None,
+    ) -> dict[str, Any]:
+        merged: dict[str, Any] = {}
+        if isinstance(first_arg, dict):
+            merged.update(first_arg)
+        elif first_arg is not None and primary_key:
+            merged[primary_key] = first_arg
+        if kwargs:
+            merged.update(kwargs)
+        return merged
+
     def tool_maintainer_status(
         self,
-        path: str | None = None,
+        path: Any = None,
         state: str | None = None,
-        **_: Any,
+        **kwargs: Any,
     ) -> str:
-        res = self.maintainer.status(relative_path=path, state=state)
+        params = self._unpack_tool_args(path, kwargs, primary_key="path")
+        rel_path = params.get("path")
+        state_val = params.get("state", state)
+        res = self.maintainer.status(
+            relative_path=rel_path if isinstance(rel_path, str) else None,
+            state=state_val if isinstance(state_val, str) else None,
+        )
         return json.dumps(res, ensure_ascii=False, sort_keys=True)
 
-    def tool_openui_describe(self, component: str | None = None, **_: Any) -> str:
-        if component is not None and (not isinstance(component, str) or len(component) > 100):
+    def tool_openui_describe(self, component: Any = None, **kwargs: Any) -> str:
+        params = self._unpack_tool_args(component, kwargs, primary_key="component")
+        comp = params.get("component")
+        if comp is not None and (not isinstance(comp, str) or len(comp) > 100):
             return json.dumps({"status": "error", "message": "component must be a string of at most 100 characters"})
-        return _openui_request({"action": "describe", "component": component} if component is not None else {"action": "describe"})
+        return _openui_request({"action": "describe", "component": comp} if comp is not None else {"action": "describe"})
 
-    def tool_openui_validate(self, content: str, format: str = "markdown", **_: Any) -> str:
-        if not isinstance(content, str) or len(content) > MAX_OPENUI_INPUT:
+    def tool_openui_validate(self, content: Any = None, format: str = "markdown", **kwargs: Any) -> str:
+        params = self._unpack_tool_args(content, kwargs, primary_key="content")
+        raw_content = params.get("content")
+        fmt = params.get("format", format)
+        if not isinstance(raw_content, str) or len(raw_content) > MAX_OPENUI_INPUT:
             return json.dumps({"status": "error", "validationLevel": "none", "message": f"content must be a string of at most {MAX_OPENUI_INPUT} characters"})
-        if not isinstance(format, str) or format not in {"markdown", "openui"}:
+        if not isinstance(fmt, str) or fmt not in {"markdown", "openui"}:
             return json.dumps({"status": "error", "validationLevel": "none", "message": "format must be markdown or openui"})
-        return _openui_request({"action": "validate", "content": content, "format": format})
+        return _openui_request({"action": "validate", "content": raw_content, "format": fmt})
 
-    def tool_maintainer_audit(self, **_: Any) -> str:
+    def tool_maintainer_audit(self, *_: Any, **__: Any) -> str:
         res = self.maintainer.run_audit()
         return json.dumps(res, ensure_ascii=False, sort_keys=True)
 
     def tool_maintainer_triage_issue(
         self,
-        issue_id: str,
-        action: str,
+        issue_id: Any = None,
+        action: str | None = None,
         reason: str | None = None,
-        **_: Any,
+        **kwargs: Any,
     ) -> str:
+        params = self._unpack_tool_args(issue_id, kwargs, primary_key="issue_id")
+        resolved_issue_id = str(params.get("issue_id") or "")
+        resolved_action = str(params.get("action") or action or "")
+        resolved_reason = params.get("reason", reason)
         res = self.maintainer.triage_issue(
-            issue_id=issue_id,
-            action=action,
+            issue_id=resolved_issue_id,
+            action=resolved_action,
             actor="agent",
-            reason=reason,
+            reason=resolved_reason if isinstance(resolved_reason, str) else None,
         )
         return json.dumps(res, ensure_ascii=False, sort_keys=True)
 
     def tool_minion_scaffold(
         self,
-        id: str,
+        id: Any = None,
         name: str = "",
         description: str = "",
         runtime: str = "python",
         heartbeat_schedule: str = "0 */6 * * *",
-        **_: Any,
+        **kwargs: Any,
     ) -> str:
         try:
+            params = self._unpack_tool_args(id, kwargs, primary_key="id")
+            minion_id = str(params.get("id") or "")
+            resolved_name = str(params.get("name") if "name" in params else name or "")
+            resolved_desc = str(
+                params.get("description") if "description" in params else description or ""
+            )
+            resolved_runtime = str(
+                params.get("runtime") if "runtime" in params else runtime or "python"
+            )
+            resolved_schedule = str(
+                params.get("heartbeat_schedule")
+                if "heartbeat_schedule" in params
+                else heartbeat_schedule or "0 */6 * * *"
+            )
             minion_tool = _get_minion_tool()
             res = minion_tool.scaffold_minion(
                 self.workspace_root,
-                minion_id=id,
-                name=name or "",
-                description=description or "",
-                runtime=runtime or "python",
-                heartbeat_schedule=heartbeat_schedule or "0 */6 * * *",
+                minion_id=minion_id,
+                name=resolved_name,
+                description=resolved_desc,
+                runtime=resolved_runtime,
+                heartbeat_schedule=resolved_schedule,
             )
             return json.dumps(res, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"status": "error", "message": str(exc)}, ensure_ascii=False)
 
-    def tool_minion_validate(self, id: str, **_: Any) -> str:
+    def tool_minion_validate(self, id: Any = None, **kwargs: Any) -> str:
         try:
+            params = self._unpack_tool_args(id, kwargs, primary_key="id")
+            minion_id = str(params.get("id") or "")
             minion_tool = _get_minion_tool()
-            res = minion_tool.validate_minion(self.workspace_root, id)
-            minion_dir = (self.workspace_root / "minions" / minion_tool.validate_minion_id(id)).resolve()
+            res = minion_tool.validate_minion(self.workspace_root, minion_id)
+            minion_dir = (self.workspace_root / "minions" / minion_tool.validate_minion_id(minion_id)).resolve()
             openui_checks: dict[str, Any] = {}
             for ui_rel in res.get("openui_files", []):
                 ui_abs = minion_dir / ui_rel
@@ -1203,7 +1279,9 @@ class PolicyEnforcer:
                     for block in ui_check.get("blocks", []):
                         for diag in block.get("diagnostics", []):
                             msg = diag.get("message") or diag.get("code") or "OpenUI schema error"
-                            res["errors"].append(f"{ui_rel}: {msg}")
+                            err_line = f"{ui_rel}: {msg}"
+                            if err_line not in res["errors"]:
+                                res["errors"].append(err_line)
             res["openui_validation"] = openui_checks
             res["valid"] = len(res["errors"]) == 0
             res["ok"] = res["valid"]
@@ -1217,20 +1295,29 @@ class PolicyEnforcer:
 
     def tool_minion_run(
         self,
-        id: str,
+        id: Any = None,
         mode: str = "heartbeat",
         data: dict[str, Any] | None = None,
         input: str = "",
-        **_: Any,
+        **kwargs: Any,
     ) -> str:
         try:
+            params = self._unpack_tool_args(id, kwargs, primary_key="id")
+            minion_id = str(params.get("id") or "")
+            resolved_mode = str(
+                params.get("mode") if "mode" in params else mode or "heartbeat"
+            )
+            resolved_data = params.get("data") if "data" in params else data
+            resolved_input = str(
+                params.get("input") if "input" in params else input or ""
+            )
             minion_tool = _get_minion_tool()
             res = minion_tool.run_minion(
                 self.workspace_root,
-                minion_id=id,
-                mode=mode or "heartbeat",
-                data=data if isinstance(data, dict) else None,
-                input_text=input or "",
+                minion_id=minion_id,
+                mode=resolved_mode,
+                data=resolved_data if isinstance(resolved_data, dict) else None,
+                input_text=resolved_input,
             )
             return json.dumps(res, ensure_ascii=False)
         except Exception as exc:
