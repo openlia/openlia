@@ -366,6 +366,31 @@ describe("Minions service and HTTP API", () => {
     expect(badCfgRes.status).toBe(400);
     const badCfgBody = (await badCfgRes.json()) as any;
     expect(badCfgBody.error).toBe("invalid_minion_config");
+
+    // 12. Verify testMinion fails when an .openui file has OpenUI schema errors (e.g. Callout tone)
+    writeFileSync(
+      join(workspaceRoot, "minions/family-menu/input.openui"),
+      'Callout(tone: "info", title: "Invalid Callout", description: "Should use variant")\n',
+      "utf-8",
+    );
+    const badUiTestRes = await handler(
+      new Request("http://localhost/api/minions/family-menu/test", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(badUiTestRes.status).toBe(200);
+    const badUiTestBody = (await badUiTestRes.json()) as any;
+    expect(badUiTestBody.ok).toBe(false);
+    expect(badUiTestBody.exit_code).toBe(1);
+    expect(badUiTestBody.stderr).toContain("Unknown Callout argument 'tone'");
+    expect(badUiTestBody.stderr).toContain(
+      "Allowed arguments: variant, title, description",
+    );
   });
 
   test("extractFormDataFromOpenUIEvent unwraps OpenUI Form state", () => {

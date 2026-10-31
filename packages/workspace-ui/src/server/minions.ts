@@ -28,7 +28,7 @@ import type {
   MinionTriggersConfig,
   WorkspaceFileMetadata,
 } from "../shared/api";
-import { openUIErrors } from "../shared/openui";
+import { openUIDiagnostics } from "../shared/openui";
 import { extractHeadings, parseRecordFrontmatter } from "./validator";
 import {
   DEFAULT_MAX_EDITABLE_BYTES,
@@ -655,8 +655,11 @@ export class MinionService {
         try {
           const rawUi = readFileSync(join(dirAbs, relToMinion), "utf-8");
           uiContents[relToMinion] = rawUi;
-          for (const err of openUIErrors(rawUi)) {
-            renderErrors.push(`${relToMinion}: ${err}`);
+          for (const diag of openUIDiagnostics(rawUi)) {
+            const detail = diag.hint
+              ? `${diag.code}: ${diag.message} (${diag.hint})`
+              : `${diag.code}: ${diag.message}`;
+            renderErrors.push(`${relToMinion}: ${detail}`);
           }
         } catch {}
         continue;
@@ -1419,9 +1422,47 @@ if __name__ == "__main__":
 `;
       writeFileSync(join(dir, "main.py"), mainPy, "utf-8");
 
-      const testPy = `import unittest
+      const testPy = `import json
+import os
+import shutil
+import subprocess
+import unittest
+from pathlib import Path
+
 import input as minion_input
 import main
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _validate_openui_file(path: Path) -> list[str]:
+    cli_candidates = [
+        os.environ.get("OPENLIA_OPENUI_AUTHORING_CLI", "").strip(),
+        "/usr/local/lib/openlia/openui-authoring.js",
+    ]
+    bun_bin = shutil.which("bun")
+    cli_path = next((Path(p) for p in cli_candidates if p and Path(p).is_file()), None)
+    raw = path.read_text(encoding="utf-8")
+    if not raw.strip():
+        return ["Empty OpenUI file"]
+    if cli_path and bun_bin:
+        proc = subprocess.run(
+            [bun_bin, str(cli_path)],
+            input=json.dumps({"action": "validate", "content": raw, "format": "openui"}),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            res = json.loads(proc.stdout)
+            if res.get("status") == "ok" and res.get("valid") is False:
+                return [
+                    f"{d.get('code', 'error')}: {d.get('message', '')}"
+                    for b in res.get("blocks", [])
+                    for d in b.get("diagnostics", [])
+                ]
+    return []
 
 
 class MinionTests(unittest.TestCase):
@@ -1431,6 +1472,14 @@ class MinionTests(unittest.TestCase):
         ui = main.render_dashboard(items)
         self.assertIn("Table(", ui)
         self.assertIn("Callout(", ui)
+
+    def test_openui_views_pass_schema_validation(self):
+        main.run_heartbeat()
+        for ui_name in ("dashboard.openui", "input.openui"):
+            ui_path = ROOT / ui_name
+            if ui_path.is_file():
+                errors = _validate_openui_file(ui_path)
+                self.assertEqual(errors, [], f"{ui_name} has OpenUI schema errors: {errors}")
 
     def test_schema_validation(self):
         schema = minion_input.load_schema()
@@ -1812,8 +1861,40 @@ if (import.meta.main) {
       writeFileSync(join(dir, "main.ts"), mainTs, "utf-8");
 
       const testTs = `import { expect, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { loadSchema, validatePayload } from "../input";
-import { loadConfig, loadItems, renderDashboard } from "../main";
+import { loadConfig, loadItems, renderDashboard, runHeartbeat } from "../main";
+
+const ROOT = join(import.meta.dir, "..");
+
+function validateOpenUIFile(filePath: string): string[] {
+  const raw = readFileSync(filePath, "utf-8");
+  if (!raw.trim()) return ["Empty OpenUI file"];
+  const candidates = [
+    process.env.OPENLIA_OPENUI_AUTHORING_CLI ?? "",
+    "/usr/local/lib/openlia/openui-authoring.js",
+  ].filter(Boolean);
+  const cliPath = candidates.find((p) => existsSync(p));
+  if (!cliPath) return [];
+  const proc = Bun.spawnSync(["bun", cliPath], {
+    stdin: new TextEncoder().encode(
+      JSON.stringify({ action: "validate", content: raw, format: "openui" }),
+    ),
+  });
+  if (proc.exitCode === 0) {
+    const out = new TextDecoder().decode(proc.stdout).trim();
+    if (out) {
+      const parsed = JSON.parse(out) as Record<string, any>;
+      if (parsed.status === "ok" && parsed.valid === false) {
+        return (parsed.blocks ?? []).flatMap((b: any) =>
+          (b.diagnostics ?? []).map((d: any) => \`\${d.code}: \${d.message}\`),
+        );
+      }
+    }
+  }
+  return [];
+}
 
 test("loads items and renders OpenUI dashboard", () => {
   const items = loadItems();
@@ -1821,6 +1902,16 @@ test("loads items and renders OpenUI dashboard", () => {
   const ui = renderDashboard(items);
   expect(ui).toContain("Table(");
   expect(ui).toContain("Callout(");
+});
+
+test("dashboard.openui and input.openui pass OpenUI schema validation", () => {
+  runHeartbeat();
+  for (const name of ["dashboard.openui", "input.openui"]) {
+    const p = join(ROOT, name);
+    if (existsSync(p)) {
+      expect(validateOpenUIFile(p)).toEqual([]);
+    }
+  }
 });
 
 test("validates input against input.schema.json", () => {
@@ -2227,14 +2318,13 @@ test("loads config.json with required trigger", () => {
         },
       );
       const { minion } = this.getMinion(id);
-      return {
-        schema: 1,
-        ok: res.exitCode === 0,
-        exit_code: res.exitCode,
-        stdout: res.stdout,
-        stderr: res.stderr,
-        duration_ms: res.durationMs,
-        steps: [
+      return this.finalizeRunWithValidation(
+        minion,
+        res.exitCode,
+        res.stdout,
+        res.stderr,
+        res.durationMs,
+        [
           {
             step: "input",
             script: before.entrypoint,
@@ -2244,8 +2334,7 @@ test("loads config.json with required trigger", () => {
             duration_ms: res.durationMs,
           },
         ],
-        minion,
-      };
+      );
     }
 
     const inputCmd = before.input_entrypoint.endsWith(".py")
@@ -2323,16 +2412,14 @@ test("loads config.json with required trigger", () => {
     }
 
     const { minion } = this.getMinion(id);
-    return {
-      schema: 1,
-      ok: finalExitCode === 0,
-      exit_code: finalExitCode,
-      stdout: stdoutParts.length > 0 ? `${stdoutParts.join("\n")}\n` : "",
-      stderr: stderrParts.length > 0 ? `${stderrParts.join("\n")}\n` : "",
-      duration_ms: totalDurationMs,
-      steps,
+    return this.finalizeRunWithValidation(
       minion,
-    };
+      finalExitCode,
+      stdoutParts.length > 0 ? `${stdoutParts.join("\n")}\n` : "",
+      stderrParts.length > 0 ? `${stderrParts.join("\n")}\n` : "",
+      totalDurationMs,
+      steps,
+    );
   }
 
   async runMinionHeartbeat(
@@ -2371,14 +2458,13 @@ test("loads config.json with required trigger", () => {
     );
 
     const { minion } = this.getMinion(id);
-    return {
-      schema: 1,
-      ok: result.exitCode === 0,
-      exit_code: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      duration_ms: result.durationMs,
-      steps: [
+    return this.finalizeRunWithValidation(
+      minion,
+      result.exitCode,
+      result.stdout,
+      result.stderr,
+      result.durationMs,
+      [
         {
           step: "heartbeat",
           script: before.entrypoint,
@@ -2388,8 +2474,7 @@ test("loads config.json with required trigger", () => {
           duration_ms: result.durationMs,
         },
       ],
-      minion,
-    };
+    );
   }
 
   async runMinion(
@@ -2468,14 +2553,13 @@ test("loads config.json with required trigger", () => {
     );
 
     const { minion } = this.getMinion(id);
-    return {
-      schema: 1,
-      ok: result.exitCode === 0,
-      exit_code: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      duration_ms: result.durationMs,
-      steps: [
+    return this.finalizeRunWithValidation(
+      minion,
+      result.exitCode,
+      result.stdout,
+      result.stderr,
+      result.durationMs,
+      [
         {
           step: effectiveTrigger === "entry" ? "post_entry_main" : "heartbeat",
           script: before.entrypoint,
@@ -2485,6 +2569,46 @@ test("loads config.json with required trigger", () => {
           duration_ms: result.durationMs,
         },
       ],
+    );
+  }
+
+  private finalizeRunWithValidation(
+    minion: MinionDetail,
+    exitCode: number,
+    stdout: string,
+    stderr: string,
+    durationMs: number,
+    steps: MinionExecutionStep[] = [],
+  ): MinionRunResponse {
+    const finalSteps = [...steps];
+    let finalExitCode = exitCode;
+    let finalStderr = stderr;
+    const renderErrors = minion.render_errors ?? [];
+    if (renderErrors.length > 0) {
+      const valErrorText = `OpenUI & Minion contract validation errors:\n${renderErrors.join("\n")}`;
+      finalSteps.push({
+        step: "heartbeat",
+        script: "openui_validation",
+        exit_code: 1,
+        stdout: "",
+        stderr: valErrorText,
+        duration_ms: 0,
+      });
+      if (finalExitCode === 0) {
+        finalExitCode = 1;
+      }
+      finalStderr = finalStderr.trim()
+        ? `${finalStderr.trimEnd()}\n${valErrorText}\n`
+        : `${valErrorText}\n`;
+    }
+    return {
+      schema: 1,
+      ok: finalExitCode === 0,
+      exit_code: finalExitCode,
+      stdout,
+      stderr: finalStderr,
+      duration_ms: durationMs,
+      ...(finalSteps.length > 0 ? { steps: finalSteps } : {}),
       minion,
     };
   }
@@ -2520,14 +2644,12 @@ test("loads config.json with required trigger", () => {
     }
 
     const { minion } = this.getMinion(id);
-    return {
-      schema: 1,
-      ok: result.exitCode === 0,
-      exit_code: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      duration_ms: result.durationMs,
+    return this.finalizeRunWithValidation(
       minion,
-    };
+      result.exitCode,
+      result.stdout,
+      result.stderr,
+      result.durationMs,
+    );
   }
 }

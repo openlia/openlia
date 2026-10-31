@@ -653,6 +653,28 @@ class PolicyPluginTests(unittest.TestCase):
         )
         self.assertTrue(run_tests["ok"], run_tests)
 
+        # Writing invalid OpenUI (e.g. Callout(tone: ...)) triggers immediate post_tool_call advisory
+        # and causes minion_run(mode="test") to fail with actionable schema diagnostics
+        bad_openui_path = self.workspace / "minions" / "stock-watch" / "input.openui"
+        bad_openui_path.write_text(
+            'Callout(tone: "info", title: "Bad", description: "Should use variant")\n',
+            encoding="utf-8",
+        )
+        post_adv = self.policy.post_tool_call(
+            "terminal",
+            args={"command": "python3 minions/stock-watch/main.py --trigger heartbeat"},
+            status="ok",
+        )
+        self.assertIsNotNone(post_adv)
+        self.assertIn("Minion validation failed for minions/stock-watch", post_adv["advisory"])
+        self.assertIn("Unknown Callout argument 'tone'", post_adv["advisory"])
+
+        failed_tests = json.loads(
+            self.policy.tool_minion_run(id="stock-watch", mode="test")
+        )
+        self.assertFalse(failed_tests["ok"])
+        self.assertIn("Unknown Callout argument 'tone'", failed_tests["stderr"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -63,6 +63,11 @@ Always use the built-in Hermes Minion and OpenUI tools rather than hand-crafting
 2. **`openui_describe` & `openui_validate`**:
    - Call `openui_describe(component="Form")` to inspect the `Form` / `FormControl` / `Input` / `Select` schema and the `minion-input-form` recipe before customizing `input.openui`.
    - Call `openui_describe(component="Table")`, `openui_describe(component="ChartPanel")`, `openui_describe(component="Callout")`, etc. when designing `dashboard.openui`.
+   - **Common OpenUI Component Signatures (Never Guess Property Names)**:
+     - `Callout(variant: "info" | "warning" | "error" | "success", title: "...", description: "...")` — **use `variant`, never `tone`**.
+     - `CardHeader(title: "...", subtitle: "...")`
+     - `Table(title: "...", columns: [{key: "...", label: "..."}], rows: [{...}])`
+     - `Form(name: "minionInput", fields: [FormControl(label: "...", input: Input(name: "...", placeholder: "...", rules: {required: true}))], buttons: Buttons(buttons: [Button(label: "...", variant: "primary")]))`
 3. **`minion_validate`**:
    - Call `minion_validate(id="<slug>")` after editing any Minion file. It deterministically checks:
      - Required files (`README.md`, `dashboard.openui`, `input.openui`, `input.schema.json`, `config.schema.json`, `config.json`, `input.py`/`input.ts`, `main.py`/`main.ts`).
@@ -88,7 +93,8 @@ Always use the built-in Hermes Minion and OpenUI tools rather than hand-crafting
    - Implement `analyze_new_entry` (`--trigger entry`) to analyze the newly recorded entry with existing context and produce actionable recommendations.
    - Implement `run_heartbeat` (`--trigger heartbeat`) using settings from `load_config()` (`config.json`) to enrich data and refresh `dashboard.openui`.
    - Update `tests/` to cover your customized schema and logic.
-5. **Validate & Test**:
-   - Run `minion_validate(id="<slug>")` and fix any schema, trigger, or OpenUI diagnostics.
-   - Run `minion_run(id="<slug>", mode="test")` and `minion_run(id="<slug>", mode="heartbeat")` to confirm zero runtime errors.
+5. **Validate & Test (Mandatory Self-Repair)**:
+   - Run `minion_validate(id="<slug>")` and `minion_run(id="<slug>", mode="test")`.
+   - Both `minion_validate` and `minion_run` (as well as `post_tool_call` advisories) run full OpenUI component & property schema validation (`openui-authoring.js`) on `dashboard.openui` and `input.openui`.
+   - If any OpenUI diagnostic appears (e.g., `unknown-property: Unknown Callout argument 'tone'`), immediately fix the `.openui` file and the generator in `main.py` / `main.ts`, then re-run `minion_run(id="<slug>", mode="heartbeat")` and `minion_run(id="<slug>", mode="test")` until `ok: true` with zero validation errors.
    - Link the user to the Minion with `[<Minion Name>](openlia://minions/<slug>)`.

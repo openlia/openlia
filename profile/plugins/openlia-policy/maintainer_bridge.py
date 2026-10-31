@@ -14,7 +14,9 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import sqlite3
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -46,6 +48,44 @@ def _inline_warnings(content: str) -> list[str]:
 
 
 def _openui_file_warnings(content: str) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[3]
+    cli_candidates = [
+        Path(os.environ.get("OPENLIA_OPENUI_AUTHORING_CLI", "").strip())
+        if os.environ.get("OPENLIA_OPENUI_AUTHORING_CLI", "").strip()
+        else None,
+        Path("/usr/local/lib/openlia/openui-authoring.js"),
+        repo_root / "packages" / "workspace-ui" / "dist" / "openui-authoring.js",
+        repo_root / "packages" / "workspace-ui" / "scripts" / "openui-authoring.ts",
+    ]
+    bun_bin = shutil.which("bun")
+    cli_path = next((p for p in cli_candidates if p is not None and p.is_file()), None)
+    if cli_path is not None and bun_bin:
+        try:
+            proc = subprocess.run(
+                [bun_bin, str(cli_path)],
+                input=json.dumps({"action": "validate", "content": content, "format": "openui"}),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                parsed = json.loads(proc.stdout)
+                if parsed.get("status") == "ok":
+                    if parsed.get("valid") is True:
+                        return []
+                    diags: list[str] = []
+                    for block in parsed.get("blocks", []):
+                        for diag in block.get("diagnostics", []):
+                            code = diag.get("code") or "openui_error"
+                            msg = diag.get("message") or "OpenUI schema error"
+                            hint = diag.get("hint")
+                            diags.append(f"{code}: {msg} ({hint})" if hint else f"{code}: {msg}")
+                    if diags:
+                        return diags
+        except Exception:
+            pass
+
     helper = Path(os.environ.get("OPENLIA_POLICY_HELPER", "/opt/data/skills/workspace-template-customization/scripts/workspace_registry.py"))
     candidates = [helper.with_name("openui_validation.py"), Path(__file__).resolve().parents[2] / "system-skills/workspace-template-customization/scripts/openui_validation.py"]
     for path in candidates:

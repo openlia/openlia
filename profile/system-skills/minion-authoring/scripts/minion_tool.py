@@ -34,6 +34,59 @@ OPENUI_FIELD_NAME_RE = re.compile(
 )
 
 
+def _locate_openui_cli() -> Path | None:
+    env_cli = os.environ.get("OPENLIA_OPENUI_AUTHORING_CLI", "").strip()
+    repo_root = SCRIPT_DIR.parents[3]
+    candidates = [
+        *([Path(env_cli)] if env_cli else []),
+        Path("/usr/local/lib/openlia/openui-authoring.js"),
+        repo_root / "packages" / "workspace-ui" / "dist" / "openui-authoring.js",
+        repo_root / "packages" / "workspace-ui" / "scripts" / "openui-authoring.ts",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def validate_openui_schema_errors(code: str) -> list[str]:
+    cli_path = _locate_openui_cli()
+    bun_bin = shutil.which("bun")
+    if cli_path is not None and bun_bin:
+        try:
+            proc = subprocess.run(
+                [bun_bin, str(cli_path)],
+                input=json.dumps(
+                    {"action": "validate", "content": code, "format": "openui"},
+                    ensure_ascii=False,
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10.0,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                parsed = json.loads(proc.stdout)
+                if parsed.get("status") == "ok":
+                    if parsed.get("valid") is True:
+                        return []
+                    diagnostics: list[str] = []
+                    for block in parsed.get("blocks", []):
+                        for diag in block.get("diagnostics", []):
+                            diag_code = diag.get("code") or "openui_error"
+                            msg = diag.get("message") or "OpenUI schema error"
+                            hint = diag.get("hint")
+                            if hint:
+                                diagnostics.append(f"{diag_code}: {msg} ({hint})")
+                            else:
+                                diagnostics.append(f"{diag_code}: {msg}")
+                    if diagnostics:
+                        return diagnostics
+        except Exception:
+            pass
+    return validate_openui_source(code)
+
+
 def humanize_minion_id(minion_id: str) -> str:
     return " ".join(
         part.capitalize() for part in re.split(r"[-_]+", minion_id) if part
@@ -777,9 +830,47 @@ if __name__ == "__main__":
 """
         (minion_dir / "main.py").write_text(main_py, encoding="utf-8")
 
-        test_py = """import unittest
+        test_py = """import json
+import os
+import shutil
+import subprocess
+import unittest
+from pathlib import Path
+
 import input as minion_input
 import main
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _validate_openui_file(path: Path) -> list[str]:
+    cli_candidates = [
+        os.environ.get("OPENLIA_OPENUI_AUTHORING_CLI", "").strip(),
+        "/usr/local/lib/openlia/openui-authoring.js",
+    ]
+    bun_bin = shutil.which("bun")
+    cli_path = next((Path(p) for p in cli_candidates if p and Path(p).is_file()), None)
+    raw = path.read_text(encoding="utf-8")
+    if not raw.strip():
+        return ["Empty OpenUI file"]
+    if cli_path and bun_bin:
+        proc = subprocess.run(
+            [bun_bin, str(cli_path)],
+            input=json.dumps({"action": "validate", "content": raw, "format": "openui"}),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            res = json.loads(proc.stdout)
+            if res.get("status") == "ok" and res.get("valid") is False:
+                return [
+                    f"{d.get('code', 'error')}: {d.get('message', '')}"
+                    for b in res.get("blocks", [])
+                    for d in b.get("diagnostics", [])
+                ]
+    return []
 
 
 class MinionTests(unittest.TestCase):
@@ -789,6 +880,14 @@ class MinionTests(unittest.TestCase):
         ui = main.render_dashboard(items)
         self.assertIn("Table(", ui)
         self.assertIn("Callout(", ui)
+
+    def test_openui_views_pass_schema_validation(self):
+        main.run_heartbeat()
+        for ui_name in ("dashboard.openui", "input.openui"):
+            ui_path = ROOT / ui_name
+            if ui_path.is_file():
+                errors = _validate_openui_file(ui_path)
+                self.assertEqual(errors, [], f"{ui_name} has OpenUI schema errors: {errors}")
 
     def test_schema_validation(self):
         schema = minion_input.load_schema()
@@ -1168,8 +1267,40 @@ if (import.meta.main) {{
         (minion_dir / "main.ts").write_text(main_ts, encoding="utf-8")
 
         test_ts = """import { expect, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { loadSchema, validatePayload } from "../input";
-import { loadConfig, loadItems, renderDashboard } from "../main";
+import { loadConfig, loadItems, renderDashboard, runHeartbeat } from "../main";
+
+const ROOT = join(import.meta.dir, "..");
+
+function validateOpenUIFile(filePath: string): string[] {
+  const raw = readFileSync(filePath, "utf-8");
+  if (!raw.trim()) return ["Empty OpenUI file"];
+  const candidates = [
+    process.env.OPENLIA_OPENUI_AUTHORING_CLI ?? "",
+    "/usr/local/lib/openlia/openui-authoring.js",
+  ].filter(Boolean);
+  const cliPath = candidates.find((p) => existsSync(p));
+  if (!cliPath) return [];
+  const proc = Bun.spawnSync(["bun", cliPath], {
+    stdin: new TextEncoder().encode(
+      JSON.stringify({ action: "validate", content: raw, format: "openui" }),
+    ),
+  });
+  if (proc.exitCode === 0) {
+    const out = new TextDecoder().decode(proc.stdout).trim();
+    if (out) {
+      const parsed = JSON.parse(out) as Record<string, any>;
+      if (parsed.status === "ok" && parsed.valid === false) {
+        return (parsed.blocks ?? []).flatMap((b: any) =>
+          (b.diagnostics ?? []).map((d: any) => `${d.code}: ${d.message}`),
+        );
+      }
+    }
+  }
+  return [];
+}
 
 test("loads items and renders OpenUI dashboard", () => {
   const items = loadItems();
@@ -1177,6 +1308,16 @@ test("loads items and renders OpenUI dashboard", () => {
   const ui = renderDashboard(items);
   expect(ui).toContain("Table(");
   expect(ui).toContain("Callout(");
+});
+
+test("dashboard.openui and input.openui pass OpenUI schema validation", () => {
+  runHeartbeat();
+  for (const name of ["dashboard.openui", "input.openui"]) {
+    const p = join(ROOT, name);
+    if (existsSync(p)) {
+      expect(validateOpenUIFile(p)).toEqual([]);
+    }
+  }
 });
 
 test("validates input against input.schema.json", () => {
@@ -1341,13 +1482,13 @@ def validate_minion(workspace_root: Path | str, minion_id: str) -> dict[str, Any
                     f"input.openui: required input.schema.json field(s) {missing_req} have no matching Input/Select control in input.openui"
                 )
 
-    # Check .openui syntax on all .openui files
+    # Check .openui syntax and component schemas on all .openui files
     openui_files: list[str] = []
     for openui_file in sorted(minion_dir.rglob("*.openui")):
         rel_ui = str(openui_file.relative_to(minion_dir)).replace("\\", "/")
         openui_files.append(rel_ui)
         raw_ui = openui_file.read_text(encoding="utf-8")
-        for syn_err in validate_openui_source(raw_ui):
+        for syn_err in validate_openui_schema_errors(raw_ui):
             errors.append(f"{rel_ui}: {syn_err}")
 
     return {
@@ -1448,6 +1589,9 @@ def run_minion(
         "OPENLIA_MINION_ID": valid_id,
         "PYTHONPATH": str(minion_dir),
     }
+    openui_cli = _locate_openui_cli()
+    if openui_cli is not None:
+        base_env["OPENLIA_OPENUI_AUTHORING_CLI"] = str(openui_cli)
     if config_json_str:
         base_env["OPENLIA_MINION_CONFIG_JSON"] = config_json_str
 
@@ -1462,11 +1606,23 @@ def run_minion(
             )
         else:
             res = _run_subprocess(["bun", "test"], minion_dir, base_env, timeout=timeout)
+        val_res = validate_minion(root, valid_id)
+        val_errors = val_res.get("errors", [])
+        stderr_out = res["stderr"]
+        if val_errors:
+            val_msg = "OpenUI & Minion contract validation errors:\n" + "\n".join(val_errors)
+            stderr_out = f"{stderr_out.rstrip()}\n{val_msg}\n" if stderr_out.strip() else f"{val_msg}\n"
+        final_ok = res["exit_code"] == 0 and len(val_errors) == 0
+        final_code = res["exit_code"] if res["exit_code"] != 0 else (1 if val_errors else 0)
         return {
-            "status": "ok" if res["exit_code"] == 0 else "error",
-            "ok": res["exit_code"] == 0,
+            "status": "ok" if final_ok else "error",
+            "ok": final_ok,
             "mode": "test",
-            **res,
+            "exit_code": final_code,
+            "stdout": res["stdout"],
+            "stderr": stderr_out,
+            "duration_ms": res["duration_ms"],
+            "validation": val_res,
         }
 
     if mode == "input":
@@ -1511,6 +1667,17 @@ def run_minion(
             )
             steps.append({"step": "input", "script": entrypoint, **direct_res})
 
+        val_res = validate_minion(root, valid_id)
+        if not val_res["valid"]:
+            steps.append({
+                "step": "validation",
+                "script": "minion_validate",
+                "exit_code": 1,
+                "stdout": "",
+                "stderr": "\n".join(val_res["errors"]),
+                "duration_ms": 0,
+            })
+
         final_code = next((s["exit_code"] for s in steps if s["exit_code"] != 0), 0)
         return {
             "status": "ok" if final_code == 0 else "error",
@@ -1521,6 +1688,7 @@ def run_minion(
             "stderr": "\n".join(s["stderr"].strip() for s in steps if s["stderr"].strip()),
             "duration_ms": sum(s["duration_ms"] for s in steps),
             "steps": steps,
+            "validation": val_res,
         }
 
     # Default mode: heartbeat
@@ -1534,12 +1702,28 @@ def run_minion(
         },
         timeout=timeout,
     )
+    hb_steps: list[dict[str, Any]] = [{"step": "heartbeat", "script": entrypoint, **hb_res}]
+    val_res = validate_minion(root, valid_id)
+    if not val_res["valid"]:
+        hb_steps.append({
+            "step": "validation",
+            "script": "minion_validate",
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": "\n".join(val_res["errors"]),
+            "duration_ms": 0,
+        })
+    final_hb_code = next((s["exit_code"] for s in hb_steps if s["exit_code"] != 0), 0)
     return {
-        "status": "ok" if hb_res["exit_code"] == 0 else "error",
-        "ok": hb_res["exit_code"] == 0,
+        "status": "ok" if final_hb_code == 0 else "error",
+        "ok": final_hb_code == 0,
         "mode": "heartbeat",
-        **hb_res,
-        "steps": [{"step": "heartbeat", "script": entrypoint, **hb_res}],
+        "exit_code": final_hb_code,
+        "stdout": "\n".join(s["stdout"].strip() for s in hb_steps if s["stdout"].strip()),
+        "stderr": "\n".join(s["stderr"].strip() for s in hb_steps if s["stderr"].strip()),
+        "duration_ms": sum(s["duration_ms"] for s in hb_steps),
+        "steps": hb_steps,
+        "validation": val_res,
     }
 
 
@@ -1603,6 +1787,18 @@ def run_self_test() -> int:
 
         hb_res = run_minion(tmpdir, "fitness-coach", mode="heartbeat")
         assert hb_res["ok"] is True, hb_res
+
+        # Verify OpenUI schema errors (e.g. Callout(tone: ...)) are caught by validate_minion and run_minion(mode="test")
+        if _locate_openui_cli() is not None and shutil.which("bun"):
+            bad_ui = 'Callout(tone: "info", title: "Bad", description: "Invalid tone argument")\n'
+            (minion_dir / "input.openui").write_text(bad_ui, encoding="utf-8")
+            bad_val = validate_minion(tmpdir, "fitness-coach")
+            assert bad_val["valid"] is False, bad_val
+            assert any("Unknown Callout argument 'tone'" in e for e in bad_val["errors"]), bad_val
+            bad_test = run_minion(tmpdir, "fitness-coach", mode="test")
+            assert bad_test["ok"] is False, bad_test
+            assert "Unknown Callout argument 'tone'" in bad_test["stderr"], bad_test
+
         print("minion_tool self-test passed.")
         return 0
     finally:

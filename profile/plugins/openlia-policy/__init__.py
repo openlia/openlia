@@ -1029,6 +1029,55 @@ class PolicyEnforcer:
             return rels
         return []
 
+    def _extract_touched_minion_slugs(
+        self, tool_name: str, args: dict[str, Any] | None
+    ) -> list[str]:
+        if not isinstance(args, dict):
+            return []
+        slugs: list[str] = []
+        if tool_name in {"write_file", "patch"}:
+            for rel in self._mutated_workspace_paths(tool_name, args):
+                if _is_minion_path(rel):
+                    slug = rel.split("/")[1]
+                    if slug not in slugs:
+                        slugs.append(slug)
+        elif tool_name == "minion_run":
+            slug = str(args.get("id") or "").strip()
+            if slug and _is_minion_path(f"minions/{slug}"):
+                slugs.append(slug)
+        elif tool_name == "terminal":
+            cmd = str(args.get("command") or args.get("cmd") or "")
+            for m in re.finditer(r"\bminions/([A-Za-z0-9][A-Za-z0-9._-]*)", cmd):
+                slug = m.group(1)
+                if slug not in slugs and _is_minion_path(f"minions/{slug}"):
+                    slugs.append(slug)
+        return slugs
+
+    def _format_minion_post_validation_advisory(self, slugs: list[str]) -> str | None:
+        if not slugs:
+            return None
+        try:
+            minion_tool = _get_minion_tool()
+        except Exception:
+            return None
+        messages: list[str] = []
+        for slug in slugs:
+            minion_dir = self.workspace_root / "minions" / slug
+            if not minion_dir.is_dir():
+                continue
+            try:
+                val_res = minion_tool.validate_minion(self.workspace_root, slug)
+                errors = list(val_res.get("errors", []))
+            except Exception as exc:
+                errors = [str(exc)]
+            if errors:
+                joined = "; ".join(errors[:5])
+                messages.append(
+                    f"Minion validation failed for minions/{slug} ({len(errors)} error(s)): {joined}. "
+                    f"Fix the OpenUI view or generator in main.py/main.ts and re-run minion_validate(id='{slug}') and minion_run(id='{slug}', mode='test') before finishing."
+                )
+        return "\n".join(messages) if messages else None
+
     def post_tool_call(
         self,
         tool_name: str,
@@ -1045,15 +1094,27 @@ class PolicyEnforcer:
         )
         if error_type or (status and status not in {"ok", "success", "completed"}):
             return None
+        advisories: list[str] = []
         if tool_name in {"write_file", "patch"}:
             try:
                 mutated = self._mutated_workspace_paths(tool_name, args)
                 if mutated:
                     advisory = self.maintainer.format_post_mutation_feedback(mutated)
                     if advisory:
-                        return {"advisory": advisory, "message": advisory}
+                        advisories.append(advisory)
             except Exception as exc:
                 LOGGER.warning("maintainer post-tool validation failed: %s", exc)
+        if tool_name in {"write_file", "patch", "terminal", "minion_run"}:
+            try:
+                slugs = self._extract_touched_minion_slugs(tool_name, args)
+                minion_adv = self._format_minion_post_validation_advisory(slugs)
+                if minion_adv and minion_adv not in advisories:
+                    advisories.append(minion_adv)
+            except Exception as exc:
+                LOGGER.warning("minion post-tool validation failed: %s", exc)
+        if advisories:
+            combined = "\n".join(advisories)
+            return {"advisory": combined, "message": combined}
         return None
 
     def tool_maintainer_status(
