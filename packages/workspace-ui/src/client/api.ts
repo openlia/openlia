@@ -18,6 +18,11 @@ import type {
   MigrationFeedbackRequest,
   MigrationListResponse,
   MigrationSummary,
+  MinionCreateRequest,
+  MinionDetailResponse,
+  MinionRunRequest,
+  MinionRunResponse,
+  MinionsListResponse,
   PublicShareResponse,
   ShareCreateRequest,
   ShareDeleteResponse,
@@ -290,6 +295,14 @@ export interface WorkspaceApi {
   ): Promise<SkillSuccessResponse>;
   toggleSkillPin(id: string, pinned: boolean): Promise<SkillSuccessResponse>;
   createSkill(request: SkillCreateRequest): Promise<SkillSuccessResponse>;
+
+  listMinions(): Promise<MinionsListResponse>;
+  getMinion(id: string): Promise<MinionDetailResponse>;
+  createMinion(request: MinionCreateRequest): Promise<MinionDetailResponse>;
+  installMinionDependencies(id: string): Promise<MinionRunResponse>;
+  runMinion(id: string, request?: MinionRunRequest): Promise<MinionRunResponse>;
+  testMinion(id: string): Promise<MinionRunResponse>;
+
   loadCronJobs(): Promise<CronOverviewResponse>;
   createCronJob(
     input: CreateCronJobInput,
@@ -750,6 +763,32 @@ function isSkillWriteResponse(value: unknown): value is SkillWriteResponse {
 
 function isSkillSuccessResponse(value: unknown): value is SkillSuccessResponse {
   return isObject(value) && value.schema === 1 && value.ok === true;
+}
+
+function isMinionsListResponse(value: unknown): value is MinionsListResponse {
+  return (
+    isObject(value) && value.schema === 1 && Array.isArray((value as any).minions)
+  );
+}
+
+function isMinionDetailResponse(value: unknown): value is MinionDetailResponse {
+  return (
+    isObject(value) &&
+    value.schema === 1 &&
+    isObject((value as any).minion) &&
+    typeof (value as any).minion.id === "string"
+  );
+}
+
+function isMinionRunResponse(value: unknown): value is MinionRunResponse {
+  return (
+    isObject(value) &&
+    value.schema === 1 &&
+    typeof (value as any).ok === "boolean" &&
+    typeof (value as any).exit_code === "number" &&
+    typeof (value as any).stdout === "string" &&
+    typeof (value as any).stderr === "string"
+  );
 }
 
 export const httpWorkspaceApi: WorkspaceApi = {
@@ -1659,6 +1698,59 @@ export const httpWorkspaceApi: WorkspaceApi = {
         body: JSON.stringify({ version: 1, permissions }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
+      },
+    ),
+  listMinions: () =>
+    requestJson<MinionsListResponse>("/api/minions", isMinionsListResponse),
+  getMinion: (id) =>
+    requestJson<MinionDetailResponse>(
+      `/api/minions/${encodeURIComponent(id)}`,
+      isMinionDetailResponse,
+    ),
+  createMinion: async (request) => {
+    const res = await requestJson<MinionDetailResponse>(
+      "/api/minions",
+      isMinionDetailResponse,
+      {
+        body: JSON.stringify(request),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    );
+    notifyWorkspaceFileChange(`minions/${res.minion.id}/README.md`);
+    return res;
+  },
+  installMinionDependencies: (id) =>
+    requestJson<MinionRunResponse>(
+      `/api/minions/${encodeURIComponent(id)}/install`,
+      isMinionRunResponse,
+      {
+        body: JSON.stringify({}),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  runMinion: async (id, request = {}) => {
+    const res = await requestJson<MinionRunResponse>(
+      `/api/minions/${encodeURIComponent(id)}/run`,
+      isMinionRunResponse,
+      {
+        body: JSON.stringify(request),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    );
+    notifyWorkspaceFileChange(`minions/${id}`);
+    return res;
+  },
+  testMinion: (id) =>
+    requestJson<MinionRunResponse>(
+      `/api/minions/${encodeURIComponent(id)}/test`,
+      isMinionRunResponse,
+      {
+        body: JSON.stringify({}),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
       },
     ),
 };

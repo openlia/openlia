@@ -16,6 +16,7 @@ import {
   parseRecordFrontmatter,
   validateMarkdownOpenUIBlocks,
 } from "../validator";
+import { openUIErrors } from "../../shared/openui";
 import { protectedPath, revision } from "../workspace";
 import {
   type MaintainerCandidateFinding,
@@ -264,6 +265,31 @@ export function evaluateFileFindings(
             "JSON Schema files must be valid JSON and compile under Draft 2020-12 with local-only $ref targets.",
           contractPath: normalized,
           contractFingerprint: fp,
+          fixStrategy: "agent",
+          checkedRevision,
+        }),
+      );
+    }
+    return findings;
+  }
+
+  if (lower.endsWith(".openui")) {
+    for (const error of openUIErrors(content)) {
+      const message = `openui_syntax_error: ${error}`;
+      findings.push(
+        makeCandidate({
+          workspaceId,
+          relativePath: normalized,
+          ruleCode: "openui_syntax_error",
+          severity: "warning",
+          subject: message,
+          message,
+          explanation:
+            "Fix this OpenUI view file. Presentation diagnostics do not invalidate data files or block saving.",
+          contractFingerprint: computeContractFingerprint({
+            ruleCode: "openui_syntax_error",
+            subject: message,
+          }),
           fixStrategy: "agent",
           checkedRevision,
         }),

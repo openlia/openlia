@@ -46,9 +46,24 @@ def rewrite_openlia_links(text: str) -> str:
         replaced = f"{origin}/ingestion/{raw_path}" if origin else f"/ingestion/{raw_path}"
         return replaced + trailing
 
+    def repl_minions(match: re.Match) -> str:
+        raw_path = match.group(1).lstrip("/")
+        trailing = ""
+        while raw_path and raw_path[-1] in ".,;:?!":
+            trailing = raw_path[-1] + trailing
+            raw_path = raw_path[:-1]
+        replaced = f"{origin}/minions/{raw_path}" if origin else f"/minions/{raw_path}"
+        return replaced + trailing
+
     text = re.sub(r"openlia://workspace/([^\s\)\]\"'`>]+)", repl_workspace, text)
     text = re.sub(r"openlia://skills/([^\s\)\]\"'`>]+)", repl_skills, text)
     text = re.sub(r"openlia://sources?/([^\s\)\]\"'`>]+)", repl_source, text)
+    text = re.sub(r"openlia://minions?/([^\s\)\]\"'`>]+)", repl_minions, text)
+    text = re.sub(
+        r"openlia://minions?\b",
+        f"{origin}/minions" if origin else "/minions",
+        text,
+    )
     text = re.sub(
         r"openlia://maintainer\b",
         f"{origin}/maintainer" if origin else "/maintainer",

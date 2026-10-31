@@ -236,7 +236,7 @@ The runtime-owned runner:
    registration is verified; this does not claim every tool binary was executed.
    Target release identity is simulated without modifying production behavior.
 3. Separately installs every feature through the browser service and runs runtime
-   project-manifest/OpenUI diagnostics. Both implementations are exercised.
+   OpenUI diagnostics. Both implementations are exercised.
 4. Confirms the enforcing implementation rejects a synthetic older target
    identity before changing installed state, using scratch Calendar content.
    This does not claim that old pre-guard binaries enforce new metadata.

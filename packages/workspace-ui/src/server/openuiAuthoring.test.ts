@@ -140,7 +140,7 @@ test("schema errors preserve component and expected field details", () => {
     'CardHeader(title: "one", title: "two")',
     'TextContent("one", size: "small")',
     'Table(columns: [{key: "a", label: "A"}], rows: [{a: {nested: true}}])',
-    'MetricCard("Old", @CountBy("status"))',
+    'UnknownWidget("Old")',
     'Card(children: [TextContent(text: "unfinished")]',
   ])
     expect(openUIDiagnostics(source).length, source).toBeGreaterThan(0);

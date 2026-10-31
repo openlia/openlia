@@ -418,13 +418,13 @@ describe("workspace HTTP handler", () => {
     });
   });
 
-  test("legacy OpenUI files remain accessible as source without exposing protected paths", async () => {
+  test("standalone OpenUI files are editable while protected paths remain blocked", async () => {
     mkdirSync(join(root, "travel"));
     const path = "travel/ui.openui";
-    writeFileSync(join(root, path), 'root = DomainHeader("Travel")');
+    writeFileSync(join(root, path), 'root = CardHeader(title: "Travel")');
     writeFileSync(
       join(root, "travel/._private.openui"),
-      'root = DomainHeader("Travel")',
+      'root = CardHeader(title: "Travel")',
     );
     const tree = (await (
       await request("/api/workspace/tree")
@@ -437,7 +437,7 @@ describe("workspace HTTP handler", () => {
     const document = (await loaded.json()) as WorkspaceFile;
     const body = JSON.stringify({
       path,
-      content: 'root = DomainHeader("Trips")',
+      content: 'root = CardHeader(title: "Trips")',
       expected_revision: document.revision,
     });
     const response = await request("/api/workspace/file", {
@@ -448,9 +448,9 @@ describe("workspace HTTP handler", () => {
         "Content-Length": String(Buffer.byteLength(body)),
       },
     });
-    expect(response.status).toBe(415);
+    expect(response.status).toBe(200);
     expect(readFileSync(join(root, path), "utf8")).toBe(
-      'root = DomainHeader("Travel")',
+      'root = CardHeader(title: "Trips")',
     );
     expect(
       (await request("/api/workspace/file?path=travel/._private.openui"))

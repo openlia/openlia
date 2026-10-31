@@ -38,7 +38,7 @@ source of truth.
 | Chat | Header, transcript/tool results, Markdown, composer, navigation, full mock conversation |
 | Skills | Navigator, detail/editor, creation dialog |
 | Ingestion | Library, card, filters, inspector, upload, password profiles |
-| Workspace | Header, activity/Git, checkpoint proposals, configuration, schedule, usage/pricing, maintainer/fix preview, migrations, projects, sharing |
+| Workspace | Header, activity/Git, checkpoint proposals, configuration, schedule, usage/pricing, maintainer/fix preview, migrations, minions, sharing |
 | Compositions | Complete workspace against an isolated mock API |
 
 Upstream OpenUI primitives have a representative gallery; the inventory covers

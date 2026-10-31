@@ -14,8 +14,7 @@ documents when a view would improve understanding, even without an explicit UI
 request, and whenever creating, editing, or repairing fenced `openui` views.
 OpenUI is a first-class presentation option, not a requirement for every document.
 Plain Markdown is preferable when a view adds no value; honor requests for
-plain-text or static output. Do not create manifests, standalone `.openui` entry
-files, React/JSX, or executable JavaScript.
+plain-text or static output. Do not write React/JSX or executable JavaScript inside OpenUI fences.
 
 ## Choose a useful presentation
 
@@ -86,8 +85,7 @@ approval boundaries still apply to consequential actions.
   See the syntax reference below for a complete Markdown example.
 - Quote and escape strings correctly, especially multiline text, quotes, and
   backslashes. Do not embed fetch calls, JavaScript maps, or invented query tools.
-- Reuse upstream components only when present in `openui_describe`. Removed
-  record widgets, `Grid`, `MetricCard`, and manifest-backed aggregation do not work.
+- Reuse upstream components only when present in `openui_describe`.
 
 ## Validation boundaries
 

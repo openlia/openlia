@@ -5,6 +5,8 @@ import type {
   AuthLoginResponse,
   FeatureInstallRequest,
   FeaturePackageRequest,
+  MinionCreateRequest,
+  MinionRunRequest,
   ShareCreateRequest,
   ShareExpirationPreset,
   ShareUpdateRequest,
@@ -39,6 +41,7 @@ import { CronService, CronError } from "./cron";
 import { CheckpointService } from "./checkpoints";
 import { CalendarService } from "./calendar";
 import { FinanceService } from "./finance";
+import { MinionService } from "./minions";
 import {
   applyDeterministicFix,
   loadConsequentialPermissions,
@@ -357,6 +360,10 @@ export function createWorkspaceHandler(
     skillService,
     workspaceService: service,
   });
+  const minionService = new MinionService({
+    workspaceRoot: options.workspaceRoot,
+    maxEditableBytes: options.maxEditableBytes,
+  });
   const cronRoot =
     options.cronRoot ??
     process.env.OPENLIA_CRON_ROOT ??
@@ -431,6 +438,8 @@ export function createWorkspaceHandler(
           url.pathname === "/file" ||
           url.pathname.startsWith("/skills/") ||
           url.pathname === "/skills" ||
+          url.pathname.startsWith("/minions/") ||
+          url.pathname === "/minions" ||
           url.pathname.startsWith("/shares/") ||
           url.pathname === "/shares" ||
           url.pathname.startsWith("/share/") ||
@@ -2339,6 +2348,106 @@ export function createWorkspaceHandler(
             400,
           );
         }
+      }
+      if (request.method === "GET" && url.pathname === "/api/minions") {
+        return json(minionService.listMinions());
+      }
+      if (request.method === "POST" && url.pathname === "/api/minions") {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 16384);
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        if (!isObject(bodyResult.value))
+          return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
+        const created = minionService.createMinion(
+          bodyResult.value as Partial<MinionCreateRequest>,
+        );
+        return json(created, 201);
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/minions/") &&
+        url.pathname.endsWith("/install")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/minions/";
+        const suffix = "/install";
+        const id = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        return json(await minionService.installMinionDependencies(id));
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/minions/") &&
+        url.pathname.endsWith("/run")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/minions/";
+        const suffix = "/run";
+        const id = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        const bodyResult = await readJson(request, 64 * 1024);
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        const body = isObject(bodyResult.value)
+          ? (bodyResult.value as Partial<MinionRunRequest>)
+          : {};
+        return json(await minionService.runMinion(id, body));
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/minions/") &&
+        url.pathname.endsWith("/test")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/minions/";
+        const suffix = "/test";
+        const id = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        return json(await minionService.testMinion(id));
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname.startsWith("/api/minions/")
+      ) {
+        const id = decodeURIComponent(
+          url.pathname.slice("/api/minions/".length),
+        );
+        return json(minionService.getMinion(id));
       }
       if (request.method === "GET" && url.pathname === "/api/skills/list") {
         return json(skillService.list());

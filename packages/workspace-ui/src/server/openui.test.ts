@@ -54,8 +54,7 @@ test("invalid arguments and malformed literals terminate with diagnostics", () =
     'Table(columns: [{key: "v", label: "V"}], rows: [{v: 1 v: 2}])',
     'Table(columns: [{key: "v", label: "V"}], rows: [{v: "unterminated}])',
     'Table(columns: [{key: "v", label: "V"}], rows: [{v: 1}], typo: "x")',
-    "RecordTable()",
-    'MetricCard("Active", @CountBy("status"))',
+    "UnknownWidget()",
   ])
     expect(openUIErrors(source).length, source).toBeGreaterThan(0);
 });

@@ -53,10 +53,12 @@ def _syntax_errors(code: str) -> list[str]:
         return ["Expected an assignment program or bare component expression"]
     if re.search(r":\s*[,}\])]|,\s*,", source):
         return ["Missing OpenUI argument or object value"]
-    removed = re.search(r"\b(?:DomainHeader|MetricCard|RecordKanban|RecordTable|Grid)\s*\(|@(?:CountBy|GroupCount|FilterRecords|SumBy|GetQuery|Query)\s*\(", source)
-    if removed:
-        return ["Removed Mini-Project component or function"]
     return []
+
+
+def validate_openui_source(code: str) -> list[str]:
+    """Return advisory syntax messages for a standalone .openui file."""
+    return [f"openui_syntax_error: {message}" for message in _syntax_errors(code)]
 
 
 def validate_inline_openui(markdown: str) -> list[str]:

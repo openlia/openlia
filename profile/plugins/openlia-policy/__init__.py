@@ -309,10 +309,29 @@ def _within(path: str, parent: str) -> bool:
     return path_parts[: len(parent_parts)] == parent_parts
 
 
+def _is_minion_path(relative_path: str) -> bool:
+    parts = relative_path.strip("/").split("/")
+    return (
+        len(parts) >= 2
+        and parts[0] == "minions"
+        and bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", parts[1]))
+    )
+
+
 def _is_protected_workspace_path(relative_path: str) -> bool:
     if relative_path in _PROTECTED_ROOT_FILES:
         return True
     parts = relative_path.split("/")
+    if _is_minion_path(relative_path):
+        # Allow .venv inside a minion while keeping .env/.git and protected basenames blocked
+        if any(
+            part.startswith(".") and part != ".venv"
+            for part in parts
+        ):
+            return True
+        if parts[-1] in _PROTECTED_BASENAMES:
+            return True
+        return False
     if any(part.startswith(".") for part in parts):
         return True
     if parts[-1] in _PROTECTED_BASENAMES:
@@ -534,7 +553,7 @@ class PolicyEnforcer:
                     return _block(
                         f"OpenLia policy blocked scheduled move from {relative_path} to {destination_path}."
                     )
-                if dest_exists:
+                if dest_exists and not _is_minion_path(destination_path):
                     decision = self._destructive_action(
                         authority, "overwrite_records", destination_path
                     )
@@ -547,13 +566,12 @@ class PolicyEnforcer:
                     decision = self._scheduled_path_decision(
                         authority, "generate_reports", relative_path
                     )
-                elif exists and operation in {"add", "replace"}:
+                elif exists and operation in {"add", "replace"} and not _is_minion_path(relative_path):
                     decision = self._destructive_action(
                         authority, "overwrite_records", relative_path
                     )
                 else:
-                    # Ordinary file creation (write_file/patch add on new path) or
-                    # targeted patch update on an existing non-protected file is allowed!
+                    # Ordinary file creation, targeted patch update, or Minion file update is allowed!
                     decision = None
 
             if decision is not None and decision.get("action") == "block":
@@ -595,6 +613,8 @@ class PolicyEnforcer:
             return self._destructive_action(authority, "delete_records", "terminal target")
         if re.search(r"\bgit\s+(?:clean|reset|restore|checkout)\b", lowered):
             return self._destructive_action(authority, "overwrite_records", "terminal target")
+        if not scheduled and self._minion_terminal_allowed(command):
+            return None
         if _REDIRECT.search(command) or re.search(
             r"\b(?:cp|install|mkdir|mv|tee|touch|truncate|shred|dd)\b", lowered
         ) or re.search(r"\b(?:python|python3|node|bun|ruby|perl)\b", lowered):
@@ -610,6 +630,140 @@ class PolicyEnforcer:
             "OpenLia policy cannot classify this terminal command as read-only; approval is required.",
             "openlia.policy.terminal_unknown",
         )
+
+    def _resolve_minion_slug(self, raw_path: str, base_dir: Path) -> str | None:
+        candidate = Path(raw_path).expanduser()
+        if not candidate.is_absolute():
+            candidate = base_dir / candidate
+        target = _safe_workspace_target(self.workspace_root, str(candidate))
+        if target is None:
+            return None
+        rel, _ = target
+        if not _is_minion_path(rel):
+            return None
+        return rel.split("/")[1]
+
+    def _minion_terminal_allowed(self, command: str) -> bool:
+        """Allow autonomous execution, testing, and dependency installation scoped to minions/<slug>/."""
+        if re.search(r"[;|<>`$\n\r]", command):
+            return False
+        segments = [seg.strip() for seg in command.split("&&") if seg.strip()]
+        if not segments:
+            return False
+
+        allowed_bins = {
+            "python",
+            "python3",
+            "pip",
+            "pip3",
+            "uv",
+            "pytest",
+            "bun",
+            "bunx",
+            "node",
+            "npm",
+            "npx",
+            "sh",
+            "bash",
+            "mkdir",
+            "cp",
+            "mv",
+            "touch",
+            "chmod",
+            "ls",
+            "cat",
+            "head",
+            "tail",
+            "find",
+            "grep",
+            "rg",
+            "test",
+            "remind",
+            "hledger",
+            "jq",
+            "sqlite3",
+        }
+        allowed_system_prefixes = (
+            "/usr/bin/",
+            "/usr/local/bin/",
+            "/bin/",
+            "/opt/hermes/.venv/bin/",
+            "/opt/data/.local/bin/",
+        )
+
+        active_minion: str | None = None
+        cwd = self.workspace_root
+        saw_action = False
+
+        for segment in segments:
+            try:
+                tokens = shlex.split(segment)
+            except ValueError:
+                return False
+            if not tokens:
+                return False
+
+            while tokens and (
+                tokens[0] in {"env", "timeout"}
+                or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tokens[0])
+            ):
+                if tokens[0] == "timeout" and len(tokens) > 1:
+                    tokens.pop(0)
+                tokens.pop(0)
+            if not tokens:
+                return False
+
+            if tokens[0] == "cd":
+                if len(tokens) != 2:
+                    return False
+                slug = self._resolve_minion_slug(tokens[1], cwd)
+                if not slug or (active_minion and active_minion != slug):
+                    return False
+                active_minion = slug
+                cwd = (cwd / tokens[1]).resolve(strict=False)
+                continue
+
+            saw_action = True
+            exe = tokens[0]
+            bin_name = exe.rsplit("/", 1)[-1]
+            if bin_name not in allowed_bins:
+                return False
+            if "/" in exe and not exe.startswith(allowed_system_prefixes):
+                slug = self._resolve_minion_slug(exe, cwd)
+                if not slug or (active_minion and active_minion != slug):
+                    return False
+                active_minion = slug
+
+            if bin_name in {"python", "python3"} and "-c" in tokens[1:]:
+                return False
+
+            segment_minion = active_minion
+            for arg in tokens[1:]:
+                if ".." in arg.split("/"):
+                    return False
+                if arg.startswith("-"):
+                    if "=" in arg:
+                        _, val = arg.split("=", 1)
+                        if "/" in val or val.startswith("minions"):
+                            slug = self._resolve_minion_slug(val, cwd)
+                            if not slug or (segment_minion and segment_minion != slug):
+                                return False
+                            segment_minion = slug
+                    continue
+                if arg.startswith("/") or arg.startswith("minions/") or "/" in arg:
+                    slug = self._resolve_minion_slug(arg, cwd)
+                    if slug:
+                        if segment_minion and segment_minion != slug:
+                            return False
+                        segment_minion = slug
+                    elif arg.startswith("/"):
+                        return False
+
+            if not segment_minion:
+                return False
+            active_minion = segment_minion
+
+        return saw_action and active_minion is not None
 
     def _workspace_validation_command(self, command: str) -> bool:
         """Allow only the protected, read-only validator invocation, not Python generally."""

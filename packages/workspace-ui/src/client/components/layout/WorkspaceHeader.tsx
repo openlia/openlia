@@ -22,6 +22,7 @@ export function WorkspaceHeader({
   activeTab?:
     | "chat"
     | "documents"
+    | "minions"
     | "skills"
     | "shares"
     | "ingestion"
@@ -46,6 +47,7 @@ export function WorkspaceHeader({
         tab:
           | "chat"
           | "documents"
+          | "minions"
           | "skills"
           | "shares"
           | "ingestion"
@@ -137,6 +139,20 @@ export function WorkspaceHeader({
               type="button"
             >
               Ingestion
+            </button>
+          )}
+          {onTabChange && (
+            <button
+              aria-current={activeTab === "minions" ? "page" : undefined}
+              className={`btn btn-xs join-item shrink-0 ${
+                activeTab === "minions"
+                  ? "btn-primary shadow-xs"
+                  : "btn-ghost text-base-content/70"
+              }`}
+              onClick={() => onTabChange("minions")}
+              type="button"
+            >
+              Minions
             </button>
           )}
           {onTabChange && (
@@ -246,8 +262,10 @@ export function WorkspaceHeader({
               ? "USAGE"
               : activeTab === "schedule"
                 ? "SCHEDULE"
-                : activeTab === "skills"
-                  ? "SKILLS"
+                : activeTab === "minions"
+                  ? "MINIONS"
+                  : activeTab === "skills"
+                    ? "SKILLS"
                   : activeTab === "shares"
                     ? "SHARED LINKS"
                     : activeTab === "git-activity"
@@ -275,8 +293,10 @@ export function WorkspaceHeader({
                   ? "Usage"
                   : activeTab === "schedule"
                     ? "Schedule"
-                    : activeTab === "skills"
-                      ? "Skills"
+                    : activeTab === "minions"
+                      ? "Minions"
+                      : activeTab === "skills"
+                        ? "Skills"
                       : activeTab === "shares"
                         ? "Shared Links"
                         : activeTab === "git-activity"

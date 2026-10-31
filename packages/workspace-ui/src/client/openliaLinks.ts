@@ -13,6 +13,13 @@ export type ResolvedTarget =
       exists?: boolean | undefined;
     }
   | {
+      kind: "minion";
+      minionId: string;
+      minionFile?: string | undefined;
+      label: string;
+      exists?: boolean | undefined;
+    }
+  | {
       kind: "skill";
       skillId: string;
       skillFile?: string | undefined;
@@ -35,7 +42,7 @@ export type ResolvedTarget =
   | null;
 
 export interface GoToSuggestion {
-  kind: "workspace" | "skill" | "git-activity" | "ingestion";
+  kind: "workspace" | "minion" | "skill" | "git-activity" | "ingestion";
   id: string;
   title: string;
   subtitle?: string | undefined;
@@ -276,6 +283,24 @@ export function resolveLinkTarget(
         };
       }
 
+      if (host === "minions" || host === "minion") {
+        if (!rawPath) return null;
+        const parts = rawPath.split("/").filter(Boolean);
+        const minionId = parts[0] || "";
+        if (!minionId) return null;
+        const minionFile =
+          parts.length > 1 ? parts.slice(1).join("/") : undefined;
+        return {
+          exists: true,
+          kind: "minion",
+          label: minionFile
+            ? `Minion / ${minionId} (${minionFile})`
+            : `Minion / ${minionId}`,
+          minionFile,
+          minionId,
+        };
+      }
+
       if (host === "skills") {
         if (!rawPath && !querySkillFile) return null;
         const { skillId, skillFile } = parseSkillRemainder(
@@ -437,6 +462,30 @@ export function resolveLinkTarget(
       label: resolvedPath,
       path: resolvedPath,
     };
+  }
+
+  // /minions/... or minions/...
+  if (candidate.startsWith("/minions/") || candidate.startsWith("minions/")) {
+    const withoutPrefix = candidate.replace(/^\/?minions\//, "");
+    const [pathPart = "", queryPart = ""] = withoutPrefix.split("?");
+    const queryParams = new URLSearchParams(queryPart);
+    const queryMinionFile = queryParams.get("minionFile")?.trim();
+    const parts = safeDecode(pathPart).split("/").filter(Boolean);
+    const minionId = parts[0] || "";
+    if (minionId) {
+      const minionFile =
+        queryMinionFile ||
+        (parts.length > 1 ? parts.slice(1).join("/") : undefined);
+      return {
+        exists: true,
+        kind: "minion",
+        label: minionFile
+          ? `Minion / ${minionId} (${minionFile})`
+          : `Minion / ${minionId}`,
+        minionFile,
+        minionId,
+      };
+    }
   }
 
   // /skills/... or skills/...
@@ -676,6 +725,37 @@ export function buildWorkspaceLink(path: string, baseOrigin?: string): string {
   return isMemoryDocument(cleanPath)
     ? `${origin}/memory/${encodeURIComponent(memoryFilename(cleanPath))}`
     : `${origin}/files/${cleanPath}`;
+}
+
+export function buildCanonicalMinionUri(
+  minionId: string,
+  minionFile?: string | undefined,
+): string {
+  const cleanId = minionId.replace(/^\/+|\/+$/g, "");
+  if (!minionFile) {
+    return `openlia://minions/${cleanId}`;
+  }
+  const cleanFile = minionFile.replace(/^\/+/, "");
+  return `openlia://minions/${cleanId}/${cleanFile}`;
+}
+
+export function buildMinionLink(
+  minionId: string,
+  minionFile?: string | undefined,
+  baseOrigin?: string,
+): string {
+  const cleanId = minionId.replace(/^\/+|\/+$/g, "");
+  const origin =
+    baseOrigin !== undefined
+      ? baseOrigin.replace(/\/+$/, "")
+      : typeof window !== "undefined" && window.location?.origin
+        ? window.location.origin
+        : "";
+  if (!minionFile) {
+    return `${origin}/minions/${cleanId}`;
+  }
+  const cleanFile = minionFile.replace(/^\/+/, "");
+  return `${origin}/minions/${cleanId}?minionFile=${encodeURIComponent(cleanFile)}`;
 }
 
 export function buildSkillLink(

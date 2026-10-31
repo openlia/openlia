@@ -527,6 +527,52 @@ class PolicyPluginTests(unittest.TestCase):
         self.assertTrue(restore_payload["ok"])
         self.assertEqual(restore_payload["finding"]["state"], "open")
 
+    def test_minion_full_autonomy_for_files_dependencies_and_execution(self):
+        minion_dir = self.workspace / "minions" / "gym-tracker"
+        (minion_dir / "data" / "nested").mkdir(parents=True)
+        (minion_dir / "main.py").write_text("print('v1')\n", encoding="utf-8")
+        (minion_dir / "ui.openui").write_text('CardHeader(title: "Gym")\n', encoding="utf-8")
+
+        # Overwriting existing files inside minions/<slug>/ is allowed without overwrite_records approval
+        self.assertIsNone(
+            self.policy.pre_tool_call(
+                "write_file",
+                {"path": "minions/gym-tracker/main.py", "content": "print('v2')\n"},
+            )
+        )
+        self.assertIsNone(
+            self.policy.pre_tool_call(
+                "write_file",
+                {"path": "minions/gym-tracker/data/nested/workouts.json", "content": "[]"},
+            )
+        )
+
+        # Running entrypoint, tests, and installing dependencies inside minions/<slug>/ is allowed autonomously
+        autonomous_commands = [
+            "python3 minions/gym-tracker/main.py --input 'Squat 100kg'",
+            "pytest minions/gym-tracker/tests",
+            "python3 -m venv minions/gym-tracker/.venv && minions/gym-tracker/.venv/bin/pip install -r minions/gym-tracker/requirements.txt",
+            "uv pip install -r minions/gym-tracker/requirements.txt",
+            "cd minions/gym-tracker && bun install && bun test && bun main.ts",
+            "bun install --cwd=minions/gym-tracker",
+        ]
+        for cmd in autonomous_commands:
+            self.assertIsNone(
+                self.policy.pre_tool_call("terminal", {"command": cmd}),
+                cmd,
+            )
+
+        # Commands escaping minions/<slug>/ or running arbitrary python outside minions still require approval
+        non_minion_commands = [
+            "python3 outside.py",
+            "cd minions/gym-tracker && python3 ../../outside.py",
+            "python3 -c 'import os'",
+        ]
+        for cmd in non_minion_commands:
+            decision = self.policy.pre_tool_call("terminal", {"command": cmd})
+            self.assertIsNotNone(decision, cmd)
+            self.assertEqual(decision["action"], "approve", cmd)
+
 
 if __name__ == "__main__":
     unittest.main()

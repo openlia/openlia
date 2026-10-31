@@ -24,12 +24,6 @@ def test_rewrite_workspace_links_with_origin():
             == "[Roadmap](https://workspace.example.test/files/goals/roadmap.md)"
         )
 
-        sample_project = "[Tasks Project](openlia://projects/tasks)"
-        assert (
-            rewrite_openlia_links(sample_project)
-            == sample_project
-        )
-
         sample_hash = "[Section](openlia://workspace/goals/plan.md#milestones)"
         assert (
             rewrite_openlia_links(sample_hash)
@@ -186,6 +180,10 @@ def test_rewrite_source_links():
         assert (
             rewrite_openlia_links(sample)
             == "[Invoice](/ingestion/src_12345)"
+        )
+        assert (
+            rewrite_openlia_links("[Gym](openlia://minions/gym-tracker)")
+            == "[Gym](/minions/gym-tracker)"
         )
     finally:
         os.environ.pop("OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN", None)

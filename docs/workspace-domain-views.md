@@ -66,17 +66,19 @@ Public snapshots render self-contained literal views without authenticated
 workspace reads, writes, or chat capabilities. Data-backed components display
 an unavailable state; snapshots do not fetch live private data.
 
-## Hard break from Mini-Projects
-
-The Projects tab, `/projects` routes, project API endpoints, manifest-backed
-record aggregation, and legacy record widgets are removed. `project-manifest.toml`
-and standalone `.openui` files are no longer interpreted as presentation
-contracts. Existing files are not automatically removed or migrated.
-
-Move supported expressions into a Markdown `openui` fence, replace old query and
-record bindings with explicit data, and link the containing document via
-`openlia://workspace/<path>`. Record templates and schemas remain folder-local
-and independent of presentation.
-
 See the [syntax reference](../profile/system-skills/workspace-template-customization/references/openui-spec.md),
 [Calendar](calendar-ui.md), and [Finance](finance-ui.md).
+
+## Workspace Minions (`minions/<slug>/`)
+
+In addition to inline `openui` blocks inside Markdown documents, OpenLia supports
+**Minions** (`minions/<slug>/`) — autonomous programmable workspace apps rendered
+in the **Minions** tab (`/minions/<slug>` or `openlia://minions/<slug>`) that
+OpenLia develops and maintains with the user as **Project Owner**:
+
+- `README.md`: project overview, usage instructions, and optional `quick_actions` frontmatter.
+- `main.py` or `main.ts`: entrypoint executed by the Minion service or Hermes CLI.
+- `requirements.txt` or `package.json`: Python or TypeScript/Bun dependencies.
+- `scripts/` and `tests/`: helper scripts and automated tests.
+- `ui.openui` (or `*.openui`): standalone OpenUI dashboard view rendered in the Minions tab.
+- `data/`: freely structured data and document files (`.json`, `.yaml`/`.yml`, `.csv`, `.hledger`/`.journal`, `.rem`/`.remind`, `.md`), including nested subfolders.
