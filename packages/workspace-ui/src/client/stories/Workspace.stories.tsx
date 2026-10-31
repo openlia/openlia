@@ -10,6 +10,7 @@ import { UsagePage, UsagePricingOverrides } from "../UsagePage";
 import { UsageSummary } from "../UsageSummary";
 import { MaintainerPage } from "../MaintainerPage";
 import { MaintainerFixModal } from "../MaintainerFixModal";
+import { MinionsPage } from "../MinionsPage";
 import { MigrationSection } from "../migration/MigrationSection";
 import { action, file, finding, storyData, storyLoader } from "./fixtures";
 import { PageFrame } from "./frames";
@@ -31,6 +32,7 @@ const meta = {
       "UsageSummary.tsx#UsageSummary",
       "MaintainerPage.tsx#MaintainerPage",
       "MaintainerFixModal.tsx#MaintainerFixModal",
+      "MinionsPage.tsx#MinionsPage",
       "migration/MigrationSection.tsx#MigrationSection",
     ],
   },
@@ -201,6 +203,20 @@ export const FixPreview: Story = {
       onClose={action("close")}
       onApplied={action("applied")}
     />
+  ),
+};
+export const Minions: Story = {
+  render: (_args, { loaded }) => (
+    <PageFrame>
+      <MinionsPage
+        api={storyData(loaded).api}
+        selectedMinionId="sample-minion"
+        onSelectMinion={action("selectMinion")}
+        onOpenFile={action("openFile")}
+        onNavigateLink={action("navigateLink")}
+        onAskLia={action("askLia")}
+      />
+    </PageFrame>
   ),
 };
 export const Migrations: Story = {

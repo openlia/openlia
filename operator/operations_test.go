@@ -182,6 +182,8 @@ func TestSyncProfileAndRefreshRecreatesHermesAfterProtectedSkillSync(t *testing.
 		filepath.Join(repo, "profile", "skills", ".gitkeep"):                                                                    "",
 		filepath.Join(repo, "profile", "system-skills", "openlia-skill-migration", "SKILL.md"):                                  "migration\n",
 		filepath.Join(repo, "profile", "system-skills", "inline-openui-authoring", "SKILL.md"):                                  "openui\n",
+		filepath.Join(repo, "profile", "system-skills", "minion-authoring", "SKILL.md"):                                         "minion\n",
+		filepath.Join(repo, "profile", "system-skills", "minion-authoring", "scripts", "minion_tool.py"):                        "tool\n",
 		filepath.Join(repo, "profile", "system-skills", "workspace-template-customization", "SKILL.md"):                         "customization\n",
 		filepath.Join(repo, "profile", "system-skills", "workspace-template-customization", "scripts", "workspace_registry.py"): "helper\n",
 		filepath.Join(repo, "release", "manifest.json"):                                                                         `{"openlia":"test"}`,
@@ -209,6 +211,9 @@ func TestSyncProfileAndRefreshRecreatesHermesAfterProtectedSkillSync(t *testing.
 	}
 	if _, err := os.Stat(filepath.Join(config.SystemSkillsRoot, inlineOpenUISkillName, "SKILL.md")); err != nil {
 		t.Fatalf("protected OpenUI authoring skill was not synchronized: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(config.SystemSkillsRoot, minionAuthoringSkillName, "scripts", "minion_tool.py")); err != nil {
+		t.Fatalf("protected minion authoring skill was not synchronized: %v", err)
 	}
 	if !strings.Contains(strings.Join(runner.calls, "\n"), "up -d --no-deps --force-recreate hermes") {
 		t.Fatalf("running Hermes was not refreshed after profile sync: %v", runner.calls)

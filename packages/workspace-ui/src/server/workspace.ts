@@ -248,6 +248,7 @@ export function protectedPath(path: string): boolean {
 
 export function isTemplateOrSchemaPath(path: string): boolean {
   const normalized = path.replaceAll("\\", "/").toLowerCase();
+  if (normalized.startsWith("minions/")) return false;
   const basename = normalized.split("/").at(-1) ?? "";
   return (
     basename.endsWith("-template.md") ||

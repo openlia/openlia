@@ -4,45 +4,61 @@ import "@openuidev/react-ui/index.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   MinionDetail,
+  MinionExecutionStep,
   MinionRuntime,
   MinionSummary,
   WorkspaceFile,
 } from "../shared/api";
-import { openUIErrors } from "../shared/openui";
+import { extractFormDataFromOpenUIEvent, openUIErrors } from "../shared/openui";
 import type { WorkspaceApi } from "./api";
 import { CodeEditor } from "./CodeEditor";
 import { MarkdownPreview } from "./components/editor/MarkdownPreview";
+import { buildCanonicalMinionUri } from "./openliaLinks";
 import { CHART_THEME } from "./openui/charts/palette";
 import { OpenLiaOpenUIProvider } from "./openui/context";
 import { normalizeOpenUIProgram, openliaLibrary } from "./openui/library";
 import { OpenUIDiagnostics } from "./openui/OpenUIDiagnostics";
 import { OpenUIErrorBoundary } from "./openui/OpenUIErrorBoundary";
-import { buildCanonicalMinionUri } from "./openliaLinks";
 
-export type MinionSubTab = "dashboard" | "data" | "code" | "readme";
+export { extractFormDataFromOpenUIEvent };
+
+export type MinionSubTab =
+  | "dashboard"
+  | "input"
+  | "config"
+  | "data"
+  | "code"
+  | "readme";
 
 interface ExecutionLog {
-  kind: "run" | "install" | "test";
+  kind: "run" | "input" | "heartbeat" | "install" | "test";
   ok: boolean;
   exit_code: number;
   stdout: string;
   stderr: string;
   duration_ms: number;
+  steps?: MinionExecutionStep[] | undefined;
   timestamp: string;
 }
 
 function MinionOpenUIView({
   api,
   code,
+  uiFileName,
+  testId = "minion-openui-dashboard",
   minion,
   onNavigateLink,
   onAskLia,
+  onSubmitFormData,
 }: {
   api: WorkspaceApi;
   code: string;
+  uiFileName: string;
+  testId?: string | undefined;
   minion: MinionDetail;
   onNavigateLink?: ((href: string) => void) | undefined;
   onAskLia?: ((prompt: string) => void) | undefined;
+  onSubmitFormData?: ((data: Record<string, unknown>) => void) | undefined;
 }) {
   const { normalized, hasErrors } = useMemo(() => {
     const errors = openUIErrors(code);
@@ -52,19 +68,17 @@ function MinionOpenUIView({
     };
   }, [code]);
 
-  const primaryUiFile = minion.primary_ui_file ?? "ui.openui";
-
   const contextValue = useMemo(
     () => ({
       financeApi: api,
       calendarApi: api,
       loadFile: api.loadFile,
       domainPath: minion.path,
-      filePath: `${minion.path}/${primaryUiFile}`,
+      filePath: `${minion.path}/${uiFileName}`,
       onOpenRecord: onNavigateLink,
       onSendChatPrompt: onAskLia,
     }),
-    [api, minion.path, primaryUiFile, onNavigateLink, onAskLia],
+    [api, minion.path, uiFileName, onNavigateLink, onAskLia],
   );
 
   if (hasErrors) {
@@ -82,10 +96,7 @@ function MinionOpenUIView({
   }
 
   return (
-    <div
-      className="workspace-inline-openui"
-      data-testid="minion-openui-dashboard"
-    >
+    <div className="workspace-inline-openui" data-testid={testId}>
       <ThemeProvider
         mode="dark"
         darkTheme={CHART_THEME}
@@ -94,21 +105,30 @@ function MinionOpenUIView({
         <OpenLiaOpenUIProvider value={contextValue}>
           <OpenUIErrorBoundary
             source={code}
-            uiPath={`${minion.path}/${primaryUiFile}`}
+            uiPath={`${minion.path}/${uiFileName}`}
           >
             <Renderer
               library={openliaLibrary}
               response={normalized}
               onAction={(event) => {
+                const formData = extractFormDataFromOpenUIEvent(event);
+                if (
+                  onSubmitFormData &&
+                  formData &&
+                  Object.keys(formData).length > 0
+                ) {
+                  onSubmitFormData(formData);
+                  return;
+                }
                 if (event.type === "continue_conversation") {
                   const message =
-                    typeof event.params.message === "string"
+                    typeof event.params?.message === "string"
                       ? event.params.message
                       : event.humanFriendlyMessage;
                   if (message) onAskLia?.(message);
                 } else if (
                   event.type === "open_url" &&
-                  typeof event.params.url === "string"
+                  typeof event.params?.url === "string"
                 ) {
                   onNavigateLink?.(event.params.url);
                 }
@@ -143,6 +163,7 @@ export function MinionsPage({
   const [detail, setDetail] = useState<MinionDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState("");
+  const [statusNotice, setStatusNotice] = useState("");
   const [filter, setFilter] = useState("");
   const [activeSubTab, setActiveSubTab] = useState<MinionSubTab>("dashboard");
 
@@ -150,14 +171,33 @@ export function MinionsPage({
   const [selectedActionId, setSelectedActionId] = useState("");
   const [quickInputText, setQuickInputText] = useState("");
   const [runningState, setRunningState] = useState<
-    "idle" | "run" | "install" | "test"
+    "idle" | "run" | "input" | "heartbeat" | "install" | "test" | "schedule"
   >("idle");
   const [executionLog, setExecutionLog] = useState<ExecutionLog | null>(null);
+  const [formResetKey, setFormResetKey] = useState(0);
 
   // Dashboard OpenUI editor toggle
   const [editingOpenUI, setEditingOpenUI] = useState(false);
   const [openUIDraft, setOpenUIDraft] = useState("");
   const [openUISaving, setOpenUISaving] = useState(false);
+
+  // Input OpenUI / Schema editor toggle
+  const [inputEditorTarget, setInputEditorTarget] = useState<
+    "preview" | "input.openui" | "input.schema.json"
+  >("preview");
+  const [inputOpenUIDraft, setInputOpenUIDraft] = useState("");
+  const [inputSchemaDraft, setInputSchemaDraft] = useState("");
+  const [inputAssetSaving, setInputAssetSaving] = useState(false);
+
+  // Config / Config Schema editor state
+  const [configEditorTarget, setConfigEditorTarget] = useState<
+    "config.json" | "config.schema.json"
+  >("config.json");
+  const [configDraft, setConfigDraft] = useState("");
+  const [configSchemaDraft, setConfigSchemaDraft] = useState("");
+  const [configSaving, setConfigSaving] = useState(false);
+  const [triggerOnNewEntry, setTriggerOnNewEntry] = useState(true);
+  const [triggerCron, setTriggerCron] = useState("0 */6 * * *");
 
   // Selected file editor state (for Data or Code sub-tabs)
   const [activeFile, setActiveFile] = useState<WorkspaceFile | null>(null);
@@ -174,6 +214,8 @@ export function MinionsPage({
   const [newMinionId, setNewMinionId] = useState("");
   const [newMinionName, setNewMinionName] = useState("");
   const [newMinionDesc, setNewMinionDesc] = useState("");
+  const [newMinionHeartbeatSchedule, setNewMinionHeartbeatSchedule] =
+    useState("0 */6 * * *");
   const [newMinionRuntime, setNewMinionRuntime] =
     useState<MinionRuntime>("python");
   const [creatingMinion, setCreatingMinion] = useState(false);
@@ -202,8 +244,31 @@ export function MinionsPage({
       try {
         const res = await api.getMinion(id);
         setDetail(res.minion);
-        const uiKey = res.minion.primary_ui_file ?? "ui.openui";
-        setOpenUIDraft(res.minion.ui_contents[uiKey] ?? "");
+        const dashboardKey =
+          res.minion.dashboard_ui_file ??
+          res.minion.primary_ui_file ??
+          "dashboard.openui";
+        setOpenUIDraft(res.minion.ui_contents[dashboardKey] ?? "");
+        const inputUiKey = res.minion.input_ui_file ?? "input.openui";
+        setInputOpenUIDraft(res.minion.ui_contents[inputUiKey] ?? "");
+        setInputSchemaDraft(res.minion.input_schema_content ?? "");
+        setConfigDraft(
+          res.minion.config_content ??
+            `${JSON.stringify(
+              res.minion.config ?? {
+                trigger: {
+                  on_new_entry: res.minion.triggers?.after_entry ?? true,
+                  cron:
+                    res.minion.triggers?.heartbeat_schedule ?? "0 */6 * * *",
+                },
+              },
+              null,
+              2,
+            )}\n`,
+        );
+        setConfigSchemaDraft(res.minion.config_schema_content ?? "");
+        setTriggerOnNewEntry(res.minion.triggers?.after_entry ?? true);
+        setTriggerCron(res.minion.triggers?.heartbeat_schedule ?? "");
         const firstAction = res.minion.quick_actions[0];
         setSelectedActionId(firstAction ? firstAction.id : "add");
       } catch (caught) {
@@ -228,8 +293,11 @@ export function MinionsPage({
     if (selectedMinionId) {
       void loadMinionDetail(selectedMinionId);
       setExecutionLog(null);
+      setStatusNotice("");
       setActiveFile(null);
       setEditingOpenUI(false);
+      setInputEditorTarget("preview");
+      setConfigEditorTarget("config.json");
     } else {
       setDetail(null);
     }
@@ -266,6 +334,14 @@ export function MinionsPage({
         setActiveSubTab("data");
       } else if (selectedMinionFile === "README.md") {
         setActiveSubTab("readme");
+      } else if (selectedMinionFile === "input.openui") {
+        setActiveSubTab("input");
+      } else if (
+        selectedMinionFile === "config.json" ||
+        selectedMinionFile === "config.schema.json"
+      ) {
+        setActiveSubTab("config");
+        setConfigEditorTarget(selectedMinionFile);
       } else if (selectedMinionFile.endsWith(".openui")) {
         setActiveSubTab("dashboard");
       } else {
@@ -294,24 +370,39 @@ export function MinionsPage({
     );
   }, [detail, selectedActionId]);
 
+  const dashboardUiFile =
+    detail?.dashboard_ui_file ?? detail?.primary_ui_file ?? "dashboard.openui";
+  const inputUiFile = detail?.input_ui_file ?? "input.openui";
+
   async function handleRunQuickInput(e: React.FormEvent) {
     e.preventDefault();
     if (!detail || runningState !== "idle") return;
     setRunningState("run");
     setError("");
+    setStatusNotice("");
     try {
       const actionId = activeQuickAction?.id ?? (selectedActionId || "add");
-      const res = await api.runMinion(detail.id, {
-        action: actionId,
-        input: quickInputText,
-      });
+      const trimmed = quickInputText.trim();
+      const res =
+        actionId === "heartbeat" && !trimmed
+          ? await api.runMinionHeartbeat(detail.id)
+          : trimmed
+            ? await api.submitMinionInput(detail.id, {
+                action: actionId,
+                input: trimmed,
+              })
+            : await api.runMinion(detail.id, {
+                action: actionId,
+                input: quickInputText,
+              });
       setExecutionLog({
-        kind: "run",
+        kind: actionId === "heartbeat" && !trimmed ? "heartbeat" : "run",
         ok: res.ok,
         exit_code: res.exit_code,
         stdout: res.stdout,
         stderr: res.stderr,
         duration_ms: res.duration_ms,
+        steps: res.steps,
         timestamp: new Date().toLocaleTimeString(),
       });
       if (res.ok) {
@@ -322,6 +413,99 @@ export function MinionsPage({
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Failed to run minion.",
+      );
+    } finally {
+      setRunningState("idle");
+    }
+  }
+
+  async function handleSubmitStructuredInput(data: Record<string, unknown>) {
+    if (!detail || runningState !== "idle") return;
+    setRunningState("input");
+    setError("");
+    setStatusNotice("");
+    try {
+      const res = await api.submitMinionInput(detail.id, { data });
+      setExecutionLog({
+        kind: "input",
+        ok: res.ok,
+        exit_code: res.exit_code,
+        stdout: res.stdout,
+        stderr: res.stderr,
+        duration_ms: res.duration_ms,
+        steps: res.steps,
+        timestamp: new Date().toLocaleTimeString(),
+      });
+      if (res.ok) {
+        setFormResetKey((k) => k + 1);
+      }
+      await loadMinionDetail(detail.id);
+      await loadMinionsList();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Failed to submit minion input.",
+      );
+    } finally {
+      setRunningState("idle");
+    }
+  }
+
+  async function handleRunHeartbeat() {
+    if (!detail || runningState !== "idle") return;
+    setRunningState("heartbeat");
+    setError("");
+    setStatusNotice("");
+    try {
+      const res = await api.runMinionHeartbeat(detail.id);
+      setExecutionLog({
+        kind: "heartbeat",
+        ok: res.ok,
+        exit_code: res.exit_code,
+        stdout: res.stdout,
+        stderr: res.stderr,
+        duration_ms: res.duration_ms,
+        steps: res.steps,
+        timestamp: new Date().toLocaleTimeString(),
+      });
+      await loadMinionDetail(detail.id);
+      await loadMinionsList();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Failed to run minion heartbeat.",
+      );
+    } finally {
+      setRunningState("idle");
+    }
+  }
+
+  async function handleScheduleHeartbeatCron() {
+    if (!detail || runningState !== "idle") return;
+    setRunningState("schedule");
+    setError("");
+    setStatusNotice("");
+    try {
+      const schedule = detail.triggers?.heartbeat_schedule ?? "0 */6 * * *";
+      const runnerCmd =
+        detail.runtime === "python"
+          ? `python3 ${detail.path}/${detail.entrypoint} --trigger heartbeat`
+          : `bun ${detail.path}/${detail.entrypoint} --trigger heartbeat`;
+      await api.createCronJob({
+        name: `Minion Heartbeat: ${detail.name}`,
+        schedule,
+        prompt: `Run the heartbeat enrichment for Minion '${detail.name}' (\`${detail.path}\`) by executing \`${runnerCmd}\` and verify \`${detail.path}/${dashboardUiFile}\` is updated.`,
+      });
+      setStatusNotice(
+        `Scheduled heartbeat cron job (${schedule}) for ${detail.name}.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Failed to schedule heartbeat cron job.",
       );
     } finally {
       setRunningState("idle");
@@ -386,8 +570,7 @@ export function MinionsPage({
     setOpenUISaving(true);
     setError("");
     try {
-      const openuiRel = detail.primary_ui_file ?? "ui.openui";
-      const fullPath = `${detail.path}/${openuiRel}`;
+      const fullPath = `${detail.path}/${dashboardUiFile}`;
       const loaded = await api.loadFile(fullPath);
       await api.saveFile(fullPath, openUIDraft, loaded.revision);
       await loadMinionDetail(detail.id);
@@ -396,10 +579,103 @@ export function MinionsPage({
       setError(
         caught instanceof Error
           ? caught.message
-          : "Failed to save OpenUI file.",
+          : "Failed to save dashboard OpenUI file.",
       );
     } finally {
       setOpenUISaving(false);
+    }
+  }
+
+  async function handleSaveInputAsset() {
+    if (!detail || inputAssetSaving || inputEditorTarget === "preview") return;
+    setInputAssetSaving(true);
+    setError("");
+    try {
+      const targetRel =
+        inputEditorTarget === "input.openui"
+          ? inputUiFile
+          : (detail.input_schema_file ?? "input.schema.json");
+      const draftContent =
+        inputEditorTarget === "input.openui"
+          ? inputOpenUIDraft
+          : inputSchemaDraft;
+      const fullPath = `${detail.path}/${targetRel}`;
+      const loaded = await api.loadFile(fullPath);
+      await api.saveFile(fullPath, draftContent, loaded.revision);
+      await loadMinionDetail(detail.id);
+      setInputEditorTarget("preview");
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : `Failed to save ${inputEditorTarget}.`,
+      );
+    } finally {
+      setInputAssetSaving(false);
+    }
+  }
+
+  function handleQuickTriggerChange(nextOnNewEntry: boolean, nextCron: string) {
+    setTriggerOnNewEntry(nextOnNewEntry);
+    setTriggerCron(nextCron);
+    try {
+      const parsed = configDraft.trim() ? JSON.parse(configDraft) : {};
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const record = parsed as Record<string, unknown>;
+        const nextTrigger: Record<string, unknown> = {
+          on_new_entry: nextOnNewEntry,
+        };
+        if (nextCron.trim()) {
+          nextTrigger.cron = nextCron.trim();
+        }
+        record.trigger = nextTrigger;
+        setConfigDraft(`${JSON.stringify(record, null, 2)}\n`);
+      }
+    } catch {}
+  }
+
+  async function handleSaveConfigAsset() {
+    if (!detail || configSaving) return;
+    setConfigSaving(true);
+    setError("");
+    setStatusNotice("");
+    try {
+      if (configEditorTarget === "config.json") {
+        let parsed: Record<string, unknown>;
+        try {
+          const candidate = JSON.parse(configDraft);
+          if (
+            !candidate ||
+            typeof candidate !== "object" ||
+            Array.isArray(candidate)
+          ) {
+            throw new Error("config.json root must be a JSON object");
+          }
+          parsed = candidate as Record<string, unknown>;
+        } catch (err) {
+          throw new Error(
+            err instanceof Error ? err.message : "Invalid JSON in config.json",
+          );
+        }
+        await api.updateMinionConfig(detail.id, parsed);
+        setStatusNotice(`Saved ${detail.path}/config.json.`);
+      } else {
+        const schemaRel = detail.config_schema_file ?? "config.schema.json";
+        const fullPath = `${detail.path}/${schemaRel}`;
+        const loaded = await api.loadFile(fullPath);
+        await api.saveFile(fullPath, configSchemaDraft, loaded.revision);
+        setStatusNotice(`Saved ${fullPath}.`);
+      }
+      await loadMinionDetail(detail.id);
+      await loadMinionsList();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : `Failed to save ${configEditorTarget}.`,
+      );
+    } finally {
+      setConfigSaving(false);
     }
   }
 
@@ -476,6 +752,7 @@ export function MinionsPage({
         name: newMinionName.trim() || newMinionId.trim(),
         description: newMinionDesc.trim() || undefined,
         runtime: newMinionRuntime,
+        heartbeat_schedule: newMinionHeartbeatSchedule.trim() || undefined,
       });
       setCreateModalOpen(false);
       setNewMinionId("");
@@ -568,8 +845,14 @@ export function MinionsPage({
                   <p className="text-xs text-base-content/60 line-clamp-2 mt-0.5">
                     {m.description}
                   </p>
-                  <div className="flex items-center gap-2 mt-2 text-[11px] text-base-content/50 font-mono">
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2 text-[11px] text-base-content/50 font-mono">
                     <span>{m.entrypoint}</span>
+                    {m.input_entrypoint && (
+                      <>
+                        <span>•</span>
+                        <span>{m.input_entrypoint}</span>
+                      </>
+                    )}
                     <span>•</span>
                     <span>{m.data_file_count} data</span>
                     {m.test_file_count > 0 && (
@@ -600,6 +883,18 @@ export function MinionsPage({
             </button>
           </div>
         )}
+        {statusNotice && (
+          <div className="alert alert-success m-3 mb-0 py-2 text-xs flex justify-between">
+            <span>{statusNotice}</span>
+            <button
+              className="btn btn-ghost btn-xs"
+              onClick={() => setStatusNotice("")}
+              type="button"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {detailLoading ? (
           <div className="flex-1 grid place-items-center p-8 text-sm text-base-content/60">
@@ -611,9 +906,10 @@ export function MinionsPage({
               <h2 className="text-xl font-bold">Workspace Minions</h2>
               <p className="text-sm text-base-content/60">
                 Minions are autonomous workspace apps (`minions/&lt;slug&gt;/`)
-                with Python or TypeScript entrypoints, `.openui` dashboards,
-                tests, and structured `data/` folders that you and OpenLia build
-                together as Project Owner.
+                with `dashboard.openui`, `input.openui` + `input.schema.json`
+                validated via `input.py` / `input.ts`, and `main.py` / `main.ts`
+                triggered both on cron heartbeats and right after every new
+                entry.
               </p>
               <div className="flex items-center justify-center gap-2 pt-2">
                 <button
@@ -628,7 +924,7 @@ export function MinionsPage({
                     className="btn btn-outline btn-sm"
                     onClick={() =>
                       onAskLia(
-                        "Let's create a new Minion in minions/! As Project Owner, I want to build a Minion with an .openui dashboard, main entrypoint, tests, and data/ storage.",
+                        "Let's create a new Minion in minions/! As Project Owner, I want to build a Minion with dashboard.openui, input.openui + input.schema.json + input handler, and main entrypoint for post-entry analysis and heartbeat enrichment.",
                       )
                     }
                     type="button"
@@ -645,16 +941,43 @@ export function MinionsPage({
             <div className="border-b border-base-content/10 p-4 space-y-3 bg-base-200/30">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-lg font-bold tracking-tight">
                       {detail.name}
                     </h2>
                     <span className="badge badge-sm badge-primary/20 text-primary font-mono">
                       {detail.runtime === "python" ? "Python" : "TypeScript"}
                     </span>
-                    <span className="badge badge-sm badge-ghost font-mono">
-                      {detail.path}/{detail.entrypoint}
+                    {detail.input_entrypoint && (
+                      <span
+                        className="badge badge-sm badge-ghost font-mono"
+                        title="Input entrypoint"
+                      >
+                        input: {detail.input_entrypoint}
+                      </span>
+                    )}
+                    <span
+                      className="badge badge-sm badge-ghost font-mono"
+                      title="Data & enrichment entrypoint"
+                    >
+                      main: {detail.entrypoint}
                     </span>
+                    {detail.triggers?.after_entry !== false && (
+                      <span
+                        className="badge badge-sm badge-info/20 text-info font-mono"
+                        title="main runs automatically right after every new entry"
+                      >
+                        trigger: after-entry
+                      </span>
+                    )}
+                    {detail.triggers?.heartbeat_schedule && (
+                      <span
+                        className="badge badge-sm badge-ghost font-mono"
+                        title="Recommended cron schedule for heartbeat enrichment"
+                      >
+                        heartbeat: {detail.triggers.heartbeat_schedule}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-base-content/70 mt-1">
                     {detail.description}
@@ -662,6 +985,30 @@ export function MinionsPage({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    className="btn btn-xs btn-accent"
+                    disabled={runningState !== "idle"}
+                    onClick={() => void handleRunHeartbeat()}
+                    type="button"
+                    data-testid="minion-heartbeat-button"
+                    title="Run main entrypoint with --trigger heartbeat to enrich data and refresh dashboard.openui"
+                  >
+                    {runningState === "heartbeat"
+                      ? "Enriching..."
+                      : "Run Heartbeat"}
+                  </button>
+                  <button
+                    className="btn btn-xs btn-outline"
+                    disabled={runningState !== "idle"}
+                    onClick={() => void handleScheduleHeartbeatCron()}
+                    type="button"
+                    data-testid="minion-schedule-heartbeat"
+                    title="Create a scheduled cron job for this Minion's heartbeat trigger"
+                  >
+                    {runningState === "schedule"
+                      ? "Scheduling..."
+                      : "Schedule Heartbeat"}
+                  </button>
                   <button
                     className="btn btn-xs btn-outline"
                     disabled={runningState !== "idle"}
@@ -694,7 +1041,7 @@ export function MinionsPage({
                       className="btn btn-xs btn-secondary"
                       onClick={() =>
                         onAskLia(
-                          `Let's work on the ${detail.name} Minion (${buildCanonicalMinionUri(detail.id)}) in \`${detail.path}/\`. Please review its \`README.md\`, \`${detail.entrypoint}\`, \`${detail.primary_ui_file ?? "ui.openui"}\`, and \`data/\` files.`,
+                          `Let's work on the ${detail.name} Minion (${buildCanonicalMinionUri(detail.id)}) in \`${detail.path}/\`. Please review its \`README.md\`, \`${detail.input_entrypoint ?? "input.py"}\`, \`${detail.input_schema_file ?? "input.schema.json"}\`, \`${detail.entrypoint}\`, \`${dashboardUiFile}\`, \`${inputUiFile}\`, and \`data/\` files.`,
                         )
                       }
                       type="button"
@@ -705,7 +1052,7 @@ export function MinionsPage({
                 </div>
               </div>
 
-              {/* Quick Input Form */}
+              {/* Quick Input Bar */}
               <form
                 onSubmit={(e) => void handleRunQuickInput(e)}
                 className="flex flex-wrap items-center gap-2"
@@ -733,7 +1080,7 @@ export function MinionsPage({
                   className="input input-bordered input-xs flex-1 min-w-[14rem]"
                   placeholder={
                     activeQuickAction?.placeholder ??
-                    `Quick input for ${detail.entrypoint}...`
+                    `Quick entry via ${detail.input_entrypoint ?? detail.entrypoint} (or JSON payload)...`
                   }
                   value={quickInputText}
                   onChange={(e) => setQuickInputText(e.target.value)}
@@ -745,26 +1092,47 @@ export function MinionsPage({
                   disabled={runningState !== "idle"}
                   data-testid="minion-run-button"
                 >
-                  {runningState === "run" ? "Running..." : "Run"}
+                  {runningState === "run" || runningState === "input"
+                    ? "Running..."
+                    : "Run"}
                 </button>
               </form>
 
               {/* Execution Log Banner */}
               {executionLog && (
                 <div
-                  className={`rounded-lg border p-2.5 text-xs font-mono space-y-1 ${
+                  className={`rounded-lg border p-2.5 text-xs font-mono space-y-1.5 ${
                     executionLog.ok
                       ? "border-success/30 bg-success/5"
                       : "border-error/30 bg-error/5"
                   }`}
                   data-testid="minion-execution-log"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold">
-                      [{executionLog.kind.toUpperCase()}] exit{" "}
-                      {executionLog.exit_code} ({executionLog.duration_ms}ms) at{" "}
-                      {executionLog.timestamp}
-                    </span>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold">
+                        [{executionLog.kind.toUpperCase()}] exit{" "}
+                        {executionLog.exit_code} ({executionLog.duration_ms}ms)
+                        at {executionLog.timestamp}
+                      </span>
+                      {executionLog.steps && executionLog.steps.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1">
+                          {executionLog.steps.map((s, idx) => (
+                            <span
+                              key={`${s.step}-${s.script}`}
+                              className={`badge badge-xs font-mono ${
+                                s.exit_code === 0
+                                  ? "badge-success/20 text-success"
+                                  : "badge-error/20 text-error"
+                              }`}
+                            >
+                              {idx + 1}. {s.step} ({s.script}: {s.duration_ms}
+                              ms)
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <button
                       type="button"
                       className="btn btn-ghost btn-2xs"
@@ -792,8 +1160,25 @@ export function MinionsPage({
                   type="button"
                   className={`tab tab-xs ${activeSubTab === "dashboard" ? "tab-active" : ""}`}
                   onClick={() => setActiveSubTab("dashboard")}
+                  data-testid="minion-tab-dashboard"
                 >
-                  Dashboard (.openui)
+                  Dashboard ({dashboardUiFile})
+                </button>
+                <button
+                  type="button"
+                  className={`tab tab-xs ${activeSubTab === "input" ? "tab-active" : ""}`}
+                  onClick={() => setActiveSubTab("input")}
+                  data-testid="minion-tab-input"
+                >
+                  Input Form ({inputUiFile})
+                </button>
+                <button
+                  type="button"
+                  className={`tab tab-xs ${activeSubTab === "config" ? "tab-active" : ""}`}
+                  onClick={() => setActiveSubTab("config")}
+                  data-testid="minion-tab-config"
+                >
+                  Config ({detail.config_file ?? "config.json"})
                 </button>
                 <button
                   type="button"
@@ -837,9 +1222,18 @@ export function MinionsPage({
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-mono text-base-content/60">
-                      {detail.path}/{detail.primary_ui_file ?? "ui.openui"}
+                      {detail.path}/{dashboardUiFile}
                     </span>
                     <div className="flex items-center gap-2">
+                      {detail.ui_contents[inputUiFile] && !editingOpenUI && (
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          onClick={() => setActiveSubTab("input")}
+                        >
+                          Open Input Form ({inputUiFile})
+                        </button>
+                      )}
                       {editingOpenUI && (
                         <button
                           type="button"
@@ -847,7 +1241,9 @@ export function MinionsPage({
                           disabled={openUISaving}
                           onClick={() => void handleSaveOpenUI()}
                         >
-                          {openUISaving ? "Saving..." : "Save .openui"}
+                          {openUISaving
+                            ? "Saving..."
+                            : `Save ${dashboardUiFile}`}
                         </button>
                       )}
                       <button
@@ -855,7 +1251,9 @@ export function MinionsPage({
                         className="btn btn-ghost btn-xs"
                         onClick={() => setEditingOpenUI((v) => !v)}
                       >
-                        {editingOpenUI ? "Preview Dashboard" : "Edit .openui"}
+                        {editingOpenUI
+                          ? "Preview Dashboard"
+                          : `Edit ${dashboardUiFile}`}
                       </button>
                     </div>
                   </div>
@@ -866,38 +1264,271 @@ export function MinionsPage({
                       <div className="h-[28rem] border border-base-content/15 rounded-lg overflow-hidden">
                         <CodeEditor
                           onChange={setOpenUIDraft}
-                          filePath={`${detail.path}/${detail.primary_ui_file ?? "ui.openui"}`}
+                          filePath={`${detail.path}/${dashboardUiFile}`}
                           value={openUIDraft}
                         />
                       </div>
                     </div>
-                  ) : detail.ui_contents[
-                      detail.primary_ui_file ?? "ui.openui"
-                    ] ? (
+                  ) : detail.ui_contents[dashboardUiFile] ? (
                     <MinionOpenUIView
                       api={api}
-                      code={
-                        detail.ui_contents[
-                          detail.primary_ui_file ?? "ui.openui"
-                        ] ?? ""
-                      }
+                      code={detail.ui_contents[dashboardUiFile] ?? ""}
+                      uiFileName={dashboardUiFile}
+                      testId="minion-openui-dashboard"
                       minion={detail}
                       onNavigateLink={onNavigateLink}
                       onAskLia={onAskLia}
+                      onSubmitFormData={(formData) =>
+                        void handleSubmitStructuredInput(formData)
+                      }
                     />
                   ) : (
                     <div className="rounded-xl border border-base-content/10 p-6 text-center text-sm text-base-content/60">
-                      No `.openui` dashboard file found yet. Click{" "}
+                      No `{dashboardUiFile}` dashboard file found yet. Click{" "}
                       <button
                         type="button"
                         className="link link-primary"
                         onClick={() => setEditingOpenUI(true)}
                       >
-                        Edit .openui
+                        Edit {dashboardUiFile}
                       </button>{" "}
-                      to create `ui.openui`.
+                      to author `{dashboardUiFile}`.
                     </div>
                   )}
+                </div>
+              )}
+
+              {activeSubTab === "input" && (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs text-base-content/70 space-x-2">
+                      <span className="font-mono">
+                        {detail.path}/{inputUiFile}
+                      </span>
+                      {detail.input_schema_file && (
+                        <span className="badge badge-xs badge-ghost font-mono">
+                          schema: {detail.input_schema_file}
+                        </span>
+                      )}
+                      {detail.input_entrypoint && (
+                        <span className="badge badge-xs badge-ghost font-mono">
+                          handler: {detail.input_entrypoint} -&gt;{" "}
+                          {detail.entrypoint} (--trigger entry)
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {inputEditorTarget !== "preview" && (
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-xs"
+                          disabled={inputAssetSaving}
+                          onClick={() => void handleSaveInputAsset()}
+                        >
+                          {inputAssetSaving
+                            ? "Saving..."
+                            : `Save ${inputEditorTarget}`}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className={`btn btn-xs ${inputEditorTarget === "preview" ? "btn-active" : "btn-ghost"}`}
+                        onClick={() => setInputEditorTarget("preview")}
+                      >
+                        Form Preview
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-xs ${inputEditorTarget === "input.openui" ? "btn-active" : "btn-ghost"}`}
+                        onClick={() => setInputEditorTarget("input.openui")}
+                      >
+                        Edit {inputUiFile}
+                      </button>
+                      {detail.input_schema_file && (
+                        <button
+                          type="button"
+                          className={`btn btn-xs ${inputEditorTarget === "input.schema.json" ? "btn-active" : "btn-ghost"}`}
+                          onClick={() =>
+                            setInputEditorTarget("input.schema.json")
+                          }
+                        >
+                          Edit {detail.input_schema_file}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {inputEditorTarget === "input.openui" ? (
+                    <div className="space-y-2">
+                      <OpenUIDiagnostics content={inputOpenUIDraft} />
+                      <div className="h-[28rem] border border-base-content/15 rounded-lg overflow-hidden">
+                        <CodeEditor
+                          onChange={setInputOpenUIDraft}
+                          filePath={`${detail.path}/${inputUiFile}`}
+                          value={inputOpenUIDraft}
+                        />
+                      </div>
+                    </div>
+                  ) : inputEditorTarget === "input.schema.json" ? (
+                    <div className="h-[28rem] border border-base-content/15 rounded-lg overflow-hidden">
+                      <CodeEditor
+                        onChange={setInputSchemaDraft}
+                        filePath={`${detail.path}/${detail.input_schema_file ?? "input.schema.json"}`}
+                        value={inputSchemaDraft}
+                      />
+                    </div>
+                  ) : detail.ui_contents[inputUiFile] ? (
+                    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_22rem] gap-4 items-start">
+                      <MinionOpenUIView
+                        key={`input-form-${formResetKey}`}
+                        api={api}
+                        code={detail.ui_contents[inputUiFile] ?? ""}
+                        uiFileName={inputUiFile}
+                        testId="minion-openui-input"
+                        minion={detail}
+                        onNavigateLink={onNavigateLink}
+                        onAskLia={onAskLia}
+                        onSubmitFormData={(formData) =>
+                          void handleSubmitStructuredInput(formData)
+                        }
+                      />
+                      {detail.input_schema_content && (
+                        <div className="rounded-xl border border-base-content/10 bg-base-200/30 p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold">
+                              Input Schema (`input.schema.json`)
+                            </span>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-2xs"
+                              onClick={() =>
+                                setInputEditorTarget("input.schema.json")
+                              }
+                            >
+                              Edit
+                            </button>
+                          </div>
+                          <pre className="text-[11px] font-mono overflow-x-auto max-h-80 bg-base-300/40 p-2 rounded">
+                            {detail.input_schema_content}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-base-content/10 p-6 text-center text-sm text-base-content/60">
+                      No `{inputUiFile}` input form found for this Minion.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeSubTab === "config" && (
+                <div className="space-y-4" data-testid="minion-config-panel">
+                  <div className="rounded-xl border border-base-content/10 bg-base-200/30 p-3 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-base-content/70">
+                          Standardized Trigger (`config.json` -&gt; `trigger`)
+                        </h3>
+                        <p className="text-xs text-base-content/60">
+                          `trigger` is required by OpenLia/Hermes. Custom
+                          Minion-specific settings (URLs, endpoints, workspace
+                          paths, etc.) can be added alongside `trigger` in
+                          `config.json` and `config.schema.json`.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-xs"
+                        disabled={configSaving}
+                        onClick={() => void handleSaveConfigAsset()}
+                        data-testid="minion-save-config"
+                      >
+                        {configSaving
+                          ? "Saving..."
+                          : `Save ${configEditorTarget}`}
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-4 pt-1">
+                      <label className="label cursor-pointer gap-2 py-0">
+                        <input
+                          type="checkbox"
+                          className="checkbox checkbox-xs checkbox-primary"
+                          checked={triggerOnNewEntry}
+                          onChange={(e) =>
+                            handleQuickTriggerChange(
+                              e.target.checked,
+                              triggerCron,
+                            )
+                          }
+                          data-testid="minion-trigger-on-new-entry"
+                        />
+                        <span className="label-text text-xs font-medium">
+                          Trigger `main` after every new entry (`on_new_entry`)
+                        </span>
+                      </label>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-base-content/70">
+                          Cron Heartbeat (`cron`):
+                        </span>
+                        <input
+                          type="text"
+                          className="input input-bordered input-xs font-mono w-44"
+                          placeholder="0 */6 * * *"
+                          value={triggerCron}
+                          onChange={(e) =>
+                            handleQuickTriggerChange(
+                              triggerOnNewEntry,
+                              e.target.value,
+                            )
+                          }
+                          data-testid="minion-trigger-cron"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-mono text-base-content/70">
+                      {detail.path}/{configEditorTarget}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        className={`btn btn-xs ${configEditorTarget === "config.json" ? "btn-active" : "btn-ghost"}`}
+                        onClick={() => setConfigEditorTarget("config.json")}
+                      >
+                        Edit config.json (Local Instance)
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-xs ${configEditorTarget === "config.schema.json" ? "btn-active" : "btn-ghost"}`}
+                        onClick={() =>
+                          setConfigEditorTarget("config.schema.json")
+                        }
+                      >
+                        Edit config.schema.json (Packaged Schema)
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="h-[26rem] border border-base-content/15 rounded-lg overflow-hidden">
+                    {configEditorTarget === "config.json" ? (
+                      <CodeEditor
+                        onChange={setConfigDraft}
+                        filePath={`${detail.path}/${detail.config_file ?? "config.json"}`}
+                        value={configDraft}
+                      />
+                    ) : (
+                      <CodeEditor
+                        onChange={setConfigSchemaDraft}
+                        filePath={`${detail.path}/${detail.config_schema_file ?? "config.schema.json"}`}
+                        value={configSchemaDraft}
+                      />
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1010,7 +1641,7 @@ export function MinionsPage({
                 <div className="grid grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)] gap-4 h-full min-h-[24rem]">
                   <div className="border border-base-content/10 rounded-lg p-3 space-y-2 flex flex-col">
                     <div className="text-xs font-semibold uppercase tracking-wider text-base-content/60">
-                      Entrypoint, Scripts & Tests
+                      Input, Main, Schema & Tests
                     </div>
                     <div className="flex-1 overflow-y-auto space-y-1">
                       {[...detail.code_files, ...detail.test_files].map((f) => {
@@ -1111,9 +1742,9 @@ export function MinionsPage({
           <div className="modal-box max-w-md space-y-4">
             <h3 className="font-bold text-lg">Create New Minion</h3>
             <p className="text-xs text-base-content/70">
-              Scaffolds `minions/&lt;id&gt;/` with `README.md`, entrypoint
-              (`main.py` or `main.ts`), dependencies file, `ui.openui`, `data/`,
-              and `tests/`.
+              Scaffolds `minions/&lt;id&gt;/` with `README.md`,{" "}
+              `dashboard.openui`, `input.openui`, `input.schema.json`,{" "}
+              `input.py`/`input.ts`, `main.py`/`main.ts`, `data/`, and `tests/`.
             </p>
             <form
               onSubmit={(e) => void handleCreateMinion(e)}
@@ -1140,7 +1771,7 @@ export function MinionsPage({
                 <input
                   type="text"
                   className="input input-bordered input-sm w-full"
-                  placeholder="e.g. Family Menu"
+                  placeholder="e.g. Gym Tracker"
                   value={newMinionName}
                   onChange={(e) => setNewMinionName(e.target.value)}
                   data-testid="new-minion-name-input"
@@ -1153,7 +1784,7 @@ export function MinionsPage({
                 <input
                   type="text"
                   className="input input-bordered input-sm w-full"
-                  placeholder="Weekly meal plan and grocery list tracker"
+                  placeholder="Track workouts and get next-exercise recommendations"
                   value={newMinionDesc}
                   onChange={(e) => setNewMinionDesc(e.target.value)}
                 />
@@ -1168,12 +1799,26 @@ export function MinionsPage({
                   }
                 >
                   <option value="python">
-                    Python (main.py + requirements.txt)
+                    Python (input.py + main.py + requirements.txt)
                   </option>
                   <option value="typescript">
-                    TypeScript / Bun (main.ts + package.json)
+                    TypeScript / Bun (input.ts + main.ts + package.json)
                   </option>
                 </select>
+              </label>
+              <label className="form-control w-full">
+                <span className="label-text text-xs font-medium">
+                  Heartbeat Cron Schedule
+                </span>
+                <input
+                  type="text"
+                  className="input input-bordered input-sm w-full font-mono"
+                  placeholder="0 */6 * * *"
+                  value={newMinionHeartbeatSchedule}
+                  onChange={(e) =>
+                    setNewMinionHeartbeatSchedule(e.target.value)
+                  }
+                />
               </label>
               <div className="modal-action">
                 <button

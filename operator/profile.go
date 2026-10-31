@@ -22,6 +22,7 @@ const (
 	protectedSkillName         = "openlia-skill-migration"
 	workspaceTemplateSkillName = "workspace-template-customization"
 	inlineOpenUISkillName      = "inline-openui-authoring"
+	minionAuthoringSkillName   = "minion-authoring"
 	fallbackBlockStart         = "# BEGIN OPENLIA MANAGED FALLBACK PROVIDERS"
 	fallbackBlockEnd           = "# END OPENLIA MANAGED FALLBACK PROVIDERS"
 	outputLanguageBlockStart   = "<!-- BEGIN OPENLIA MANAGED OUTPUT LANGUAGE -->"
@@ -30,7 +31,7 @@ const (
 
 func isProtectedSystemSkill(name string) bool {
 	switch name {
-	case protectedSkillName, workspaceTemplateSkillName, inlineOpenUISkillName:
+	case protectedSkillName, workspaceTemplateSkillName, inlineOpenUISkillName, minionAuthoringSkillName:
 		return true
 	default:
 		return false

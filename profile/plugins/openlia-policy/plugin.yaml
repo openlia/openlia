@@ -1,11 +1,14 @@
 name: openlia-policy
-version: "2.1"
-description: Enforce OpenLia consequential permissions and provide Workspace Maintainer and read-only inline OpenUI authoring tools.
+version: "2.2"
+description: Enforce OpenLia consequential permissions and provide Workspace Maintainer, inline OpenUI authoring, and Workspace Minion authoring tools.
 manifest_version: 2
 api_version: 1
 provides_tools:
   - openui_describe
   - openui_validate
+  - minion_scaffold
+  - minion_validate
+  - minion_run
   - maintainer_status
   - maintainer_audit
   - maintainer_triage_issue

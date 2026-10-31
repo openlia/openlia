@@ -411,3 +411,57 @@ export function extractMarkdownOpenUIBlocks(
   visit(fromMarkdown(markdown));
   return blocks;
 }
+
+export function extractFormDataFromOpenUIEvent(event: {
+  formName?: string | undefined;
+  formState?: Record<string, any> | undefined;
+}): Record<string, unknown> | null {
+  const rawFormState = event.formState;
+  if (
+    !rawFormState ||
+    typeof rawFormState !== "object" ||
+    Array.isArray(rawFormState)
+  ) {
+    return null;
+  }
+
+  let fieldsObj: Record<string, unknown> | null = null;
+  if (
+    typeof event.formName === "string" &&
+    event.formName in rawFormState &&
+    rawFormState[event.formName] &&
+    typeof rawFormState[event.formName] === "object"
+  ) {
+    fieldsObj = rawFormState[event.formName] as Record<string, unknown>;
+  } else {
+    const values = Object.values(rawFormState);
+    if (
+      values.length === 1 &&
+      values[0] &&
+      typeof values[0] === "object" &&
+      !Array.isArray(values[0]) &&
+      !("value" in (values[0] as Record<string, unknown>))
+    ) {
+      fieldsObj = values[0] as Record<string, unknown>;
+    } else {
+      fieldsObj = rawFormState;
+    }
+  }
+
+  if (!fieldsObj) return null;
+
+  const result: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(fieldsObj)) {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      !Array.isArray(entry) &&
+      "value" in (entry as Record<string, unknown>)
+    ) {
+      result[key] = (entry as Record<string, unknown>).value;
+    } else {
+      result[key] = entry;
+    }
+  }
+  return result;
+}
