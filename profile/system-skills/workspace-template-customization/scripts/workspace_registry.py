@@ -471,6 +471,10 @@ def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
                 entry_dict["input_entrypoint"] = "input.ts"
             if (folder / "input.schema.json").is_file():
                 entry_dict["input_schema"] = "input.schema.json"
+            if (folder / "config.json").is_file():
+                entry_dict["config_file"] = "config.json"
+            if (folder / "config.schema.json").is_file():
+                entry_dict["config_schema"] = "config.schema.json"
             if (folder / "dashboard.openui").is_file():
                 entry_dict["dashboard_ui"] = "dashboard.openui"
             elif (folder / "ui.openui").is_file():

@@ -81,6 +81,7 @@ OpenLia develops and maintains with the user as **Project Owner**:
 - `input.openui`: the OpenUI input form (`Form(name: "minionInput", ...)`).
 - `input.schema.json`: JSON Schema contract validating input form submissions.
 - `input.py` or `input.ts`: input handler executed to validate and record new entries into `data/`.
+- `config.schema.json` & `config.json`: `config.json` holds the required OpenLia/Hermes `trigger` (`on_new_entry` and/or `cron`) plus any Minion-specific settings designed by the agent (validated by `config.schema.json`; when packaged for sharing, `config.json` is ignored and only `config.schema.json` is packaged).
 - `main.py` or `main.ts`: data management and enrichment entrypoint triggered in **two ways**:
   1. **Heartbeat trigger (`--trigger heartbeat`)** at a cron job or manual run to enrich data (e.g., fetching news, retrieving latest stock prices, computing summaries) and update `dashboard.openui`.
   2. **Post-entry trigger (`--trigger entry`)** right after every new entry recorded by `input.py` / `input.ts` to analyze the new entry alongside existing context (e.g., recommending the next exercise given today's recorded performance) and update `dashboard.openui`.

@@ -2392,6 +2392,8 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         entrypoint: "main.py",
         input_entrypoint: "input.py",
         input_schema_file: "input.schema.json",
+        config_file: "config.json",
+        config_schema_file: "config.schema.json",
         ui_files: ["dashboard.openui", "input.openui"],
         primary_ui_file: "dashboard.openui",
         dashboard_ui_file: "dashboard.openui",
@@ -2415,6 +2417,30 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         },
         input_schema_content:
           '{\n  "type": "object",\n  "required": ["item"],\n  "properties": {\n    "item": { "type": "string", "title": "Entry" }\n  }\n}\n',
+        config: {
+          trigger: {
+            on_new_entry: true,
+            cron: "0 */6 * * *",
+          },
+        },
+        config_content:
+          '{\n  "trigger": {\n    "on_new_entry": true,\n    "cron": "0 */6 * * *"\n  }\n}\n',
+        config_schema: {
+          type: "object",
+          required: ["trigger"],
+          additionalProperties: true,
+          properties: {
+            trigger: {
+              type: "object",
+              properties: {
+                on_new_entry: { type: "boolean", default: true },
+                cron: { type: "string" },
+              },
+            },
+          },
+        },
+        config_schema_content:
+          '{\n  "type": "object",\n  "required": ["trigger"],\n  "additionalProperties": true\n}\n',
         data_file_count: 2,
         script_file_count: 3,
         test_file_count: 1,
@@ -2438,6 +2464,21 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     ): Promise<MinionDetailResponse> {
       requireAuthentication();
       return this.getMinion(request.id || "sample-minion");
+    },
+    async updateMinionConfig(
+      id: string,
+      config: Record<string, unknown>,
+    ): Promise<MinionDetailResponse> {
+      requireAuthentication();
+      const { minion } = await this.getMinion(id);
+      return {
+        schema: 1,
+        minion: {
+          ...minion,
+          config: config as MinionDetail["config"],
+          config_content: `${JSON.stringify(config, null, 2)}\n`,
+        },
+      };
     },
     async installMinionDependencies(id: string): Promise<MinionRunResponse> {
       requireAuthentication();

@@ -22,7 +22,13 @@ import { OpenUIErrorBoundary } from "./openui/OpenUIErrorBoundary";
 
 export { extractFormDataFromOpenUIEvent };
 
-export type MinionSubTab = "dashboard" | "input" | "data" | "code" | "readme";
+export type MinionSubTab =
+  | "dashboard"
+  | "input"
+  | "config"
+  | "data"
+  | "code"
+  | "readme";
 
 interface ExecutionLog {
   kind: "run" | "input" | "heartbeat" | "install" | "test";
@@ -183,6 +189,16 @@ export function MinionsPage({
   const [inputSchemaDraft, setInputSchemaDraft] = useState("");
   const [inputAssetSaving, setInputAssetSaving] = useState(false);
 
+  // Config / Config Schema editor state
+  const [configEditorTarget, setConfigEditorTarget] = useState<
+    "config.json" | "config.schema.json"
+  >("config.json");
+  const [configDraft, setConfigDraft] = useState("");
+  const [configSchemaDraft, setConfigSchemaDraft] = useState("");
+  const [configSaving, setConfigSaving] = useState(false);
+  const [triggerOnNewEntry, setTriggerOnNewEntry] = useState(true);
+  const [triggerCron, setTriggerCron] = useState("0 */6 * * *");
+
   // Selected file editor state (for Data or Code sub-tabs)
   const [activeFile, setActiveFile] = useState<WorkspaceFile | null>(null);
   const [fileDraft, setFileDraft] = useState("");
@@ -236,6 +252,23 @@ export function MinionsPage({
         const inputUiKey = res.minion.input_ui_file ?? "input.openui";
         setInputOpenUIDraft(res.minion.ui_contents[inputUiKey] ?? "");
         setInputSchemaDraft(res.minion.input_schema_content ?? "");
+        setConfigDraft(
+          res.minion.config_content ??
+            `${JSON.stringify(
+              res.minion.config ?? {
+                trigger: {
+                  on_new_entry: res.minion.triggers?.after_entry ?? true,
+                  cron:
+                    res.minion.triggers?.heartbeat_schedule ?? "0 */6 * * *",
+                },
+              },
+              null,
+              2,
+            )}\n`,
+        );
+        setConfigSchemaDraft(res.minion.config_schema_content ?? "");
+        setTriggerOnNewEntry(res.minion.triggers?.after_entry ?? true);
+        setTriggerCron(res.minion.triggers?.heartbeat_schedule ?? "");
         const firstAction = res.minion.quick_actions[0];
         setSelectedActionId(firstAction ? firstAction.id : "add");
       } catch (caught) {
@@ -264,6 +297,7 @@ export function MinionsPage({
       setActiveFile(null);
       setEditingOpenUI(false);
       setInputEditorTarget("preview");
+      setConfigEditorTarget("config.json");
     } else {
       setDetail(null);
     }
@@ -302,6 +336,12 @@ export function MinionsPage({
         setActiveSubTab("readme");
       } else if (selectedMinionFile === "input.openui") {
         setActiveSubTab("input");
+      } else if (
+        selectedMinionFile === "config.json" ||
+        selectedMinionFile === "config.schema.json"
+      ) {
+        setActiveSubTab("config");
+        setConfigEditorTarget(selectedMinionFile);
       } else if (selectedMinionFile.endsWith(".openui")) {
         setActiveSubTab("dashboard");
       } else {
@@ -572,6 +612,70 @@ export function MinionsPage({
       );
     } finally {
       setInputAssetSaving(false);
+    }
+  }
+
+  function handleQuickTriggerChange(nextOnNewEntry: boolean, nextCron: string) {
+    setTriggerOnNewEntry(nextOnNewEntry);
+    setTriggerCron(nextCron);
+    try {
+      const parsed = configDraft.trim() ? JSON.parse(configDraft) : {};
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const record = parsed as Record<string, unknown>;
+        const nextTrigger: Record<string, unknown> = {
+          on_new_entry: nextOnNewEntry,
+        };
+        if (nextCron.trim()) {
+          nextTrigger.cron = nextCron.trim();
+        }
+        record.trigger = nextTrigger;
+        setConfigDraft(`${JSON.stringify(record, null, 2)}\n`);
+      }
+    } catch {}
+  }
+
+  async function handleSaveConfigAsset() {
+    if (!detail || configSaving) return;
+    setConfigSaving(true);
+    setError("");
+    setStatusNotice("");
+    try {
+      if (configEditorTarget === "config.json") {
+        let parsed: Record<string, unknown>;
+        try {
+          const candidate = JSON.parse(configDraft);
+          if (
+            !candidate ||
+            typeof candidate !== "object" ||
+            Array.isArray(candidate)
+          ) {
+            throw new Error("config.json root must be a JSON object");
+          }
+          parsed = candidate as Record<string, unknown>;
+        } catch (err) {
+          throw new Error(
+            err instanceof Error ? err.message : "Invalid JSON in config.json",
+          );
+        }
+        await api.updateMinionConfig(detail.id, parsed);
+        setStatusNotice(`Saved ${detail.path}/config.json.`);
+      } else {
+        const schemaRel = detail.config_schema_file ?? "config.schema.json";
+        const fullPath = `${detail.path}/${schemaRel}`;
+        const loaded = await api.loadFile(fullPath);
+        await api.saveFile(fullPath, configSchemaDraft, loaded.revision);
+        setStatusNotice(`Saved ${fullPath}.`);
+      }
+      await loadMinionDetail(detail.id);
+      await loadMinionsList();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : `Failed to save ${configEditorTarget}.`,
+      );
+    } finally {
+      setConfigSaving(false);
     }
   }
 
@@ -1070,6 +1174,14 @@ export function MinionsPage({
                 </button>
                 <button
                   type="button"
+                  className={`tab tab-xs ${activeSubTab === "config" ? "tab-active" : ""}`}
+                  onClick={() => setActiveSubTab("config")}
+                  data-testid="minion-tab-config"
+                >
+                  Config ({detail.config_file ?? "config.json"})
+                </button>
+                <button
+                  type="button"
                   className={`tab tab-xs ${activeSubTab === "data" ? "tab-active" : ""}`}
                   onClick={() => {
                     setActiveSubTab("data");
@@ -1307,6 +1419,116 @@ export function MinionsPage({
                       No `{inputUiFile}` input form found for this Minion.
                     </div>
                   )}
+                </div>
+              )}
+
+              {activeSubTab === "config" && (
+                <div className="space-y-4" data-testid="minion-config-panel">
+                  <div className="rounded-xl border border-base-content/10 bg-base-200/30 p-3 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-base-content/70">
+                          Standardized Trigger (`config.json` -&gt; `trigger`)
+                        </h3>
+                        <p className="text-xs text-base-content/60">
+                          `trigger` is required by OpenLia/Hermes. Custom
+                          Minion-specific settings (URLs, endpoints, workspace
+                          paths, etc.) can be added alongside `trigger` in
+                          `config.json` and `config.schema.json`.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-xs"
+                        disabled={configSaving}
+                        onClick={() => void handleSaveConfigAsset()}
+                        data-testid="minion-save-config"
+                      >
+                        {configSaving
+                          ? "Saving..."
+                          : `Save ${configEditorTarget}`}
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-4 pt-1">
+                      <label className="label cursor-pointer gap-2 py-0">
+                        <input
+                          type="checkbox"
+                          className="checkbox checkbox-xs checkbox-primary"
+                          checked={triggerOnNewEntry}
+                          onChange={(e) =>
+                            handleQuickTriggerChange(
+                              e.target.checked,
+                              triggerCron,
+                            )
+                          }
+                          data-testid="minion-trigger-on-new-entry"
+                        />
+                        <span className="label-text text-xs font-medium">
+                          Trigger `main` after every new entry (`on_new_entry`)
+                        </span>
+                      </label>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-base-content/70">
+                          Cron Heartbeat (`cron`):
+                        </span>
+                        <input
+                          type="text"
+                          className="input input-bordered input-xs font-mono w-44"
+                          placeholder="0 */6 * * *"
+                          value={triggerCron}
+                          onChange={(e) =>
+                            handleQuickTriggerChange(
+                              triggerOnNewEntry,
+                              e.target.value,
+                            )
+                          }
+                          data-testid="minion-trigger-cron"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-mono text-base-content/70">
+                      {detail.path}/{configEditorTarget}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        className={`btn btn-xs ${configEditorTarget === "config.json" ? "btn-active" : "btn-ghost"}`}
+                        onClick={() => setConfigEditorTarget("config.json")}
+                      >
+                        Edit config.json (Local Instance)
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-xs ${configEditorTarget === "config.schema.json" ? "btn-active" : "btn-ghost"}`}
+                        onClick={() =>
+                          setConfigEditorTarget("config.schema.json")
+                        }
+                      >
+                        Edit config.schema.json (Packaged Schema)
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="h-[26rem] border border-base-content/15 rounded-lg overflow-hidden">
+                    {configEditorTarget === "config.json" ? (
+                      <CodeEditor
+                        onChange={setConfigDraft}
+                        filePath={`${detail.path}/${detail.config_file ?? "config.json"}`}
+                        value={configDraft}
+                      />
+                    ) : (
+                      <CodeEditor
+                        onChange={setConfigSchemaDraft}
+                        filePath={`${detail.path}/${detail.config_schema_file ?? "config.schema.json"}`}
+                        value={configSchemaDraft}
+                      />
+                    )}
+                  </div>
                 </div>
               )}
 

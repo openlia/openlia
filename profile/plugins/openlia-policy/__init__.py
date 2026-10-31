@@ -42,6 +42,39 @@ def _load_maintainer_bridge_cls() -> Any:
 MaintainerBridge = _load_maintainer_bridge_cls()
 
 
+def _load_minion_tool_module() -> ModuleType:
+    env_override = os.environ.get("OPENLIA_MINION_TOOL", "").strip()
+    candidates = [
+        *( [Path(env_override)] if env_override else [] ),
+        Path(__file__).resolve().parent.parent.parent
+        / "system-skills"
+        / "minion-authoring"
+        / "scripts"
+        / "minion_tool.py",
+        Path("/opt/data/skills/minion-authoring/scripts/minion_tool.py"),
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            spec = importlib.util.spec_from_file_location(
+                "openlia_policy_minion_tool", candidate
+            )
+            if spec is not None and spec.loader is not None:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                return mod
+    raise RuntimeError("cannot locate minion_tool.py")
+
+
+_MINION_TOOL_MOD: ModuleType | None = None
+
+
+def _get_minion_tool() -> ModuleType:
+    global _MINION_TOOL_MOD
+    if _MINION_TOOL_MOD is None:
+        _MINION_TOOL_MOD = _load_minion_tool_module()
+    return _MINION_TOOL_MOD
+
+
 LOGGER = logging.getLogger("openlia.policy")
 PLUGIN_NAME = "openlia-policy"
 DEFAULT_HELPER = Path(
@@ -110,6 +143,7 @@ _READ_ONLY_TOOLS = {
     "maintainer_audit",
     "openui_describe",
     "openui_validate",
+    "minion_validate",
 }
 _READ_ONLY_COMMANDS = {
     "basename",
@@ -888,6 +922,15 @@ class PolicyEnforcer:
 
         if tool_name in {"write_file", "patch"}:
             return self._workspace_tool_decision(authority, tool_name, args, scheduled)
+        if tool_name in {"minion_scaffold", "minion_run"}:
+            slug = str(args.get("id") or "").strip()
+            if not slug or not _is_minion_path(f"minions/{slug}"):
+                return _block(f"OpenLia policy requires a valid Minion id for {tool_name}.")
+            if scheduled and not authority.permissions.get("scheduled_work", {}).get(
+                "enabled", True
+            ):
+                return _block("OpenLia policy blocked scheduled work: scheduled_work is disabled.")
+            return None
         if tool_name == "delete_document_password_profile":
             return self._destructive_action(
                 authority, "delete_records", "sources/document-passwords.toml"
@@ -1053,6 +1096,88 @@ class PolicyEnforcer:
         )
         return json.dumps(res, ensure_ascii=False, sort_keys=True)
 
+    def tool_minion_scaffold(
+        self,
+        id: str,
+        name: str = "",
+        description: str = "",
+        runtime: str = "python",
+        heartbeat_schedule: str = "0 */6 * * *",
+        **_: Any,
+    ) -> str:
+        try:
+            minion_tool = _get_minion_tool()
+            res = minion_tool.scaffold_minion(
+                self.workspace_root,
+                minion_id=id,
+                name=name or "",
+                description=description or "",
+                runtime=runtime or "python",
+                heartbeat_schedule=heartbeat_schedule or "0 */6 * * *",
+            )
+            return json.dumps(res, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"status": "error", "message": str(exc)}, ensure_ascii=False)
+
+    def tool_minion_validate(self, id: str, **_: Any) -> str:
+        try:
+            minion_tool = _get_minion_tool()
+            res = minion_tool.validate_minion(self.workspace_root, id)
+            minion_dir = (self.workspace_root / "minions" / minion_tool.validate_minion_id(id)).resolve()
+            openui_checks: dict[str, Any] = {}
+            for ui_rel in res.get("openui_files", []):
+                ui_abs = minion_dir / ui_rel
+                if not ui_abs.is_file():
+                    continue
+                raw_ui = ui_abs.read_text(encoding="utf-8")
+                ui_check_raw = _openui_request(
+                    {"action": "validate", "content": raw_ui, "format": "openui"}
+                )
+                try:
+                    ui_check = json.loads(ui_check_raw)
+                except Exception:
+                    ui_check = {"status": "unavailable"}
+                openui_checks[ui_rel] = ui_check
+                if ui_check.get("status") == "ok" and ui_check.get("valid") is False:
+                    for block in ui_check.get("blocks", []):
+                        for diag in block.get("diagnostics", []):
+                            msg = diag.get("message") or diag.get("code") or "OpenUI schema error"
+                            res["errors"].append(f"{ui_rel}: {msg}")
+            res["openui_validation"] = openui_checks
+            res["valid"] = len(res["errors"]) == 0
+            res["ok"] = res["valid"]
+            res["status"] = "ok" if res["valid"] else "error"
+            return json.dumps(res, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps(
+                {"status": "error", "ok": False, "valid": False, "message": str(exc)},
+                ensure_ascii=False,
+            )
+
+    def tool_minion_run(
+        self,
+        id: str,
+        mode: str = "heartbeat",
+        data: dict[str, Any] | None = None,
+        input: str = "",
+        **_: Any,
+    ) -> str:
+        try:
+            minion_tool = _get_minion_tool()
+            res = minion_tool.run_minion(
+                self.workspace_root,
+                minion_id=id,
+                mode=mode or "heartbeat",
+                data=data if isinstance(data, dict) else None,
+                input_text=input or "",
+            )
+            return json.dumps(res, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps(
+                {"status": "error", "ok": False, "message": str(exc)},
+                ensure_ascii=False,
+            )
+
 
 def register(ctx: Any) -> None:
     enforcer = PolicyEnforcer()
@@ -1169,3 +1294,92 @@ def register(ctx: Any) -> None:
             is_async=False,
             description=triage_schema["description"],
         )
+        for name, description, parameters, handler in [
+            (
+                "minion_scaffold",
+                "Scaffold a complete Workspace Minion in minions/<id>/ with README.md, dashboard.openui, input.openui, input.schema.json, config.schema.json, config.json (with required trigger), input.py/input.ts, main.py/main.ts, data/, and tests/.",
+                {
+                    "type": "object",
+                    "required": ["id"],
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "Minion slug (lowercase alphanumeric and hyphens, e.g. 'gym-tracker').",
+                        },
+                        "name": {
+                            "type": "string",
+                            "description": "Human-friendly display name for the Minion.",
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Concise summary of the Minion's purpose.",
+                        },
+                        "runtime": {
+                            "type": "string",
+                            "enum": ["python", "typescript"],
+                            "default": "python",
+                        },
+                        "heartbeat_schedule": {
+                            "type": "string",
+                            "default": "0 */6 * * *",
+                            "description": "5-field cron expression stored in config.json trigger.cron.",
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                enforcer.tool_minion_scaffold,
+            ),
+            (
+                "minion_validate",
+                "Validate a Workspace Minion in minions/<id>/: checks required files, config.schema.json, config.json (including the required OpenLia/Hermes trigger contract), input.schema.json, input.openui <-> input.schema.json field alignment, and OpenUI component schemas.",
+                {
+                    "type": "object",
+                    "required": ["id"],
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "Minion slug in minions/<id>/.",
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                enforcer.tool_minion_validate,
+            ),
+            (
+                "minion_run",
+                "Execute a Workspace Minion in minions/<id>/: mode='input' (runs input.py/input.ts then main --trigger entry if enabled by config.json trigger), mode='heartbeat' (runs main --trigger heartbeat), or mode='test' (runs unit tests).",
+                {
+                    "type": "object",
+                    "required": ["id"],
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "Minion slug in minions/<id>/.",
+                        },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["input", "heartbeat", "test"],
+                            "default": "heartbeat",
+                        },
+                        "data": {
+                            "type": "object",
+                            "description": "Structured JSON object conforming to input.schema.json (used when mode='input').",
+                        },
+                        "input": {
+                            "type": "string",
+                            "description": "Quick text input (used when mode='input').",
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                enforcer.tool_minion_run,
+            ),
+        ]:
+            ctx.register_tool(
+                name=name,
+                toolset="openlia-policy",
+                schema={"name": name, "description": description, "parameters": parameters},
+                handler=handler,
+                is_async=False,
+                description=description,
+            )

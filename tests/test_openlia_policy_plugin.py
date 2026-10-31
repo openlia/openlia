@@ -601,6 +601,58 @@ class PolicyPluginTests(unittest.TestCase):
             self.assertIsNotNone(decision, cmd)
             self.assertEqual(decision["action"], "approve", cmd)
 
+    def test_minion_native_hermes_tools_scaffold_validate_and_run(self):
+        import json
+
+        # Policy allows minion_scaffold, minion_validate, and minion_run for valid slugs
+        self.assertIsNone(
+            self.policy.pre_tool_call("minion_scaffold", {"id": "stock-watch", "runtime": "python"})
+        )
+        self.assertIsNone(
+            self.policy.pre_tool_call("minion_validate", {"id": "stock-watch"})
+        )
+        self.assertIsNone(
+            self.policy.pre_tool_call("minion_run", {"id": "stock-watch", "mode": "test"})
+        )
+        blocked = self.policy.pre_tool_call("minion_run", {"id": "../outside", "mode": "test"})
+        self.assertIsNotNone(blocked)
+        self.assertEqual(blocked["action"], "block")
+
+        scaffold_res = json.loads(
+            self.policy.tool_minion_scaffold(
+                id="stock-watch",
+                name="Stock Watch",
+                description="Track watchlist tickers and alerts",
+                runtime="python",
+                heartbeat_schedule="0 */6 * * *",
+            )
+        )
+        self.assertTrue(scaffold_res["ok"])
+        self.assertEqual(scaffold_res["config"], {"trigger": {"on_new_entry": True, "cron": "0 */6 * * *"}})
+
+        val_res = json.loads(self.policy.tool_minion_validate(id="stock-watch"))
+        self.assertTrue(val_res["ok"], val_res.get("errors"))
+
+        run_entry = json.loads(
+            self.policy.tool_minion_run(
+                id="stock-watch",
+                mode="input",
+                data={"item": "NVDA breakout check", "category": "tech", "value": "142.5"},
+            )
+        )
+        self.assertTrue(run_entry["ok"], run_entry)
+        self.assertEqual(len(run_entry["steps"]), 2)
+
+        run_hb = json.loads(
+            self.policy.tool_minion_run(id="stock-watch", mode="heartbeat")
+        )
+        self.assertTrue(run_hb["ok"], run_hb)
+
+        run_tests = json.loads(
+            self.policy.tool_minion_run(id="stock-watch", mode="test")
+        )
+        self.assertTrue(run_tests["ok"], run_tests)
+
 
 if __name__ == "__main__":
     unittest.main()

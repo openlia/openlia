@@ -466,6 +466,7 @@ def validate_minions(
                 if input_schema.is_symlink() or not input_schema.is_file():
                     errors.append(f"{rel}: minion with input.openui requires input.schema.json")
 
+        loaded_minion_schemas: dict[str, dict[str, Any]] = {}
         for schema_file in sorted(entry.rglob("*.schema.json")):
             if _is_ignored_workspace_path(schema_file, root):
                 continue
@@ -476,9 +477,74 @@ def validate_minions(
             if referenced_schemas is not None:
                 referenced_schemas.add(schema_file.resolve())
             try:
-                load_schema(schema_file)
+                loaded_minion_schemas[schema_file.name] = load_schema(schema_file)
             except ValueError as exc:
                 errors.append(f"{schema_rel}: {exc}")
+
+        config_file = entry / "config.json"
+        if config_file.exists():
+            config_rel = _relative(config_file, root)
+            if config_file.is_symlink() or not config_file.is_file():
+                errors.append(f"{config_rel}: must be a regular file")
+            else:
+                try:
+                    raw_cfg = json.loads(config_file.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                    errors.append(f"{config_rel}: invalid JSON: {exc}")
+                    raw_cfg = None
+                if raw_cfg is not None:
+                    if not isinstance(raw_cfg, dict):
+                        errors.append(f"{config_rel}: root must be a JSON object")
+                    else:
+                        trigger_val = raw_cfg.get("trigger")
+                        if trigger_val is None:
+                            errors.append(f"{config_rel}: missing required property 'trigger'")
+                        elif isinstance(trigger_val, str):
+                            if trigger_val.strip() not in {"entry", "cron", "both"}:
+                                errors.append(
+                                    f"{config_rel}: trigger string must be 'entry', 'cron', or 'both'"
+                                )
+                        elif isinstance(trigger_val, dict):
+                            for k in trigger_val:
+                                if k not in {"on_new_entry", "cron"}:
+                                    errors.append(
+                                        f"{config_rel}: trigger.{k} is not a recognized trigger property"
+                                    )
+                            has_entry = "on_new_entry" in trigger_val and trigger_val["on_new_entry"] is not None
+                            has_cron = "cron" in trigger_val and trigger_val["cron"] is not None
+                            if not has_entry and not has_cron:
+                                errors.append(
+                                    f"{config_rel}: trigger must specify 'on_new_entry' and/or 'cron'"
+                                )
+                            if has_entry and not isinstance(trigger_val["on_new_entry"], bool):
+                                errors.append(
+                                    f"{config_rel}: trigger.on_new_entry must be a boolean"
+                                )
+                            if has_cron and (
+                                not isinstance(trigger_val["cron"], str)
+                                or not trigger_val["cron"].strip()
+                            ):
+                                errors.append(
+                                    f"{config_rel}: trigger.cron must be a non-empty cron string"
+                                )
+                        else:
+                            errors.append(
+                                f"{config_rel}: trigger must be 'entry' | 'cron' | 'both' or an object"
+                            )
+
+                        cfg_schema = loaded_minion_schemas.get("config.schema.json")
+                        if isinstance(cfg_schema, dict):
+                            cfg_validator = Draft202012Validator(
+                                cfg_schema, format_checker=FormatChecker()
+                            )
+                            for schema_err in sorted(
+                                cfg_validator.iter_errors(raw_cfg),
+                                key=lambda item: tuple(str(part) for part in item.absolute_path),
+                            ):
+                                loc = "$"
+                                for part in schema_err.absolute_path:
+                                    loc += f"[{part}]" if isinstance(part, int) else f".{part}"
+                                errors.append(f"{config_rel}: {loc}: {schema_err.message}")
     return errors
 
 

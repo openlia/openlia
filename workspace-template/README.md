@@ -28,7 +28,9 @@ Every workspace starts with a clean, unopinionated foundation:
 - `minions/<slug>/` (optional): autonomous programmable workspace apps with
   `README.md`, `dashboard.openui` (main dashboard), `input.openui` +
   `input.schema.json` + `input.py` or `input.ts` (structured input form &
-  validation), `main.py` or `main.ts` (data management & enrichment triggered
+  validation), `config.schema.json` + `config.json` (required `trigger` plus
+  agent-defined Minion settings; `config.json` is ignored when packaged for
+  sharing), `main.py` or `main.ts` (data management & enrichment triggered
   both on cron heartbeats and right after every new entry), `requirements.txt`
   or `package.json`, scripts and tests, and freely structured `data/` files
   (with nested subfolders supported) that OpenLia programs with the user as

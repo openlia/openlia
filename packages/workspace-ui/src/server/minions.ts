@@ -13,6 +13,7 @@ import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import YAML from "yaml";
 import type {
+  MinionConfig,
   MinionCreateRequest,
   MinionDetail,
   MinionDetailResponse,
@@ -23,6 +24,7 @@ import type {
   MinionRuntime,
   MinionSummary,
   MinionsListResponse,
+  MinionTriggerSpec,
   MinionTriggersConfig,
   WorkspaceFileMetadata,
 } from "../shared/api";
@@ -220,6 +222,196 @@ function uiFileSortPriority(name: string): number {
   return 3;
 }
 
+export function validateMinionTriggerSpec(
+  triggerVal: unknown,
+  fallbackSchedule: string = DEFAULT_HEARTBEAT_SCHEDULE,
+): {
+  valid: boolean;
+  errors: string[];
+  resolved: MinionTriggersConfig;
+} {
+  if (triggerVal === undefined || triggerVal === null) {
+    return {
+      valid: false,
+      errors: ["missing required property 'trigger'"],
+      resolved: { after_entry: true, heartbeat_schedule: fallbackSchedule },
+    };
+  }
+
+  if (typeof triggerVal === "string") {
+    const trimmed = triggerVal.trim();
+    if (trimmed === "entry") {
+      return {
+        valid: true,
+        errors: [],
+        resolved: { after_entry: true },
+      };
+    }
+    if (trimmed === "cron") {
+      return {
+        valid: true,
+        errors: [],
+        resolved: { after_entry: false, heartbeat_schedule: fallbackSchedule },
+      };
+    }
+    if (trimmed === "both") {
+      return {
+        valid: true,
+        errors: [],
+        resolved: { after_entry: true, heartbeat_schedule: fallbackSchedule },
+      };
+    }
+    return {
+      valid: false,
+      errors: ["trigger string must be one of 'entry', 'cron', or 'both'"],
+      resolved: { after_entry: true, heartbeat_schedule: fallbackSchedule },
+    };
+  }
+
+  if (typeof triggerVal === "object" && !Array.isArray(triggerVal)) {
+    const obj = triggerVal as Record<string, unknown>;
+    const errors: string[] = [];
+    for (const key of Object.keys(obj)) {
+      if (key !== "on_new_entry" && key !== "cron") {
+        errors.push(
+          `trigger.${key}: unrecognized property (allowed: 'on_new_entry', 'cron')`,
+        );
+      }
+    }
+    const hasOnNewEntry =
+      "on_new_entry" in obj && obj.on_new_entry !== undefined;
+    const hasCron = "cron" in obj && obj.cron !== undefined;
+
+    if (!hasOnNewEntry && !hasCron) {
+      errors.push(
+        "trigger must specify 'on_new_entry' (boolean) and/or 'cron' (non-empty string)",
+      );
+    }
+
+    let afterEntry = false;
+    if (hasOnNewEntry) {
+      if (typeof obj.on_new_entry !== "boolean") {
+        errors.push("trigger.on_new_entry must be a boolean");
+      } else {
+        afterEntry = obj.on_new_entry;
+      }
+    }
+
+    let heartbeatSchedule: string | undefined;
+    if (hasCron) {
+      if (typeof obj.cron !== "string" || !obj.cron.trim()) {
+        errors.push("trigger.cron must be a non-empty cron expression string");
+      } else {
+        heartbeatSchedule = obj.cron.trim();
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      resolved: {
+        after_entry: afterEntry,
+        ...(heartbeatSchedule ? { heartbeat_schedule: heartbeatSchedule } : {}),
+      },
+    };
+  }
+
+  return {
+    valid: false,
+    errors: [
+      "trigger must be 'entry' | 'cron' | 'both' or an object with 'on_new_entry' and/or 'cron'",
+    ],
+    resolved: { after_entry: true, heartbeat_schedule: fallbackSchedule },
+  };
+}
+
+export function validateMinionConfigObject(
+  configObj: unknown,
+  configSchema?: Record<string, unknown> | undefined,
+  fallbackSchedule: string = DEFAULT_HEARTBEAT_SCHEDULE,
+): {
+  valid: boolean;
+  errors: string[];
+  config?: MinionConfig | undefined;
+  resolvedTriggers: MinionTriggersConfig;
+} {
+  if (!configObj || typeof configObj !== "object" || Array.isArray(configObj)) {
+    return {
+      valid: false,
+      errors: ["config root must be a JSON object"],
+      resolvedTriggers: {
+        after_entry: true,
+        heartbeat_schedule: fallbackSchedule,
+      },
+    };
+  }
+
+  const record = configObj as Record<string, unknown>;
+  const errors: string[] = [];
+
+  const triggerCheck = validateMinionTriggerSpec(
+    record.trigger,
+    fallbackSchedule,
+  );
+  if (!triggerCheck.valid) {
+    errors.push(...triggerCheck.errors);
+  }
+
+  if (configSchema) {
+    try {
+      const ajv = new Ajv2020({ allErrors: true, strict: false });
+      addFormats(ajv);
+      const validate = ajv.compile(configSchema);
+      if (!validate(record)) {
+        for (const err of validate.errors ?? []) {
+          const loc = err.instancePath ? `config${err.instancePath}` : "config";
+          if (
+            err.keyword === "required" &&
+            err.params &&
+            "missingProperty" in err.params
+          ) {
+            const prop = String(err.params.missingProperty);
+            if (prop === "trigger" && !triggerCheck.valid) {
+              continue;
+            }
+            errors.push(`${loc}: missing required property '${prop}'`);
+          } else if (
+            err.keyword === "additionalProperties" &&
+            err.params &&
+            "additionalProperty" in err.params
+          ) {
+            errors.push(
+              `${loc}: unrecognized property '${String(err.params.additionalProperty)}'`,
+            );
+          } else {
+            errors.push(`${loc}: ${err.message ?? "schema validation error"}`);
+          }
+        }
+      }
+    } catch (err) {
+      errors.push(
+        err instanceof Error
+          ? err.message
+          : "failed to validate against config.schema.json",
+      );
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    ...(errors.length === 0
+      ? {
+          config: {
+            ...record,
+            trigger: record.trigger as MinionTriggerSpec,
+          },
+        }
+      : {}),
+    resolvedTriggers: triggerCheck.resolved,
+  };
+}
+
 export class MinionService {
   readonly workspaceRoot: string;
   readonly maxEditableBytes: number;
@@ -388,6 +580,70 @@ export class MinionService {
       }
     }
 
+    let configSchemaFile: string | undefined;
+    let configSchemaContent: string | undefined;
+    let configSchema: Record<string, unknown> | undefined;
+    const configSchemaAbs = join(dirAbs, "config.schema.json");
+    if (isRegularFile(configSchemaAbs)) {
+      configSchemaFile = "config.schema.json";
+      try {
+        configSchemaContent = readFileSync(configSchemaAbs, "utf-8");
+        const parsedConfigSchema = JSON.parse(configSchemaContent);
+        if (
+          !parsedConfigSchema ||
+          typeof parsedConfigSchema !== "object" ||
+          Array.isArray(parsedConfigSchema)
+        ) {
+          renderErrors.push(
+            "config.schema.json: schema root must be a JSON object",
+          );
+        } else {
+          const ajv = new Ajv2020({ allErrors: true, strict: false });
+          addFormats(ajv);
+          ajv.compile(parsedConfigSchema);
+          configSchema = parsedConfigSchema as Record<string, unknown>;
+        }
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : "invalid JSON Schema syntax";
+        renderErrors.push(`config.schema.json: ${msg}`);
+      }
+    }
+
+    let configFile: string | undefined;
+    let configContent: string | undefined;
+    let configObj: MinionConfig | undefined;
+    let effectiveTriggers: MinionTriggersConfig = parsedMeta.triggers;
+    const configAbs = join(dirAbs, "config.json");
+    if (isRegularFile(configAbs)) {
+      configFile = "config.json";
+      try {
+        configContent = readFileSync(configAbs, "utf-8");
+        const parsedConfig = JSON.parse(configContent);
+        const validation = validateMinionConfigObject(
+          parsedConfig,
+          configSchema,
+          parsedMeta.triggers.heartbeat_schedule ?? DEFAULT_HEARTBEAT_SCHEDULE,
+        );
+        effectiveTriggers = validation.resolvedTriggers;
+        if (!validation.valid) {
+          for (const err of validation.errors) {
+            renderErrors.push(`config.json: ${err}`);
+          }
+        }
+        if (
+          parsedConfig &&
+          typeof parsedConfig === "object" &&
+          !Array.isArray(parsedConfig)
+        ) {
+          configObj = parsedConfig as MinionConfig;
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "invalid JSON syntax";
+        renderErrors.push(`config.json: ${msg}`);
+      }
+    }
+
     for (const { relToMinion, meta } of allFiles) {
       const lower = relToMinion.toLowerCase();
       const ext = lower.includes(".")
@@ -417,6 +673,8 @@ export class MinionService {
         relToMinion === "input.py" ||
         relToMinion === "input.ts" ||
         relToMinion === "input.schema.json" ||
+        relToMinion === "config.json" ||
+        relToMinion === "config.schema.json" ||
         relToMinion === "requirements.txt" ||
         relToMinion === "package.json" ||
         relToMinion.startsWith("scripts/") ||
@@ -470,12 +728,14 @@ export class MinionService {
       entrypoint,
       ...(inputEntrypoint ? { input_entrypoint: inputEntrypoint } : {}),
       ...(inputSchemaFile ? { input_schema_file: inputSchemaFile } : {}),
+      ...(configFile ? { config_file: configFile } : {}),
+      ...(configSchemaFile ? { config_schema_file: configSchemaFile } : {}),
       ...(dependencyFile ? { dependency_file: dependencyFile } : {}),
       ui_files: uiFiles,
       ...(primaryUiFile ? { primary_ui_file: primaryUiFile } : {}),
       ...(dashboardUiFile ? { dashboard_ui_file: dashboardUiFile } : {}),
       ...(inputUiFile ? { input_ui_file: inputUiFile } : {}),
-      triggers: parsedMeta.triggers,
+      triggers: effectiveTriggers,
       data_file_count: dataFiles.length,
       script_file_count: codeFiles.length,
       test_file_count: testFiles.length,
@@ -487,6 +747,12 @@ export class MinionService {
       ...(inputSchema ? { input_schema: inputSchema } : {}),
       ...(inputSchemaContent !== undefined
         ? { input_schema_content: inputSchemaContent }
+        : {}),
+      ...(configObj ? { config: configObj } : {}),
+      ...(configContent !== undefined ? { config_content: configContent } : {}),
+      ...(configSchema ? { config_schema: configSchema } : {}),
+      ...(configSchemaContent !== undefined
+        ? { config_schema_content: configSchemaContent }
         : {}),
       data_files: dataFiles,
       code_files: codeFiles,
@@ -500,6 +766,10 @@ export class MinionService {
       ui_contents: _u,
       input_schema: _is,
       input_schema_content: _isc,
+      config: _cfg,
+      config_content: _cfgc,
+      config_schema: _cs,
+      config_schema_content: _csc,
       data_files: _d,
       code_files: _c,
       test_files: _t,
@@ -612,8 +882,62 @@ export class MinionService {
         ? `python3 main.py --trigger entry --entry '{"item": "..."}'`
         : `bun main.ts --trigger entry --entry '{"item": "..."}'`;
 
-    const readmeContent = `---\n${readmeFrontmatter}\n---\n# ${name}\n\n${description}\n\n## Architecture\n\n- **Dashboard (\`dashboard.openui\`)**: Main dashboard view rendered from \`data/items.json\` and \`data/context.json\`.\n- **Input Form (\`input.openui\`)**: OpenUI input form validated against \`input.schema.json\` and processed by \`${runtime === "python" ? "input.py" : "input.ts"}\`.\n- **Input Schema (\`input.schema.json\`)**: JSON Schema contract for new entries.\n- **Data & Enrichment (\`${runtime === "python" ? "main.py" : "main.ts"}\`)**: Triggered in two ways:\n  1. **Post-entry trigger (\`${mainEntryCmd}\`)**: Runs automatically after every new entry to analyze the entry in context (e.g., recommending the next exercise or action given today's recorded performance) and refresh \`dashboard.openui\`.\n  2. **Heartbeat trigger (\`${mainHeartbeatCmd}\`)**: Runs on a cron job (\`${heartbeatSchedule}\`) or manual trigger to enrich data (e.g., fetching news, latest stock prices, or periodic summaries) and refresh \`dashboard.openui\`.\n\n## CLI Usage\n\n- **Record Input**: \`${inputCmd}\`\n- **Post-Entry Analysis**: \`${mainEntryCmd}\`\n- **Heartbeat Enrichment**: \`${mainHeartbeatCmd}\`\n`;
+    const readmeContent = `---\n${readmeFrontmatter}\n---\n# ${name}\n\n${description}\n\n## Architecture\n\n- **Dashboard (\`dashboard.openui\`)**: Main dashboard view rendered from \`data/items.json\` and \`data/context.json\`.\n- **Input Form (\`input.openui\`)**: OpenUI input form validated against \`input.schema.json\` and processed by \`${runtime === "python" ? "input.py" : "input.ts"}\`.\n- **Input Schema (\`input.schema.json\`)**: JSON Schema contract for new entries.\n- **Configuration (\`config.json\` & \`config.schema.json\`)**: \`config.json\` holds local instance configuration with the required OpenLia/Hermes \`trigger\` field plus any Minion-specific settings (validated by \`config.schema.json\`; when packaged for sharing, \`config.json\` is ignored and only \`config.schema.json\` is packaged).\n- **Data & Enrichment (\`${runtime === "python" ? "main.py" : "main.ts"}\`)**: Triggered in two ways:\n  1. **Post-entry trigger (\`${mainEntryCmd}\`)**: Runs automatically after every new entry to analyze the entry in context (e.g., recommending the next exercise or action given today's recorded performance) and refresh \`dashboard.openui\`.\n  2. **Heartbeat trigger (\`${mainHeartbeatCmd}\`)**: Runs on a cron job (\`${heartbeatSchedule}\`) or manual trigger to enrich data (e.g., fetching news, latest stock prices, or periodic summaries) and refresh \`dashboard.openui\`.\n\n## CLI Usage\n\n- **Record Input**: \`${inputCmd}\`\n- **Post-Entry Analysis**: \`${mainEntryCmd}\`\n- **Heartbeat Enrichment**: \`${mainHeartbeatCmd}\`\n`;
     writeFileSync(join(dir, "README.md"), readmeContent, "utf-8");
+
+    const configSchemaObj = {
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      title: `${name} Configuration`,
+      type: "object",
+      required: ["trigger"],
+      additionalProperties: true,
+      properties: {
+        trigger: {
+          description:
+            "OpenLia/Hermes trigger configuration for main entrypoint",
+          oneOf: [
+            {
+              type: "string",
+              enum: ["entry", "cron", "both"],
+            },
+            {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                on_new_entry: {
+                  type: "boolean",
+                  default: true,
+                  description:
+                    "Run main right after input.py/input.ts records a new entry",
+                },
+                cron: {
+                  type: "string",
+                  description:
+                    "5-field cron expression for periodic heartbeat trigger",
+                },
+              },
+            },
+          ],
+        },
+      },
+    };
+    writeFileSync(
+      join(dir, "config.schema.json"),
+      `${JSON.stringify(configSchemaObj, null, 2)}\n`,
+      "utf-8",
+    );
+
+    const configObj: MinionConfig = {
+      trigger: {
+        on_new_entry: true,
+        cron: heartbeatSchedule,
+      },
+    };
+    writeFileSync(
+      join(dir, "config.json"),
+      `${JSON.stringify(configObj, null, 2)}\n`,
+      "utf-8",
+    );
 
     const inputSchemaObj = {
       $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -886,9 +1210,28 @@ import input as minion_input
 ROOT = Path(__file__).resolve().parent
 DATA_FILE = ROOT / "data" / "items.json"
 CONTEXT_FILE = ROOT / "data" / "context.json"
+CONFIG_FILE = ROOT / "config.json"
+CONFIG_SCHEMA_FILE = ROOT / "config.schema.json"
 DASHBOARD_FILE = ROOT / "dashboard.openui"
 LEGACY_UI_FILE = ROOT / "ui.openui"
 TITLE = ${JSON.stringify(name)}
+
+
+def load_config() -> dict[str, Any]:
+    raw_env = os.environ.get("OPENLIA_MINION_CONFIG_JSON", "").strip()
+    if raw_env:
+        try:
+            parsed = json.loads(raw_env)
+            if isinstance(parsed, dict) and "trigger" in parsed:
+                return parsed
+        except Exception:
+            pass
+    if not CONFIG_FILE.exists():
+        return {"trigger": {"on_new_entry": True, "cron": ${JSON.stringify(heartbeatSchedule)}}}
+    cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    if not isinstance(cfg, dict) or "trigger" not in cfg:
+        raise ValueError("config.json must be a JSON object containing 'trigger'")
+    return cfg
 
 
 def load_items() -> list[dict[str, Any]]:
@@ -963,7 +1306,11 @@ def render_ui(items: list[dict[str, Any]]) -> str:
     return render_dashboard(items)
 
 
-def analyze_new_entry(entry: dict[str, Any] | None = None) -> dict[str, Any]:
+def analyze_new_entry(
+    entry: dict[str, Any] | None = None,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    active_config = config if isinstance(config, dict) else load_config()
     items = load_items()
     target = entry if isinstance(entry, dict) and entry else (items[-1] if items else {})
     recommendation = build_recommendation(target, items)
@@ -977,6 +1324,7 @@ def analyze_new_entry(entry: dict[str, Any] | None = None) -> dict[str, Any]:
     ctx.update({
         "last_trigger": "entry",
         "updated_at": now_iso,
+        "trigger_config": active_config.get("trigger"),
         "summary": f"{len(items)} total entries ({active_count} active).",
         "latest_entry": target,
         "latest_recommendation": recommendation,
@@ -986,7 +1334,8 @@ def analyze_new_entry(entry: dict[str, Any] | None = None) -> dict[str, Any]:
     return ctx
 
 
-def run_heartbeat() -> dict[str, Any]:
+def run_heartbeat(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    active_config = config if isinstance(config, dict) else load_config()
     items = load_items()
     active_count = sum(1 for row in items if row.get("status", "active") == "active")
     completed_count = sum(1 for row in items if row.get("status") == "completed")
@@ -1002,6 +1351,7 @@ def run_heartbeat() -> dict[str, Any]:
     ctx.update({
         "last_trigger": "heartbeat",
         "updated_at": now_iso,
+        "trigger_config": active_config.get("trigger"),
         "summary": f"{len(items)} total entries ({active_count} active, {completed_count} completed).",
         "latest_recommendation": latest_rec,
         "enrichment": {
@@ -1089,6 +1439,11 @@ class MinionTests(unittest.TestCase):
         self.assertEqual(validated["item"], "Test workout")
         with self.assertRaises(ValueError):
             minion_input.validate_payload({}, schema)
+
+    def test_config_contract(self):
+        cfg = main.load_config()
+        self.assertIsInstance(cfg, dict)
+        self.assertIn("trigger", cfg)
 
 
 if __name__ == "__main__":
@@ -1266,9 +1621,30 @@ export type { MinionItem };
 
 const ROOT = import.meta.dir;
 const CONTEXT_FILE = join(ROOT, "data", "context.json");
+const CONFIG_FILE = join(ROOT, "config.json");
 const DASHBOARD_FILE = join(ROOT, "dashboard.openui");
 const LEGACY_UI_FILE = join(ROOT, "ui.openui");
 const TITLE = ${JSON.stringify(name)};
+
+export function loadConfig(): Record<string, unknown> {
+  const rawEnv = (process.env.OPENLIA_MINION_CONFIG_JSON ?? "").trim();
+  if (rawEnv) {
+    try {
+      const parsed = JSON.parse(rawEnv) as Record<string, unknown>;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "trigger" in parsed) {
+        return parsed;
+      }
+    } catch {}
+  }
+  if (!existsSync(CONFIG_FILE)) {
+    return { trigger: { on_new_entry: true, cron: ${JSON.stringify(heartbeatSchedule)} } };
+  }
+  const cfg = JSON.parse(readFileSync(CONFIG_FILE, "utf-8")) as Record<string, unknown>;
+  if (!cfg || typeof cfg !== "object" || Array.isArray(cfg) || !("trigger" in cfg)) {
+    throw new Error("config.json must be a JSON object containing 'trigger'");
+  }
+  return cfg;
+}
 
 export function loadItems(): MinionItem[] {
   return loadInputItems();
@@ -1336,7 +1712,10 @@ export function renderUi(items: MinionItem[]): string {
   return renderDashboard(items);
 }
 
-export function analyzeNewEntry(entry?: Partial<MinionItem>): Record<string, unknown> {
+export function analyzeNewEntry(
+  entry?: Partial<MinionItem>,
+  config: Record<string, unknown> = loadConfig(),
+): Record<string, unknown> {
   const items = loadItems();
   const target = entry && Object.keys(entry).length > 0 ? entry : (items.at(-1) ?? {});
   const recommendation = buildRecommendation(target, items);
@@ -1350,6 +1729,7 @@ export function analyzeNewEntry(entry?: Partial<MinionItem>): Record<string, unk
     ...loadContext(),
     last_trigger: "entry",
     updated_at: nowIso,
+    trigger_config: config.trigger,
     summary: \`\${items.length} total entries (\${activeCount} active).\`,
     latest_entry: target,
     latest_recommendation: recommendation,
@@ -1359,7 +1739,9 @@ export function analyzeNewEntry(entry?: Partial<MinionItem>): Record<string, unk
   return ctx;
 }
 
-export function runHeartbeat(): Record<string, unknown> {
+export function runHeartbeat(
+  config: Record<string, unknown> = loadConfig(),
+): Record<string, unknown> {
   const items = loadItems();
   const activeCount = items.filter((r) => (r.status || "active") === "active").length;
   const completedCount = items.filter((r) => r.status === "completed").length;
@@ -1377,6 +1759,7 @@ export function runHeartbeat(): Record<string, unknown> {
     ...prev,
     last_trigger: "heartbeat",
     updated_at: nowIso,
+    trigger_config: config.trigger,
     summary: \`\${items.length} total entries (\${activeCount} active, \${completedCount} completed).\`,
     latest_recommendation: latestRec,
     enrichment: {
@@ -1430,7 +1813,7 @@ if (import.meta.main) {
 
       const testTs = `import { expect, test } from "bun:test";
 import { loadSchema, validatePayload } from "../input";
-import { loadItems, renderDashboard } from "../main";
+import { loadConfig, loadItems, renderDashboard } from "../main";
 
 test("loads items and renders OpenUI dashboard", () => {
   const items = loadItems();
@@ -1447,9 +1830,59 @@ test("validates input against input.schema.json", () => {
   expect(valid.item).toBe("Morning run");
   expect(() => validatePayload({}, schema)).toThrow();
 });
+
+test("loads config.json with required trigger", () => {
+  const cfg = loadConfig();
+  expect(typeof cfg).toBe("object");
+  expect("trigger" in cfg).toBe(true);
+});
 `;
       writeFileSync(join(dir, "tests", "main.test.ts"), testTs, "utf-8");
     }
+
+    return this.getMinion(id);
+  }
+
+  updateMinionConfig(id: string, rawBody: unknown): MinionDetailResponse {
+    const dir = this.resolveMinionDir(id);
+    const { minion: before } = this.getMinion(id);
+
+    if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+      throw new WorkspaceError(
+        "config payload must be a JSON object",
+        400,
+        "invalid_minion_config",
+      );
+    }
+
+    const bodyRecord = rawBody as Record<string, unknown>;
+    const candidateConfig =
+      "config" in bodyRecord &&
+      !("trigger" in bodyRecord) &&
+      bodyRecord.config &&
+      typeof bodyRecord.config === "object" &&
+      !Array.isArray(bodyRecord.config)
+        ? (bodyRecord.config as Record<string, unknown>)
+        : bodyRecord;
+
+    const validation = validateMinionConfigObject(
+      candidateConfig,
+      before.config_schema,
+      before.triggers?.heartbeat_schedule ?? DEFAULT_HEARTBEAT_SCHEDULE,
+    );
+    if (!validation.valid) {
+      throw new WorkspaceError(
+        `Config validation failed against ${before.config_schema_file ?? "config.schema.json"}: ${validation.errors.join("; ")}`,
+        400,
+        "invalid_minion_config",
+      );
+    }
+
+    writeFileSync(
+      join(dir, "config.json"),
+      `${JSON.stringify(candidateConfig, null, 2)}\n`,
+      "utf-8",
+    );
 
     return this.getMinion(id);
   }
@@ -1764,6 +2197,8 @@ test("validates input against input.schema.json", () => {
           ? req.input.trim()
           : "";
 
+    const serializedConfig = before.config ? JSON.stringify(before.config) : "";
+
     const cmd =
       before.runtime === "python" ? this.resolvePythonBin(dir) : "bun";
 
@@ -1786,6 +2221,9 @@ test("validates input against input.schema.json", () => {
           OPENLIA_MINION_TRIGGER: "entry",
           OPENLIA_MINION_INPUT: textInput,
           OPENLIA_MINION_INPUT_JSON: serializedPayload,
+          ...(serializedConfig
+            ? { OPENLIA_MINION_CONFIG_JSON: serializedConfig }
+            : {}),
         },
       );
       const { minion } = this.getMinion(id);
@@ -1825,6 +2263,9 @@ test("validates input against input.schema.json", () => {
       OPENLIA_MINION_TRIGGER: "input",
       OPENLIA_MINION_INPUT: textInput,
       OPENLIA_MINION_INPUT_JSON: serializedPayload,
+      ...(serializedConfig
+        ? { OPENLIA_MINION_CONFIG_JSON: serializedConfig }
+        : {}),
     });
 
     const steps: MinionExecutionStep[] = [
@@ -1860,6 +2301,9 @@ test("validates input against input.schema.json", () => {
           OPENLIA_MINION_ENTRY_JSON: serializedPayload,
           OPENLIA_MINION_INPUT: textInput,
           OPENLIA_MINION_INPUT_JSON: serializedPayload,
+          ...(serializedConfig
+            ? { OPENLIA_MINION_CONFIG_JSON: serializedConfig }
+            : {}),
         },
       );
       steps.push({
@@ -1908,6 +2352,7 @@ test("validates input against input.schema.json", () => {
       }
     }
 
+    const serializedConfig = before.config ? JSON.stringify(before.config) : "";
     const cmd =
       before.runtime === "python" ? this.resolvePythonBin(dir) : "bun";
     const result = await this.execSubprocess(
@@ -1919,6 +2364,9 @@ test("validates input against input.schema.json", () => {
         OPENLIA_MINION_ID: before.id,
         OPENLIA_MINION_TRIGGER: "heartbeat",
         OPENLIA_MINION_ACTION: "heartbeat",
+        ...(serializedConfig
+          ? { OPENLIA_MINION_CONFIG_JSON: serializedConfig }
+          : {}),
       },
     );
 
@@ -1991,6 +2439,7 @@ test("validates input against input.schema.json", () => {
 
     const effectiveTrigger =
       req.trigger ?? (hasInputData ? "entry" : "heartbeat");
+    const serializedConfig = before.config ? JSON.stringify(before.config) : "";
     const extraEnv: Record<string, string> = {
       OPENLIA_WORKSPACE_ROOT: this.workspaceRoot,
       OPENLIA_MINION_ID: before.id,
@@ -2003,6 +2452,9 @@ test("validates input against input.schema.json", () => {
         : {}),
       ...(req.data && typeof req.data === "object"
         ? { OPENLIA_MINION_ENTRY_JSON: JSON.stringify(req.data) }
+        : {}),
+      ...(serializedConfig
+        ? { OPENLIA_MINION_CONFIG_JSON: serializedConfig }
         : {}),
     };
 

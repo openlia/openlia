@@ -43,11 +43,19 @@ def run_offline_tests(selected_skill: str = "") -> bool:
     sys_pattern = os.path.join(
         SYSTEM_SKILLS_DIR, selected_skill or "*", "scripts", "validate_workspace.py"
     )
+    minion_sys_pattern = os.path.join(
+        SYSTEM_SKILLS_DIR, selected_skill or "*", "scripts", "minion_tool.py"
+    )
     pattern = os.path.join(SKILLS_DIR, selected_skill or "*", "scripts", "*.py")
     feat_pattern = os.path.join(
         FEATURES_DIR, "*", "skills", selected_skill or "*", "scripts", "*.py"
     )
-    scripts = sorted(glob.glob(sys_pattern) + glob.glob(pattern) + glob.glob(feat_pattern))
+    scripts = sorted(
+        glob.glob(sys_pattern)
+        + glob.glob(minion_sys_pattern)
+        + glob.glob(pattern)
+        + glob.glob(feat_pattern)
+    )
     if not scripts:
         print(f"No skill scripts found matching pattern: {pattern}")
         return True

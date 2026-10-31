@@ -115,4 +115,8 @@ private reads, mutations, navigation, or chat. An unavailable-data state is not 
 syntax failure. Chat actions prepare a draft for user review, never send it.
 
 For the shared syntax and security rules, read
-`../workspace-template-customization/references/openui-spec.md`.
+`../workspace-template-customization/references/openui-spec.md`. When building or
+updating a Workspace Minion (`minions/<slug>/` with `dashboard.openui`,
+`input.openui`, `input.schema.json`, `config.schema.json`, and `config.json`),
+also load `../minion-authoring/SKILL.md` and use `openui_describe(component: "Form")`
+plus `minion_validate`.

@@ -299,6 +299,10 @@ export interface WorkspaceApi {
   listMinions(): Promise<MinionsListResponse>;
   getMinion(id: string): Promise<MinionDetailResponse>;
   createMinion(request: MinionCreateRequest): Promise<MinionDetailResponse>;
+  updateMinionConfig(
+    id: string,
+    config: Record<string, unknown>,
+  ): Promise<MinionDetailResponse>;
   installMinionDependencies(id: string): Promise<MinionRunResponse>;
   submitMinionInput(
     id: string,
@@ -1724,6 +1728,19 @@ export const httpWorkspaceApi: WorkspaceApi = {
       },
     );
     notifyWorkspaceFileChange(`minions/${res.minion.id}/README.md`);
+    return res;
+  },
+  updateMinionConfig: async (id, config) => {
+    const res = await requestJson<MinionDetailResponse>(
+      `/api/minions/${encodeURIComponent(id)}/config`,
+      isMinionDetailResponse,
+      {
+        body: JSON.stringify(config),
+        headers: { "Content-Type": "application/json" },
+        method: "PUT",
+      },
+    );
+    notifyWorkspaceFileChange(`minions/${id}/config.json`);
     return res;
   },
   installMinionDependencies: (id) =>

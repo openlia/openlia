@@ -70,4 +70,19 @@ export const openUIRecipes = [
     components: ["SankeyDiagram"],
     code: 'SankeyDiagram(nodes: [{id: "a", label: "Income"}, {id: "b", label: "Savings"}], links: [{source: "a", target: "b", value: 100}])',
   },
+  {
+    name: "minion-input-form",
+    components: [
+      "Card",
+      "CardHeader",
+      "Form",
+      "FormControl",
+      "Input",
+      "Select",
+      "SelectItem",
+      "Buttons",
+      "Button",
+    ],
+    code: 'Card(children: [CardHeader(title: "Record Entry", subtitle: "Validated by input.schema.json"), Form(name: "minionInput", fields: [FormControl(label: "Entry", input: Input(name: "item", placeholder: "Describe activity...", rules: {required: true})), FormControl(label: "Status", input: Select(name: "status", placeholder: "Select status...", items: [SelectItem(value: "active", label: "Active"), SelectItem(value: "completed", label: "Completed")]))], buttons: Buttons(buttons: [Button(label: "Submit Entry", variant: "primary")]))])',
+  },
 ];

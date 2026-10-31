@@ -396,6 +396,91 @@ function validateRecordStructure(
       "document",
     );
   }
+  if (/^minions\/[^/]+\/config\.json$/i.test(normalized)) {
+    const schemaRel = normalized.replace(
+      /\/config\.json$/i,
+      "/config.schema.json",
+    );
+    const schemaAbs = resolve(workspaceRoot, schemaRel);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      return {
+        errors: ["File is not valid JSON"],
+        schema_path: schemaRel,
+        valid: false,
+      };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {
+        errors: ["config: root must be a JSON object"],
+        schema_path: schemaRel,
+        valid: false,
+      };
+    }
+    const cfgRecord = parsed as Record<string, unknown>;
+    const triggerErrors: string[] = [];
+    const triggerVal = cfgRecord.trigger;
+    if (triggerVal === undefined || triggerVal === null) {
+      triggerErrors.push("config: missing required property 'trigger'");
+    } else if (typeof triggerVal === "string") {
+      if (!["entry", "cron", "both"].includes(triggerVal.trim())) {
+        triggerErrors.push(
+          "config.trigger: string must be one of 'entry', 'cron', or 'both'",
+        );
+      }
+    } else if (typeof triggerVal === "object" && !Array.isArray(triggerVal)) {
+      const tObj = triggerVal as Record<string, unknown>;
+      for (const k of Object.keys(tObj)) {
+        if (k !== "on_new_entry" && k !== "cron") {
+          triggerErrors.push(`config.trigger.${k}: unrecognized property`);
+        }
+      }
+      const hasEntry =
+        "on_new_entry" in tObj && tObj.on_new_entry !== undefined;
+      const hasCron = "cron" in tObj && tObj.cron !== undefined;
+      if (!hasEntry && !hasCron) {
+        triggerErrors.push(
+          "config.trigger: must specify 'on_new_entry' and/or 'cron'",
+        );
+      }
+      if (hasEntry && typeof tObj.on_new_entry !== "boolean") {
+        triggerErrors.push("config.trigger.on_new_entry: must be a boolean");
+      }
+      if (hasCron && (typeof tObj.cron !== "string" || !tObj.cron.trim())) {
+        triggerErrors.push(
+          "config.trigger.cron: must be a non-empty cron expression string",
+        );
+      }
+    } else {
+      triggerErrors.push(
+        "config.trigger: must be 'entry' | 'cron' | 'both' or an object with 'on_new_entry' and/or 'cron'",
+      );
+    }
+
+    if (existsSync(schemaAbs)) {
+      const schemaRes = schemaValidation(
+        workspaceRoot,
+        parsed,
+        schemaAbs,
+        "config",
+      );
+      const combined = Array.from(
+        new Set([...triggerErrors, ...schemaRes.errors]),
+      );
+      return {
+        errors: combined,
+        schema_path: schemaRel,
+        valid: combined.length === 0,
+      };
+    }
+    return {
+      errors: triggerErrors,
+      schema_path: schemaRel,
+      valid: triggerErrors.length === 0,
+    };
+  }
   if (!normalized.toLowerCase().endsWith(".md"))
     return { errors: [], valid: true };
   const { hasFrontmatter, metadata, body } = parseRecordFrontmatter(content);
@@ -583,7 +668,9 @@ export function validateEntireWorkspace(
       if (entry.isDirectory()) visit(absolute);
       else if (
         entry.isFile() &&
-        (path.toLowerCase().endsWith(".md") || isConfigurationPath(path))
+        (path.toLowerCase().endsWith(".md") ||
+          isConfigurationPath(path) ||
+          /^minions\/[^/]+\/config\.json$/i.test(path))
       )
         try {
           const validation = validateRecordContent(

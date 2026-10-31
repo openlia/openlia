@@ -2392,6 +2392,37 @@ export function createWorkspaceHandler(
         return json(await minionService.installMinionDependencies(id));
       }
       if (
+        request.method === "PUT" &&
+        url.pathname.startsWith("/api/minions/") &&
+        url.pathname.endsWith("/config")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/minions/";
+        const suffix = "/config";
+        const id = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        const bodyResult = await readJson(request, 64 * 1024);
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        if (!isObject(bodyResult.value))
+          return json(
+            { schema: 1, ok: false, error: "request_body_must_be_json" },
+            400,
+          );
+        return json(minionService.updateMinionConfig(id, bodyResult.value));
+      }
+      if (
         request.method === "POST" &&
         url.pathname.startsWith("/api/minions/") &&
         url.pathname.endsWith("/input")

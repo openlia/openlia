@@ -154,6 +154,12 @@ class WorkspaceStructureTests(unittest.TestCase):
         (minion_dir / "input.schema.json").write_text(
             '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["item"],"properties":{"item":{"type":"string"}}}\n'
         )
+        (minion_dir / "config.schema.json").write_text(
+            '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["trigger"],"properties":{"trigger":{"type":"object","properties":{"on_new_entry":{"type":"boolean"},"cron":{"type":"string"}},"additionalProperties":false},"news_url":{"type":"string"}},"additionalProperties":true}\n'
+        )
+        (minion_dir / "config.json").write_text(
+            '{"trigger":{"on_new_entry":true,"cron":"0 */6 * * *"},"news_url":"https://example.com/news.json"}\n'
+        )
         (minion_dir / "main.py").write_text("print('ok')\n")
         (minion_dir / "requirements.txt").write_text("pyyaml>=6.0\n")
         (minion_dir / "dashboard.openui").write_text(
@@ -177,9 +183,18 @@ class WorkspaceStructureTests(unittest.TestCase):
         self.assertEqual(by_path["minions/gym-tracker"].get("entrypoint"), "main.py")
         self.assertEqual(by_path["minions/gym-tracker"].get("input_entrypoint"), "input.py")
         self.assertEqual(by_path["minions/gym-tracker"].get("input_schema"), "input.schema.json")
+        self.assertEqual(by_path["minions/gym-tracker"].get("config_file"), "config.json")
+        self.assertEqual(by_path["minions/gym-tracker"].get("config_schema"), "config.schema.json")
         self.assertEqual(by_path["minions/gym-tracker"].get("dashboard_ui"), "dashboard.openui")
         self.assertEqual(by_path["minions/gym-tracker"].get("input_ui"), "input.openui")
         self.assertEqual(by_path["minions/gym-tracker"].get("label"), "Gym Tracker")
+
+        (minion_dir / "config.json").write_text('{"news_url":"https://example.com/missing-trigger"}\n')
+        errors_bad_config = validator.validate_workspace(self.workspace)
+        self.assertTrue(any("minions/gym-tracker/config.json: missing required property 'trigger'" in e for e in errors_bad_config))
+        (minion_dir / "config.json").write_text(
+            '{"trigger":{"on_new_entry":true,"cron":"0 */6 * * *"},"news_url":"https://example.com/news.json"}\n'
+        )
 
         (minion_dir / "dashboard.openui").write_text("Table(columns: [)\n")
         warnings = validator.inline_openui_warnings(self.workspace)

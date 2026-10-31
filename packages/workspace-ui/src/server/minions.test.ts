@@ -58,6 +58,14 @@ describe("Minions service and HTTP API", () => {
     expect(createBody.minion.entrypoint).toBe("main.ts");
     expect(createBody.minion.input_entrypoint).toBe("input.ts");
     expect(createBody.minion.input_schema_file).toBe("input.schema.json");
+    expect(createBody.minion.config_file).toBe("config.json");
+    expect(createBody.minion.config_schema_file).toBe("config.schema.json");
+    expect(createBody.minion.config).toEqual({
+      trigger: {
+        on_new_entry: true,
+        cron: "0 */4 * * *",
+      },
+    });
     expect(createBody.minion.renderable).toBe(true);
     expect(createBody.minion.primary_ui_file).toBe("dashboard.openui");
     expect(createBody.minion.dashboard_ui_file).toBe("dashboard.openui");
@@ -286,6 +294,78 @@ describe("Minions service and HTTP API", () => {
     expect(pyTestRes.status).toBe(200);
     const pyTestBody = (await pyTestRes.json()) as any;
     expect(pyTestBody.ok).toBe(true);
+
+    // 11. Update config.json via PUT /api/minions/family-menu/config with custom agent-defined fields
+    // and disable on_new_entry so submitMinionInput skips post_entry_main
+    const updateCfgRes = await handler(
+      new Request("http://localhost/api/minions/family-menu/config", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({
+          config: {
+            trigger: {
+              on_new_entry: false,
+              cron: "0 7 * * *",
+            },
+            news_url: "https://example.com/food-news.json",
+            calendar_rem_path: "../../calendar/reminders.rem",
+          },
+        }),
+      }),
+    );
+    expect(updateCfgRes.status).toBe(200);
+    const updateCfgBody = (await updateCfgRes.json()) as any;
+    expect(updateCfgBody.minion.triggers).toEqual({
+      after_entry: false,
+      heartbeat_schedule: "0 7 * * *",
+    });
+    expect(updateCfgBody.minion.config.news_url).toBe(
+      "https://example.com/food-news.json",
+    );
+
+    // Submitting input when trigger.on_new_entry is false only runs input.py (1 step)
+    const inputOnlyRes = await handler(
+      new Request("http://localhost/api/minions/family-menu/input", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({
+          data: {
+            item: "Bun Cha for Monday dinner",
+            category: "dinner",
+          },
+        }),
+      }),
+    );
+    expect(inputOnlyRes.status).toBe(200);
+    const inputOnlyBody = (await inputOnlyRes.json()) as any;
+    expect(inputOnlyBody.ok).toBe(true);
+    expect(inputOnlyBody.steps).toHaveLength(1);
+    expect(inputOnlyBody.steps[0].step).toBe("input");
+
+    // Reject invalid config.json missing required trigger
+    const badCfgRes = await handler(
+      new Request("http://localhost/api/minions/family-menu/config", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({
+          config: {
+            news_url: "https://example.com/missing-trigger",
+          },
+        }),
+      }),
+    );
+    expect(badCfgRes.status).toBe(400);
+    const badCfgBody = (await badCfgRes.json()) as any;
+    expect(badCfgBody.error).toBe("invalid_minion_config");
   });
 
   test("extractFormDataFromOpenUIEvent unwraps OpenUI Form state", () => {

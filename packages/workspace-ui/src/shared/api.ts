@@ -1087,6 +1087,20 @@ export type MinionRuntime = "python" | "typescript";
 
 export type MinionTriggerKind = "entry" | "heartbeat" | "input" | "manual";
 
+export type MinionTriggerSpec =
+  | "entry"
+  | "cron"
+  | "both"
+  | {
+      on_new_entry?: boolean | undefined;
+      cron?: string | undefined;
+    };
+
+export interface MinionConfig {
+  trigger: MinionTriggerSpec;
+  [key: string]: unknown;
+}
+
 export interface MinionTriggersConfig {
   after_entry: boolean;
   heartbeat_schedule?: string | undefined;
@@ -1110,6 +1124,8 @@ export interface MinionSummary {
   entrypoint: "main.py" | "main.ts";
   input_entrypoint?: "input.py" | "input.ts" | undefined;
   input_schema_file?: string | undefined;
+  config_file?: string | undefined;
+  config_schema_file?: string | undefined;
   dependency_file?: "requirements.txt" | "package.json" | undefined;
   ui_files: string[];
   dashboard_ui_file?: string | undefined;
@@ -1129,6 +1145,10 @@ export interface MinionDetail extends MinionSummary {
   ui_contents: Record<string, string>;
   input_schema?: Record<string, unknown> | undefined;
   input_schema_content?: string | undefined;
+  config?: MinionConfig | undefined;
+  config_content?: string | undefined;
+  config_schema?: Record<string, unknown> | undefined;
+  config_schema_content?: string | undefined;
   data_files: WorkspaceFileMetadata[];
   code_files: WorkspaceFileMetadata[];
   test_files: WorkspaceFileMetadata[];
