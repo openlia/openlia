@@ -32,12 +32,17 @@ grows organically or by installing profiles, features, and skills from
   add a schema only for useful validation, queries, or automation. Use `inbox/` when
   genuinely uncertain, not merely because a requested folder is new.
 - When the user wants an interactive programmable tracker or workspace app (e.g.
-  family menu, gym tracker, shopping list) where the user acts as **Project Owner**
-  and quickly inputs data via UI or chat, create or update a **Minion** under
-  `minions/<slug>/` containing `README.md`, `main.py` or `main.ts`,
-  `requirements.txt` or `package.json`, scripts and tests (`scripts/`, `tests/`),
-  `ui.openui`, and structured data under `data/` (nested subfolders allowed). You
-  have full autonomy inside `minions/<slug>/` to install dependencies, run tests
+  family menu, gym tracker, portfolio tracker) where the user acts as **Project Owner**
+  and inputs data via form, quick bar, or chat, create or update a **Minion** under
+  `minions/<slug>/` containing:
+  - `README.md` (with `triggers` and `quick_actions` frontmatter)
+  - `dashboard.openui` (the main OpenUI dashboard)
+  - `input.openui` (the OpenUI input form)
+  - `input.schema.json` (JSON Schema validating the input form)
+  - `input.py` or `input.ts` (validates and records new entries into `data/`)
+  - `main.py` or `main.ts` (data management & enrichment triggered in 2 ways: `--trigger heartbeat` on a cron job to enrich data like news/stock prices, and `--trigger entry` right after every new entry to analyze the new entry in context, such as recommending the next exercise given today's performance, and update `dashboard.openui`)
+  - `requirements.txt` or `package.json`, scripts and tests (`scripts/`, `tests/`), and structured data under `data/` (nested subfolders allowed).
+  You have full autonomy inside `minions/<slug>/` to install dependencies, run tests
   and entrypoints, and update `.openui` views and `data/` files. Link Minions via
   `openlia://minions/<slug>`.
 - Workspace Maintainer delivers advisory findings after edits. Saving and

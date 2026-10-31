@@ -547,13 +547,16 @@ class PolicyPluginTests(unittest.TestCase):
             )
         )
 
-        # Running entrypoint, tests, and installing dependencies inside minions/<slug>/ is allowed autonomously
+        # Running entrypoint, input handler, triggers, tests, and installing dependencies inside minions/<slug>/ is allowed autonomously
         autonomous_commands = [
+            "python3 minions/gym-tracker/input.py --data '{\"item\": \"Squat 100kg\", \"notes\": \"w/ belt\"}'",
+            "python3 minions/gym-tracker/main.py --trigger entry --entry '{\"item\": \"Squat 100kg\"}'",
+            "python3 minions/gym-tracker/main.py --trigger heartbeat",
             "python3 minions/gym-tracker/main.py --input 'Squat 100kg'",
             "pytest minions/gym-tracker/tests",
             "python3 -m venv minions/gym-tracker/.venv && minions/gym-tracker/.venv/bin/pip install -r minions/gym-tracker/requirements.txt",
             "uv pip install -r minions/gym-tracker/requirements.txt",
-            "cd minions/gym-tracker && bun install && bun test && bun main.ts",
+            "cd minions/gym-tracker && bun install && bun test && bun main.ts --trigger heartbeat",
             "bun install --cwd=minions/gym-tracker",
         ]
         for cmd in autonomous_commands:
@@ -561,6 +564,31 @@ class PolicyPluginTests(unittest.TestCase):
                 self.policy.pre_tool_call("terminal", {"command": cmd}),
                 cmd,
             )
+
+        # Scheduled cron heartbeat runs for minions are also allowed when scheduled_work is enabled
+        self.policy.on_session_start(session_id="cron-minion-hb", platform="cron")
+        self.assertIsNone(
+            self.policy.pre_tool_call(
+                "terminal",
+                {"command": "python3 minions/gym-tracker/main.py --trigger heartbeat"},
+                session_id="cron-minion-hb",
+            )
+        )
+        self.assertIsNone(
+            self.policy.pre_tool_call(
+                "write_file",
+                {"path": "minions/gym-tracker/dashboard.openui", "content": 'CardHeader(title: "Gym")\n'},
+                session_id="cron-minion-hb",
+            )
+        )
+        # Structural schema edits remain blocked during scheduled runs
+        scheduled_schema = self.policy.pre_tool_call(
+            "write_file",
+            {"path": "minions/gym-tracker/input.schema.json", "content": "{}"},
+            session_id="cron-minion-hb",
+        )
+        self.assertIsNotNone(scheduled_schema)
+        self.assertEqual(scheduled_schema["action"], "block")
 
         # Commands escaping minions/<slug>/ or running arbitrary python outside minions still require approval
         non_minion_commands = [

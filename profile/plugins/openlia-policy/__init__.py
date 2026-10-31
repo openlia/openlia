@@ -470,6 +470,8 @@ class PolicyEnforcer:
             return _block(
                 f"OpenLia policy blocked scheduled structural edit on {relative_path}."
             )
+        if _is_minion_path(relative_path):
+            return None
         destination = scheduled_policy.get("report_destination", "inbox/daily-briefing")
         if _within(relative_path, destination):
             return None
@@ -559,7 +561,11 @@ class PolicyEnforcer:
                     )
             else:
                 if scheduled:
-                    if exists and operation in {"add", "replace"}:
+                    if (
+                        exists
+                        and operation in {"add", "replace"}
+                        and not _is_minion_path(relative_path)
+                    ):
                         return _block(
                             f"OpenLia policy blocked scheduled overwrite of {relative_path}."
                         )
@@ -613,7 +619,13 @@ class PolicyEnforcer:
             return self._destructive_action(authority, "delete_records", "terminal target")
         if re.search(r"\bgit\s+(?:clean|reset|restore|checkout)\b", lowered):
             return self._destructive_action(authority, "overwrite_records", "terminal target")
-        if not scheduled and self._minion_terminal_allowed(command):
+        if self._minion_terminal_allowed(command):
+            if scheduled and not authority.permissions.get("scheduled_work", {}).get(
+                "enabled", True
+            ):
+                return _block(
+                    "OpenLia policy blocked scheduled work: scheduled_work is disabled."
+                )
             return None
         if _REDIRECT.search(command) or re.search(
             r"\b(?:cp|install|mkdir|mv|tee|touch|truncate|shred|dd)\b", lowered
@@ -738,7 +750,17 @@ class PolicyEnforcer:
                 return False
 
             segment_minion = active_minion
+            skip_next_as_payload = False
+            value_flags = {"--data", "--entry", "--input", "--action", "--trigger"}
             for arg in tokens[1:]:
+                if skip_next_as_payload:
+                    skip_next_as_payload = False
+                    continue
+                if arg in value_flags:
+                    skip_next_as_payload = True
+                    continue
+                if any(arg.startswith(f"{flag}=") for flag in value_flags):
+                    continue
                 if ".." in arg.split("/"):
                     return False
                 if arg.startswith("-"):

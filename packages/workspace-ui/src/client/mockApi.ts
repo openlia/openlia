@@ -54,31 +54,31 @@ import type {
   WorkspaceWriteResponse,
 } from "../shared/api";
 import type { CalendarEvent } from "../shared/calendar";
-import { createFinanceMock } from "./financeMock";
-import {
-  isMemoryDocument,
-  MEMORY_FILENAMES,
-  memoryDocumentPath,
-} from "../shared/memory";
 import type {
   CreateCronJobInput,
   CronOverviewResponse,
   HermesCronJob,
   UpdateCronJobInput,
 } from "../shared/cron";
+import {
+  getBuiltinDomainContract,
+  mergeBuiltinSchemaProperties,
+} from "../shared/domainContracts";
+import {
+  isMemoryDocument,
+  MEMORY_FILENAMES,
+  memoryDocumentPath,
+} from "../shared/memory";
 import { suggestPasswordProfiles } from "../shared/passwordSuggester";
 import { ApiError, type WorkspaceApi } from "./api";
-import { mockUsage } from "./usageMock";
 import { createChatMock } from "./chatMock";
+import { createFinanceMock } from "./financeMock";
 import {
   mutateRecordFrontmatter,
   parseMarkdownRecord,
   updateRecordSectionContent,
 } from "./openui/recordMutator";
-import {
-  getBuiltinDomainContract,
-  mergeBuiltinSchemaProperties,
-} from "../shared/domainContracts";
+import { mockUsage } from "./usageMock";
 import { notifyWorkspaceFileChange } from "./workspaceFileChanges";
 
 export type MockWorkspaceScenario =
@@ -2390,13 +2390,33 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         description: `${id} minion`,
         runtime: "python",
         entrypoint: "main.py",
-        ui_files: ["ui.openui"],
-        primary_ui_file: "ui.openui",
-        ui_contents: {
-          "ui.openui": 'root = Stack([\n  Text("Minion Dashboard", "h2")\n])\n',
+        input_entrypoint: "input.py",
+        input_schema_file: "input.schema.json",
+        ui_files: ["dashboard.openui", "input.openui"],
+        primary_ui_file: "dashboard.openui",
+        dashboard_ui_file: "dashboard.openui",
+        input_ui_file: "input.openui",
+        triggers: {
+          after_entry: true,
+          heartbeat_schedule: "0 */6 * * *",
         },
-        data_file_count: 1,
-        script_file_count: 1,
+        ui_contents: {
+          "dashboard.openui":
+            'Stack(children: [\n  Callout(variant: "info", title: "Context & Recommendations", description: "1 total entry."),\n  Table(title: "Minion Dashboard", columns: [{key: "date", label: "Date"}, {key: "item", label: "Item"}], rows: [])\n])\n',
+          "input.openui":
+            'Card(children: [\n  CardHeader(title: "Record Entry"),\n  Form(name: "minionInput", fields: [\n    FormControl(label: "Entry", input: Input(name: "item", placeholder: "Describe activity...", rules: {required: true}))\n  ], buttons: Buttons(buttons: [\n    Button(label: "Submit Entry", variant: "primary")\n  ]))\n])\n',
+        },
+        input_schema: {
+          type: "object",
+          required: ["item"],
+          properties: {
+            item: { type: "string", title: "Entry" },
+          },
+        },
+        input_schema_content:
+          '{\n  "type": "object",\n  "required": ["item"],\n  "properties": {\n    "item": { "type": "string", "title": "Entry" }\n  }\n}\n',
+        data_file_count: 2,
+        script_file_count: 3,
         test_file_count: 1,
         renderable: true,
         readme_content: `# ${id}\n\n${id} minion`,
@@ -2429,6 +2449,68 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         stdout: "Dependencies installed",
         stderr: "",
         duration_ms: 42,
+        minion,
+      };
+    },
+    async submitMinionInput(
+      id: string,
+      _request?: MinionRunRequest,
+    ): Promise<MinionRunResponse> {
+      requireAuthentication();
+      const { minion } = await this.getMinion(id);
+      return {
+        schema: 1,
+        ok: true,
+        exit_code: 0,
+        stdout:
+          "Added entry (2 total)\nPost-entry analysis complete (2 total): Next step recommended.",
+        stderr: "",
+        duration_ms: 35,
+        steps: [
+          {
+            step: "input",
+            script: "input.py",
+            exit_code: 0,
+            stdout: "Added entry (2 total)\n",
+            stderr: "",
+            duration_ms: 15,
+          },
+          {
+            step: "post_entry_main",
+            script: "main.py",
+            exit_code: 0,
+            stdout:
+              "Post-entry analysis complete (2 total): Next step recommended.\n",
+            stderr: "",
+            duration_ms: 20,
+          },
+        ],
+        minion,
+      };
+    },
+    async runMinionHeartbeat(
+      id: string,
+      _request?: MinionRunRequest,
+    ): Promise<MinionRunResponse> {
+      requireAuthentication();
+      const { minion } = await this.getMinion(id);
+      return {
+        schema: 1,
+        ok: true,
+        exit_code: 0,
+        stdout: "Heartbeat enrichment complete (1 entries)",
+        stderr: "",
+        duration_ms: 28,
+        steps: [
+          {
+            step: "heartbeat",
+            script: "main.py",
+            exit_code: 0,
+            stdout: "Heartbeat enrichment complete (1 entries)\n",
+            stderr: "",
+            duration_ms: 28,
+          },
+        ],
         minion,
       };
     },

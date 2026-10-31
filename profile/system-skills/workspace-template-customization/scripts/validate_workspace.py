@@ -424,7 +424,9 @@ def validate_workspace_policy(workspace_root: Path) -> tuple[list[str], set[Path
     return [], set()
 
 
-def validate_minions(workspace_root: Path) -> list[str]:
+def validate_minions(
+    workspace_root: Path, referenced_schemas: set[Path] | None = None
+) -> list[str]:
     """Validate structure of Minions under minions/<slug>/."""
     root = workspace_root.expanduser().resolve()
     minions_dir = root / "minions"
@@ -450,6 +452,33 @@ def validate_minions(workspace_root: Path) -> list[str]:
         has_ts = (entry / "main.ts").is_file() and not (entry / "main.ts").is_symlink()
         if not (has_py or has_ts):
             errors.append(f"{rel}: minion requires a main.py or main.ts entrypoint")
+
+        input_openui = entry / "input.openui"
+        if input_openui.exists():
+            if input_openui.is_symlink() or not input_openui.is_file():
+                errors.append(f"{_relative(input_openui, root)}: must be a regular file")
+            else:
+                has_input_py = (entry / "input.py").is_file() and not (entry / "input.py").is_symlink()
+                has_input_ts = (entry / "input.ts").is_file() and not (entry / "input.ts").is_symlink()
+                if not (has_input_py or has_input_ts):
+                    errors.append(f"{rel}: minion with input.openui requires input.py or input.ts")
+                input_schema = entry / "input.schema.json"
+                if input_schema.is_symlink() or not input_schema.is_file():
+                    errors.append(f"{rel}: minion with input.openui requires input.schema.json")
+
+        for schema_file in sorted(entry.rglob("*.schema.json")):
+            if _is_ignored_workspace_path(schema_file, root):
+                continue
+            schema_rel = _relative(schema_file, root)
+            if schema_file.is_symlink():
+                errors.append(f"{schema_rel}: symbolic links are not validated")
+                continue
+            if referenced_schemas is not None:
+                referenced_schemas.add(schema_file.resolve())
+            try:
+                load_schema(schema_file)
+            except ValueError as exc:
+                errors.append(f"{schema_rel}: {exc}")
     return errors
 
 
@@ -464,7 +493,6 @@ def validate_workspace(workspace_root: Path) -> list[str]:
     errors.extend(registry_errors)
     policy_errors, referenced_policy_schemas = validate_workspace_policy(root)
     errors.extend(policy_errors)
-    errors.extend(validate_minions(root))
     templates = [
         p for p in sorted(root.rglob(f"*{TEMPLATE_SUFFIX}"))
         if not _is_ignored_workspace_path(p, root)
@@ -474,6 +502,7 @@ def validate_workspace(workspace_root: Path) -> list[str]:
     invalid_templates: set[Path] = set()
     referenced_schemas: set[Path] = set(referenced_registry_schemas)
     referenced_schemas.update(referenced_policy_schemas)
+    errors.extend(validate_minions(root, referenced_schemas=referenced_schemas))
     feature_schema = feature_schema_path(root)
     if feature_schema.exists():
         try:

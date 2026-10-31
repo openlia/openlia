@@ -27,21 +27,14 @@ import type {
   WorkspaceWriteRequest,
 } from "../shared/api";
 import { Authenticator } from "./auth";
-import { ChatService, type ChatOptions } from "./chat";
+import { CalendarService } from "./calendar";
+import { type ChatOptions, ChatService } from "./chat";
+import { CheckpointService } from "./checkpoints";
+import { CronError, CronService } from "./cron";
 import { exportArchive } from "./export";
 import { FeatureService } from "./features";
-import { IngestionService } from "./ingestion";
-import { MemoryFileService } from "./memory";
-import { MigrationService } from "./migration";
-import { ShareService } from "./shares";
-import { SkillService } from "./skills";
-import { WorkspaceError, WorkspaceService } from "./workspace";
-import { UsageService } from "./usage";
-import { CronService, CronError } from "./cron";
-import { CheckpointService } from "./checkpoints";
-import { CalendarService } from "./calendar";
 import { FinanceService } from "./finance";
-import { MinionService } from "./minions";
+import { IngestionService } from "./ingestion";
 import {
   applyDeterministicFix,
   loadConsequentialPermissions,
@@ -49,6 +42,13 @@ import {
   saveConsequentialPermissions,
   validatePermissionsInput,
 } from "./maintainer";
+import { MemoryFileService } from "./memory";
+import { MigrationService } from "./migration";
+import { MinionService } from "./minions";
+import { ShareService } from "./shares";
+import { SkillService } from "./skills";
+import { UsageService } from "./usage";
+import { WorkspaceError, WorkspaceService } from "./workspace";
 
 export interface WorkspaceHandlerOptions {
   chat?: ChatOptions;
@@ -2390,6 +2390,64 @@ export function createWorkspaceHandler(
           ),
         );
         return json(await minionService.installMinionDependencies(id));
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/minions/") &&
+        url.pathname.endsWith("/input")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/minions/";
+        const suffix = "/input";
+        const id = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        const bodyResult = await readJson(request, 64 * 1024);
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        const body = isObject(bodyResult.value)
+          ? (bodyResult.value as Partial<MinionRunRequest>)
+          : {};
+        return json(await minionService.submitMinionInput(id, body));
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/api/minions/") &&
+        url.pathname.endsWith("/heartbeat")
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const prefix = "/api/minions/";
+        const suffix = "/heartbeat";
+        const id = decodeURIComponent(
+          url.pathname.slice(
+            prefix.length,
+            url.pathname.length - suffix.length,
+          ),
+        );
+        const bodyResult = await readJson(request, 64 * 1024);
+        if (bodyResult.tooLarge)
+          return json(
+            { schema: 1, ok: false, error: "request_too_large" },
+            413,
+          );
+        const body = isObject(bodyResult.value)
+          ? (bodyResult.value as Partial<MinionRunRequest>)
+          : {};
+        return json(await minionService.runMinionHeartbeat(id, body));
       }
       if (
         request.method === "POST" &&

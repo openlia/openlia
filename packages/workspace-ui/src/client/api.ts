@@ -66,36 +66,36 @@ import type {
   WorkspaceTreeResponse,
   WorkspaceWriteResponse,
 } from "../shared/api";
+import {
+  type CalendarCreateRequest,
+  type CalendarRangeRequest,
+  type CalendarResponse,
+  calendarResponseSchema,
+} from "../shared/calendar";
+import type { ChatApi } from "../shared/chat";
+import type { CheckpointProposal } from "../shared/checkpoints";
 import type {
   CreateCronJobInput,
   CronOverviewResponse,
   HermesCronJob,
   UpdateCronJobInput,
 } from "../shared/cron";
-import type { ChatApi } from "../shared/chat";
-import { httpChatApi } from "./chatApi";
-import type { CheckpointProposal } from "../shared/checkpoints";
-import { isMemoryDocument, memoryFilename } from "../shared/memory";
-import { notifyWorkspaceFileChange } from "./workspaceFileChanges";
-import type { UsageRates, UsageResponse } from "../shared/usage";
 import {
-  calendarResponseSchema,
-  type CalendarCreateRequest,
-  type CalendarRangeRequest,
-  type CalendarResponse,
-} from "../shared/calendar";
-import {
-  financeContextSchema,
-  financeReportSchema,
-  financeMappingResultSchema,
-  financeMappingValidationSchema,
-  type FinanceMappingValidation,
   type FinanceContextResponse,
-  type FinanceReport,
-  type FinanceReportRequest,
   type FinanceCreateMapping,
   type FinanceMappingResult,
+  type FinanceMappingValidation,
+  type FinanceReport,
+  type FinanceReportRequest,
+  financeContextSchema,
+  financeMappingResultSchema,
+  financeMappingValidationSchema,
+  financeReportSchema,
 } from "../shared/finance";
+import { isMemoryDocument, memoryFilename } from "../shared/memory";
+import type { UsageRates, UsageResponse } from "../shared/usage";
+import { httpChatApi } from "./chatApi";
+import { notifyWorkspaceFileChange } from "./workspaceFileChanges";
 
 export type ApiErrorResponse = Omit<WorkspaceErrorResponse, "schema"> & {
   schema: 1 | 2;
@@ -300,6 +300,14 @@ export interface WorkspaceApi {
   getMinion(id: string): Promise<MinionDetailResponse>;
   createMinion(request: MinionCreateRequest): Promise<MinionDetailResponse>;
   installMinionDependencies(id: string): Promise<MinionRunResponse>;
+  submitMinionInput(
+    id: string,
+    request?: MinionRunRequest,
+  ): Promise<MinionRunResponse>;
+  runMinionHeartbeat(
+    id: string,
+    request?: MinionRunRequest,
+  ): Promise<MinionRunResponse>;
   runMinion(id: string, request?: MinionRunRequest): Promise<MinionRunResponse>;
   testMinion(id: string): Promise<MinionRunResponse>;
 
@@ -1728,6 +1736,32 @@ export const httpWorkspaceApi: WorkspaceApi = {
         method: "POST",
       },
     ),
+  submitMinionInput: async (id, request = {}) => {
+    const res = await requestJson<MinionRunResponse>(
+      `/api/minions/${encodeURIComponent(id)}/input`,
+      isMinionRunResponse,
+      {
+        body: JSON.stringify(request),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    );
+    notifyWorkspaceFileChange(`minions/${id}`);
+    return res;
+  },
+  runMinionHeartbeat: async (id, request = {}) => {
+    const res = await requestJson<MinionRunResponse>(
+      `/api/minions/${encodeURIComponent(id)}/heartbeat`,
+      isMinionRunResponse,
+      {
+        body: JSON.stringify(request),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    );
+    notifyWorkspaceFileChange(`minions/${id}`);
+    return res;
+  },
   runMinion: async (id, request = {}) => {
     const res = await requestJson<MinionRunResponse>(
       `/api/minions/${encodeURIComponent(id)}/run`,

@@ -24,14 +24,21 @@ user-owned delegation policy authorizes the scoped update.
   feature/profile from the OpenLia Templates catalog (`https://github.com/openlia/templates.git`).
 - **Minions (`minions/<slug>/`)**: Programmable workspace apps that
   OpenLia/Hermes develops and maintains with the user as **Project Owner** (e.g.,
-  `minions/family-menu/`, `minions/gym-tracker/`, `minions/shopping-list/`). Each
-  Minion folder contains `README.md`, `main.py` or `main.ts` entrypoint,
-  `requirements.txt` or `package.json`, scripts and tests (`scripts/`, `tests/`),
-  standalone `.openui` dashboard files (`ui.openui`), and freely structured data
-  files under `data/` (`.json`, `.yaml`/`.yml`, `.csv`, `.hledger`/`.journal`,
-  `.rem`/`.remind`, `.md`, including nested subfolders). Hermes has full autonomy
-  inside `minions/<slug>/` to install dependencies, run scripts/tests/entrypoints,
-  and update code, `.openui` views, and `data/` files.
+  `minions/family-menu/`, `minions/gym-tracker/`, `minions/portfolio-watch/`). Each
+  Minion folder contains:
+  - `README.md`: documentation, `triggers` (`after_entry: true`, `heartbeat_schedule`), and `quick_actions`.
+  - `dashboard.openui`: the main OpenUI dashboard view.
+  - `input.openui`: the OpenUI input form (`Form(name: "minionInput", ...)`).
+  - `input.schema.json`: JSON Schema contract validating input form data.
+  - `input.py` or `input.ts`: input handler that validates and records new entries into `data/`.
+  - `main.py` or `main.ts`: data management & enrichment entrypoint triggered in **two ways**:
+    1. **Heartbeat trigger (`--trigger heartbeat`)** at a cron job or manual run to enrich data (e.g., fetching news, retrieving latest stock prices, computing rollups) and update `dashboard.openui`.
+    2. **Post-entry trigger (`--trigger entry`)** right after every new entry recorded by `input.py` / `input.ts` to analyze the new entry with existing context (e.g., recommending the next exercise given today's recorded performance) and update `dashboard.openui`.
+  - `requirements.txt` or `package.json`, scripts and tests (`scripts/`, `tests/`),
+    and freely structured data files under `data/` (`.json`, `.yaml`/`.yml`, `.csv`,
+    `.hledger`/`.journal`, `.rem`/`.remind`, `.md`, including nested subfolders).
+  Hermes has full autonomy inside `minions/<slug>/` to install dependencies, run
+  scripts/tests/entrypoints, and update code, `.openui` views, and `data/` files.
 
 ## File handling
 
@@ -61,7 +68,7 @@ user-owned delegation policy authorizes the scoped update.
   - Treat inline OpenUI as a first-class presentation option. When creating or substantially updating reports, reviews, comparisons, or data-rich documents, proactively consider OpenUI without waiting for the user to request it. Load `inline-openui-authoring` when a view would make the data easier to understand.
   - Use charts for trends, tables for comparisons and structured results, and tabs/cards for related views. Prefer plain Markdown for simple notes or when a view adds no value; honor requests for plain-text or static output.
   - Keep report conclusions and source links in ordinary Markdown outside views. Label reporting periods, snapshot dates, and units; distinguish missing data from zero. Never invent data to fill a component or imply a literal snapshot updates live. Keep generated reports separate from source records.
-  - Put interactive tables, cards, charts, Calendar, and Finance views in fenced `openui` blocks inside Markdown documents (or `ui.openui` inside a Minion folder).
+  - Put interactive tables, cards, charts, Calendar, and Finance views in fenced `openui` blocks inside Markdown documents (or `dashboard.openui` and `input.openui` inside a Minion folder).
   - Load `inline-openui-authoring`, discover exact component APIs with `openui_describe`, and check the final Markdown draft with `openui_validate`. Repair diagnostics; do not equate schema validity with verified rendering.
   - Use bare component roots, schema-named arguments, and row tables (`Table(columns: [{key, label}], rows: [{...}])`). Paths resolve relative to the containing document's folder.
   - Validate syntax with `validate_workspace.py` and use Workspace UI for full component diagnostics. Findings are advisory; link the containing document via `openlia://workspace/<path>`.

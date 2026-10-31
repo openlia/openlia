@@ -249,10 +249,13 @@ export function findDomainTemplate(
   return templateInfo(root, join(directory, first.name));
 }
 
-function getCompiledValidator(schemaPath: string): ValidateFunction | null {
+function getCompiledValidator(
+  schemaPath: string,
+  rawOverride?: string,
+): ValidateFunction | null {
   const absolutePath = resolve(schemaPath);
   try {
-    const raw = readFileSync(absolutePath, "utf-8");
+    const raw = rawOverride ?? readFileSync(absolutePath, "utf-8");
     const cached = compiledValidators.get(absolutePath);
     if (cached?.content === raw) return cached.validate;
     const ajv = new Ajv2020({ allErrors: true, strict: false });
@@ -275,10 +278,14 @@ function getCompiledValidator(schemaPath: string): ValidateFunction | null {
       );
     if (!localRefs(jsonSchema)) return null;
     const validate = ajv.compile(jsonSchema);
-    compiledValidators.set(absolutePath, { content: raw, validate });
+    if (rawOverride === undefined) {
+      compiledValidators.set(absolutePath, { content: raw, validate });
+    }
     return validate;
   } catch {
-    compiledValidators.delete(absolutePath);
+    if (rawOverride === undefined) {
+      compiledValidators.delete(absolutePath);
+    }
     return null;
   }
 }
@@ -353,7 +360,7 @@ function validateRecordStructure(
     ).replaceAll("\\", "/");
     try {
       JSON.parse(content);
-      return getCompiledValidator(configurationSchema)
+      return getCompiledValidator(configurationSchema, content)
         ? { errors: [], schema_path, valid: true }
         : {
             errors: ["File is not a valid JSON Schema"],

@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { extractFormDataFromOpenUIEvent } from "../shared/openui";
 import { createWorkspaceHandler } from "./app";
 
 describe("Minions service and HTTP API", () => {
@@ -21,7 +22,7 @@ describe("Minions service and HTTP API", () => {
     rmSync(workspaceRoot, { recursive: true, force: true });
   });
 
-  test("scaffolds Python and TypeScript minions, supports nested data/ files, runs entrypoint and tests", async () => {
+  test("scaffolds Python and TypeScript minions with dashboard.openui, input.openui, input.schema.json, input handler, and dual-triggered main", async () => {
     const handler = createWorkspaceHandler({
       workspaceRoot,
       authRequired: false,
@@ -46,6 +47,7 @@ describe("Minions service and HTTP API", () => {
           name: "Gym Tracker",
           description: "Track workouts and PRs",
           runtime: "typescript",
+          heartbeat_schedule: "0 */4 * * *",
         }),
       }),
     );
@@ -54,8 +56,20 @@ describe("Minions service and HTTP API", () => {
     expect(createBody.minion.id).toBe("gym-tracker");
     expect(createBody.minion.runtime).toBe("typescript");
     expect(createBody.minion.entrypoint).toBe("main.ts");
+    expect(createBody.minion.input_entrypoint).toBe("input.ts");
+    expect(createBody.minion.input_schema_file).toBe("input.schema.json");
     expect(createBody.minion.renderable).toBe(true);
-    expect(createBody.minion.primary_ui_file).toBe("ui.openui");
+    expect(createBody.minion.primary_ui_file).toBe("dashboard.openui");
+    expect(createBody.minion.dashboard_ui_file).toBe("dashboard.openui");
+    expect(createBody.minion.input_ui_file).toBe("input.openui");
+    expect(createBody.minion.ui_files).toEqual([
+      "dashboard.openui",
+      "input.openui",
+    ]);
+    expect(createBody.minion.triggers).toEqual({
+      after_entry: true,
+      heartbeat_schedule: "0 */4 * * *",
+    });
 
     // 3. Add a nested data file inside minions/gym-tracker/data/2026/october/workouts.csv
     mkdirSync(join(workspaceRoot, "minions/gym-tracker/data/2026/october"), {
@@ -73,29 +87,40 @@ describe("Minions service and HTTP API", () => {
     );
     expect(detailRes.status).toBe(200);
     const detailBody = (await detailRes.json()) as any;
-    expect(detailBody.minion.data_file_count).toBe(2);
+    expect(detailBody.minion.data_file_count).toBe(3); // items.json + context.json + workouts.csv
     expect(detailBody.minion.data_files.map((f: any) => f.path)).toContain(
       "minions/gym-tracker/data/2026/october/workouts.csv",
     );
 
-    // 5. Run quick-input action via POST /api/minions/gym-tracker/run
-    const runRes = await handler(
-      new Request("http://localhost/api/minions/gym-tracker/run", {
+    // 5. Submit structured input via POST /api/minions/gym-tracker/input
+    // Should run input.ts AND automatically trigger main.ts --trigger entry
+    const inputRes = await handler(
+      new Request("http://localhost/api/minions/gym-tracker/input", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Origin: "http://localhost",
         },
         body: JSON.stringify({
-          action: "add",
-          input: "Bench Press 90kg x 5",
+          data: {
+            item: "Bench Press 5x5",
+            category: "strength",
+            value: "92.5",
+            status: "completed",
+            notes: "Clean reps",
+          },
         }),
       }),
     );
-    expect(runRes.status).toBe(200);
-    const runBody = (await runRes.json()) as any;
-    expect(runBody.ok).toBe(true);
-    expect(runBody.exit_code).toBe(0);
+    expect(inputRes.status).toBe(200);
+    const inputBody = (await inputRes.json()) as any;
+    expect(inputBody.ok).toBe(true);
+    expect(inputBody.exit_code).toBe(0);
+    expect(inputBody.steps).toHaveLength(2);
+    expect(inputBody.steps[0].step).toBe("input");
+    expect(inputBody.steps[0].script).toBe("input.ts");
+    expect(inputBody.steps[1].step).toBe("post_entry_main");
+    expect(inputBody.steps[1].script).toBe("main.ts");
 
     const itemsJson = JSON.parse(
       readFileSync(
@@ -104,16 +129,73 @@ describe("Minions service and HTTP API", () => {
       ),
     );
     expect(itemsJson).toHaveLength(2);
-    expect(itemsJson[1].item).toBe("Bench Press 90kg x 5");
+    expect(itemsJson[1].item).toBe("Bench Press 5x5");
+    expect(itemsJson[1].value).toBe(92.5);
+    expect(itemsJson[1].recommendation).toContain("Bench Press 5x5");
 
-    // Verify ui.openui was updated by main.ts
-    const uiContent = readFileSync(
-      join(workspaceRoot, "minions/gym-tracker/ui.openui"),
+    // Verify dashboard.openui was updated by main.ts (--trigger entry)
+    const dashboardContent = readFileSync(
+      join(workspaceRoot, "minions/gym-tracker/dashboard.openui"),
       "utf-8",
     );
-    expect(uiContent).toContain("Bench Press 90kg x 5");
+    expect(dashboardContent).toContain("Bench Press 5x5");
+    expect(dashboardContent).toContain("92.5");
 
-    // 6. Run tests via POST /api/minions/gym-tracker/test
+    // 6. Reject invalid input against input.schema.json
+    const badInputRes = await handler(
+      new Request("http://localhost/api/minions/gym-tracker/input", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({
+          data: {
+            category: "strength",
+          },
+        }),
+      }),
+    );
+    expect(badInputRes.status).toBe(400);
+    const badInputBody = (await badInputRes.json()) as any;
+    expect(badInputBody.error).toBe("invalid_minion_input");
+
+    // 7. Trigger heartbeat via POST /api/minions/gym-tracker/heartbeat
+    const hbRes = await handler(
+      new Request("http://localhost/api/minions/gym-tracker/heartbeat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(hbRes.status).toBe(200);
+    const hbBody = (await hbRes.json()) as any;
+    expect(hbBody.ok).toBe(true);
+    expect(hbBody.steps).toHaveLength(1);
+    expect(hbBody.steps[0].step).toBe("heartbeat");
+    expect(hbBody.steps[0].script).toBe("main.ts");
+
+    const contextJson = JSON.parse(
+      readFileSync(
+        join(workspaceRoot, "minions/gym-tracker/data/context.json"),
+        "utf-8",
+      ),
+    );
+    expect(contextJson.last_trigger).toBe("heartbeat");
+    expect(contextJson.enrichment.status).toBe("enriched");
+
+    // 8. Verify input.schema.json is readable through /api/workspace/file
+    const schemaFileRes = await handler(
+      new Request(
+        "http://localhost/api/workspace/file?path=minions%2Fgym-tracker%2Finput.schema.json",
+      ),
+    );
+    expect(schemaFileRes.status).toBe(200);
+
+    // 9. Run tests via POST /api/minions/gym-tracker/test
     const testRes = await handler(
       new Request("http://localhost/api/minions/gym-tracker/test", {
         method: "POST",
@@ -129,7 +211,7 @@ describe("Minions service and HTTP API", () => {
     expect(testBody.ok).toBe(true);
     expect(testBody.exit_code).toBe(0);
 
-    // 7. Create a Python minion and run quick-input + unittest
+    // 10. Create a Python minion and test input -> post-entry main, heartbeat, and unittest
     const pyCreateRes = await handler(
       new Request("http://localhost/api/minions", {
         method: "POST",
@@ -149,6 +231,9 @@ describe("Minions service and HTTP API", () => {
     const pyCreateBody = (await pyCreateRes.json()) as any;
     expect(pyCreateBody.minion.runtime).toBe("python");
     expect(pyCreateBody.minion.entrypoint).toBe("main.py");
+    expect(pyCreateBody.minion.input_entrypoint).toBe("input.py");
+    expect(pyCreateBody.minion.dashboard_ui_file).toBe("dashboard.openui");
+    expect(pyCreateBody.minion.input_ui_file).toBe("input.openui");
 
     const pyRunRes = await handler(
       new Request("http://localhost/api/minions/family-menu/run", {
@@ -166,6 +251,27 @@ describe("Minions service and HTTP API", () => {
     expect(pyRunRes.status).toBe(200);
     const pyRunBody = (await pyRunRes.json()) as any;
     expect(pyRunBody.ok).toBe(true);
+    expect(pyRunBody.steps).toHaveLength(2);
+    expect(pyRunBody.steps[0].script).toBe("input.py");
+    expect(pyRunBody.steps[1].script).toBe("main.py");
+    expect(pyRunBody.minion.ui_contents["dashboard.openui"]).toContain(
+      "Pho Bo for Sunday lunch",
+    );
+
+    const pyHbRes = await handler(
+      new Request("http://localhost/api/minions/family-menu/heartbeat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(pyHbRes.status).toBe(200);
+    const pyHbBody = (await pyHbRes.json()) as any;
+    expect(pyHbBody.ok).toBe(true);
+    expect(pyHbBody.stdout).toContain("Heartbeat enrichment complete");
 
     const pyTestRes = await handler(
       new Request("http://localhost/api/minions/family-menu/test", {
@@ -180,5 +286,23 @@ describe("Minions service and HTTP API", () => {
     expect(pyTestRes.status).toBe(200);
     const pyTestBody = (await pyTestRes.json()) as any;
     expect(pyTestBody.ok).toBe(true);
+  });
+
+  test("extractFormDataFromOpenUIEvent unwraps OpenUI Form state", () => {
+    const extracted = extractFormDataFromOpenUIEvent({
+      formName: "minionInput",
+      formState: {
+        minionInput: {
+          item: { value: "Deadlift 140kg x 5", componentType: "Input" },
+          category: { value: "strength", componentType: "Input" },
+          value: { value: "140", componentType: "Input" },
+        },
+      },
+    });
+    expect(extracted).toEqual({
+      item: "Deadlift 140kg x 5",
+      category: "strength",
+      value: "140",
+    });
   });
 });
