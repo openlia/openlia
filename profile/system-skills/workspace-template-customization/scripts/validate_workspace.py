@@ -424,7 +424,9 @@ def validate_workspace_policy(workspace_root: Path) -> tuple[list[str], set[Path
     return [], set()
 
 
-def validate_minions(workspace_root: Path) -> list[str]:
+def validate_minions(
+    workspace_root: Path, referenced_schemas: set[Path] | None = None
+) -> list[str]:
     """Validate structure of Minions under minions/<slug>/."""
     root = workspace_root.expanduser().resolve()
     minions_dir = root / "minions"
@@ -450,6 +452,99 @@ def validate_minions(workspace_root: Path) -> list[str]:
         has_ts = (entry / "main.ts").is_file() and not (entry / "main.ts").is_symlink()
         if not (has_py or has_ts):
             errors.append(f"{rel}: minion requires a main.py or main.ts entrypoint")
+
+        input_openui = entry / "input.openui"
+        if input_openui.exists():
+            if input_openui.is_symlink() or not input_openui.is_file():
+                errors.append(f"{_relative(input_openui, root)}: must be a regular file")
+            else:
+                has_input_py = (entry / "input.py").is_file() and not (entry / "input.py").is_symlink()
+                has_input_ts = (entry / "input.ts").is_file() and not (entry / "input.ts").is_symlink()
+                if not (has_input_py or has_input_ts):
+                    errors.append(f"{rel}: minion with input.openui requires input.py or input.ts")
+                input_schema = entry / "input.schema.json"
+                if input_schema.is_symlink() or not input_schema.is_file():
+                    errors.append(f"{rel}: minion with input.openui requires input.schema.json")
+
+        loaded_minion_schemas: dict[str, dict[str, Any]] = {}
+        for schema_file in sorted(entry.rglob("*.schema.json")):
+            if _is_ignored_workspace_path(schema_file, root):
+                continue
+            schema_rel = _relative(schema_file, root)
+            if schema_file.is_symlink():
+                errors.append(f"{schema_rel}: symbolic links are not validated")
+                continue
+            if referenced_schemas is not None:
+                referenced_schemas.add(schema_file.resolve())
+            try:
+                loaded_minion_schemas[schema_file.name] = load_schema(schema_file)
+            except ValueError as exc:
+                errors.append(f"{schema_rel}: {exc}")
+
+        config_file = entry / "config.json"
+        if config_file.exists():
+            config_rel = _relative(config_file, root)
+            if config_file.is_symlink() or not config_file.is_file():
+                errors.append(f"{config_rel}: must be a regular file")
+            else:
+                try:
+                    raw_cfg = json.loads(config_file.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                    errors.append(f"{config_rel}: invalid JSON: {exc}")
+                    raw_cfg = None
+                if raw_cfg is not None:
+                    if not isinstance(raw_cfg, dict):
+                        errors.append(f"{config_rel}: root must be a JSON object")
+                    else:
+                        trigger_val = raw_cfg.get("trigger")
+                        if trigger_val is None:
+                            errors.append(f"{config_rel}: missing required property 'trigger'")
+                        elif isinstance(trigger_val, str):
+                            if trigger_val.strip() not in {"entry", "cron", "both"}:
+                                errors.append(
+                                    f"{config_rel}: trigger string must be 'entry', 'cron', or 'both'"
+                                )
+                        elif isinstance(trigger_val, dict):
+                            for k in trigger_val:
+                                if k not in {"on_new_entry", "cron"}:
+                                    errors.append(
+                                        f"{config_rel}: trigger.{k} is not a recognized trigger property"
+                                    )
+                            has_entry = "on_new_entry" in trigger_val and trigger_val["on_new_entry"] is not None
+                            has_cron = "cron" in trigger_val and trigger_val["cron"] is not None
+                            if not has_entry and not has_cron:
+                                errors.append(
+                                    f"{config_rel}: trigger must specify 'on_new_entry' and/or 'cron'"
+                                )
+                            if has_entry and not isinstance(trigger_val["on_new_entry"], bool):
+                                errors.append(
+                                    f"{config_rel}: trigger.on_new_entry must be a boolean"
+                                )
+                            if has_cron and (
+                                not isinstance(trigger_val["cron"], str)
+                                or not trigger_val["cron"].strip()
+                            ):
+                                errors.append(
+                                    f"{config_rel}: trigger.cron must be a non-empty cron string"
+                                )
+                        else:
+                            errors.append(
+                                f"{config_rel}: trigger must be 'entry' | 'cron' | 'both' or an object"
+                            )
+
+                        cfg_schema = loaded_minion_schemas.get("config.schema.json")
+                        if isinstance(cfg_schema, dict):
+                            cfg_validator = Draft202012Validator(
+                                cfg_schema, format_checker=FormatChecker()
+                            )
+                            for schema_err in sorted(
+                                cfg_validator.iter_errors(raw_cfg),
+                                key=lambda item: tuple(str(part) for part in item.absolute_path),
+                            ):
+                                loc = "$"
+                                for part in schema_err.absolute_path:
+                                    loc += f"[{part}]" if isinstance(part, int) else f".{part}"
+                                errors.append(f"{config_rel}: {loc}: {schema_err.message}")
     return errors
 
 
@@ -464,7 +559,6 @@ def validate_workspace(workspace_root: Path) -> list[str]:
     errors.extend(registry_errors)
     policy_errors, referenced_policy_schemas = validate_workspace_policy(root)
     errors.extend(policy_errors)
-    errors.extend(validate_minions(root))
     templates = [
         p for p in sorted(root.rglob(f"*{TEMPLATE_SUFFIX}"))
         if not _is_ignored_workspace_path(p, root)
@@ -474,6 +568,7 @@ def validate_workspace(workspace_root: Path) -> list[str]:
     invalid_templates: set[Path] = set()
     referenced_schemas: set[Path] = set(referenced_registry_schemas)
     referenced_schemas.update(referenced_policy_schemas)
+    errors.extend(validate_minions(root, referenced_schemas=referenced_schemas))
     feature_schema = feature_schema_path(root)
     if feature_schema.exists():
         try:

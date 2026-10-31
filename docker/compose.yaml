@@ -38,6 +38,14 @@ services:
         target: /opt/data/skills/workspace-template-customization
         read_only: true
       - type: bind
+        source: "${OPENLIA_SYSTEM_SKILLS_ROOT:?OPENLIA_SYSTEM_SKILLS_ROOT is required}/inline-openui-authoring"
+        target: /opt/data/skills/inline-openui-authoring
+        read_only: true
+      - type: bind
+        source: "${OPENLIA_SYSTEM_SKILLS_ROOT:?OPENLIA_SYSTEM_SKILLS_ROOT is required}/minion-authoring"
+        target: /opt/data/skills/minion-authoring
+        read_only: true
+      - type: bind
         source: "${OPENLIA_SECRET_DIR:?OPENLIA_SECRET_DIR is required}"
         target: /run/openlia-secrets
         read_only: true

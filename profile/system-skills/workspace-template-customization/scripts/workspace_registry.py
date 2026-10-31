@@ -381,7 +381,9 @@ def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
             if top_root == "minions":
                 if len(parts) >= 2:
                     discovered_paths.add(f"minions/{parts[1]}")
-                if pattern == "*.md" or (len(parts) >= 3 and parts[2] in {"scripts", "tests"}):
+                if pattern in {"*.md", "*.schema.json"} or (
+                    len(parts) >= 3 and parts[2] in {"scripts", "tests"}
+                ):
                     continue
             if pattern == "*.md" and top_root in CORE_ROOTS and rel_parent not in _KNOWN_DOMAIN_METADATA:
                 continue
@@ -463,6 +465,22 @@ def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
         if is_minion:
             entry_dict["minion"] = True
             entry_dict["entrypoint"] = entrypoint
+            if (folder / "input.py").is_file():
+                entry_dict["input_entrypoint"] = "input.py"
+            elif (folder / "input.ts").is_file():
+                entry_dict["input_entrypoint"] = "input.ts"
+            if (folder / "input.schema.json").is_file():
+                entry_dict["input_schema"] = "input.schema.json"
+            if (folder / "config.json").is_file():
+                entry_dict["config_file"] = "config.json"
+            if (folder / "config.schema.json").is_file():
+                entry_dict["config_schema"] = "config.schema.json"
+            if (folder / "dashboard.openui").is_file():
+                entry_dict["dashboard_ui"] = "dashboard.openui"
+            elif (folder / "ui.openui").is_file():
+                entry_dict["dashboard_ui"] = "ui.openui"
+            if (folder / "input.openui").is_file():
+                entry_dict["input_ui"] = "input.openui"
         if briefing_category:
             entry_dict["briefing_category"] = briefing_category
         if route:

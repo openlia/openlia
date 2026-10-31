@@ -547,13 +547,16 @@ class PolicyPluginTests(unittest.TestCase):
             )
         )
 
-        # Running entrypoint, tests, and installing dependencies inside minions/<slug>/ is allowed autonomously
+        # Running entrypoint, input handler, triggers, tests, and installing dependencies inside minions/<slug>/ is allowed autonomously
         autonomous_commands = [
+            "python3 minions/gym-tracker/input.py --data '{\"item\": \"Squat 100kg\", \"notes\": \"w/ belt\"}'",
+            "python3 minions/gym-tracker/main.py --trigger entry --entry '{\"item\": \"Squat 100kg\"}'",
+            "python3 minions/gym-tracker/main.py --trigger heartbeat",
             "python3 minions/gym-tracker/main.py --input 'Squat 100kg'",
             "pytest minions/gym-tracker/tests",
             "python3 -m venv minions/gym-tracker/.venv && minions/gym-tracker/.venv/bin/pip install -r minions/gym-tracker/requirements.txt",
             "uv pip install -r minions/gym-tracker/requirements.txt",
-            "cd minions/gym-tracker && bun install && bun test && bun main.ts",
+            "cd minions/gym-tracker && bun install && bun test && bun main.ts --trigger heartbeat",
             "bun install --cwd=minions/gym-tracker",
         ]
         for cmd in autonomous_commands:
@@ -561,6 +564,31 @@ class PolicyPluginTests(unittest.TestCase):
                 self.policy.pre_tool_call("terminal", {"command": cmd}),
                 cmd,
             )
+
+        # Scheduled cron heartbeat runs for minions are also allowed when scheduled_work is enabled
+        self.policy.on_session_start(session_id="cron-minion-hb", platform="cron")
+        self.assertIsNone(
+            self.policy.pre_tool_call(
+                "terminal",
+                {"command": "python3 minions/gym-tracker/main.py --trigger heartbeat"},
+                session_id="cron-minion-hb",
+            )
+        )
+        self.assertIsNone(
+            self.policy.pre_tool_call(
+                "write_file",
+                {"path": "minions/gym-tracker/dashboard.openui", "content": 'CardHeader(title: "Gym")\n'},
+                session_id="cron-minion-hb",
+            )
+        )
+        # Structural schema edits remain blocked during scheduled runs
+        scheduled_schema = self.policy.pre_tool_call(
+            "write_file",
+            {"path": "minions/gym-tracker/input.schema.json", "content": "{}"},
+            session_id="cron-minion-hb",
+        )
+        self.assertIsNotNone(scheduled_schema)
+        self.assertEqual(scheduled_schema["action"], "block")
 
         # Commands escaping minions/<slug>/ or running arbitrary python outside minions still require approval
         non_minion_commands = [
@@ -572,6 +600,141 @@ class PolicyPluginTests(unittest.TestCase):
             decision = self.policy.pre_tool_call("terminal", {"command": cmd})
             self.assertIsNotNone(decision, cmd)
             self.assertEqual(decision["action"], "approve", cmd)
+
+    def test_minion_native_hermes_tools_scaffold_validate_and_run(self):
+        import json
+
+        # Policy allows minion_scaffold, minion_validate, and minion_run for valid slugs
+        self.assertIsNone(
+            self.policy.pre_tool_call("minion_scaffold", {"id": "stock-watch", "runtime": "python"})
+        )
+        self.assertIsNone(
+            self.policy.pre_tool_call("minion_validate", {"id": "stock-watch"})
+        )
+        self.assertIsNone(
+            self.policy.pre_tool_call("minion_run", {"id": "stock-watch", "mode": "test"})
+        )
+        blocked = self.policy.pre_tool_call("minion_run", {"id": "../outside", "mode": "test"})
+        self.assertIsNotNone(blocked)
+        self.assertEqual(blocked["action"], "block")
+
+        scaffold_res = json.loads(
+            self.policy.tool_minion_scaffold(
+                id="stock-watch",
+                name="Stock Watch",
+                description="Track watchlist tickers and alerts",
+                runtime="python",
+                heartbeat_schedule="0 */6 * * *",
+            )
+        )
+        self.assertTrue(scaffold_res["ok"])
+        self.assertEqual(scaffold_res["config"], {"trigger": {"on_new_entry": True, "cron": "0 */6 * * *"}})
+
+        val_res = json.loads(self.policy.tool_minion_validate(id="stock-watch"))
+        self.assertTrue(val_res["ok"], val_res.get("errors"))
+
+        run_entry = json.loads(
+            self.policy.tool_minion_run(
+                id="stock-watch",
+                mode="input",
+                data={"item": "NVDA breakout check", "category": "tech", "value": "142.5"},
+            )
+        )
+        self.assertTrue(run_entry["ok"], run_entry)
+        self.assertEqual(len(run_entry["steps"]), 2)
+
+        run_hb = json.loads(
+            self.policy.tool_minion_run(id="stock-watch", mode="heartbeat")
+        )
+        self.assertTrue(run_hb["ok"], run_hb)
+
+        run_tests = json.loads(
+            self.policy.tool_minion_run(id="stock-watch", mode="test")
+        )
+        self.assertTrue(run_tests["ok"], run_tests)
+
+        # Writing invalid OpenUI (e.g. Callout(tone: ...)) triggers immediate post_tool_call advisory
+        # and causes minion_run(mode="test") to fail with actionable schema diagnostics
+        bad_openui_path = self.workspace / "minions" / "stock-watch" / "input.openui"
+        bad_openui_path.write_text(
+            'Callout(tone: "info", title: "Bad", description: "Should use variant")\n',
+            encoding="utf-8",
+        )
+        post_adv = self.policy.post_tool_call(
+            "terminal",
+            args={"command": "python3 minions/stock-watch/main.py --trigger heartbeat"},
+            status="ok",
+        )
+        self.assertIsNotNone(post_adv)
+        self.assertIn("Minion validation failed for minions/stock-watch", post_adv["advisory"])
+        self.assertIn("Unknown Callout argument 'tone'", post_adv["advisory"])
+
+        failed_tests = json.loads(
+            self.policy.tool_minion_run(id="stock-watch", mode="test")
+        )
+        self.assertFalse(failed_tests["ok"])
+        self.assertIn("Unknown Callout argument 'tone'", failed_tests["stderr"])
+
+        # Verify Hermes ToolRegistry.dispatch positional dict calling convention: handler(args_dict)
+        dict_scaffold = json.loads(
+            self.policy.tool_minion_scaffold(
+                {
+                    "id": "thuc-don-gia-dinh",
+                    "name": "Thực đơn gia đình",
+                    "description": "Lập và theo dõi thực đơn trưa/tối cho gia đình.",
+                    "runtime": "python",
+                    "heartbeat_schedule": "0 6 * * *",
+                }
+            )
+        )
+        self.assertTrue(dict_scaffold["ok"], dict_scaffold)
+
+        dict_validate = json.loads(
+            self.policy.tool_minion_validate({"id": "thuc-don-gia-dinh"})
+        )
+        self.assertTrue(dict_validate["ok"], dict_validate)
+
+        dict_run = json.loads(
+            self.policy.tool_minion_run(
+                {
+                    "id": "thuc-don-gia-dinh",
+                    "mode": "input",
+                    "data": {"item": "Cá lóc hấp gừng", "category": "dinner"},
+                }
+            )
+        )
+        self.assertTrue(dict_run["ok"], dict_run)
+
+        with patch.object(self.module.subprocess, "run") as run:
+            run.return_value.stdout = json.dumps(
+                {"status": "ok", "validationLevel": "schema", "valid": True}
+            )
+            run.return_value.returncode = 0
+            dict_openui_val = json.loads(
+                self.policy.tool_openui_validate(
+                    {
+                        "content": 'Callout(variant: "info", title: "Thực đơn", description: "Hợp lệ")',
+                        "format": "openui",
+                    }
+                )
+            )
+            self.assertEqual(dict_openui_val["status"], "ok")
+            self.assertTrue(dict_openui_val["valid"])
+            self.policy.tool_openui_describe({"component": "Callout"})
+            self.assertEqual(
+                json.loads(run.call_args.kwargs["input"]),
+                {"action": "describe", "component": "Callout"},
+            )
+
+        # Terminal invocation of minion_tool.py with --id is also allowed autonomously
+        self.assertIsNone(
+            self.policy.pre_tool_call(
+                "terminal",
+                {
+                    "command": "python3 /opt/data/skills/minion-authoring/scripts/minion_tool.py --action validate --workspace-root /opt/data/workspace --id thuc-don-gia-dinh"
+                },
+            )
+        )
 
 
 if __name__ == "__main__":

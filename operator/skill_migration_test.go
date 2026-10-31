@@ -48,7 +48,7 @@ func TestForkPreservesCustomizedSkillAcrossProfileUpdate(t *testing.T) {
 }
 
 func TestProtectedSystemSkillsCannotBeForkedOrTampered(t *testing.T) {
-	for _, name := range []string{protectedSkillName, workspaceTemplateSkillName} {
+	for _, name := range []string{protectedSkillName, workspaceTemplateSkillName, inlineOpenUISkillName, minionAuthoringSkillName} {
 		t.Run(name, func(t *testing.T) {
 			config, now := migrationTestConfig(t)
 			systemSkill := filepath.Join(config.RepositoryRoot, "profile", "system-skills", name, "SKILL.md")

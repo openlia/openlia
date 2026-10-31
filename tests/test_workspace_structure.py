@@ -150,10 +150,23 @@ class WorkspaceStructureTests(unittest.TestCase):
         (minion_dir / "node_modules" / "pkg").mkdir(parents=True)
         (minion_dir / "node_modules" / "pkg" / "broken.schema.json").write_text("{not-json")
         (minion_dir / "README.md").write_text("# Gym Tracker\n\nTrack workouts and personal records.\n")
+        (minion_dir / "input.py").write_text("print('input ok')\n")
+        (minion_dir / "input.schema.json").write_text(
+            '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["item"],"properties":{"item":{"type":"string"}}}\n'
+        )
+        (minion_dir / "config.schema.json").write_text(
+            '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["trigger"],"properties":{"trigger":{"type":"object","properties":{"on_new_entry":{"type":"boolean"},"cron":{"type":"string"}},"additionalProperties":false},"news_url":{"type":"string"}},"additionalProperties":true}\n'
+        )
+        (minion_dir / "config.json").write_text(
+            '{"trigger":{"on_new_entry":true,"cron":"0 */6 * * *"},"news_url":"https://example.com/news.json"}\n'
+        )
         (minion_dir / "main.py").write_text("print('ok')\n")
         (minion_dir / "requirements.txt").write_text("pyyaml>=6.0\n")
-        (minion_dir / "ui.openui").write_text(
+        (minion_dir / "dashboard.openui").write_text(
             'Table(title: "Workouts", columns: [{key: "lift", label: "Lift"}], rows: [{lift: "Squat"}])\n'
+        )
+        (minion_dir / "input.openui").write_text(
+            'Card(children: [Form(name: "minionInput", fields: [FormControl(label: "Lift", input: Input(name: "item"))], buttons: Buttons(buttons: [Button(label: "Submit")]))])\n'
         )
         (minion_dir / "data" / "workouts.json").write_text('[{"lift": "Squat"}]')
         (minion_dir / "data" / "2026" / "october" / "notes.md").write_text("# October PRs\n")
@@ -168,11 +181,28 @@ class WorkspaceStructureTests(unittest.TestCase):
         self.assertIn("minions/gym-tracker", by_path)
         self.assertTrue(by_path["minions/gym-tracker"].get("minion"))
         self.assertEqual(by_path["minions/gym-tracker"].get("entrypoint"), "main.py")
+        self.assertEqual(by_path["minions/gym-tracker"].get("input_entrypoint"), "input.py")
+        self.assertEqual(by_path["minions/gym-tracker"].get("input_schema"), "input.schema.json")
+        self.assertEqual(by_path["minions/gym-tracker"].get("config_file"), "config.json")
+        self.assertEqual(by_path["minions/gym-tracker"].get("config_schema"), "config.schema.json")
+        self.assertEqual(by_path["minions/gym-tracker"].get("dashboard_ui"), "dashboard.openui")
+        self.assertEqual(by_path["minions/gym-tracker"].get("input_ui"), "input.openui")
         self.assertEqual(by_path["minions/gym-tracker"].get("label"), "Gym Tracker")
 
-        (minion_dir / "ui.openui").write_text("Table(columns: [)\n")
+        (minion_dir / "config.json").write_text('{"news_url":"https://example.com/missing-trigger"}\n')
+        errors_bad_config = validator.validate_workspace(self.workspace)
+        self.assertTrue(any("minions/gym-tracker/config.json: missing required property 'trigger'" in e for e in errors_bad_config))
+        (minion_dir / "config.json").write_text(
+            '{"trigger":{"on_new_entry":true,"cron":"0 */6 * * *"},"news_url":"https://example.com/news.json"}\n'
+        )
+
+        (minion_dir / "dashboard.openui").write_text("Table(columns: [)\n")
         warnings = validator.inline_openui_warnings(self.workspace)
-        self.assertTrue(any("minions/gym-tracker/ui.openui: openui_syntax_error:" in w for w in warnings))
+        self.assertTrue(any("minions/gym-tracker/dashboard.openui: openui_syntax_error:" in w for w in warnings))
+
+        (minion_dir / "input.py").unlink()
+        errors_missing_input = validator.validate_workspace(self.workspace)
+        self.assertTrue(any("minions/gym-tracker: minion with input.openui requires input.py or input.ts" in e for e in errors_missing_input))
 
         (minion_dir / "main.py").unlink()
         errors = validator.validate_workspace(self.workspace)

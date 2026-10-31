@@ -76,9 +76,15 @@ In addition to inline `openui` blocks inside Markdown documents, OpenLia support
 in the **Minions** tab (`/minions/<slug>` or `openlia://minions/<slug>`) that
 OpenLia develops and maintains with the user as **Project Owner**:
 
-- `README.md`: project overview, usage instructions, and optional `quick_actions` frontmatter.
-- `main.py` or `main.ts`: entrypoint executed by the Minion service or Hermes CLI.
+- `README.md`: project overview, usage instructions, `triggers` (`after_entry: true`, `heartbeat_schedule`), and optional `quick_actions` frontmatter.
+- `dashboard.openui`: the main OpenUI dashboard view rendered in the Minions tab (with fallback support for legacy `ui.openui`).
+- `input.openui`: the OpenUI input form (`Form(name: "minionInput", ...)`).
+- `input.schema.json`: JSON Schema contract validating input form submissions.
+- `input.py` or `input.ts`: input handler executed to validate and record new entries into `data/`.
+- `config.schema.json` & `config.json`: `config.json` holds the required OpenLia/Hermes `trigger` (`on_new_entry` and/or `cron`) plus any Minion-specific settings designed by the agent (validated by `config.schema.json`; when packaged for sharing, `config.json` is ignored and only `config.schema.json` is packaged).
+- `main.py` or `main.ts`: data management and enrichment entrypoint triggered in **two ways**:
+  1. **Heartbeat trigger (`--trigger heartbeat`)** at a cron job or manual run to enrich data (e.g., fetching news, retrieving latest stock prices, computing summaries) and update `dashboard.openui`.
+  2. **Post-entry trigger (`--trigger entry`)** right after every new entry recorded by `input.py` / `input.ts` to analyze the new entry alongside existing context (e.g., recommending the next exercise given today's recorded performance) and update `dashboard.openui`.
 - `requirements.txt` or `package.json`: Python or TypeScript/Bun dependencies.
 - `scripts/` and `tests/`: helper scripts and automated tests.
-- `ui.openui` (or `*.openui`): standalone OpenUI dashboard view rendered in the Minions tab.
 - `data/`: freely structured data and document files (`.json`, `.yaml`/`.yml`, `.csv`, `.hledger`/`.journal`, `.rem`/`.remind`, `.md`), including nested subfolders.
