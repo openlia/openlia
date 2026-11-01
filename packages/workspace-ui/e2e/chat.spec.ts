@@ -30,7 +30,7 @@ test("recorded failed execution remains visible after reload without resending",
   await expect(messages.getByRole("article")).toHaveCount(1);
 });
 
-test("chat allows multiline editing and submits only with Send", async ({
+test("chat allows multiline editing and submits with Control+Enter or Send", async ({
   page,
 }) => {
   await page.goto("/chat?conversation=demo-chat");
@@ -40,17 +40,17 @@ test("chat allows multiline editing and submits only with Send", async ({
   });
   await input.fill("First line");
   await input.press("Enter");
-  await input.pressSequentially("Second line");
-  await input.press("Shift+Enter");
+  await input.pressSequentially("- Second line");
+  await input.press("Enter");
   await input.pressSequentially("Third line");
-  await expect(input).toHaveValue("First line\nSecond line\nThird line");
+  await expect(input).toHaveValue("First line\n- Second line\n- Third line");
   await expect(transcript.getByRole("article")).toHaveCount(1);
 
-  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await input.press("Control+Enter");
   await expect(input).toHaveValue("");
   await expect(
     transcript.getByRole("article", { name: "Your message", exact: true }),
-  ).toContainText("First line\nSecond line\nThird line");
+  ).toContainText("First line");
   await expect(
     page.getByText("This is a mock reply.", { exact: false }),
   ).toBeVisible({ timeout: 10000 });

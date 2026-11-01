@@ -357,6 +357,10 @@
   font-size: 1rem;
   box-sizing: content-box;
 }
+.chat-composer.chat-composer--expanded textarea {
+  min-height: min(16rem, calc(var(--workspace-viewport-height, 100dvh) * 0.42));
+  max-height: min(26rem, calc(var(--workspace-viewport-height, 100dvh) * 0.58));
+}
 .chat-send {
   width: 2.5rem;
   min-height: 2.5rem;
@@ -384,12 +388,31 @@
   padding: 0.25rem 0;
   text-overflow: ellipsis;
 }
+.chat-composer-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
 .chat-composer-hint {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.65rem;
   opacity: 0.5;
+}
+.chat-expand-toggle {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  height: 1.35rem;
+  min-height: 1.35rem;
+  padding: 0 0.45rem;
+  opacity: 0.7;
+}
+.chat-expand-toggle:hover,
+.chat-expand-toggle:focus-visible,
+.chat-expand-toggle[aria-pressed="true"] {
+  opacity: 1;
 }
 .chat-run-controls {
   display: flex;
