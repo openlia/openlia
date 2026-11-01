@@ -1,7 +1,7 @@
 import { Renderer } from "@openuidev/react-lang";
 import { ThemeProvider } from "@openuidev/react-ui";
 import "@openuidev/react-ui/index.css";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import type {
   MinionDetail,
   MinionExecutionStep,
@@ -14,6 +14,7 @@ import type { WorkspaceApi } from "./api";
 import { CodeEditor } from "./CodeEditor";
 import { ResponsiveDrawer } from "./components/common/ResponsiveDrawer";
 import { ActionMenu } from "./components/common/ActionMenu";
+import { ScrollableToolbar } from "./components/common/ScrollableToolbar";
 import { MarkdownPreview } from "./components/editor/MarkdownPreview";
 import { buildCanonicalMinionUri } from "./openliaLinks";
 import { CHART_THEME } from "./openui/charts/palette";
@@ -31,6 +32,12 @@ export type MinionSubTab =
   | "data"
   | "code"
   | "readme";
+
+function resizeQuickInput(element: HTMLTextAreaElement) {
+  element.style.height = "auto";
+  const borders = element.offsetHeight - element.clientHeight;
+  element.style.height = `${element.scrollHeight + borders}px`;
+}
 
 interface ExecutionLog {
   kind: "run" | "input" | "heartbeat" | "install" | "test";
@@ -161,6 +168,17 @@ export function MinionsPage({
   onAskLia?: ((prompt: string) => void) | undefined;
 }) {
   const [navigatorOpen, setNavigatorOpen] = useState(false);
+  const [titleRow, setTitleRow] = useState<HTMLDivElement | null>(null);
+  const [wideActions, setWideActions] = useState(false);
+  useEffect(() => {
+    if (!titleRow) return;
+    // Observe the actual panel: a desktop split pane can be phone-sized too.
+    const update = () => setWideActions(titleRow.clientWidth >= 640);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(titleRow);
+    return () => observer.disconnect();
+  }, [titleRow]);
   const [minions, setMinions] = useState<MinionSummary[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [detail, setDetail] = useState<MinionDetail | null>(null);
@@ -173,6 +191,25 @@ export function MinionsPage({
   // Quick input & execution state
   const [selectedActionId, setSelectedActionId] = useState("");
   const [quickInputText, setQuickInputText] = useState("");
+  const [quickInputElement, setQuickInputElement] =
+    useState<HTMLTextAreaElement | null>(null);
+  const quickInputHintId = useId();
+  useEffect(() => {
+    // Measure once React has committed the controlled draft to the textarea.
+    if (quickInputElement?.value === quickInputText)
+      resizeQuickInput(quickInputElement);
+  }, [quickInputElement, quickInputText]);
+  useEffect(() => {
+    if (!quickInputElement) return;
+    let width = quickInputElement.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (quickInputElement.clientWidth === width) return;
+      width = quickInputElement.clientWidth;
+      resizeQuickInput(quickInputElement);
+    });
+    observer.observe(quickInputElement);
+    return () => observer.disconnect();
+  }, [quickInputElement]);
   const [runningState, setRunningState] = useState<
     "idle" | "run" | "input" | "heartbeat" | "install" | "test" | "schedule"
   >("idle");
@@ -392,7 +429,7 @@ export function MinionsPage({
           : trimmed
             ? await api.submitMinionInput(detail.id, {
                 action: actionId,
-                input: trimmed,
+                input: quickInputText,
               })
             : await api.runMinion(detail.id, {
                 action: actionId,
@@ -772,6 +809,33 @@ export function MinionsPage({
     }
   }
 
+  const heartbeatAction = (
+    <button
+      className={`btn btn-sm ${wideActions ? "btn-outline" : "btn-ghost"}`}
+      disabled={runningState !== "idle"}
+      onClick={() => void handleRunHeartbeat()}
+      type="button"
+      data-testid="minion-heartbeat-button"
+      title="Run main entrypoint with --trigger heartbeat to enrich data and refresh dashboard.openui"
+    >
+      {runningState === "heartbeat" ? "Enriching..." : "Run Heartbeat"}
+    </button>
+  );
+  const askLiaAction =
+    onAskLia && detail ? (
+      <button
+        className="btn btn-sm btn-ghost"
+        onClick={() =>
+          onAskLia(
+            `Let's work on the ${detail.name} Minion (${buildCanonicalMinionUri(detail.id)}) in \`${detail.path}/\`. Please review its \`README.md\`, \`${detail.input_entrypoint ?? "input.py"}\`, \`${detail.input_schema_file ?? "input.schema.json"}\`, \`${detail.entrypoint}\`, \`${dashboardUiFile}\`, \`${inputUiFile}\`, and \`data/\` files.`,
+          )
+        }
+        type="button"
+      >
+        Ask Lia
+      </button>
+    ) : null;
+
   return (
     <div
       className="workspace-layout xl:grid-cols-[clamp(18rem,22vw,22rem)_minmax(0,1fr)]"
@@ -887,7 +951,10 @@ export function MinionsPage({
       </ResponsiveDrawer>
 
       {/* Main Minion Workspace */}
-      <section className="workspace-document flex flex-col min-h-0 overflow-hidden bg-base-100">
+      <section
+        className="workspace-document workspace-mobile-page minion-workspace flex flex-col min-h-0 overflow-hidden bg-base-100"
+        aria-label="Minion workspace"
+      >
         <div className="border-b border-base-content/10 p-2 xl:hidden">
           <button
             type="button"
@@ -970,67 +1037,37 @@ export function MinionsPage({
           <>
             {/* Minion Header & Quick Actions Bar */}
             <div className="border-b border-base-content/10 p-4 space-y-3 bg-base-200/30">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-lg font-bold tracking-tight">
-                      {detail.name}
-                    </h2>
-                    <span className="badge badge-sm badge-primary/20 text-primary font-mono">
-                      {detail.runtime === "python" ? "Python" : "TypeScript"}
-                    </span>
-                    {detail.input_entrypoint && (
-                      <span
-                        className="badge badge-sm badge-ghost font-mono"
-                        title="Input entrypoint"
-                      >
-                        input: {detail.input_entrypoint}
-                      </span>
-                    )}
-                    <span
-                      className="badge badge-sm badge-ghost font-mono"
-                      title="Data & enrichment entrypoint"
-                    >
-                      main: {detail.entrypoint}
-                    </span>
-                    {detail.triggers?.after_entry !== false && (
-                      <span
-                        className="badge badge-sm badge-info/20 text-info font-mono"
-                        title="main runs automatically right after every new entry"
-                      >
-                        trigger: after-entry
-                      </span>
-                    )}
-                    {detail.triggers?.heartbeat_schedule && (
-                      <span
-                        className="badge badge-sm badge-ghost font-mono"
-                        title="Recommended cron schedule for heartbeat enrichment"
-                      >
-                        heartbeat: {detail.triggers.heartbeat_schedule}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-base-content/70 mt-1">
-                    {detail.description}
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <button
-                    className="btn btn-xs btn-accent"
-                    disabled={runningState !== "idle"}
-                    onClick={() => void handleRunHeartbeat()}
-                    type="button"
-                    data-testid="minion-heartbeat-button"
-                    title="Run main entrypoint with --trigger heartbeat to enrich data and refresh dashboard.openui"
+              <div
+                ref={setTitleRow}
+                className="minion-title-row flex min-w-0 items-center justify-between gap-3"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <h2
+                    className="min-w-0 truncate text-lg font-bold tracking-tight"
+                    title={detail.name}
                   >
-                    {runningState === "heartbeat"
-                      ? "Enriching..."
-                      : "Run Heartbeat"}
-                  </button>
-                  <ActionMenu label="Minion actions" className="btn-xs">
+                    {detail.name}
+                  </h2>
+                  <span className="badge badge-sm shrink-0 badge-primary/20 text-primary font-mono">
+                    {detail.runtime === "python" ? "Python" : "TypeScript"}
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {wideActions && (
+                    <>
+                      {heartbeatAction}
+                      {askLiaAction}
+                    </>
+                  )}
+                  <ActionMenu label="Minion actions" className="btn-sm">
+                    {!wideActions && (
+                      <>
+                        {heartbeatAction}
+                        {askLiaAction}
+                      </>
+                    )}
                     <button
-                      className="btn btn-xs btn-outline"
+                      className="btn btn-sm btn-ghost"
                       disabled={runningState !== "idle"}
                       onClick={() => void handleScheduleHeartbeatCron()}
                       type="button"
@@ -1042,7 +1079,7 @@ export function MinionsPage({
                         : "Schedule Heartbeat"}
                     </button>
                     <button
-                      className="btn btn-xs btn-outline"
+                      className="btn btn-sm btn-ghost"
                       disabled={runningState !== "idle"}
                       onClick={() => void handleInstallDeps()}
                       type="button"
@@ -1053,7 +1090,7 @@ export function MinionsPage({
                         : "Install Deps"}
                     </button>
                     <button
-                      className="btn btn-xs btn-outline"
+                      className="btn btn-sm btn-ghost"
                       disabled={runningState !== "idle"}
                       onClick={() => void handleRunTests()}
                       type="button"
@@ -1069,31 +1106,59 @@ export function MinionsPage({
                       Open in Documents
                     </button>
                   </ActionMenu>
-                  {onAskLia && (
-                    <button
-                      className="btn btn-xs btn-secondary"
-                      onClick={() =>
-                        onAskLia(
-                          `Let's work on the ${detail.name} Minion (${buildCanonicalMinionUri(detail.id)}) in \`${detail.path}/\`. Please review its \`README.md\`, \`${detail.input_entrypoint ?? "input.py"}\`, \`${detail.input_schema_file ?? "input.schema.json"}\`, \`${detail.entrypoint}\`, \`${dashboardUiFile}\`, \`${inputUiFile}\`, and \`data/\` files.`,
-                        )
-                      }
-                      type="button"
-                    >
-                      Ask Lia
-                    </button>
-                  )}
                 </div>
               </div>
+              <p className="text-xs text-base-content/70">
+                {detail.description}
+              </p>
+              <details className="minion-runtime-details">
+                <summary className="cursor-pointer py-2 text-xs text-base-content/60">
+                  Runtime & triggers
+                </summary>
+                <div className="flex flex-wrap gap-2 pb-2">
+                  {detail.input_entrypoint && (
+                    <span
+                      className="badge badge-sm badge-ghost font-mono"
+                      title="Input entrypoint"
+                    >
+                      input: {detail.input_entrypoint}
+                    </span>
+                  )}
+                  <span
+                    className="badge badge-sm badge-ghost font-mono"
+                    title="Data & enrichment entrypoint"
+                  >
+                    main: {detail.entrypoint}
+                  </span>
+                  {detail.triggers?.after_entry !== false && (
+                    <span
+                      className="badge badge-sm badge-info/20 text-info font-mono"
+                      title="main runs automatically right after every new entry"
+                    >
+                      trigger: after-entry
+                    </span>
+                  )}
+                  {detail.triggers?.heartbeat_schedule && (
+                    <span
+                      className="badge badge-sm badge-ghost font-mono"
+                      title="Recommended cron schedule for heartbeat enrichment"
+                    >
+                      heartbeat: {detail.triggers.heartbeat_schedule}
+                    </span>
+                  )}
+                </div>
+              </details>
 
-              {/* Quick Input Bar */}
+              {/* Multiline quick entry stays in the normal page flow. */}
               <form
                 onSubmit={(e) => void handleRunQuickInput(e)}
-                className="flex flex-wrap items-center gap-2"
+                className="minion-quick-entry flex flex-col gap-2"
                 data-testid="minion-quick-input-form"
               >
                 {detail.quick_actions.length > 1 ? (
                   <select
-                    className="select select-bordered select-xs font-medium"
+                    className="select select-bordered select-sm max-w-full self-start font-medium"
+                    aria-label="Input action"
                     value={selectedActionId}
                     onChange={(e) => setSelectedActionId(e.target.value)}
                   >
@@ -1103,33 +1168,52 @@ export function MinionsPage({
                       </option>
                     ))}
                   </select>
-                ) : (
-                  <span className="badge badge-sm badge-neutral font-medium">
-                    {activeQuickAction?.label ?? "Quick Input"}
-                  </span>
-                )}
-                <input
-                  type="text"
-                  className="input input-bordered input-xs flex-1 min-w-0 basis-full sm:basis-auto sm:min-w-[14rem]"
+                ) : null}
+                <textarea
+                  ref={setQuickInputElement}
+                  rows={3}
+                  className="textarea textarea-bordered w-full min-w-0"
                   aria-label="Quick input"
+                  aria-describedby={quickInputHintId}
                   placeholder={
-                    activeQuickAction?.placeholder ??
-                    `Quick entry via ${detail.input_entrypoint ?? detail.entrypoint} (or JSON payload)...`
+                    activeQuickAction?.placeholder ?? "Paste or type an entry…"
                   }
                   value={quickInputText}
                   onChange={(e) => setQuickInputText(e.target.value)}
+                  readOnly={runningState !== "idle"}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key !== "Enter" ||
+                      (!event.ctrlKey && !event.metaKey) ||
+                      event.nativeEvent.isComposing
+                    )
+                      return;
+                    event.preventDefault();
+                    if (runningState === "idle")
+                      event.currentTarget.form?.requestSubmit();
+                  }}
                   data-testid="minion-quick-input"
                 />
-                <button
-                  type="submit"
-                  className="btn btn-primary btn-xs"
-                  disabled={runningState !== "idle"}
-                  data-testid="minion-run-button"
-                >
-                  {runningState === "run" || runningState === "input"
-                    ? "Running..."
-                    : "Run"}
-                </button>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p
+                    id={quickInputHintId}
+                    className="min-w-0 flex-1 text-xs text-base-content/50"
+                  >
+                    Enter for a new line · Ctrl/⌘ + Enter to submit
+                  </p>
+                  <button
+                    type="submit"
+                    className="btn btn-primary btn-sm ml-auto shrink-0"
+                    disabled={runningState !== "idle"}
+                    data-testid="minion-run-button"
+                  >
+                    {runningState === "run" ||
+                    runningState === "input" ||
+                    runningState === "heartbeat"
+                      ? "Running..."
+                      : (activeQuickAction?.label ?? "Add Entry")}
+                  </button>
+                </div>
               </form>
 
               {/* Execution Log Banner */}
@@ -1191,7 +1275,7 @@ export function MinionsPage({
               {/* Sub-tab Navigation */}
               <select
                 aria-label="Minion section"
-                className="select select-bordered w-full sm:hidden"
+                className="workspace-compact-select select select-bordered w-full sm:hidden"
                 value={activeSubTab}
                 onChange={(event) => {
                   const tab = event.target.value as MinionSubTab;
@@ -1213,7 +1297,7 @@ export function MinionsPage({
                 <option value="code">Code & Tests</option>
                 <option value="readme">README</option>
               </select>
-              <div className="hidden sm:flex flex-wrap tabs tabs-boxed bg-base-200/60 p-0.5 w-fit max-w-full">
+              <div className="workspace-wide-controls hidden sm:flex flex-wrap tabs tabs-boxed bg-base-200/60 p-0.5 w-fit max-w-full">
                 <button
                   type="button"
                   className={`tab tab-xs ${activeSubTab === "dashboard" ? "tab-active" : ""}`}
@@ -1275,7 +1359,7 @@ export function MinionsPage({
             </div>
 
             {/* Sub-tab Content */}
-            <div className="flex-1 overflow-y-auto p-4 min-h-0">
+            <div className="workspace-mobile-content flex-1 overflow-y-auto p-4 min-h-0">
               {activeSubTab === "dashboard" && (
                 <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 min-w-0">
@@ -1321,7 +1405,7 @@ export function MinionsPage({
                   {editingOpenUI ? (
                     <div className="space-y-2">
                       <OpenUIDiagnostics content={openUIDraft} />
-                      <div className="h-[28rem] border border-base-content/15 rounded-lg overflow-hidden">
+                      <div className="workspace-editor-frame h-[28rem] border border-base-content/15 rounded-lg overflow-hidden">
                         <CodeEditor
                           onChange={setOpenUIDraft}
                           filePath={`${detail.path}/${dashboardUiFile}`}
@@ -1360,38 +1444,40 @@ export function MinionsPage({
 
               {activeSubTab === "input" && (
                 <div className="space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-xs text-base-content/70 space-x-2">
-                      <span className="font-mono">
-                        {detail.path}/{inputUiFile}
-                      </span>
-                      {detail.input_schema_file && (
-                        <span className="badge badge-xs badge-ghost font-mono">
-                          schema: {detail.input_schema_file}
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-xs text-base-content/70">
+                        <span className="w-full break-all font-mono">
+                          {detail.path}/{inputUiFile}
                         </span>
-                      )}
-                      {detail.input_entrypoint && (
-                        <span className="badge badge-xs badge-ghost font-mono">
-                          handler: {detail.input_entrypoint} -&gt;{" "}
-                          {detail.entrypoint} (--trigger entry)
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
+                        {detail.input_schema_file && (
+                          <span className="badge badge-xs badge-ghost max-w-full h-auto whitespace-normal break-all font-mono">
+                            schema: {detail.input_schema_file}
+                          </span>
+                        )}
+                        {detail.input_entrypoint && (
+                          <span className="badge badge-xs badge-ghost max-w-full h-auto whitespace-normal break-all font-mono">
+                            handler: {detail.input_entrypoint} -&gt;{" "}
+                            {detail.entrypoint} (--trigger entry)
+                          </span>
+                        )}
+                      </div>
                       {inputEditorTarget !== "preview" && (
                         <button
                           type="button"
-                          className="btn btn-primary btn-xs"
+                          className="btn btn-primary btn-sm shrink-0"
+                          aria-label={`Save ${inputEditorTarget}`}
                           disabled={inputAssetSaving}
                           onClick={() => void handleSaveInputAsset()}
                         >
-                          {inputAssetSaving
-                            ? "Saving..."
-                            : `Save ${inputEditorTarget}`}
+                          {inputAssetSaving ? "Saving..." : "Save"}
                         </button>
                       )}
+                    </div>
+                    <ScrollableToolbar label="Input editor modes">
                       <button
                         type="button"
+                        aria-pressed={inputEditorTarget === "preview"}
                         className={`btn btn-xs ${inputEditorTarget === "preview" ? "btn-active" : "btn-ghost"}`}
                         onClick={() => setInputEditorTarget("preview")}
                       >
@@ -1399,6 +1485,7 @@ export function MinionsPage({
                       </button>
                       <button
                         type="button"
+                        aria-pressed={inputEditorTarget === "input.openui"}
                         className={`btn btn-xs ${inputEditorTarget === "input.openui" ? "btn-active" : "btn-ghost"}`}
                         onClick={() => setInputEditorTarget("input.openui")}
                       >
@@ -1407,6 +1494,9 @@ export function MinionsPage({
                       {detail.input_schema_file && (
                         <button
                           type="button"
+                          aria-pressed={
+                            inputEditorTarget === "input.schema.json"
+                          }
                           className={`btn btn-xs ${inputEditorTarget === "input.schema.json" ? "btn-active" : "btn-ghost"}`}
                           onClick={() =>
                             setInputEditorTarget("input.schema.json")
@@ -1415,13 +1505,13 @@ export function MinionsPage({
                           Edit {detail.input_schema_file}
                         </button>
                       )}
-                    </div>
+                    </ScrollableToolbar>
                   </div>
 
                   {inputEditorTarget === "input.openui" ? (
                     <div className="space-y-2">
                       <OpenUIDiagnostics content={inputOpenUIDraft} />
-                      <div className="h-[28rem] border border-base-content/15 rounded-lg overflow-hidden">
+                      <div className="workspace-editor-frame h-[28rem] border border-base-content/15 rounded-lg overflow-hidden">
                         <CodeEditor
                           onChange={setInputOpenUIDraft}
                           filePath={`${detail.path}/${inputUiFile}`}
@@ -1430,7 +1520,7 @@ export function MinionsPage({
                       </div>
                     </div>
                   ) : inputEditorTarget === "input.schema.json" ? (
-                    <div className="h-[28rem] border border-base-content/15 rounded-lg overflow-hidden">
+                    <div className="workspace-editor-frame h-[28rem] border border-base-content/15 rounded-lg overflow-hidden">
                       <CodeEditor
                         onChange={setInputSchemaDraft}
                         filePath={`${detail.path}/${detail.input_schema_file ?? "input.schema.json"}`}
@@ -1497,17 +1587,6 @@ export function MinionsPage({
                           `config.json` and `config.schema.json`.
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-xs"
-                        disabled={configSaving}
-                        onClick={() => void handleSaveConfigAsset()}
-                        data-testid="minion-save-config"
-                      >
-                        {configSaving
-                          ? "Saving..."
-                          : `Save ${configEditorTarget}`}
-                      </button>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-4 pt-1">
@@ -1550,31 +1629,51 @@ export function MinionsPage({
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-xs font-mono text-base-content/70">
-                      {detail.path}/{configEditorTarget}
-                    </div>
-                    <div className="flex items-center gap-1.5">
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1 break-all text-xs font-mono text-base-content/70">
+                        {detail.path}/{configEditorTarget}
+                      </div>
                       <button
                         type="button"
+                        className="btn btn-primary btn-sm shrink-0"
+                        disabled={configSaving}
+                        onClick={() => void handleSaveConfigAsset()}
+                        data-testid="minion-save-config"
+                        aria-label={`Save ${configEditorTarget}`}
+                      >
+                        {configSaving ? "Saving..." : "Save"}
+                      </button>
+                    </div>
+                    <ScrollableToolbar label="Config editor modes">
+                      <button
+                        type="button"
+                        aria-pressed={configEditorTarget === "config.json"}
+                        aria-label="Edit config.json (Local Instance)"
+                        title="Edit config.json (Local Instance)"
                         className={`btn btn-xs ${configEditorTarget === "config.json" ? "btn-active" : "btn-ghost"}`}
                         onClick={() => setConfigEditorTarget("config.json")}
                       >
-                        Edit config.json (Local Instance)
+                        Edit config.json
                       </button>
                       <button
                         type="button"
+                        aria-pressed={
+                          configEditorTarget === "config.schema.json"
+                        }
+                        aria-label="Edit config.schema.json (Packaged Schema)"
+                        title="Edit config.schema.json (Packaged Schema)"
                         className={`btn btn-xs ${configEditorTarget === "config.schema.json" ? "btn-active" : "btn-ghost"}`}
                         onClick={() =>
                           setConfigEditorTarget("config.schema.json")
                         }
                       >
-                        Edit config.schema.json (Packaged Schema)
+                        Edit config.schema.json
                       </button>
-                    </div>
+                    </ScrollableToolbar>
                   </div>
 
-                  <div className="h-[26rem] border border-base-content/15 rounded-lg overflow-hidden">
+                  <div className="workspace-editor-frame h-[26rem] border border-base-content/15 rounded-lg overflow-hidden">
                     {configEditorTarget === "config.json" ? (
                       <CodeEditor
                         onChange={setConfigDraft}
@@ -1593,7 +1692,7 @@ export function MinionsPage({
               )}
 
               {activeSubTab === "data" && (
-                <div className="grid grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)] gap-4 h-full min-h-[24rem]">
+                <div className="minion-file-layout grid grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)] gap-4 h-full min-h-[24rem]">
                   <div className="border border-base-content/10 rounded-lg p-3 space-y-3 flex flex-col">
                     <div className="text-xs font-semibold uppercase tracking-wider text-base-content/60">
                       data/ Files (Nested Supported)
@@ -1674,7 +1773,7 @@ export function MinionsPage({
                     </form>
                   </div>
 
-                  <div className="border border-base-content/10 rounded-lg flex flex-col min-h-[24rem] overflow-hidden">
+                  <div className="minion-file-editor border border-base-content/10 rounded-lg flex flex-col min-h-[24rem] overflow-hidden">
                     {fileLoading ? (
                       <div className="p-6 text-xs text-base-content/60">
                         Loading file...
@@ -1705,7 +1804,7 @@ export function MinionsPage({
                             </button>
                           </div>
                         </div>
-                        <div className="flex-1 min-h-[20rem]">
+                        <div className="workspace-editor-frame flex-1 min-h-[20rem]">
                           <CodeEditor
                             onChange={setFileDraft}
                             filePath={activeFile.path}
@@ -1723,7 +1822,7 @@ export function MinionsPage({
               )}
 
               {activeSubTab === "code" && (
-                <div className="grid grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)] gap-4 h-full min-h-[24rem]">
+                <div className="minion-file-layout grid grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)] gap-4 h-full min-h-[24rem]">
                   <div className="border border-base-content/10 rounded-lg p-3 space-y-2 flex flex-col">
                     <div className="text-xs font-semibold uppercase tracking-wider text-base-content/60">
                       Input, Main, Schema & Tests
@@ -1780,7 +1879,7 @@ export function MinionsPage({
                     </div>
                   </div>
 
-                  <div className="border border-base-content/10 rounded-lg flex flex-col min-h-[24rem] overflow-hidden">
+                  <div className="minion-file-editor border border-base-content/10 rounded-lg flex flex-col min-h-[24rem] overflow-hidden">
                     {fileLoading ? (
                       <div className="p-6 text-xs text-base-content/60">
                         Loading file...
@@ -1804,7 +1903,7 @@ export function MinionsPage({
                             </button>
                           </div>
                         </div>
-                        <div className="flex-1 min-h-[20rem]">
+                        <div className="workspace-editor-frame flex-1 min-h-[20rem]">
                           <CodeEditor
                             onChange={setFileDraft}
                             filePath={activeFile.path}

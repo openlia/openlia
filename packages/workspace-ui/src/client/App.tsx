@@ -46,6 +46,7 @@ import { ConfigurationPage } from "./ConfigurationPage";
 import { SchedulePage } from "./SchedulePage";
 import { ChatPage } from "./ChatPage";
 import { ResponsiveDrawer } from "./components/common/ResponsiveDrawer";
+import { useViewportHeight } from "./components/layout/useViewportHeight";
 import { ShareModal } from "./ShareModal";
 import { SharedLinksSection } from "./SharedLinksSection";
 import { SharePublicView } from "./SharePublicView";
@@ -626,6 +627,7 @@ export function App({
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const filesButtonRef = useRef<HTMLButtonElement>(null);
+  const viewportRef = useViewportHeight();
   const [detailsOpen, setDetailsOpen] = useState(
     () => initialRoute.current.view === "info",
   );
@@ -2707,6 +2709,7 @@ export function App({
 
   return (
     <main
+      ref={viewportRef}
       className={`workspace-app${activeTab === "chat" ? " workspace-app--chat" : ""}`}
     >
       <WorkspaceHeader

@@ -10,6 +10,7 @@ const meta = {
   title: "Skills/Library",
   loaders: [storyLoader],
   parameters: {
+    layout: "fullscreen",
     componentExports: [
       "CreateSkillModal.tsx#CreateSkillModal",
       "SkillDetailPane.tsx#SkillDetailPane",
@@ -64,6 +65,39 @@ export const Details: Story = {
           view={view}
           onViewChange={setView}
           onShare={action("shareSkill")}
+        />
+      </PageFrame>
+    );
+  },
+};
+export const LongInstructions: Story = {
+  render: function LongInstructionsStory(_args, { loaded }) {
+    const data = storyData(loaded);
+    const content = `${Array.from(
+      { length: 40 },
+      (_, i) =>
+        `## Instruction ${i + 1}\n\nKeep the reading area usable on short mobile screens.\n`,
+    ).join("\n")}\n## End of instructions`;
+    const [draft, setDraft] = useState(content);
+    const [tab, setTab] = useState<SkillSubTab>("instructions");
+    const [view, setView] = useState<"edit" | "preview" | "info">("preview");
+    return (
+      <PageFrame>
+        <SkillDetailPane
+          skill={data.skill}
+          activeSubTab={tab}
+          onSubTabChange={setTab}
+          selectedFile={{ ...data.skillFile, content }}
+          draftContent={draft}
+          onDraftChange={setDraft}
+          onSelectFile={action("selectFile")}
+          onSaveFile={action("saveSkill")}
+          onResetFile={() => setDraft(content)}
+          isSaving={false}
+          onToggleEnable={action("toggleEnable")}
+          onTogglePin={action("togglePin")}
+          view={view}
+          onViewChange={setView}
         />
       </PageFrame>
     );

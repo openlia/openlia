@@ -14,6 +14,7 @@ import { PageFrame } from "./frames";
 const meta = {
   title: "Chat/Conversation",
   parameters: {
+    layout: "fullscreen",
     componentExports: [
       "ChatComposer.tsx#ChatComposer",
       "ChatHeader.tsx#ChatHeader",

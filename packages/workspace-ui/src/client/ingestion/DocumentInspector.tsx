@@ -537,7 +537,10 @@ export function DocumentInspector({
       : displayedContent;
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-base-100">
+    <div
+      className="workspace-mobile-page ingestion-inspector flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-100"
+      data-original-preview={splitPreview && activeTab === "content"}
+    >
       {/* Sticky Compact Inspector Header */}
       <div className="shrink-0 border-b border-base-content/10 bg-base-100 px-3 py-2 sm:px-5 sm:py-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -741,6 +744,30 @@ export function DocumentInspector({
             Used by ({document.backlinks?.length ?? 0})
           </button>
         </div>
+        {activeTab === "content" &&
+          (document.kind === "pdf" || document.kind === "image") && (
+            <fieldset
+              className="ingestion-preview-switch join mt-2"
+              aria-label="Document preview mode"
+            >
+              <button
+                type="button"
+                className={`btn btn-sm join-item ${!splitPreview ? "btn-primary" : "btn-ghost"}`}
+                aria-pressed={!splitPreview}
+                onClick={() => setSplitPreview(false)}
+              >
+                OCR text
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm join-item ${splitPreview ? "btn-primary" : "btn-ghost"}`}
+                aria-pressed={splitPreview}
+                onClick={() => setSplitPreview(true)}
+              >
+                Original
+              </button>
+            </fieldset>
+          )}
       </div>
 
       {saveError && (
@@ -751,7 +778,7 @@ export function DocumentInspector({
 
       {/* Split-Screen Body: Optional Left Preview + Right Inspector Tab Content */}
       <div
-        className={`flex min-h-0 flex-1 ${
+        className={`workspace-mobile-content ingestion-preview-body flex min-h-0 flex-1 ${
           splitPreview
             ? "flex-col lg:flex-row divide-y lg:divide-y-0 lg:divide-x divide-base-content/10"
             : "flex-col"
@@ -759,7 +786,7 @@ export function DocumentInspector({
       >
         {splitPreview && (
           <section
-            className="flex min-h-[22rem] flex-1 flex-col bg-base-200/40 p-3"
+            className="ingestion-original-preview flex min-h-[22rem] flex-1 flex-col bg-base-200/40 p-3"
             aria-label="Original document preview"
           >
             <div className="mb-2 flex items-center justify-between text-xs text-base-content/60">
@@ -795,7 +822,7 @@ export function DocumentInspector({
         )}
 
         {/* Tab Panels */}
-        <div className="flex-1 p-3 sm:p-5 overflow-y-auto space-y-4">
+        <div className="workspace-mobile-content ingestion-tab-content flex-1 min-h-0 p-3 sm:p-5 overflow-y-auto space-y-4">
           {/* Scrollable Metadata Summary Bar & Status Banners */}
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-base-content/60 border-b border-base-content/10 pb-3">
             {document.correspondent && (
@@ -1096,7 +1123,7 @@ export function DocumentInspector({
                     </a>
                     <button
                       type="button"
-                      className={`btn btn-xs ${
+                      className={`ingestion-split-toggle btn btn-xs ${
                         splitPreview ? "btn-primary" : "btn-outline"
                       }`}
                       aria-pressed={splitPreview}

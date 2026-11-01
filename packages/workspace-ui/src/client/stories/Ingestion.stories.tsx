@@ -17,6 +17,7 @@ const meta = {
   title: "Ingestion/Documents",
   loaders: [storyLoader],
   parameters: {
+    layout: "fullscreen",
     componentExports: [
       "IngestionSection.tsx#IngestionSection",
       "ingestion/DocumentCard.tsx#DocumentCard",
@@ -99,6 +100,30 @@ export const Library: Story = {
           onOpenFile={action("openFile")}
           onRefresh={action("refresh")}
           onSelect={action("select")}
+          rawUrl={data.api.rawUrl}
+        />
+      </PageFrame>
+    );
+  },
+};
+export const LongInspector: Story = {
+  render: (_args, { loaded }) => {
+    const data = storyData(loaded);
+    return (
+      <PageFrame>
+        <DocumentInspector
+          api={{ ...data.api, sourceRawUrl: () => "about:blank" }}
+          document={{
+            ...data.source,
+            content: `${Array.from(
+              { length: 50 },
+              (_, i) =>
+                `OCR paragraph ${i + 1}: all extracted content must remain reachable.`,
+            ).join("\n\n")}\n\nEnd of extracted content`,
+          }}
+          loading={false}
+          onUpdate={action("updateDocument")}
+          onOpenFile={action("openFile")}
           rawUrl={data.api.rawUrl}
         />
       </PageFrame>

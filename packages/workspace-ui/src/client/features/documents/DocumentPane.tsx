@@ -135,7 +135,7 @@ function ArtifactPane({
   return (
     <section
       aria-label="Non-text artifact"
-      className="flex min-h-0 flex-1 flex-col"
+      className="workspace-mobile-content flex min-h-0 flex-1 flex-col"
     >
       <div className="workspace-document-toolbar">
         <div className="min-w-0 flex-1">
@@ -418,7 +418,10 @@ export function DocumentPane({
   const isMarkdown = file !== null && isMarkdownPath(file.path);
 
   return (
-    <section aria-label="Document workspace" className="workspace-document">
+    <section
+      aria-label="Document workspace"
+      className="workspace-document workspace-mobile-page document-workspace"
+    >
       {artifact ? (
         <ArtifactPane
           artifact={artifact}
@@ -734,103 +737,109 @@ export function DocumentPane({
             </div>
           )}
           {file.validation && !file.validation.valid && (
-            <div
-              className="alert alert-warning rounded-none py-1.5 px-3 text-xs flex items-start gap-2 shrink-0"
-              role="status"
-            >
-              <svg
-                className="h-4 w-4 shrink-0 text-warning mt-0.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                viewBox="0 0 24 24"
+            <details className="workspace-document-warning border-b border-warning/30 bg-warning/10">
+              <summary className="cursor-pointer px-3 py-3 text-xs font-semibold text-warning">
+                Template & Schema Warning
+              </summary>
+              <div
+                className="alert alert-warning rounded-none py-1.5 px-3 text-xs flex items-start gap-2 shrink-0"
+                role="status"
               >
-                <title>Validation warning</title>
-                <path
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-semibold">
-                    Template & Schema Warning
-                    {file.validation.template_path && (
-                      <span className="font-normal font-mono opacity-80 ml-1">
-                        [template: {file.validation.template_path}]
-                      </span>
-                    )}
-                    {file.validation.schema_path && (
-                      <span className="font-normal font-mono opacity-80 ml-1">
-                        [schema: {file.validation.schema_path}]
-                      </span>
-                    )}
-                  </p>
-                  {onFixTemplate &&
-                    (!onFixFinding ||
-                      !file.validation.findings ||
-                      file.validation.findings.filter((f) => f.state === "open")
-                        .length === 0) && (
-                      <button
-                        className="btn btn-warning btn-xs shrink-0"
-                        disabled={fixingTemplate}
-                        onClick={onFixTemplate}
-                        type="button"
-                      >
-                        {fixingTemplate
-                          ? "Creating Migration..."
-                          : "Fix in Migrations"}
-                      </button>
-                    )}
-                </div>
-                {file.validation.findings &&
-                file.validation.findings.filter((f) => f.state === "open")
-                  .length > 0 ? (
-                  <ul className="mt-1.5 max-h-28 overflow-y-auto space-y-1.5">
-                    {file.validation.findings
-                      .filter((f) => f.state === "open")
-                      .map((finding) => (
-                        <li
-                          className="flex flex-wrap items-center justify-between gap-2 rounded bg-base-100/20 px-2 py-1"
-                          key={finding.issue_id}
+                <svg
+                  className="h-4 w-4 shrink-0 text-warning mt-0.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <title>Validation warning</title>
+                  <path
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold">
+                      Validation details
+                      {file.validation.template_path && (
+                        <span className="font-normal font-mono opacity-80 ml-1">
+                          [template: {file.validation.template_path}]
+                        </span>
+                      )}
+                      {file.validation.schema_path && (
+                        <span className="font-normal font-mono opacity-80 ml-1">
+                          [schema: {file.validation.schema_path}]
+                        </span>
+                      )}
+                    </p>
+                    {onFixTemplate &&
+                      (!onFixFinding ||
+                        !file.validation.findings ||
+                        file.validation.findings.filter(
+                          (f) => f.state === "open",
+                        ).length === 0) && (
+                        <button
+                          className="btn btn-warning btn-xs shrink-0"
+                          disabled={fixingTemplate}
+                          onClick={onFixTemplate}
+                          type="button"
                         >
-                          <span className="min-w-0 flex-1">
-                            {finding.message}
-                          </span>
-                          <span className="flex items-center gap-1 shrink-0">
-                            {onFixFinding && (
-                              <button
-                                className="btn btn-warning btn-xs h-5 min-h-0 px-2"
-                                onClick={() => onFixFinding(finding)}
-                                type="button"
-                              >
-                                Fix
-                              </button>
-                            )}
-                            {onIgnoreFinding && (
-                              <button
-                                className="btn btn-ghost btn-xs h-5 min-h-0 px-2"
-                                onClick={() => onIgnoreFinding(finding)}
-                                title="Ignore this finding in this file"
-                                type="button"
-                              >
-                                Ignore
-                              </button>
-                            )}
-                          </span>
-                        </li>
+                          {fixingTemplate
+                            ? "Creating Migration..."
+                            : "Fix in Migrations"}
+                        </button>
+                      )}
+                  </div>
+                  {file.validation.findings &&
+                  file.validation.findings.filter((f) => f.state === "open")
+                    .length > 0 ? (
+                    <ul className="mt-1.5 max-h-28 overflow-y-auto space-y-1.5">
+                      {file.validation.findings
+                        .filter((f) => f.state === "open")
+                        .map((finding) => (
+                          <li
+                            className="flex flex-wrap items-center justify-between gap-2 rounded bg-base-100/20 px-2 py-1"
+                            key={finding.issue_id}
+                          >
+                            <span className="min-w-0 flex-1">
+                              {finding.message}
+                            </span>
+                            <span className="flex items-center gap-1 shrink-0">
+                              {onFixFinding && (
+                                <button
+                                  className="btn btn-warning btn-xs h-5 min-h-0 px-2"
+                                  onClick={() => onFixFinding(finding)}
+                                  type="button"
+                                >
+                                  Fix
+                                </button>
+                              )}
+                              {onIgnoreFinding && (
+                                <button
+                                  className="btn btn-ghost btn-xs h-5 min-h-0 px-2"
+                                  onClick={() => onIgnoreFinding(finding)}
+                                  title="Ignore this finding in this file"
+                                  type="button"
+                                >
+                                  Ignore
+                                </button>
+                              )}
+                            </span>
+                          </li>
+                        ))}
+                    </ul>
+                  ) : (
+                    <ul className="list-disc list-inside mt-1 max-h-16 sm:max-h-24 overflow-y-auto space-y-0.5 opacity-90">
+                      {file.validation.errors.map((err: string) => (
+                        <li key={err}>{err}</li>
                       ))}
-                  </ul>
-                ) : (
-                  <ul className="list-disc list-inside mt-1 max-h-16 sm:max-h-24 overflow-y-auto space-y-0.5 opacity-90">
-                    {file.validation.errors.map((err: string) => (
-                      <li key={err}>{err}</li>
-                    ))}
-                  </ul>
-                )}
+                    </ul>
+                  )}
+                </div>
               </div>
-            </div>
+            </details>
           )}
           {documentError && (
             <div className="alert alert-error rounded-none" role="alert">
@@ -854,7 +863,10 @@ export function DocumentPane({
               onDraftChange={onDraftChange}
             />
           ) : (
-            <section aria-label="Preview" className="workspace-preview-pane">
+            <section
+              aria-label="Preview"
+              className="workspace-preview-pane workspace-mobile-content"
+            >
               <div className="workspace-pane-label sr-only">Preview</div>
               <OpenLiaOpenUIProvider
                 value={{

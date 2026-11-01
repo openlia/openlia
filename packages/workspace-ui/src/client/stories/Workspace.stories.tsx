@@ -20,6 +20,7 @@ const meta = {
   title: "Workspace/Features",
   loaders: [storyLoader],
   parameters: {
+    layout: "fullscreen",
     componentExports: [
       "ActivitySection.tsx#ActivitySection",
       "GitActivitySection.tsx#GitActivitySection",

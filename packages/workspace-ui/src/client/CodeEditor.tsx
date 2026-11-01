@@ -127,7 +127,7 @@ export function CodeEditor({
   onChange,
   filePath,
   readOnly = false,
-  minHeight = "100%",
+  minHeight = "0",
   className = "",
 }: CodeEditorProps) {
   const [wrapEnabled, setWrapEnabled] = useState(false);
@@ -235,7 +235,7 @@ export function CodeEditor({
 
   return (
     <div
-      className={`flex h-full flex-col overflow-hidden bg-base-100 ${className}`}
+      className={`workspace-code-editor flex h-full min-h-0 flex-col overflow-hidden bg-base-100 ${className}`}
       style={{ minHeight }}
     >
       <div className="flex items-center justify-between border-b border-base-content/10 bg-base-200/40 px-3 py-1 text-xs">

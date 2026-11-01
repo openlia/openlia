@@ -8,6 +8,7 @@ export function ResponsiveDrawer({
   title,
   className = "",
   label = title,
+  desktopQuery = "(min-width: 1280px)",
 }: {
   children: ReactNode;
   open: boolean;
@@ -15,6 +16,7 @@ export function ResponsiveDrawer({
   title: string;
   className?: string;
   label?: string;
+  desktopQuery?: string;
 }) {
   // Match the server render; update after hydration so desktop sidebars do not
   // retain the mobile inert attribute from the server HTML.
@@ -24,12 +26,12 @@ export function ResponsiveDrawer({
   close.current = onClose;
   const titleId = useId();
   useEffect(() => {
-    const query = window.matchMedia("(min-width: 1280px)");
+    const query = window.matchMedia(desktopQuery);
     const update = () => setDesktop(query.matches);
     update();
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
-  }, []);
+  }, [desktopQuery]);
   useEffect(() => {
     if (!open || desktop || !panel.current) return;
     const element = panel.current;

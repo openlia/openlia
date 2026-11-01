@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import { CopyLinkButton } from "../components/common/CopyLinkButton";
+import { ScrollableToolbar } from "../components/common/ScrollableToolbar";
 import { action } from "./fixtures";
 
 const meta = {
@@ -17,13 +19,40 @@ const meta = {
   },
   tags: ["autodocs"],
   parameters: {
-    componentExports: ["components/common/CopyLinkButton.tsx#CopyLinkButton"],
+    componentExports: [
+      "components/common/CopyLinkButton.tsx#CopyLinkButton",
+      "components/common/ScrollableToolbar.tsx#ScrollableToolbar",
+    ],
   },
 } satisfies Meta<typeof CopyLinkButton>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const CopyLink: Story = {};
 export const IconOnly: Story = { args: { iconOnly: true } };
+export const ScrollingModes: Story = {
+  render: function ScrollingModesStory() {
+    const [selected, setSelected] = useState("Form Preview");
+    return (
+      <div className="w-80 max-w-full">
+        <ScrollableToolbar label="Example editor modes">
+          {["Form Preview", "Edit input.openui", "Edit input.schema.json"].map(
+            (label) => (
+              <button
+                key={label}
+                type="button"
+                aria-pressed={selected === label}
+                className={`btn btn-sm ${selected === label ? "btn-active" : "btn-ghost"}`}
+                onClick={() => setSelected(label)}
+              >
+                {label}
+              </button>
+            ),
+          )}
+        </ScrollableToolbar>
+      </div>
+    );
+  },
+};
 export const ButtonsAndBadges: Story = {
   render: () => (
     <div className="p-4 space-y-6">
