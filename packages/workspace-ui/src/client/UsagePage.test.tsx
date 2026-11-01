@@ -63,6 +63,8 @@ describe("usage dashboard", () => {
     expect(buildRouteUrl({ tab: "usage" })).toBe("/usage");
   });
   test("shows estimates, filters, model details and UTC chart", async () => {
+    // The fixture is dated October 2026; this test is not about month filtering.
+    window.history.replaceState(null, "", "/usage?period=all");
     render(<UsagePage api={createMockWorkspaceApi()} />);
     expect(await screen.findByText("Estimated cost")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Models" })).toBeInTheDocument();

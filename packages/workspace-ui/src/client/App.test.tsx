@@ -1531,6 +1531,7 @@ messages:
     ).toBeInTheDocument();
 
     // Click "Fix in Migrations"
+    fireEvent.click(screen.getByText("Template & Schema Warning"));
     const fixBtn = screen.getByRole("button", { name: "Fix in Migrations" });
     fireEvent.click(fixBtn);
 

@@ -378,7 +378,7 @@ export function MigrationSection({
   };
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="workspace-mobile-page flex flex-col h-full min-h-0 overflow-hidden">
       {usageSummary}
 
       {/* Recovery Required Alert Banner */}
@@ -658,7 +658,7 @@ export function MigrationSection({
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-y-auto p-3 sm:p-6 bg-base-200/30">
+      <div className="workspace-mobile-content flex-1 min-h-0 overflow-y-auto p-3 sm:p-6 bg-base-200/30">
         {activeSubTab === "overview" && (
           <div className="space-y-6 max-w-4xl">
             {/* Applying a revision is separate from background processing jobs. */}

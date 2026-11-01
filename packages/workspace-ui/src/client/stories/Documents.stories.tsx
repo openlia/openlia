@@ -13,6 +13,7 @@ const meta = {
   title: "Documents/Reading and editing",
   loaders: [storyLoader],
   parameters: {
+    layout: "fullscreen",
     componentExports: [
       "components/editor/MarkdownPreview.tsx#MarkdownPreview",
       "FrontmatterBlock.tsx#FrontmatterBlock",
@@ -97,17 +98,36 @@ function Pane({
   loading = false,
   error = "",
   conflict = "",
+  content = markdown,
+  warnings = false,
 }: {
   loading?: boolean;
   error?: string;
   conflict?: string;
+  content?: string;
+  warnings?: boolean;
 }) {
-  const [draft, setDraft] = useState(markdown);
+  const [draft, setDraft] = useState(content);
   const [view, setView] = useState<"edit" | "preview" | "info">("preview");
   return (
     <PageFrame>
       <DocumentPane
-        file={file}
+        file={{
+          ...file,
+          content,
+          ...(warnings
+            ? {
+                validation: {
+                  valid: false,
+                  errors: Array.from(
+                    { length: 12 },
+                    (_, i) =>
+                      `Validation issue ${i + 1}: review the required field.`,
+                  ),
+                },
+              }
+            : {}),
+        }}
         draft={draft}
         onDraftChange={setDraft}
         view={view}
@@ -129,6 +149,18 @@ function Pane({
   );
 }
 export const Document: Story = { render: () => <Pane /> };
+export const LongDocumentWithWarnings: Story = {
+  render: () => (
+    <Pane
+      warnings
+      content={`${Array.from(
+        { length: 40 },
+        (_, i) =>
+          `## Section ${i + 1}\n\nA long document should remain readable without a nested scroll trap.\n`,
+      ).join("\n")}\n## End of document`}
+    />
+  ),
+};
 export const LoadingDocument: Story = { render: () => <Pane loading /> };
 export const FailedDocument: Story = {
   render: () => (

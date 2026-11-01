@@ -126,7 +126,7 @@ function DetailPane({
   const { intake } = detail;
   return (
     <section
-      className="min-w-0 flex-1 overflow-y-auto bg-base-100 p-4 sm:p-7"
+      className="workspace-mobile-content min-w-0 flex-1 overflow-y-auto bg-base-100 p-4 sm:p-7"
       aria-label="Ingestion details"
     >
       {onBack && (
@@ -414,7 +414,8 @@ export function IngestionSection({
       onDragOver={handleWindowDragOver}
       onDragLeave={handleWindowDragLeave}
       onDrop={handleWindowDrop}
-      className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-base-100"
+      className="workspace-mobile-page ingestion-workspace relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-base-100"
+      data-source-selected={Boolean(selectedSourceId)}
     >
       {/* Window Drag Overlay */}
       {isWindowDragging && (
@@ -483,11 +484,11 @@ export function IngestionSection({
       {/* Main content body */}
       {scope === "workers" ? (
         /* Legacy Queue & Worker Leases View */
-        <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
+        <div className="workspace-mobile-content flex min-h-0 flex-1 flex-col xl:flex-row">
           <section
             className={`${
               detail ? "hidden xl:block" : "flex-1 min-h-0"
-            } w-full overflow-y-auto border-b border-base-content/10 xl:max-h-none xl:w-[min(34rem,38%)] xl:border-b-0 xl:border-r`}
+            } ingestion-worker-list w-full overflow-y-auto border-b border-base-content/10 xl:max-h-none xl:w-[min(34rem,38%)] xl:border-b-0 xl:border-r`}
             aria-label="Ingestion intakes"
           >
             {overview && overview.intakes.length > 0 ? (
@@ -528,12 +529,12 @@ export function IngestionSection({
         </div>
       ) : (
         /* Modern Paperless Document Console */
-        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        <div className="workspace-mobile-content ingestion-body flex min-h-0 flex-1 flex-col md:flex-row">
           {/* Document List (Left Column) */}
           <section
             className={`${
               selectedSourceId ? "hidden md:flex" : "flex flex-1"
-            } min-h-0 w-full md:flex-none md:w-[min(32rem,40%)] border-b md:border-b-0 md:border-r border-base-content/10 overflow-y-auto bg-base-100 flex-col`}
+            } ingestion-library min-h-0 w-full md:flex-none md:w-[min(32rem,40%)] border-b md:border-b-0 md:border-r border-base-content/10 overflow-y-auto bg-base-100 flex-col`}
             aria-label="Document library"
           >
             {searchLoading ? (
@@ -589,7 +590,7 @@ export function IngestionSection({
           <section
             className={`${
               selectedSourceId ? "flex" : "hidden md:flex"
-            } min-h-0 flex-1 min-w-0 flex-col overflow-hidden bg-base-100`}
+            } ingestion-inspector-container min-h-0 flex-1 min-w-0 flex-col overflow-hidden bg-base-100`}
           >
             <DocumentInspector
               api={api}

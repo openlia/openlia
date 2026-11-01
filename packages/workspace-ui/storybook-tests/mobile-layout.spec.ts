@@ -183,7 +183,9 @@ test("ingestion scope and filters remain usable without a scrolling tab strip", 
   await page
     .getByRole("textbox", { name: "Search documents", exact: true })
     .fill("invoice");
-  await filters.click();
+  await page
+    .getByRole("button", { name: "Close Document filters", exact: true })
+    .click();
   await expect(
     page.getByRole("textbox", { name: "Search documents", exact: true }),
   ).not.toBeVisible();
@@ -191,6 +193,7 @@ test("ingestion scope and filters remain usable without a scrolling tab strip", 
   await expect(
     page.getByRole("textbox", { name: "Search documents", exact: true }),
   ).toHaveValue("invoice");
+  await page.getByRole("button", { name: "Show results", exact: true }).click();
   await page
     .getByRole("button", { name: "Ingestion tools", exact: true })
     .click();

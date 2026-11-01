@@ -34,6 +34,16 @@ const preview: Preview = {
           styles: { width: "390px", height: "844px" },
           type: "mobile",
         },
+        shortMobile: {
+          name: "Short phone",
+          styles: { width: "390px", height: "640px" },
+          type: "mobile",
+        },
+        landscapeMobile: {
+          name: "Landscape phone",
+          styles: { width: "844px", height: "390px" },
+          type: "mobile",
+        },
       },
     },
     options: {

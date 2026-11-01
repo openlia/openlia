@@ -21,8 +21,8 @@ textarea {
 
 .workspace-app {
   display: flex;
-  height: 100dvh;
-  min-height: 100dvh;
+  height: var(--workspace-viewport-height, 100dvh);
+  min-height: 0;
   flex-direction: column;
   overflow: hidden;
   background: var(--color-base-300);
@@ -871,4 +871,270 @@ textarea {
     color-mix(in srgb, var(--color-base-content) 15%, transparent);
   padding: 0.5rem;
   text-align: left;
+}
+
+.ingestion-preview-switch,
+.workspace-filter-done {
+  display: none;
+}
+
+.minion-title-row .btn {
+  min-height: 44px;
+  height: auto;
+}
+.minion-title-row .btn-square {
+  min-width: 44px;
+}
+
+.minion-quick-entry textarea {
+  box-sizing: border-box;
+  min-height: calc(4.5rem + 1.5rem + 2px);
+  max-height: calc(12rem + 1.5rem + 2px);
+  padding: 0.75rem;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  resize: none;
+  overflow-y: auto;
+}
+
+.workspace-scrollable-toolbar {
+  min-width: 0;
+  max-width: 100%;
+}
+.workspace-toolbar-scrollport {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: 4px;
+  padding: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--color-primary) 60%, transparent)
+    transparent;
+}
+.workspace-toolbar-scrollport:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+  border-radius: 0.5rem;
+}
+.workspace-toolbar-scrollport::-webkit-scrollbar {
+  height: 5px;
+}
+.workspace-toolbar-scrollport::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--color-primary) 60%, transparent);
+  border-radius: 1rem;
+}
+.workspace-toolbar-items {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  align-items: center;
+  gap: 0.375rem;
+}
+.workspace-toolbar-items > .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Filters are inline on desktop and an independent sheet on compact screens. */
+.workspace-filter-sheet,
+.workspace-filter-sheet > .responsive-drawer-surface {
+  display: contents;
+}
+
+/* A short landscape viewport needs the same scroll model as a narrow phone.
+   Only the app header is fixed in the shell; secondary sections scroll away. */
+@media (max-width: 767px), (max-width: 1279px) and (max-height: 500px) {
+  .workspace-mobile-page {
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-padding-block: 4rem 1rem;
+  }
+  .workspace-mobile-page > * {
+    flex-shrink: 0;
+  }
+  .workspace-mobile-page .workspace-mobile-page,
+  .workspace-mobile-page .workspace-mobile-content,
+  .document-workspace > .workspace-activity,
+  .document-workspace > .workspace-inspector {
+    display: block;
+    flex: none;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  .workspace-mobile-page .workspace-markdown {
+    overflow: visible;
+  }
+  .document-workspace .workspace-preview-pane {
+    flex: none;
+    overflow: visible;
+  }
+  .document-workspace iframe {
+    height: 65dvh;
+    min-height: 12rem;
+  }
+  .workspace-document-warning ul {
+    max-height: none;
+    overflow-y: visible;
+  }
+  .workspace-mobile-page .workspace-editor-pane,
+  .workspace-mobile-page .workspace-editor-frame {
+    flex: none;
+    height: clamp(
+      10rem,
+      calc(var(--workspace-viewport-height, 100dvh) * 0.65),
+      28rem
+    );
+    min-height: 0;
+  }
+  .workspace-mobile-page .workspace-mobile-actions {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .document-workspace > .workspace-empty-document {
+    min-height: 0;
+  }
+  .minion-file-layout,
+  .minion-file-editor {
+    height: auto;
+    min-height: 0;
+  }
+  .minion-file-layout > * {
+    min-width: 0;
+  }
+  .minion-file-layout .workspace-editor-frame {
+    flex: none;
+  }
+  .ingestion-workspace .ingestion-library,
+  .ingestion-workspace .ingestion-inspector-container,
+  .ingestion-workspace .ingestion-worker-list {
+    width: 100%;
+    overflow: visible;
+  }
+  .ingestion-workspace[data-source-selected="true"] .ingestion-library,
+  .ingestion-workspace[data-source-selected="false"]
+    .ingestion-inspector-container {
+    display: none;
+  }
+  .ingestion-workspace[data-source-selected="true"]
+    .ingestion-inspector-container,
+  .ingestion-workspace[data-source-selected="false"] .ingestion-library {
+    display: block;
+  }
+  .ingestion-preview-switch {
+    display: flex;
+  }
+  .ingestion-split-toggle {
+    display: none;
+  }
+  .ingestion-original-preview {
+    height: clamp(
+      10rem,
+      calc(var(--workspace-viewport-height, 100dvh) * 0.65),
+      32rem
+    );
+    min-height: 0;
+  }
+  .ingestion-original-preview iframe {
+    min-height: 0;
+  }
+  .ingestion-inspector[data-original-preview="true"] .ingestion-tab-content,
+  .ingestion-inspector[data-original-preview="false"]
+    .ingestion-original-preview {
+    display: none;
+  }
+  .ingestion-inspector .ingestion-tab-content pre,
+  .ingestion-inspector .ingestion-tab-content ul {
+    max-height: none;
+    overflow-y: visible;
+  }
+  .workspace-compact-control {
+    display: inline-flex;
+  }
+  .workspace-compact-select,
+  .workspace-compact-picker {
+    display: block;
+  }
+  .workspace-wide-controls {
+    display: none;
+  }
+  .workspace-mobile-page .btn,
+  .workspace-filter-sheet .btn {
+    min-height: 44px;
+  }
+  .workspace-filter-sheet {
+    display: none;
+  }
+  .responsive-drawer.workspace-filter-sheet.is-open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+  }
+  .responsive-drawer.is-open,
+  .responsive-drawer.workspace-filter-sheet.is-open,
+  .workspace-app > .fixed {
+    bottom: auto;
+    height: var(--workspace-viewport-height, 100dvh);
+  }
+  .workspace-filter-sheet > .responsive-drawer-surface {
+    position: absolute;
+    inset: auto 0 0;
+    display: flex;
+    width: 100%;
+    height: auto;
+    max-height: calc(var(--workspace-viewport-height, 100dvh) - 1rem);
+    border-radius: 1rem 1rem 0 0;
+  }
+  .workspace-filter-sheet .responsive-drawer-heading {
+    position: sticky;
+    top: 0;
+    background: var(--color-base-100);
+    z-index: 1;
+  }
+  .workspace-filter-fields {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 1rem;
+  }
+  .workspace-filter-fields :is(select, input) {
+    width: 100%;
+    max-width: none;
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .workspace-filter-done {
+    display: flex;
+  }
+  .workspace-app [role="dialog"]:not(.responsive-drawer):not(.fixed),
+  .workspace-app .modal-box {
+    max-height: calc(var(--workspace-viewport-height, 100dvh) - 2rem);
+    overflow-y: auto;
+  }
+  .workspace-app .fixed:is([role="dialog"], [role="presentation"]) {
+    bottom: auto;
+    height: var(--workspace-viewport-height, 100dvh);
+  }
+  .workspace-app .fixed[role="dialog"] > div:first-child {
+    max-height: calc(var(--workspace-viewport-height, 100dvh) - 2rem);
+    overflow-y: auto;
+  }
+}
+
+@media (min-width: 768px) and (min-height: 501px), (min-width: 1280px) {
+  .responsive-drawer.workspace-filter-sheet,
+  .workspace-filter-sheet > .responsive-drawer-surface {
+    display: contents;
+    position: static;
+  }
+  .workspace-filter-sheet .responsive-drawer-heading,
+  .workspace-filter-sheet .responsive-drawer-backdrop {
+    display: none;
+  }
 }

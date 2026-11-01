@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { SourceSearchFacets } from "../../shared/api";
 import { ActionMenu } from "../components/common/ActionMenu";
+import { ResponsiveDrawer } from "../components/common/ResponsiveDrawer";
 
 export type IngestionScope = "library" | "processing" | "archived" | "workers";
 export type ReviewFilter = "all" | "needs-review" | "reviewed";
@@ -74,7 +75,7 @@ export function DocumentFilterBar({
       <div className="flex flex-wrap md:flex-nowrap items-center justify-between gap-2">
         <select
           aria-label="Document library view"
-          className="select select-bordered w-full md:hidden"
+          className="workspace-compact-select select select-bordered w-full md:hidden"
           value={scope}
           onChange={(event) =>
             onScopeChange(event.target.value as IngestionScope)
@@ -85,7 +86,7 @@ export function DocumentFilterBar({
           <option value="archived">Archived</option>
           <option value="workers">Queue & Workers</option>
         </select>
-        <div className="hidden md:flex tabs tabs-boxed flex-nowrap overflow-x-auto no-scrollbar bg-base-200 p-1">
+        <div className="workspace-wide-controls hidden md:flex tabs tabs-boxed flex-nowrap overflow-x-auto no-scrollbar bg-base-200 p-1">
           <button
             type="button"
             className={`tab tab-xs sm:tab-sm whitespace-nowrap text-xs font-medium ${
@@ -133,14 +134,17 @@ export function DocumentFilterBar({
           {scope !== "workers" && (
             <button
               type="button"
-              className={`btn btn-xs sm:btn-sm gap-1 md:hidden ${
+              className={`workspace-compact-control btn btn-xs sm:btn-sm gap-1 md:hidden ${
                 mobileFiltersOpen || activeFilterCount > 0
                   ? "btn-secondary"
                   : "btn-ghost border border-base-content/15"
               }`}
               aria-expanded={mobileFiltersOpen}
               aria-label="Toggle document filters"
-              onClick={() => setMobileFiltersOpen((v) => !v)}
+              onClick={(event) => {
+                event.currentTarget.focus();
+                setMobileFiltersOpen(true);
+              }}
             >
               <svg
                 aria-hidden="true"
@@ -221,121 +225,132 @@ export function DocumentFilterBar({
 
       {/* Second row: Search query and facet filters (when not in raw workers view) */}
       {scope !== "workers" && (
-        <div
-          className={`${
-            mobileFiltersOpen ? "flex" : "hidden md:flex"
-          } max-h-[40dvh] overflow-y-auto md:max-h-none flex-wrap items-center gap-2 pt-0.5 sm:pt-1`}
+        <ResponsiveDrawer
+          title="Document filters"
+          open={mobileFiltersOpen}
+          onClose={() => setMobileFiltersOpen(false)}
+          className="workspace-filter-sheet"
+          desktopQuery="(min-width: 768px) and (min-height: 501px), (min-width: 1280px)"
         >
-          {scope === "library" && (
-            <select
-              aria-label="Review filter"
-              className="select select-bordered select-sm max-w-[170px] text-xs"
-              value={reviewFilter}
-              onChange={(event) =>
-                onReviewFilterChange(event.target.value as ReviewFilter)
-              }
-            >
-              <option value="all">All Reviews ({allReviewCount})</option>
-              <option value="needs-review">
-                Needs Review ({needsReviewCount})
-              </option>
-              <option value="reviewed">Reviewed ({reviewedCount})</option>
-            </select>
-          )}
-          {/* Full-text search */}
-          <div className="relative min-w-0 basis-full md:basis-auto flex-1">
-            <input
-              type="text"
-              aria-label="Search documents"
-              className="input input-bordered input-sm w-full pr-8"
-              placeholder="Search documents by content, title, tags, correspondent..."
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-            />
-            {searchQuery && (
+          <div className="workspace-filter-fields flex flex-wrap items-center gap-2 pt-0.5 sm:pt-1">
+            {scope === "library" && (
+              <select
+                aria-label="Review filter"
+                className="select select-bordered select-sm max-w-[170px] text-xs"
+                value={reviewFilter}
+                onChange={(event) =>
+                  onReviewFilterChange(event.target.value as ReviewFilter)
+                }
+              >
+                <option value="all">All Reviews ({allReviewCount})</option>
+                <option value="needs-review">
+                  Needs Review ({needsReviewCount})
+                </option>
+                <option value="reviewed">Reviewed ({reviewedCount})</option>
+              </select>
+            )}
+            {/* Full-text search */}
+            <div className="relative min-w-0 basis-full md:basis-auto flex-1">
+              <input
+                type="text"
+                aria-label="Search documents"
+                className="input input-bordered input-sm w-full pr-8"
+                placeholder="Search documents by content, title, tags, correspondent..."
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  aria-label="Clear document search"
+                  className="btn btn-ghost btn-xs btn-circle absolute right-1 top-1/2 -translate-y-1/2 text-base-content/50 hover:text-base-content"
+                  onClick={() => onSearchChange("")}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Document Type Facet */}
+            {docTypesList.length > 0 && (
+              <select
+                aria-label="Document type"
+                className="select select-bordered select-sm max-w-[150px] text-xs"
+                value={selectedDocType ?? ""}
+                onChange={(e) => onDocTypeChange(e.target.value || undefined)}
+              >
+                <option value="">All Document Types</option>
+                {docTypesList.map((dt) => (
+                  <option key={dt} value={dt}>
+                    {dt} ({facets.document_types[dt]})
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {/* Correspondent Facet */}
+            {correspondentsList.length > 0 && (
+              <select
+                aria-label="Correspondent"
+                className="select select-bordered select-sm max-w-[150px] text-xs"
+                value={selectedCorrespondent ?? ""}
+                onChange={(e) =>
+                  onCorrespondentChange(e.target.value || undefined)
+                }
+              >
+                <option value="">All Correspondents</option>
+                {correspondentsList.map((c) => (
+                  <option key={c} value={c}>
+                    {c} ({facets.correspondents[c]})
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {/* Tag Facet */}
+            {tagsList.length > 0 && (
+              <select
+                aria-label="Document tag"
+                className="select select-bordered select-sm max-w-[130px] text-xs"
+                value={selectedTag ?? ""}
+                onChange={(e) => onTagChange(e.target.value || undefined)}
+              >
+                <option value="">All Tags</option>
+                {tagsList.map((t) => (
+                  <option key={t} value={t}>
+                    #{t} ({facets.tags[t]})
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {/* Reset Filters button */}
+            {(selectedDocType ||
+              selectedCorrespondent ||
+              selectedTag ||
+              searchQuery) && (
               <button
                 type="button"
-                aria-label="Clear document search"
-                className="btn btn-ghost btn-xs btn-circle absolute right-1 top-1/2 -translate-y-1/2 text-base-content/50 hover:text-base-content"
-                onClick={() => onSearchChange("")}
+                className="btn btn-ghost btn-xs text-xs text-base-content/60"
+                onClick={() => {
+                  onSearchChange("");
+                  onDocTypeChange(undefined);
+                  onCorrespondentChange(undefined);
+                  onTagChange(undefined);
+                }}
               >
-                ✕
+                Reset Filters
               </button>
             )}
-          </div>
-
-          {/* Document Type Facet */}
-          {docTypesList.length > 0 && (
-            <select
-              aria-label="Document type"
-              className="select select-bordered select-sm max-w-[150px] text-xs"
-              value={selectedDocType ?? ""}
-              onChange={(e) => onDocTypeChange(e.target.value || undefined)}
-            >
-              <option value="">All Document Types</option>
-              {docTypesList.map((dt) => (
-                <option key={dt} value={dt}>
-                  {dt} ({facets.document_types[dt]})
-                </option>
-              ))}
-            </select>
-          )}
-
-          {/* Correspondent Facet */}
-          {correspondentsList.length > 0 && (
-            <select
-              aria-label="Correspondent"
-              className="select select-bordered select-sm max-w-[150px] text-xs"
-              value={selectedCorrespondent ?? ""}
-              onChange={(e) =>
-                onCorrespondentChange(e.target.value || undefined)
-              }
-            >
-              <option value="">All Correspondents</option>
-              {correspondentsList.map((c) => (
-                <option key={c} value={c}>
-                  {c} ({facets.correspondents[c]})
-                </option>
-              ))}
-            </select>
-          )}
-
-          {/* Tag Facet */}
-          {tagsList.length > 0 && (
-            <select
-              aria-label="Document tag"
-              className="select select-bordered select-sm max-w-[130px] text-xs"
-              value={selectedTag ?? ""}
-              onChange={(e) => onTagChange(e.target.value || undefined)}
-            >
-              <option value="">All Tags</option>
-              {tagsList.map((t) => (
-                <option key={t} value={t}>
-                  #{t} ({facets.tags[t]})
-                </option>
-              ))}
-            </select>
-          )}
-
-          {/* Reset Filters button */}
-          {(selectedDocType ||
-            selectedCorrespondent ||
-            selectedTag ||
-            searchQuery) && (
             <button
               type="button"
-              className="btn btn-ghost btn-xs text-xs text-base-content/60"
-              onClick={() => {
-                onSearchChange("");
-                onDocTypeChange(undefined);
-                onCorrespondentChange(undefined);
-                onTagChange(undefined);
-              }}
+              className="workspace-filter-done btn btn-primary w-full"
+              onClick={() => setMobileFiltersOpen(false)}
             >
-              Reset Filters
+              Show results
             </button>
-          )}
-        </div>
+          </div>
+        </ResponsiveDrawer>
       )}
     </div>
   );
