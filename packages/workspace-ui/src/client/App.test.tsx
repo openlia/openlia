@@ -204,6 +204,7 @@ describe("workspace application", () => {
       await screen.findByRole("region", { name: "Non-text artifact" }),
     ).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: "Artifact actions" }));
     const deleteBtn = await screen.findByRole("button", {
       name: "Delete file",
     });
@@ -453,7 +454,10 @@ describe("workspace application", () => {
     render(<App api={createMockWorkspaceApi()} />);
     fireEvent.click(await screen.findByRole("button", { name: "notes.md" }));
 
-    fireEvent.click(await screen.findByRole("button", { name: "Delete file" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Document actions" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete file" }));
     expect(await screen.findByRole("dialog")).toHaveTextContent(
       'permanently delete "notes.md"',
     );
@@ -482,6 +486,7 @@ describe("workspace application", () => {
     });
     setEditorText(editor, "unsaved");
 
+    fireEvent.click(screen.getByRole("button", { name: "Document actions" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete file" }));
     expect(await screen.findByRole("dialog")).toHaveTextContent(
       "Deleting it will discard the draft",
@@ -1049,6 +1054,9 @@ messages:
     expect(filterInput).toHaveValue("calendar");
 
     // Click Reveal in Tree
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Document actions" }),
+    );
     const revealBtn = await screen.findByRole("button", {
       name: "Reveal in tree",
     });
@@ -1212,6 +1220,7 @@ messages:
       "Usage",
       "Schedule",
       "Git",
+      "Configuration",
     ]);
 
     for (const tab of ["Skills", "Configuration"]) {

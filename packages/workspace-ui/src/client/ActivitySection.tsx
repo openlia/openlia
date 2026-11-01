@@ -171,7 +171,7 @@ export function ActivitySection({
           aria-label="Template and schema diagnostics"
           className="mb-6 rounded-xl border border-base-content/15 bg-base-100 p-4 shadow-sm"
         >
-          <div className="flex items-center justify-between gap-2 border-b border-base-content/10 pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-base-content/10 pb-3">
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold">
                 Template & Schema Health

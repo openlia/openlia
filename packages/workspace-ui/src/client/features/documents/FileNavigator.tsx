@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ResponsiveDrawer } from "../../components/common/ResponsiveDrawer";
 import type {
   WorkspaceDomainInfo,
   WorkspaceTreeEntry,
@@ -140,12 +141,7 @@ export function FileNavigator({
   const [highlightedPath, setHighlightedPath] = useState<string | null>(null);
   const nodes = useMemo(() => buildTree(entries), [entries]);
   const initializedTree = useRef(false);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const closeRef = useRef(onClose);
-  const filesHeadingId = useId();
   const fileButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
-
-  closeRef.current = onClose;
 
   useEffect(() => {
     if (initializedTree.current || nodes.length === 0) return;
@@ -202,16 +198,6 @@ export function FileNavigator({
       cancelAnimationFrame(raf);
     };
   }, [revealToken, selectedPath]);
-
-  useEffect(() => {
-    if (!mobileOpen) return;
-    closeButtonRef.current?.focus();
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") closeRef.current();
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [mobileOpen]);
 
   const query = filter.trim().toLowerCase();
   const totalFiles = countFiles(nodes);
@@ -300,6 +286,7 @@ export function FileNavigator({
                         onClick={(e) => {
                           e.stopPropagation();
                           onCreateFile(node.path);
+                          if (mobileOpen) onClose();
                         }}
                         title={`Create file in ${node.name}`}
                         type="button"
@@ -341,7 +328,10 @@ export function FileNavigator({
                       selectedPath === node.path ? "page" : undefined
                     }
                     className={`workspace-tree-row workspace-tree-file flex-1 pr-7 ${selectedPath === node.path ? "workspace-tree-file-selected" : ""} ${highlightedPath === node.path ? "workspace-tree-file-highlight" : ""}`}
-                    onClick={() => onOpenFile(node.path)}
+                    onClick={() => {
+                      onOpenFile(node.path);
+                      if (mobileOpen) onClose();
+                    }}
                     style={{ paddingInlineStart: `${depth * 12 + 28}px` }}
                     title={node.path}
                     type="button"
@@ -389,6 +379,7 @@ export function FileNavigator({
                                     document.activeElement as HTMLElement
                                   )?.blur();
                                   onRenameFile(node.path);
+                                  if (mobileOpen) onClose();
                                 }}
                                 type="button"
                               >
@@ -407,6 +398,7 @@ export function FileNavigator({
                                     document.activeElement as HTMLElement
                                   )?.blur();
                                   onMoveFile(node.path);
+                                  if (mobileOpen) onClose();
                                 }}
                                 type="button"
                               >
@@ -459,6 +451,7 @@ export function FileNavigator({
                                 e.stopPropagation();
                                 (document.activeElement as HTMLElement)?.blur();
                                 onDeleteFile(node.path);
+                                if (mobileOpen) onClose();
                               }}
                               type="button"
                             >
@@ -479,157 +472,131 @@ export function FileNavigator({
   }
 
   return (
-    <>
-      {mobileOpen && (
-        <button
-          aria-label="Close files"
-          className="fixed inset-0 z-30 bg-black/75 backdrop-blur-sm xl:hidden"
-          onClick={onClose}
-          type="button"
-        />
-      )}
-      <aside
-        aria-label="Workspace files"
-        aria-labelledby={mobileOpen ? filesHeadingId : undefined}
-        className={`workspace-navigator ${mobileOpen ? "fixed inset-y-0 left-0 z-40 flex w-[min(88vw,340px)] bg-base-100 shadow-2xl" : "hidden"} xl:relative xl:flex`}
-        role={mobileOpen ? "dialog" : "complementary"}
-      >
-        <div className="flex items-center justify-between border-b border-base-content/10 px-4 py-3 xl:hidden">
-          <h2 className="font-semibold" id={filesHeadingId}>
-            Files
-          </h2>
-          <button
-            className="btn btn-ghost btn-sm"
-            ref={closeButtonRef}
-            onClick={onClose}
-            type="button"
-          >
-            Close
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto p-4">
-          <div className="mb-4 flex items-end justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold">Files</h2>
-              <p
-                aria-live="polite"
-                className="mt-1 text-xs text-base-content/50"
-              >
-                {query
-                  ? `${visibleFiles} matching files`
-                  : `${totalFiles} files`}
-              </p>
-            </div>
-            <div className="flex items-center gap-1">
-              {query && (
-                <button
-                  className="btn btn-ghost btn-xs"
-                  onClick={() => onFilterChange("")}
-                  type="button"
-                >
-                  Clear
-                </button>
-              )}
-              {onCreateFile && (
-                <button
-                  className="btn btn-ghost btn-xs text-primary font-medium"
-                  onClick={() => onCreateFile()}
-                  title="Create new file"
-                  type="button"
-                >
-                  + New File
-                </button>
-              )}
-            </div>
-          </div>
-          <label className="sr-only" htmlFor="workspace-file-filter">
-            Find files
-          </label>
-          <input
-            className="input input-bordered input-sm w-full bg-base-200/50"
-            id="workspace-file-filter"
-            onChange={(event) => onFilterChange(event.target.value)}
-            placeholder="Search paths"
-            type="search"
-            value={filter}
-          />
-          {query &&
-            selectedPath &&
-            !selectedPath.toLowerCase().includes(query) && (
-              <p className="mt-2 text-xs text-warning" role="status">
-                Current document is outside this search.
-              </p>
-            )}
-          {truncated && (
-            <p className="alert alert-warning mt-3 p-3 text-xs">
-              Showing the first {entries.length} workspace entries.
+    <ResponsiveDrawer
+      title="Files"
+      label="Workspace files"
+      open={mobileOpen}
+      onClose={onClose}
+      className="workspace-navigator"
+    >
+      <div className="min-h-0 flex-1 overflow-auto p-4">
+        <div className="mb-4 flex items-end justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Files</h2>
+            <p aria-live="polite" className="mt-1 text-xs text-base-content/50">
+              {query ? `${visibleFiles} matching files` : `${totalFiles} files`}
             </p>
-          )}
-          {workspaceError ? (
-            <div className="mt-5 rounded-lg border border-error/30 bg-error/10 p-4">
-              <p className="text-sm font-semibold">Workspace unavailable</p>
-              <p className="mt-1 text-xs text-base-content/60">
-                Workspace files could not be loaded.
-              </p>
+          </div>
+          <div className="flex items-center gap-1">
+            {query && (
               <button
-                className="btn btn-error btn-sm mt-3"
-                onClick={onRetry}
+                className="btn btn-ghost btn-xs"
+                onClick={() => onFilterChange("")}
                 type="button"
               >
-                Retry
+                Clear
               </button>
-            </div>
-          ) : loading ? (
-            <p className="mt-5 text-sm text-base-content/50">
-              Loading files...
+            )}
+            {onCreateFile && (
+              <button
+                className="btn btn-ghost btn-xs text-primary font-medium"
+                onClick={() => {
+                  onCreateFile();
+                  if (mobileOpen) onClose();
+                }}
+                title="Create new file"
+                type="button"
+              >
+                + New File
+              </button>
+            )}
+          </div>
+        </div>
+        <label className="sr-only" htmlFor="workspace-file-filter">
+          Find files
+        </label>
+        <input
+          className="input input-bordered input-sm w-full bg-base-200/50"
+          id="workspace-file-filter"
+          onChange={(event) => onFilterChange(event.target.value)}
+          placeholder="Search paths"
+          type="search"
+          value={filter}
+        />
+        {query &&
+          selectedPath &&
+          !selectedPath.toLowerCase().includes(query) && (
+            <p className="mt-2 text-xs text-warning" role="status">
+              Current document is outside this search.
             </p>
-          ) : visibleFiles === 0 ? (
-            <div className="mt-5 rounded-lg border border-base-content/10 bg-base-200/40 p-4">
-              <p className="text-sm font-semibold">
-                {query ? `No files match “${filter}”` : "No documents yet"}
-              </p>
-              <p className="mt-1 text-xs text-base-content/60">
-                {query
-                  ? "Try a different path or clear the search."
-                  : "Choose a document when one is available in this workspace."}
-              </p>
-            </div>
-          ) : (
-            <div className="mt-4">
-              {showMemorySection && memoryNode && (
-                <section aria-labelledby="assistant-memory-heading">
+          )}
+        {truncated && (
+          <p className="alert alert-warning mt-3 p-3 text-xs">
+            Showing the first {entries.length} workspace entries.
+          </p>
+        )}
+        {workspaceError ? (
+          <div className="mt-5 rounded-lg border border-error/30 bg-error/10 p-4">
+            <p className="text-sm font-semibold">Workspace unavailable</p>
+            <p className="mt-1 text-xs text-base-content/60">
+              Workspace files could not be loaded.
+            </p>
+            <button
+              className="btn btn-error btn-sm mt-3"
+              onClick={onRetry}
+              type="button"
+            >
+              Retry
+            </button>
+          </div>
+        ) : loading ? (
+          <p className="mt-5 text-sm text-base-content/50">Loading files...</p>
+        ) : visibleFiles === 0 ? (
+          <div className="mt-5 rounded-lg border border-base-content/10 bg-base-200/40 p-4">
+            <p className="text-sm font-semibold">
+              {query ? `No files match “${filter}”` : "No documents yet"}
+            </p>
+            <p className="mt-1 text-xs text-base-content/60">
+              {query
+                ? "Try a different path or clear the search."
+                : "Choose a document when one is available in this workspace."}
+            </p>
+          </div>
+        ) : (
+          <div className="mt-4">
+            {showMemorySection && memoryNode && (
+              <section aria-labelledby="assistant-memory-heading">
+                <h3
+                  className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-base-content/50"
+                  id="assistant-memory-heading"
+                >
+                  Assistant memory
+                </h3>
+                {renderNodes(memoryNode.children)}
+              </section>
+            )}
+            {showMemorySection && showWorkspaceSection && (
+              <div
+                aria-hidden="true"
+                className="my-4 border-t border-base-content/10"
+              />
+            )}
+            {showWorkspaceSection && (
+              <section aria-labelledby="workspace-files-heading">
+                {showMemorySection && (
                   <h3
                     className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-base-content/50"
-                    id="assistant-memory-heading"
+                    id="workspace-files-heading"
                   >
-                    Assistant memory
+                    Workspace files
                   </h3>
-                  {renderNodes(memoryNode.children)}
-                </section>
-              )}
-              {showMemorySection && showWorkspaceSection && (
-                <div
-                  aria-hidden="true"
-                  className="my-4 border-t border-base-content/10"
-                />
-              )}
-              {showWorkspaceSection && (
-                <section aria-labelledby="workspace-files-heading">
-                  {showMemorySection && (
-                    <h3
-                      className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-base-content/50"
-                      id="workspace-files-heading"
-                    >
-                      Workspace files
-                    </h3>
-                  )}
-                  {renderNodes(workspaceNodes)}
-                </section>
-              )}
-            </div>
-          )}
-        </div>
-      </aside>
-    </>
+                )}
+                {renderNodes(workspaceNodes)}
+              </section>
+            )}
+          </div>
+        )}
+      </div>
+    </ResponsiveDrawer>
   );
 }

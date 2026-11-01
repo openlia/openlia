@@ -45,6 +45,7 @@ import { CreateSkillModal } from "./CreateSkillModal";
 import { ConfigurationPage } from "./ConfigurationPage";
 import { SchedulePage } from "./SchedulePage";
 import { ChatPage } from "./ChatPage";
+import { ResponsiveDrawer } from "./components/common/ResponsiveDrawer";
 import { ShareModal } from "./ShareModal";
 import { SharedLinksSection } from "./SharedLinksSection";
 import { SharePublicView } from "./SharePublicView";
@@ -2941,16 +2942,19 @@ export function App({
         />
       ) : activeTab === "skills" ? (
         <div className="workspace-layout xl:grid-cols-[clamp(18rem,22vw,22rem)_minmax(0,1fr)]">
-          <div
-            className={`fixed inset-y-0 left-0 z-30 min-h-0 min-w-0 w-72 transform bg-base-100 transition-transform xl:static xl:w-full xl:translate-x-0 ${
-              filesOpen ? "translate-x-0" : "-translate-x-full"
-            }`}
+          <ResponsiveDrawer
+            title="Skills"
+            open={filesOpen}
+            onClose={() => setFilesOpen(false)}
           >
             <SkillsNavigator
               categories={skillCategories}
               filter={skillsFilter}
               loading={skillsLoading}
-              onCreateClick={() => setIsCreateSkillOpen(true)}
+              onCreateClick={() => {
+                setFilesOpen(false);
+                setIsCreateSkillOpen(true);
+              }}
               onFilterChange={setSkillsFilter}
               onSelectSkill={requestOpenSkill}
               onTogglePin={(id, pinned) =>
@@ -2959,16 +2963,7 @@ export function App({
               selectedSkillId={selectedSkillId}
               skills={skills}
             />
-          </div>
-
-          {filesOpen && (
-            <button
-              aria-label="Close skills navigator"
-              className="fixed inset-0 z-20 bg-black/40 xl:hidden"
-              onClick={() => setFilesOpen(false)}
-              type="button"
-            />
-          )}
+          </ResponsiveDrawer>
 
           {selectedSkillDetail ? (
             <SkillDetailPane

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useId } from "react";
 import type {
   UsagePrice,
   UsageRates,
@@ -107,6 +107,8 @@ function initialFilters() {
 }
 
 export function UsagePage({ api }: { api: WorkspaceApi }) {
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersId = useId();
   const [filters, setFilters] = useState(initialFilters);
   const { data, error, loading, refresh } = useUsage(
     api,
@@ -246,7 +248,19 @@ export function UsagePage({ api }: { api: WorkspaceApi }) {
             Collection is delayed. Last available statistics are shown.
           </p>
         )}
-        <div className="flex flex-wrap items-end gap-3">
+        <button
+          type="button"
+          className="btn btn-outline justify-between sm:hidden"
+          aria-expanded={filtersOpen}
+          aria-controls={filtersId}
+          onClick={() => setFiltersOpen(!filtersOpen)}
+        >
+          Usage filters<span aria-hidden="true">{filtersOpen ? "▴" : "▾"}</span>
+        </button>
+        <div
+          id={filtersId}
+          className={`${filtersOpen ? "flex" : "hidden"} sm:flex usage-filters flex-wrap items-end gap-3`}
+        >
           <label className="grid gap-1 text-sm">
             Period
             <select

@@ -10,7 +10,7 @@ export function Panel({ children }: { children: ReactNode }) {
 }
 export function PageFrame({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-col h-[850px] min-h-0 overflow-auto bg-base-100">
+    <div className="workspace-page-frame flex flex-col h-dvh min-h-0 overflow-auto bg-base-100">
       {children}
     </div>
   );

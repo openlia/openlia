@@ -18,7 +18,7 @@ test.describe("workspace navigation", () => {
         exact: true,
         name: "Open files drawer",
       });
-      if ((await filesButton.count()) > 0) {
+      if (await filesButton.isVisible()) {
         await expect(filesButton).toBeVisible();
         await filesButton.click();
       }
