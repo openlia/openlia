@@ -3,7 +3,7 @@
   "openlia": "0.1.0",
   "templates": {
     "repository": "https://github.com/openlia/minions.git",
-    "revision": "d417f11599876236add6a3062a741d4789e7666f"
+    "revision": "a9ab24339b75e29fbd6da426978e61c3d5a2aae0"
   },
   "remind": {
     "version": "06.03.06",

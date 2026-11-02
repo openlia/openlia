@@ -18,7 +18,7 @@ var Default = Manifest{
 	},
 	Templates: TemplatesPin{
 		Repository: "https://github.com/openlia/minions.git",
-		Revision:   "d417f11599876236add6a3062a741d4789e7666f",
+		Revision:   "a9ab24339b75e29fbd6da426978e61c3d5a2aae0",
 	},
 	Remind: SourcePin{
 		Version:      "06.03.06",
