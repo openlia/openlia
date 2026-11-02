@@ -188,6 +188,11 @@ class WorkspaceStructureTests(unittest.TestCase):
         self.assertEqual(by_path["minions/gym-tracker"].get("dashboard_ui"), "dashboard.openui")
         self.assertEqual(by_path["minions/gym-tracker"].get("input_ui"), "input.openui")
         self.assertEqual(by_path["minions/gym-tracker"].get("label"), "Gym Tracker")
+        self.assertFalse(by_path["minions/gym-tracker"]["include_in_briefing"])
+        self.assertEqual(
+            [path for path in by_path if path.startswith("minions")],
+            ["minions/gym-tracker"],
+        )
 
         (minion_dir / "config.json").write_text('{"news_url":"https://example.com/missing-trigger"}\n')
         errors_bad_config = validator.validate_workspace(self.workspace)

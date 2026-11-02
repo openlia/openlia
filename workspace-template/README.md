@@ -41,7 +41,7 @@ Every workspace starts with a clean, unopinionated foundation:
 ## Templates Catalog: Profiles, Features, and Skills
 
 Optional profiles, domain features, inline views, and skills live in the
-community templates repository (`https://github.com/openlia/templates.git`) and
+community catalog repository (`https://github.com/openlia/minions.git`) and
 can be synced, installed, imported, or packaged on demand via `openlia features`
 / `openlia skills` or the Workspace UI:
 

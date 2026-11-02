@@ -4,13 +4,13 @@
 
 [← Back to Documentation Index](README.md)
 
-Welcome to the OpenLia codebase! OpenLia is a **self-hosted, AI-native workspace** for turning personal context into organized knowledge, decisions, and action—with [Hermes Agent](https://hermes-agent.nousresearch.com/) as its agent runtime. It combines a **Go operator control plane**, **TypeScript/Bun web and browser services**, **Python Hermes plugins and system skills**, an **on-demand persistent dependency store (`/opt/data/.local`)**, and a **Git-versioned, schema-validated Markdown & OpenUI workspace** extensible via [`https://github.com/openlia/templates.git`](https://github.com/openlia/templates.git).
+Welcome to the OpenLia codebase! OpenLia is a **self-hosted, AI-native workspace** for turning personal context into organized knowledge, decisions, and action—with [Hermes Agent](https://hermes-agent.nousresearch.com/) as its agent runtime. It combines a **Go operator control plane**, **TypeScript/Bun web and browser services**, **Python Hermes plugins and system skills**, an **on-demand persistent dependency store (`/opt/data/.local`)**, and a **Git-versioned, schema-validated Markdown & OpenUI workspace** extensible via [`https://github.com/openlia/minions.git`](https://github.com/openlia/minions.git).
 
 ---
 
 ## 1. High-Level System Architecture
 
-OpenLia is split into two primary execution planes (plus an optional Browser Host plane and the external Templates Catalog):
+OpenLia is split into two primary execution planes (plus an optional Browser Host plane and the external `openlia/minions` Catalog):
 
 ```mermaid
 flowchart TD
@@ -19,8 +19,8 @@ flowchart TD
         Config["Operator Config & Keys<br/>(~/.config/openlia/)"]
     end
 
-    subgraph Catalog["Public / Custom Templates Catalog"]
-        Templates["openlia/templates Git Repo<br/>(profiles/, features/, skills/, catalog.json)"]
+    subgraph Catalog["Public / Custom Minions & Catalog"]
+        Templates["openlia/minions Git Repo<br/>(profiles/, features/, skills/, catalog.json)"]
     end
 
     subgraph Runtime["2. Agent Runtime Plane (Docker Compose on Local or SSH Target)"]
@@ -112,9 +112,9 @@ Implemented in [`internal/toolcatalog/catalog.go`](../internal/toolcatalog/catal
   - `/opt/data/.local/envs/python/<owner>/` and `/opt/data/.local/envs/bun/<owner>/`: Isolated `uv` and `bun` environments.
 - **Backup Efficiency**: `openlia backup create` includes `/opt/data/.local/manifests/` while excluding the heavy `/opt/data/.local/tools/` and `/opt/data/.local/envs/` binary caches. On `openlia backup restore`, `ReconcileAllLocalDependencies` automatically re-provisions all declared tools and environments from the restored manifests.
 
-### Templates Catalog & 3-Way Rebase Engine
+### Public Catalog (`openlia/minions`) & 3-Way Rebase Engine
 Implemented in [`operator/templates_catalog.go`](../operator/templates_catalog.go):
-- Syncs `https://github.com/openlia/templates.git` (or custom URL/local path configured in `[templates]`) into `<MetaRoot>/catalog/templates/`.
+- Syncs `https://github.com/openlia/minions.git` (or custom URL/local path configured in `[templates]`) into `<MetaRoot>/catalog/templates/`.
 - Stores clean base snapshots at install time under `<MetaRoot>/managed/features/<id>/base/` and `<MetaRoot>/managed/skills/<id>/base/`.
 - Automatically detects user edits (`current_hash != base_hash`) as a fork (`customization.patch`) and performs 3-way line-level rebasing (`old-base` vs. `current-fork` vs. `new-base`) when upstream templates update.
 
@@ -188,9 +188,9 @@ Review in Workspace UI (/migration) or CLI (openlia workspace migrate diff/appro
 Transactional apply -> live workspace (verifies live file hashes & records rollback journal)
 ```
 
-### Minimal Core (`workspace-template/`) & Public Templates (`openlia/templates`)
+### Minimal Core (`workspace-template/`) & Public Catalog (`openlia/minions`)
 - **`workspace-template/`**: Seeded once on `openlia init` into `/opt/data/workspace`. Contains only the minimal core (`AGENTS.md`, `README.md`, `inbox/ingestion/`, `sources/`, `feature.schema.json`).
-- **[`openlia/templates`](https://github.com/openlia/templates.git)**: Public catalog of workspace profiles (`profiles/personal-os`), modular features (`features/<id>/`), and standalone skills (`skills/<id>/`). See [Skill & Feature Package Development](skill-and-feature-development.md).
+- **[`openlia/minions`](https://github.com/openlia/minions.git)**: Public catalog of workspace profiles (`profiles/personal-os`), modular features (`features/<id>/`), and standalone skills (`skills/<id>/`). See [Skill & Feature Package Development](skill-and-feature-development.md).
 
 ---
 

@@ -272,11 +272,11 @@ openlia instructions keep workspace/AGENTS.md   # Keep local file and acknowledg
 openlia instructions reset workspace/AGENTS.md  # Replace with upstream file (creates backup)
 ```
 
-### Templates Catalog, Automatic Forking, & 3-Way Rebase
-OpenLia discovers starter profiles, modular features, and standalone skills from [`https://github.com/openlia/templates.git`](https://github.com/openlia/templates.git) (configurable under `[templates]` in `config.toml` or via `OPENLIA_TEMPLATES_REPO`).
+### `openlia/minions` Catalog, Automatic Forking, & 3-Way Rebase
+OpenLia discovers starter profiles, modular features, programmable Minions, and standalone skills from [`https://github.com/openlia/minions.git`](https://github.com/openlia/minions.git) (configurable under `[templates]` in `config.toml` or via `OPENLIA_TEMPLATES_REPO`).
 
 ```bash
-# Sync the templates catalog from https://github.com/openlia/templates.git
+# Sync the catalog from https://github.com/openlia/minions.git
 openlia features sync
 
 # List catalog and installed profiles/features/skills

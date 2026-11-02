@@ -17,12 +17,19 @@ import YAML from "yaml";
 import type {
   FeatureInstallResponse,
   FeaturePackageRequest,
-  FeaturesListResponse,
   FeatureSummary,
+  FeaturesListResponse,
   ShareFeatureMetadata,
   TemplatesCatalogProvenance,
 } from "../shared/api";
 import { createZipArchive, type ZipArchiveEntry } from "./export";
+import {
+  captureMinionPackage,
+  featureMinionPackages,
+  initializeFeatureMinions,
+  minionDomainId,
+  safeMinionPath,
+} from "./minion-distribution";
 import {
   checkTemplateRequirements,
   readTemplatesRuntimeVersion,
@@ -364,6 +371,7 @@ export class FeatureService {
     const catalog = this.loadCatalogManifests();
     const plan: Array<{ dir: string; manifest: RawFeatureManifest }> = [];
     const plannedSkills = new Set<string>();
+    const plannedMinions = new Set<string>();
     const active = new Set<string>();
     const done = new Set<string>();
     let runtimeVersion: string | undefined;
@@ -394,6 +402,38 @@ export class FeatureService {
         `feature ${id}`,
         version,
       );
+      const minions = featureMinionPackages(
+        join(entry.dir, "workspace"),
+        entry.manifest.domains ?? [],
+      );
+      for (const app of minions) {
+        if (plannedMinions.has(app.id)) {
+          throw new WorkspaceError(
+            `multiple packages install Minion ${app.id}`,
+            409,
+            "minion_install_requires_cli",
+          );
+        }
+        plannedMinions.add(app.id);
+        const path = safeMinionPath(this.workspaceRoot, `minions/${app.id}`);
+        try {
+          lstatSync(path);
+        } catch (error) {
+          if (
+            error &&
+            typeof error === "object" &&
+            "code" in error &&
+            error.code === "ENOENT"
+          )
+            continue;
+          throw error;
+        }
+        throw new WorkspaceError(
+          `Minion ${app.id} already exists; use the managed CLI to preserve code customizations and instance state`,
+          409,
+          "minion_install_requires_cli",
+        );
+      }
       for (const dependency of entry.manifest.requires?.features ?? []) {
         visit(dependency);
       }
@@ -501,6 +541,13 @@ export class FeatureService {
 
     // 2. Copy workspace templates/schemas non-destructively
     const featureWsDir = join(dir, "workspace");
+    const minions = featureMinionPackages(featureWsDir, manifest.domains ?? []);
+    // Reserve fresh app roots exclusively, as for skills; never adopt a local app.
+    for (const app of minions) {
+      const path = safeMinionPath(this.workspaceRoot, `minions/${app.id}`);
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      mkdirSync(path, { mode: 0o700 });
+    }
     if (existsSync(featureWsDir)) {
       this.copyTreeOnce(featureWsDir, this.workspaceRoot);
     }
@@ -513,6 +560,10 @@ export class FeatureService {
       });
       installedDomains.push(d.path);
     }
+    const minionStatuses = initializeFeatureMinions(
+      this.workspaceRoot,
+      minions,
+    );
 
     // 3. Legacy workspace.yaml / assistant-policy.yaml updates are retired under Workspace Maintainer.
     const policyUpdated = false;
@@ -541,6 +592,7 @@ export class FeatureService {
       ok: true,
       feature_id: featureId,
       installed_domains: installedDomains,
+      ...(minionStatuses.length ? { minions: minionStatuses } : {}),
       catalog: this.catalogProvenance(),
       installed_skills: installedSkills,
       policy_updated: policyUpdated,
@@ -574,6 +626,7 @@ export class FeatureService {
     }
 
     for (const dp of removePaths) {
+      if (minionDomainId(dp)) continue; // Removing a feature never deletes an app's records or code.
       const domDir = join(this.workspaceRoot, dp);
       if (!existsSync(domDir)) continue;
       try {
@@ -648,6 +701,7 @@ export class FeatureService {
     }
 
     const packagedDomains: RawFeatureDomain[] = domainPaths.map((dp) => {
+      minionDomainId(dp);
       const clean = dp.replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
       const existing =
         registered.get(clean) ??
@@ -726,6 +780,22 @@ export class FeatureService {
 
     // Collect workspace templates & schemas
     for (const d of packagedDomains) {
+      const minionId = minionDomainId(d.path);
+      if (minionId) {
+        const live = safeMinionPath(this.workspaceRoot, d.path);
+        const source = existsSync(live)
+          ? live
+          : catEntry
+            ? safeMinionPath(join(catEntry.dir, "workspace"), d.path)
+            : live;
+        for (const file of captureMinionPackage(source, minionId, d.path)) {
+          if (!seenPaths.has(file.path)) {
+            files.push(file);
+            seenPaths.add(file.path);
+          }
+        }
+        continue; // include_records never includes Minion state/configuration.
+      }
       const candidateDirs = [
         join(this.workspaceRoot, d.path),
         ...(catEntry ? [join(catEntry.dir, "workspace", d.path)] : []),
@@ -853,6 +923,11 @@ export class FeatureService {
     for (const entry of entries) {
       const srcPath = join(srcDir, entry.name);
       const dstPath = join(dstDir, entry.name);
+      const workspaceRel = relative(this.workspaceRoot, dstPath)
+        .split(sep)
+        .join("/");
+      if (workspaceRel.startsWith("minions/"))
+        safeMinionPath(this.workspaceRoot, workspaceRel);
       const info = lstatSync(srcPath);
       if (info.isSymbolicLink()) continue;
       if (info.isDirectory()) {
@@ -861,7 +936,10 @@ export class FeatureService {
       } else if (info.isFile()) {
         if (!existsSync(dstPath)) {
           mkdirSync(dirname(dstPath), { recursive: true, mode: 0o700 });
-          writeFileSync(dstPath, readFileSync(srcPath), { mode: 0o600 });
+          writeFileSync(dstPath, readFileSync(srcPath), {
+            mode: 0o600,
+            flag: "wx",
+          });
         }
       }
     }

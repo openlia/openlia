@@ -973,6 +973,7 @@ export interface FeatureInstallRequest {
 }
 
 export interface FeatureInstallResponse {
+  minions?: Array<{ id: string; configuration_required: boolean }> | undefined;
   catalog?: TemplatesCatalogProvenance | undefined;
   schema: 1;
   ok: true;
@@ -1115,6 +1116,7 @@ export interface MinionQuickAction {
 }
 
 export interface MinionSummary {
+  configuration_required?: boolean | undefined;
   id: string;
   path: string;
   name: string;

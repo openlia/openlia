@@ -1,18 +1,18 @@
 # Skill & Feature Package Development Guide
 
-> How to create, customize, validate, and test workspace profiles, modular Feature Packages, and skills for OpenLia and [`openlia/templates`](https://github.com/openlia/templates.git).
+> How to create, customize, validate, and test workspace profiles, modular Feature Packages, and skills for OpenLia and [`openlia/minions`](https://github.com/openlia/minions.git).
 
 [← Back to Documentation Index](README.md)
 
 OpenLia separates its core runtime from installable domain templates:
-1. **Public Templates Repository ([`https://github.com/openlia/templates.git`](https://github.com/openlia/templates.git))**: Hosts starter **Profiles** (`profiles/<id>/`), modular **Feature Packages** (`features/<id>/`), and standalone **Skills** (`skills/<id>/`). Anyone can also point OpenLia to a custom Git repository, local directory, or `.zip` package.
+1. **Public Catalog Repository ([`https://github.com/openlia/minions.git`](https://github.com/openlia/minions.git))**: Hosts starter **Profiles** (`profiles/<id>/`), modular **Feature Packages** (`features/<id>/`), and standalone **Skills** (`skills/<id>/`). Anyone can also point OpenLia to a custom Git repository, local directory, or `.zip` package.
 2. **Core System Skills (`profile/system-skills/<name>/`)**: Read-only system skills bundled in the OpenLia core repository (`openlia-skill-migration`, `workspace-template-customization`, `inline-openui-authoring`, and `minion-authoring`).
 
 ---
 
 ## 1. Standalone & Feature-Bundled Skills (`SKILL.md`)
 
-Skills follow a standard directory layout (either under `skills/<name>/` in `openlia/templates` or inside a feature at `features/<id>/skills/<name>/`):
+Skills follow a standard directory layout (either under `skills/<name>/` in `openlia/minions` or inside a feature at `features/<id>/skills/<name>/`):
 
 ```text
 <skill-name>/
@@ -55,6 +55,29 @@ Protected system skills live under `profile/system-skills/` in the core reposito
 - **`minion-authoring`**: Scaffolds, configures, validates, and runs Workspace Minions (`minions/<slug>/`) with `dashboard.openui`, `input.openui`, `input.schema.json`, `config.schema.json`, `config.json`, `input.py`/`input.ts`, and dual-triggered `main.py`/`main.ts`.
 
 System skills are distribution-owned and cannot be forked or modified by Hermes at runtime.
+
+### Documents, workflows, and Minions
+
+Keep profiles, features, and skills distinct from Minions: profiles select a
+starter experience, features bundle domain content and dependencies, and skills
+teach workflows. Use inline OpenUI in Markdown for document presentations; use a
+Minion for executable app behavior. Keep one authoritative location per dataset
+instead of copying existing task, calendar, ledger, or clinical records into an
+app merely to display them.
+
+Collection discovery identifies each Minion once and excludes its internals
+from generic briefing sources. Publish intentional, source-linked Markdown
+reports outside `minions/` for reviews, following destination permissions and
+templates. Discovery must never execute app code.
+
+Feature-bundled Minions use the [code-only distribution contract](minion-distribution.md):
+an explicit `minion.package.json` file list, schema-derived recipient defaults,
+automatic triggers off on fresh installation, and code-only managed rebases.
+Local configuration and app data are never exported, even with `include_records`.
+Browser installs refuse existing app destinations; managed CLI updates preserve
+customizations and state. Verify actual cron registration and scheduled-work
+permissions separately from the configured cron expression. A Minion folder is
+not an execution sandbox.
 
 ---
 
@@ -109,7 +132,7 @@ Supported curated tools in `internal/toolcatalog`:
    - Put interactive views in fenced `openui` blocks inside Markdown. See [Inline OpenUI Views](workspace-domain-views.md).
 3. **Sync, Install, Package, or Import via CLI**:
    ```bash
-   # Sync the catalog from https://github.com/openlia/templates.git
+   # Sync the catalog from https://github.com/openlia/minions.git
    ./openlia features sync
 
    # List available catalog and installed features

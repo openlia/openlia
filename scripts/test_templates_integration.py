@@ -108,6 +108,9 @@ def main(argv: list[str] | None = None) -> int:
                 if path.is_symlink():
                     raise RuntimeError(f"Catalog symlinks are not supported: {path.relative_to(snapshot)}")
             run("catalog validation", [sys.executable, str(snapshot / "scripts/validate_catalog.py"), "--no-self-test"])
+            run("catalog regression tests", [sys.executable, "-m", "unittest", "discover", "-s", str(snapshot / "scripts"), "-p", "test_*.py"])
+            run("runtime Minion collection discovery", [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_minion_collection_discovery.py"])
+            run("Hermes Minion distribution contract", [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_minion_distribution_tools.py"])
             catalog = runpy.run_path(str(snapshot / "scripts/validate_catalog.py"))
             if json.loads((snapshot / "catalog.json").read_text()) != catalog["build_catalog"]():
                 raise RuntimeError("catalog.json is stale; regenerate deliberately and review the diff")
@@ -115,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
             go_env = {**environment, "OPENLIA_INTEGRATION_TEMPLATES_ROOT": str(snapshot), "OPENLIA_INTEGRATION_GO_REPORT": str(go_report)}
             if args.docker:
                 go_env["OPENLIA_INTEGRATION_DOCKER"] = "true"
-            run("real Go catalog sync/install/profile/package/import and regressions", ["go", "test", "./operator", "-run", "TestCompatibility|TestRuntimeMeetsMinimum|TestParseOpenLiaRequirement|TestTemplates|TestRealTemplatesCatalogIntegration", "-count=1"], env=go_env)
+            run("real Go catalog sync/install/profile/package/import and regressions", ["go", "test", "./operator", "-run", "TestCompatibility|TestRuntimeMeetsMinimum|TestParseOpenLiaRequirement|TestTemplates|TestRealTemplatesCatalogIntegration|TestMinionDistribution", "-count=1"], env=go_env)
             report["go_catalog"] = json.loads(go_report.read_text())
             if remind:
                 run("native Calendar server regression tests", ["bun", "test", "src/server/calendar.test.ts"], cwd=UI, env={**environment, "OPENLIA_REMIND_BINARY": remind})

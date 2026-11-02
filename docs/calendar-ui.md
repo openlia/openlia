@@ -1,6 +1,6 @@
 # Calendar OpenUI integration
 
-The Calendar feature lives in `openlia/templates`. Workspace UI supplies reusable
+The Calendar feature lives in `openlia/minions`. Workspace UI supplies reusable
 OpenUI components in `packages/workspace-ui/src/client/openui/calendar/`; the
 feature's Markdown documents compose them in fenced `openui` blocks. The runtime does not
 install Calendar content or replace user calendar files when it upgrades.
@@ -133,7 +133,7 @@ an ambiguous DST hour is rejected by the UI adapter rather than guessed; inspect
 its source or use UTC as the calendar evaluation timezone.
 
 Deploy the updated workspace-ui before installing/updating Calendar 0.2.0 from
-`openlia/templates`. Existing customized feature content must follow the normal
+`openlia/minions`. Existing customized feature content must follow the normal
 review/rebase update flow, never be overwritten directly.
 
 ## Verification

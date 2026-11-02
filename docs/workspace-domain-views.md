@@ -86,5 +86,12 @@ OpenLia develops and maintains with the user as **Project Owner**:
   1. **Heartbeat trigger (`--trigger heartbeat`)** at a cron job or manual run to enrich data (e.g., fetching news, retrieving latest stock prices, computing summaries) and update `dashboard.openui`.
   2. **Post-entry trigger (`--trigger entry`)** right after every new entry recorded by `input.py` / `input.ts` to analyze the new entry alongside existing context (e.g., recommending the next exercise given today's recorded performance) and update `dashboard.openui`.
 - `requirements.txt` or `package.json`: Python or TypeScript/Bun dependencies.
+- `minion.package.json`: explicit reviewed source-file list for sharing through a feature; local config and state are never included.
 - `scripts/` and `tests/`: helper scripts and automated tests.
 - `data/`: freely structured data and document files (`.json`, `.yaml`/`.yml`, `.csv`, `.hledger`/`.journal`, `.rem`/`.remind`, `.md`), including nested subfolders.
+
+The cron setting describes an intended cadence, not proof that a schedule has
+been registered. Verify actual registration and execution before relying on
+unattended heartbeats. Fresh package installations start with automatic triggers
+off, or configuration pending if user settings are required. See the
+[distribution and update contract](minion-distribution.md).

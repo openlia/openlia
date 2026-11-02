@@ -242,6 +242,9 @@ func validateCatalogTree(root string) error {
 	p := newTemplatePreflight(Config{})
 	p.validateOnly = true
 	for _, manifest := range manifests {
+		if _, err := featureMinionPackages(filepath.Join(root, "features", manifest.ID, "workspace"), manifest.Domains); err != nil {
+			return fmt.Errorf("feature %s: %w", manifest.ID, err)
+		}
 		for _, skill := range manifest.Skills {
 			if err := p.skill(filepath.Join(root, "features", manifest.ID, filepath.FromSlash(skill.Path))); err != nil {
 				return err
@@ -335,7 +338,7 @@ func syncTemplatesCatalog(ctx context.Context, config Config) (TemplatesSyncResu
 		local = true
 	}
 	if !local && ref == "" {
-		if source != DefaultTemplatesRepo {
+		if !isDefaultTemplatesRepo(source) {
 			return TemplatesSyncResult{}, fmt.Errorf("custom remote templates repositories require an explicit ref")
 		}
 		ref = DefaultTemplatesRef

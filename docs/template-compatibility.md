@@ -1,9 +1,9 @@
 # Runtime and templates compatibility
 
-The runtime and `openlia/templates` remain separate repositories. Changes that
+The runtime and `openlia/minions` remain separate repositories. Changes that
 span both should share a parent issue, delivery owner, acceptance criteria, and
 reciprocal PR links. See the templates repository's
-[contributor guide](https://github.com/openlia/templates/blob/main/CONTRIBUTING.md)
+[contributor guide](https://github.com/openlia/minions/blob/main/CONTRIBUTING.md)
 for the authoring and local-development workflow.
 
 ## Minimum runtime contract
@@ -96,14 +96,14 @@ Supported selections in the deployment's `config.toml`:
 ```toml
 # Development: use the live checkout, including uncommitted edits.
 [templates]
-repo = "/absolute/path/to/openlia_templates"
+repo = "/absolute/path/to/openlia_minions"
 # Leave ref unset. A local path on the CLI machine is not an SSH-target path.
 ```
 
 ```toml
 # Explicit preview: opt into a moving branch, tag, or full commit SHA.
 [templates]
-repo = "https://github.com/openlia/templates.git"
+repo = "https://github.com/openlia/minions.git"
 ref = "main"
 ```
 
@@ -194,7 +194,7 @@ python3 -m pip install -r requirements-templates-integration.txt
 python3 docker/install-remind.py --prefix "$PWD/.artifacts/remind/06.03.06"
 bun install --frozen-lockfile --ignore-scripts
 bun run --cwd packages/workspace-ui browser:install
-make templates-integration TEMPLATES_ROOT=../openlia_templates \
+make templates-integration TEMPLATES_ROOT=../openlia_minions \
   TEMPLATES_INTEGRATION_ARGS="--remind-binary $PWD/.artifacts/remind/06.03.06/bin/remind"
 ```
 
@@ -224,7 +224,7 @@ report separately records whether a matching corresponding-source archive is
 present; a reported version alone is not proof of source provenance.
 
 Alternatively call `python3 scripts/test_templates_integration.py --templates-root
-../openlia_templates`. `--remind-binary /path/to/remind` can select an isolated
+../openlia_minions`. `--remind-binary /path/to/remind` can select an isolated
 test dependency without installing it globally.
 
 The runtime-owned runner:

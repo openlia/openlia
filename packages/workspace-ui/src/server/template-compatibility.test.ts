@@ -148,7 +148,7 @@ describe("browser feature installs", () => {
   test("discovery and install results expose the selected catalog identity", () => {
     const catalog = {
       schema: 1,
-      source: "https://github.com/openlia/templates.git",
+      source: "https://github.com/openlia/minions.git",
       ref: "a".repeat(40),
       revision: "a".repeat(40),
       mode: "git",

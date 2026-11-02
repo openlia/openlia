@@ -20,8 +20,9 @@ replacement for the license files shipped by those projects or images.
 | age | `filippo.io/age v1.3.2` | BSD-3-Clause | [Upstream repository](https://github.com/FiloSottile/age) |
 | AWS SDK for Go v2 | `v1.47.1` and modules in [`go.mod`](go.mod) | Apache-2.0 | [Upstream repository](https://github.com/aws/aws-sdk-go-v2) |
 | robfig/cron | `v3.0.1` | MIT | [Upstream repository](https://github.com/robfig/cron) |
+| santhosh-tekuri/jsonschema | `v6.0.3` | Apache-2.0 | [Upstream repository and license](https://github.com/santhosh-tekuri/jsonschema/tree/v6.0.3) |
 | BurntSushi/toml | `v1.6.0` | MIT | [Upstream repository](https://github.com/BurntSushi/toml) |
-| `golang.org/x/crypto`, `x/sys`, `x/term` | Versions in [`go.mod`](go.mod) | BSD-3-Clause | [golang.org/x repositories](https://go.googlesource.com/) |
+| `golang.org/x/crypto`, `x/sys`, `x/term`, `x/text` | Versions in [`go.mod`](go.mod) | BSD-3-Clause | [golang.org/x repositories](https://go.googlesource.com/) |
 
 Go module pins and transitive dependencies are declared in
 [`go.mod`](go.mod) and [`go.sum`](go.sum). The Python dependencies above are

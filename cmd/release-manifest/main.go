@@ -91,7 +91,7 @@ func validate(value manifest) error {
 	if !stableTag("v"+value.Remind.Version) || value.Remind.SourceURL != "https://dianne.skoll.ca/projects/remind/download/remind-"+value.Remind.Version+".tar.gz" || !validSHA(value.Remind.SourceSHA256) {
 		return fmt.Errorf("Remind requires an exact upstream version, source URL, and SHA-256")
 	}
-	if value.Templates.Repository != "https://github.com/openlia/templates.git" || len(value.Templates.Revision) != 40 || strings.Trim(value.Templates.Revision, "0123456789abcdef") != "" {
+	if value.Templates.Repository != "https://github.com/openlia/minions.git" || len(value.Templates.Revision) != 40 || strings.Trim(value.Templates.Revision, "0123456789abcdef") != "" {
 		return fmt.Errorf("templates release pin must name the official repository and a full lowercase commit SHA")
 	}
 	if value.Schema != 1 || value.OpenLia == "" {

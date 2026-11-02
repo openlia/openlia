@@ -2,7 +2,7 @@
 
 The runtime provides chart components, a read-only native hledger adapter, and
 structured account-mapping creation. The optional `personal-finance` feature in
-`openlia/templates` owns the Finance Markdown/OpenUI composition and account
+`openlia/minions` owns the Finance Markdown/OpenUI composition and account
 templates. Runtime upgrades do not seed or overwrite financial records.
 
 ## Composition

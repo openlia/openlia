@@ -130,6 +130,7 @@ type FeatureShowResult struct {
 }
 
 type FeatureInstallResult struct {
+	Minions          []MinionInstallStatus       `json:"minions,omitempty"`
 	SkillResults     []SkillResult               `json:"skill_results,omitempty"`
 	Catalog          *TemplatesCatalogProvenance `json:"catalog,omitempty"`
 	OK               bool                        `json:"ok"`
@@ -755,10 +756,13 @@ func FeatureInstall(config Config, featureID string, approvePolicy bool, now tim
 	if err != nil {
 		return FeatureInstallResult{}, err
 	}
-	return installFeatureFromDir(config, manifest, pkgDir, source, existingRec, approvePolicy, now)
+	if existingRec != nil && (featureHasMinions(manifest) || featureHasMinions(existingRec.Manifest)) {
+		return reinstallMinionFeature(config, manifest, pkgDir, source, existingRec, now)
+	}
+	return installFeatureFromDir(config, manifest, pkgDir, source, existingRec, approvePolicy, false, now)
 }
 
-func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir string, source string, existingRec *InstalledFeatureRecord, approvePolicy bool, now time.Time) (FeatureInstallResult, error) {
+func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir string, source string, existingRec *InstalledFeatureRecord, approvePolicy, workspaceAlreadyRebased bool, now time.Time) (FeatureInstallResult, error) {
 	if err := newTemplatePreflight(config).feature(manifest, pkgDir); err != nil {
 		return FeatureInstallResult{}, err
 	}
@@ -783,7 +787,11 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 
 	// 1. Copy workspace templates/schemas from pkgDir/workspace
 	featureWorkspaceDir := filepath.Join(pkgDir, "workspace")
-	if info, err := os.Stat(featureWorkspaceDir); err == nil && info.IsDir() {
+	minionPackages, err := featureMinionPackages(featureWorkspaceDir, manifest.Domains)
+	if err != nil {
+		return FeatureInstallResult{}, err
+	}
+	if info, err := os.Stat(featureWorkspaceDir); !workspaceAlreadyRebased && err == nil && info.IsDir() {
 		if err := seedFeatureWorkspaceFiles(featureWorkspaceDir, workspaceDir); err != nil {
 			return FeatureInstallResult{}, fmt.Errorf("seed feature workspace files: %w", err)
 		}
@@ -796,6 +804,10 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 			return FeatureInstallResult{}, err
 		}
 		installedDomains = append(installedDomains, d.Path)
+	}
+	minionStatuses, err := initializeFeatureMinions(workspaceDir, minionPackages, existingRec == nil)
+	if err != nil {
+		return FeatureInstallResult{}, err
 	}
 
 	policyUpdated := false
@@ -861,7 +873,9 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 	// 4. Snapshot base feature workspace files for 3-way rebase
 	if info, err := os.Stat(featureWorkspaceDir); err == nil && info.IsDir() {
 		baseWorkspaceSnap := filepath.Join(config.MetaRoot, "managed", "features", manifest.ID, "base")
-		_ = replaceDirectory(featureWorkspaceDir, baseWorkspaceSnap)
+		if err := replaceDirectory(featureWorkspaceDir, baseWorkspaceSnap); err != nil {
+			return FeatureInstallResult{}, fmt.Errorf("snapshot feature base: %w", err)
+		}
 	}
 
 	// 5. Write feature provenance record
@@ -898,6 +912,7 @@ func installFeatureFromDir(config Config, manifest FeatureManifest, pkgDir strin
 
 	_ = RecordChange(config, "feature-install", "ok", manifest.ID, fmt.Sprintf("installed feature %s", manifest.ID), now)
 	return FeatureInstallResult{
+		Minions:          minionStatuses,
 		SkillResults:     skillResults,
 		Catalog:          catalog,
 		OK:               true,
@@ -972,8 +987,13 @@ func FeatureImport(config Config, archiveOrDirPath string, approvePolicy bool, n
 	if r, ok := installedRecords[manifest.ID]; ok {
 		existingRec = &r
 	}
+	if existingRec != nil && (featureHasMinions(manifest) || featureHasMinions(existingRec.Manifest)) {
+		res, err := reinstallMinionFeature(config, manifest, pkgStorageDir, "imported", existingRec, now)
+		res.Action = "feature-import"
+		return res, err
+	}
 
-	res, err := installFeatureFromDir(config, manifest, pkgStorageDir, "imported", existingRec, approvePolicy, now)
+	res, err := installFeatureFromDir(config, manifest, pkgStorageDir, "imported", existingRec, approvePolicy, false, now)
 	if err != nil {
 		return FeatureInstallResult{}, err
 	}
@@ -1048,6 +1068,9 @@ func FeaturePackage(config Config, opts FeaturePackageOptions) (FeaturePackageRe
 
 	for _, dp := range selectedDomainPaths {
 		dp = strings.Trim(filepath.ToSlash(dp), "/")
+		if _, _, err := minionDomainID(dp); err != nil {
+			return FeaturePackageResult{}, err
+		}
 		d, ok := domainMap[dp]
 		if !ok {
 			d = WorkspaceDomain{
@@ -1157,11 +1180,12 @@ func FeaturePackage(config Config, opts FeaturePackageOptions) (FeaturePackageRe
 	if err := EnsureDir(filepath.Dir(outputPath), 0o755); err != nil {
 		return FeaturePackageResult{}, err
 	}
-	outFile, err := os.OpenFile(outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	outFile, err := os.CreateTemp(filepath.Dir(outputPath), ".openlia-feature-*.zip")
 	if err != nil {
 		return FeaturePackageResult{}, err
 	}
 	defer outFile.Close()
+	defer os.Remove(outFile.Name())
 
 	zw := zip.NewWriter(outFile)
 	filesCount := 0
@@ -1181,6 +1205,37 @@ func FeaturePackage(config Config, opts FeaturePackageOptions) (FeaturePackageRe
 	// Write workspace domain templates & schemas
 	addedZipPaths := map[string]bool{"feature.yaml": true}
 	for _, d := range packagedDomains {
+		id, isMinion, _ := minionDomainID(d.Path)
+		if isMinion {
+			dir, err := minionSafePath(workspaceDir, d.Path)
+			if err != nil {
+				return FeaturePackageResult{}, err
+			}
+			pkg, err := readMinionPackage(dir, id, false)
+			if err != nil {
+				return FeaturePackageResult{}, err
+			}
+			for _, rel := range pkg.Files {
+				data, err := readMinionFile(dir, rel)
+				if err != nil {
+					return FeaturePackageResult{}, err
+				}
+				zipRel := "workspace/" + d.Path + "/" + rel
+				if addedZipPaths[zipRel] {
+					continue
+				}
+				writer, err := zw.Create(zipRel)
+				if err != nil {
+					return FeaturePackageResult{}, err
+				}
+				if _, err := writer.Write(data); err != nil {
+					return FeaturePackageResult{}, err
+				}
+				addedZipPaths[zipRel] = true
+				filesCount++
+			}
+			continue // include-records never opts app state into distribution.
+		}
 		domainFsDir := filepath.Join(workspaceDir, filepath.FromSlash(d.Path))
 		entries, err := os.ReadDir(domainFsDir)
 		if err != nil {
@@ -1284,6 +1339,12 @@ func FeaturePackage(config Config, opts FeaturePackageOptions) (FeaturePackageRe
 	if err := zw.Close(); err != nil {
 		return FeaturePackageResult{}, err
 	}
+	if err := outFile.Close(); err != nil {
+		return FeaturePackageResult{}, err
+	}
+	if err := os.Rename(outFile.Name(), outputPath); err != nil {
+		return FeaturePackageResult{}, err
+	}
 
 	var domainNames []string
 	for _, d := range packagedDomains {
@@ -1323,6 +1384,9 @@ func FeatureRemove(config Config, featureID string, now time.Time) (FeatureRemov
 	// 1. Remove starter templates/schemas while preserving any user records
 	for i := len(manifest.Domains) - 1; i >= 0; i-- {
 		d := manifest.Domains[i]
+		if _, isMinion, _ := minionDomainID(d.Path); isMinion {
+			continue // Keep app code, configuration, and records intact on removal.
+		}
 		domainDir := filepath.Join(workspaceDir, filepath.FromSlash(d.Path))
 		cleanEmptyTemplateDomainDir(domainDir)
 	}
@@ -1459,6 +1523,13 @@ func seedFeatureWorkspaceFiles(featureWorkspaceDir, workspaceDir string) error {
 			return EnsureDir(filepath.Join(workspaceDir, filepath.Dir(rel)), 0o700)
 		}
 		dest := filepath.Join(workspaceDir, rel)
+		if strings.HasPrefix(filepath.ToSlash(rel), "minions/") {
+			var err error
+			dest, err = minionSafePath(workspaceDir, filepath.ToSlash(rel))
+			if err != nil {
+				return err
+			}
+		}
 		if err := EnsureDir(filepath.Dir(dest), 0o700); err != nil {
 			return err
 		}
@@ -1732,17 +1803,55 @@ func extractAndValidateFeatureZip(zipPath, dstDir string) error {
 	defer zr.Close()
 
 	const maxFileSize = 10 * 1024 * 1024
+	// Browser downloads wrap a feature in one directory; CLI archives are flat.
+	// Accept either layout, but reject mixed roots and duplicate normalized paths.
+	prefix := ""
+	hasRootManifest := false
+	for _, f := range zr.File {
+		if f.Name == "feature.yaml" {
+			hasRootManifest = true
+		}
+	}
+	if !hasRootManifest {
+		for _, f := range zr.File {
+			parts := strings.Split(f.Name, "/")
+			if len(parts) == 2 && parts[1] == "feature.yaml" {
+				if prefix != "" && prefix != parts[0]+"/" {
+					return fmt.Errorf("feature archive has multiple package roots")
+				}
+				prefix = parts[0] + "/"
+			}
+		}
+	}
+	seenEntries := map[string]bool{}
 	for _, f := range zr.File {
 		if f.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("symlinks are not permitted in feature archives: %s", f.Name)
 		}
-		cleanRel := filepath.ToSlash(filepath.Clean(f.Name))
+		raw := strings.TrimSuffix(f.Name, "/")
+		if strings.Contains(raw, "\\") || strings.Contains(raw, ":") {
+			return fmt.Errorf("unsafe path in feature archive: %s", f.Name)
+		}
+		if err := validateFeaturePackageEntry(raw); err != nil {
+			return err
+		}
+		if prefix != "" && f.Name == prefix && f.FileInfo().IsDir() {
+			continue
+		}
+		if prefix != "" && !strings.HasPrefix(f.Name, prefix) {
+			return fmt.Errorf("feature archive has mixed package roots")
+		}
+		cleanRel := strings.TrimPrefix(raw, prefix)
 		if strings.HasPrefix(cleanRel, "/") || strings.HasPrefix(cleanRel, "../") || cleanRel == ".." {
 			return fmt.Errorf("unsafe path in feature archive: %s", f.Name)
 		}
 		if f.FileInfo().IsDir() {
 			continue
 		}
+		if seenEntries[strings.ToLower(cleanRel)] {
+			return fmt.Errorf("duplicate path in feature archive: %s", cleanRel)
+		}
+		seenEntries[strings.ToLower(cleanRel)] = true
 		if err := validateFeaturePackageEntry(cleanRel); err != nil {
 			return err
 		}
@@ -1971,6 +2080,11 @@ func RebaseInstalledFeature(config Config, featureID string, now time.Time) (Reb
 	if err != nil {
 		return RebaseResult{}, err
 	}
+	return rebaseFeatureFromDir(config, manifest, pkgDir, source, existingRec, now)
+}
+
+func rebaseFeatureFromDir(config Config, manifest FeatureManifest, pkgDir, source string, existingRec *InstalledFeatureRecord, now time.Time) (RebaseResult, error) {
+	featureID := manifest.ID
 	if existingRec == nil {
 		return RebaseResult{}, fmt.Errorf("feature %s is not installed", featureID)
 	}
@@ -1988,14 +2102,22 @@ func RebaseInstalledFeature(config Config, featureID string, now time.Time) (Reb
 	var migContext string
 	if info, err := os.Stat(newBaseWs); err == nil && info.IsDir() {
 		if _, err := os.Stat(oldBaseWs); err == nil {
+			oldForMerge, err := os.MkdirTemp("", "openlia-feature-base-*")
+			if err != nil {
+				return RebaseResult{}, err
+			}
+			defer os.RemoveAll(oldForMerge)
+			if err := sanitizedFeatureBase(oldBaseWs, oldForMerge); err != nil {
+				return RebaseResult{}, err
+			}
 			tmpCurrent, err := os.MkdirTemp("", "openlia-feature-current-*")
 			if err != nil {
 				return RebaseResult{}, err
 			}
 			defer os.RemoveAll(tmpCurrent)
 
-			for _, root := range []string{oldBaseWs, newBaseWs} {
-				_ = filepath.WalkDir(root, func(p string, d os.DirEntry, walkErr error) error {
+			for _, root := range []string{oldForMerge, newBaseWs} {
+				err := filepath.WalkDir(root, func(p string, d os.DirEntry, walkErr error) error {
 					if walkErr != nil || d.IsDir() {
 						return walkErr
 					}
@@ -2004,6 +2126,13 @@ func RebaseInstalledFeature(config Config, featureID string, now time.Time) (Reb
 						return nil
 					}
 					wsFile := filepath.Join(workspaceDir, rel)
+					if strings.HasPrefix(filepath.ToSlash(rel), "minions/") {
+						var err error
+						wsFile, err = minionSafePath(workspaceDir, filepath.ToSlash(rel))
+						if err != nil {
+							return err
+						}
+					}
 					if data, err := os.ReadFile(wsFile); err == nil {
 						dst := filepath.Join(tmpCurrent, rel)
 						_ = EnsureDir(filepath.Dir(dst), 0o700)
@@ -2011,6 +2140,9 @@ func RebaseInstalledFeature(config Config, featureID string, now time.Time) (Reb
 					}
 					return nil
 				})
+				if err != nil {
+					return RebaseResult{}, err
+				}
 			}
 
 			tmpMerged, err := os.MkdirTemp("", "openlia-feature-merged-*")
@@ -2019,7 +2151,7 @@ func RebaseInstalledFeature(config Config, featureID string, now time.Time) (Reb
 			}
 			defer os.RemoveAll(tmpMerged)
 
-			forked, conflicts, err := RebaseDirectoryThreeWay(oldBaseWs, tmpCurrent, newBaseWs, tmpMerged)
+			forked, conflicts, err := RebaseDirectoryThreeWay(oldForMerge, tmpCurrent, newBaseWs, tmpMerged)
 			if err != nil {
 				return RebaseResult{}, err
 			}
@@ -2033,12 +2165,12 @@ func RebaseInstalledFeature(config Config, featureID string, now time.Time) (Reb
 				migStaging := filepath.Join(config.DataRoot, ".openlia", "migrations", "feature-"+featureID)
 				_ = removeSafeDirectory(migStaging)
 				_ = EnsureDir(migStaging, 0o700)
-				_ = CopyDir(oldBaseWs, filepath.Join(migStaging, "old-base"))
+				_ = CopyDir(oldForMerge, filepath.Join(migStaging, "old-base"))
 				_ = CopyDir(tmpCurrent, filepath.Join(migStaging, "current-fork"))
 				_ = CopyDir(newBaseWs, filepath.Join(migStaging, "new-base"))
 				migContext = migStaging
 			} else {
-				_ = filepath.WalkDir(tmpMerged, func(p string, d os.DirEntry, walkErr error) error {
+				err := filepath.WalkDir(tmpMerged, func(p string, d os.DirEntry, walkErr error) error {
 					if walkErr != nil || d.IsDir() {
 						return walkErr
 					}
@@ -2051,18 +2183,36 @@ func RebaseInstalledFeature(config Config, featureID string, now time.Time) (Reb
 						return err
 					}
 					dst := filepath.Join(workspaceDir, rel)
+					if strings.HasPrefix(filepath.ToSlash(rel), "minions/") {
+						var err error
+						dst, err = minionSafePath(workspaceDir, filepath.ToSlash(rel))
+						if err != nil {
+							return err
+						}
+					}
 					if err := EnsureDir(filepath.Dir(dst), 0o700); err != nil {
 						return err
 					}
 					return AtomicWriteFile(dst, data, 0o600)
 				})
-				_ = replaceDirectory(newBaseWs, oldBaseWs)
+				if err != nil {
+					return RebaseResult{}, err
+				}
+				// Remove obsolete, unconflicted managed app code, never instance state.
+				if err := removeObsoleteMinionCode(oldForMerge, tmpMerged, workspaceDir); err != nil {
+					return RebaseResult{}, err
+				}
+				if err := replaceDirectory(newBaseWs, oldBaseWs); err != nil {
+					return RebaseResult{}, err
+				}
 			}
 		} else {
 			if err := seedFeatureWorkspaceFiles(newBaseWs, workspaceDir); err != nil {
 				return RebaseResult{}, err
 			}
-			_ = replaceDirectory(newBaseWs, oldBaseWs)
+			if err := replaceDirectory(newBaseWs, oldBaseWs); err != nil {
+				return RebaseResult{}, err
+			}
 		}
 	}
 
@@ -2086,7 +2236,7 @@ func RebaseInstalledFeature(config Config, featureID string, now time.Time) (Reb
 	}
 
 	if overallStatus != "conflict" {
-		_, err := installFeatureFromDir(config, manifest, pkgDir, source, existingRec, false, now)
+		_, err := installFeatureFromDir(config, manifest, pkgDir, source, existingRec, false, true, now)
 		if err != nil {
 			return RebaseResult{}, err
 		}
