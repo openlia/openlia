@@ -17,7 +17,7 @@ var Default = Manifest{
 		LinuxARM64SHA: "28a125314d193c1cc9d91fe65482716598d7644cfa61d359fd8f6f2801f01890",
 	},
 	Templates: TemplatesPin{
-		Repository: "https://github.com/openlia/templates.git",
+		Repository: "https://github.com/openlia/minions.git",
 		Revision:   "d417f11599876236add6a3062a741d4789e7666f",
 	},
 	Remind: SourcePin{

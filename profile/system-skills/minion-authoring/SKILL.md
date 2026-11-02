@@ -1,7 +1,7 @@
 ---
 name: minion-authoring
 description: Design, scaffold, customize, validate, and run autonomous Workspace Minions in minions/<slug>/ with dashboard.openui, input.openui, input.schema.json, config.schema.json, config.json, input.py/input.ts, and dual-triggered main.py/main.ts.
-version: 0.1.0
+version: 0.2.0
 system: true
 forkable: false
 protected: true
@@ -14,6 +14,14 @@ This is a protected OpenLia system skill. Use it whenever the user asks to creat
 As the Project Owner's technical partner, you are responsible for designing the Minion's data model, input form, configuration schema, post-entry analysis logic, and heartbeat enrichment logic without asking the user to write JSON Schemas or OpenUI code manually.
 
 ## Canonical Minion File Architecture
+
+Keep Minions distinct from ordinary document collections and workflow skills.
+Use inline OpenUI in Markdown for document presentation; do not create an app
+merely to display notes. Preserve one authoritative location per dataset instead
+of copying existing task, calendar, ledger, or clinical records into app state.
+Generic briefing/review discovery excludes Minion internals. Publish intentional,
+dated Markdown reports outside `minions/` for those workflows, respecting the
+destination's template and permissions and linking canonical sources.
 
 Every Minion lives in `minions/<slug>/` (`^[a-z0-9][a-z0-9-]*$`) and consists of:
 
@@ -44,15 +52,38 @@ Every Minion lives in `minions/<slug>/` (`^[a-z0-9][a-z0-9-]*$`) and consists of
        }
      }
      ```
-     (`trigger` may also be the shorthand string `"entry"`, `"cron"`, or `"both"`).
-   - Stores the user's local Minion settings alongside `trigger` (e.g., `news_url`, `stock_endpoint`, `calendar_rem_path`). Ignored when packaging the Minion for sharing.
+      (`trigger` may also be the shorthand string `"entry"`, `"cron"`, or `"both"`).
+    - A cron setting describes the intended cadence; it does not by itself
+      register or enable a scheduler. Verify actual registration and execution.
+      Respect scheduled-work permissions and external-effect approvals; the
+      Minion directory is not a process sandbox.
+    - Local settings are never exported. A fresh feature install derives safe
+      defaults from the schema and turns automatic triggers off. If settings
+      remain missing, configuration is pending and entry/main/heartbeat execution
+      is blocked until valid config is saved. Updates preserve local config,
+      including intentionally deleted config; never invent recipient settings.
 8. **`main.py` or `main.ts`** (Required — Dual-Triggered Data & Enrichment Engine):
    - Reads `config.json` (or `OPENLIA_MINION_CONFIG_JSON`) and `data/`, and supports **two trigger modes**:
      - **Post-Entry Trigger (`--trigger entry --entry '<json>'`)**: Runs automatically right after `input.py` / `input.ts` records a new entry (when `config.json`'s `trigger` enables `on_new_entry`). Analyzes the new entry in context (e.g., recommending the next exercise given today's logged performance, checking budget impact, or updating streaks), writes `data/context.json`, and refreshes `dashboard.openui`.
      - **Heartbeat Trigger (`--trigger heartbeat`)**: Runs on the cron schedule in `config.json` (`trigger.cron`) or manual trigger. Enriches `data/` and `data/context.json` (e.g., fetching news, retrieving latest stock prices, reading workspace calendar `.rem` files, or computing periodic rollups) and refreshes `dashboard.openui`.
 9. **`data/`** & **`tests/`**:
    - `data/`: Structured JSON/CSV/YAML/Markdown data files (`data/items.json`, `data/context.json`, nested subfolders).
-   - `tests/`: Unit tests (`tests/test_main.py` for Python or `tests/main.test.ts` for TypeScript) verifying `input` schema validation, `config.json` loading, and `dashboard.openui` generation.
+    - `tests/`: Unit tests (`tests/test_main.py` for Python or `tests/main.test.ts` for TypeScript) verifying `input` schema validation, `config.json` loading, and `dashboard.openui` generation.
+10. **`minion.package.json`** (Required for Sharing):
+    - Scaffolding supplies `{"schema": 1, "files": [...]}` with explicit relative
+      source-file paths. Maintain this reviewed list when adding code, views,
+      schemas, dependencies, helpers, or tests. The manifest itself is implicit.
+    - Never list local config, `data/`, state, hidden files, environments, installed
+      dependencies, caches, logs, or credentials, even when including records.
+      Reviewed test fixtures may live in `tests/fixtures/`.
+    - Package a live app through feature export; clean catalog/import packages
+      may contain only declared portable files. Both browser and CLI enforce the
+      contract. Browser installs reject existing apps; CLI updates/reimports use
+      code-only 3-way rebase and preserve local state.
+    - Review every declared file and the final archive before sharing. Generated
+      dashboards and source code can contain personal data; a file list and
+      credential scan do not prove privacy or code safety. Feature removal keeps
+      the app directory intact; it does not disable manual app execution.
 
 ## Hermes Tools for Constructing Minions
 

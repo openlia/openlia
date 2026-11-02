@@ -299,6 +299,9 @@ _IGNORED_DIR_NAMES = {"node_modules", "__pycache__", ".venv", ".pytest_cache"}
 def _parse_minion_readme(readme_path: Path, default_label: str, rel_path: str) -> tuple[str, str]:
     label = default_label
     purpose = f"Autonomous Minion in {rel_path}"
+    has_explicit_name = False
+    if readme_path.is_symlink():
+        return label, purpose
     try:
         text = readme_path.read_text(encoding="utf-8")
     except (OSError, UnicodeError):
@@ -313,6 +316,7 @@ def _parse_minion_readme(readme_path: Path, default_label: str, rel_path: str) -
                 if isinstance(fm, dict):
                     if isinstance(fm.get("name"), str) and fm["name"].strip():
                         label = fm["name"].strip()
+                        has_explicit_name = True
                     if isinstance(fm.get("description"), str) and fm["description"].strip():
                         purpose = fm["description"].strip()
             except Exception:
@@ -322,7 +326,7 @@ def _parse_minion_readme(readme_path: Path, default_label: str, rel_path: str) -
     lines = [line.strip() for line in body.splitlines()]
     for idx, line in enumerate(lines):
         if line.startswith("# ") and len(line) > 2:
-            if label == default_label:
+            if not has_explicit_name:
                 label = line[2:].strip()
             for next_line in lines[idx + 1 :]:
                 if next_line and not next_line.startswith("#"):
@@ -359,6 +363,7 @@ def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
                         or minion_dir.is_symlink()
                         or not minion_dir.is_dir()
                         or minion_dir.name in _IGNORED_DIR_NAMES
+                        or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", minion_dir.name)
                     ):
                         continue
                     discovered_paths.add(f"minions/{minion_dir.name}")
@@ -367,26 +372,23 @@ def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
     except OSError:
         pass
 
-    # 2. Directories containing a template, schema, or nested Markdown collections
-    for pattern in ("*-template.md", "*.schema.json", "*.md"):
-        for match in sorted(root.rglob(pattern)):
-            try:
-                rel_parent = match.parent.relative_to(root).as_posix()
-            except ValueError:
-                continue
-            parts = rel_parent.split("/")
-            if rel_parent == "." or any(p.startswith(".") or p in _IGNORED_DIR_NAMES for p in parts):
-                continue
-            top_root = parts[0]
-            if top_root == "minions":
-                if len(parts) >= 2:
-                    discovered_paths.add(f"minions/{parts[1]}")
-                if pattern in {"*.md", "*.schema.json"} or (
-                    len(parts) >= 3 and parts[2] in {"scripts", "tests"}
-                ):
-                    continue
-            if pattern == "*.md" and top_root in CORE_ROOTS and rel_parent not in _KNOWN_DOMAIN_METADATA:
-                continue
+    # 2. Prune app internals and dependencies before walking ordinary collections.
+    for current, directories, filenames in os.walk(root, followlinks=False):
+        folder = Path(current)
+        directories[:] = sorted(
+            name for name in directories
+            if not name.startswith(".") and name not in _IGNORED_DIR_NAMES
+            and not (folder / name).is_symlink()
+            and not (folder == root and name == "minions")
+        )
+        rel_parent = folder.relative_to(root).as_posix()
+        if rel_parent == ".":
+            continue
+        top_root = rel_parent.split("/", 1)[0]
+        files = [name for name in filenames if not (folder / name).is_symlink()]
+        has_contract = any(name.endswith(("-template.md", ".schema.json")) for name in files)
+        has_records = any(name.endswith(".md") for name in files)
+        if has_contract or (has_records and (top_root not in CORE_ROOTS or rel_parent in _KNOWN_DOMAIN_METADATA)):
             discovered_paths.add(rel_parent)
 
     # 3. Well-known subdirectories if they exist on disk
@@ -446,6 +448,12 @@ def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
         ):
             # Avoid overlapping briefing paths when a finance/* leaf collection is present
             include_in_briefing = False
+
+        # Apps are discoverable, but their code and cached data are not records.
+        # Include intentional Markdown exports outside minions/ instead.
+        if parts[0] == "minions":
+            include_in_briefing = False
+            briefing_category = None
 
         template_rel: str | None = None
         if folder.is_dir():

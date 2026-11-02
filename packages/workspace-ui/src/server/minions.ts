@@ -29,6 +29,7 @@ import type {
   WorkspaceFileMetadata,
 } from "../shared/api";
 import { openUIDiagnostics } from "../shared/openui";
+import { MINION_PACKAGE_FILE, safeMinionPath } from "./minion-distribution";
 import { extractHeadings, parseRecordFrontmatter } from "./validator";
 import {
   DEFAULT_MAX_EDITABLE_BYTES,
@@ -678,6 +679,7 @@ export class MinionService {
         relToMinion === "input.schema.json" ||
         relToMinion === "config.json" ||
         relToMinion === "config.schema.json" ||
+        relToMinion === MINION_PACKAGE_FILE ||
         relToMinion === "requirements.txt" ||
         relToMinion === "package.json" ||
         relToMinion.startsWith("scripts/") ||
@@ -720,6 +722,13 @@ export class MinionService {
       : undefined;
     const primaryUiFile = dashboardUiFile ?? uiFiles[0];
     const renderable = uiFiles.length > 0 && renderErrors.length === 0;
+    const packaged = isRegularFile(join(dirAbs, MINION_PACKAGE_FILE));
+    const configurationRequired =
+      packaged &&
+      (!configSchema ||
+        !configObj ||
+        !validateMinionConfigObject(configObj, configSchema).valid);
+    if (configurationRequired) effectiveTriggers = { after_entry: false };
 
     return {
       id,
@@ -728,6 +737,7 @@ export class MinionService {
       description: parsedMeta.description,
       ...(parsedMeta.icon ? { icon: parsedMeta.icon } : {}),
       runtime,
+      ...(packaged ? { configuration_required: configurationRequired } : {}),
       entrypoint,
       ...(inputEntrypoint ? { input_entrypoint: inputEntrypoint } : {}),
       ...(inputSchemaFile ? { input_schema_file: inputSchemaFile } : {}),
@@ -1931,11 +1941,36 @@ test("loads config.json with required trigger", () => {
       writeFileSync(join(dir, "tests", "main.test.ts"), testTs, "utf-8");
     }
 
+    writeFileSync(
+      join(dir, MINION_PACKAGE_FILE),
+      `${JSON.stringify(
+        {
+          schema: 1,
+          files: [
+            "README.md",
+            "dashboard.openui",
+            "input.openui",
+            "input.schema.json",
+            "config.schema.json",
+            ...(runtime === "python"
+              ? [
+                  "input.py",
+                  "main.py",
+                  "requirements.txt",
+                  "tests/test_main.py",
+                ]
+              : ["input.ts", "main.ts", "package.json", "tests/main.test.ts"]),
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
     return this.getMinion(id);
   }
 
   updateMinionConfig(id: string, rawBody: unknown): MinionDetailResponse {
-    const dir = this.resolveMinionDir(id);
     const { minion: before } = this.getMinion(id);
 
     if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
@@ -1970,7 +2005,7 @@ test("loads config.json with required trigger", () => {
     }
 
     writeFileSync(
-      join(dir, "config.json"),
+      safeMinionPath(this.workspaceRoot, `minions/${before.id}/config.json`),
       `${JSON.stringify(candidateConfig, null, 2)}\n`,
       "utf-8",
     );
@@ -1984,6 +2019,21 @@ test("loads config.json with required trigger", () => {
     const hermesPy = "/opt/hermes/.venv/bin/python";
     if (existsSync(hermesPy)) return hermesPy;
     return "python3";
+  }
+
+  private requirePackagedMinionConfig(dir: string, minion: MinionDetail): void {
+    if (!isRegularFile(join(dir, MINION_PACKAGE_FILE))) return;
+    if (
+      !minion.config_schema ||
+      !minion.config ||
+      !validateMinionConfigObject(minion.config, minion.config_schema).valid
+    ) {
+      throw new WorkspaceError(
+        "This packaged Minion needs valid local configuration before execution. Save settings in the Configuration tab.",
+        409,
+        "minion_configuration_required",
+      );
+    }
   }
 
   private execSubprocess(
@@ -2274,6 +2324,7 @@ test("loads config.json with required trigger", () => {
   ): Promise<MinionRunResponse> {
     const dir = this.resolveMinionDir(id);
     const { minion: before } = this.getMinion(id);
+    this.requirePackagedMinionConfig(dir, before);
 
     const rawPayload = this.buildInputPayloadFromRequest(before, req);
     const validatedPayload = this.normalizeAndValidateInputData(
@@ -2423,6 +2474,7 @@ test("loads config.json with required trigger", () => {
   ): Promise<MinionRunResponse> {
     const dir = this.resolveMinionDir(id);
     const { minion: before } = this.getMinion(id);
+    this.requirePackagedMinionConfig(dir, before);
 
     const cliArgs: string[] = [];
     if (before.input_entrypoint || req.trigger === "heartbeat") {
@@ -2478,6 +2530,7 @@ test("loads config.json with required trigger", () => {
   ): Promise<MinionRunResponse> {
     const dir = this.resolveMinionDir(id);
     const { minion: before } = this.getMinion(id);
+    this.requirePackagedMinionConfig(dir, before);
 
     if (req.trigger === "heartbeat" || req.action === "heartbeat") {
       return this.runMinionHeartbeat(id, req);

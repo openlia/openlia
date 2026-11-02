@@ -82,8 +82,8 @@ workspace/
     └── document-passwords.toml
 ```
 
-### Public Templates Catalog (`https://github.com/openlia/templates.git`)
-You can keep your workspace completely custom or install starter profiles, modular features, and workflow skills from **[`openlia/templates`](https://github.com/openlia/templates.git)**:
+### Public Catalog (`https://github.com/openlia/minions.git`)
+You can keep your workspace completely custom or install starter profiles, modular features, programmable Minions, and workflow skills from **[`openlia/minions`](https://github.com/openlia/minions.git)**:
 
 - **`personal-os` Profile (`openlia features install --profile personal-os`)**: Installs the full Personal OS suite (`goals`, `tasks`, `calendar`, `daily-briefing`, and core productivity skills) in one command.
 - **Modular Features (`openlia features install <id>`)**:
@@ -98,6 +98,7 @@ You can keep your workspace completely custom or install starter profiles, modul
 | **`personal-health`** | `health/`, `health/profiles/`, `health/history/`, `health/conditions/`, `health/treatments/`, `health/reviews/` | `personal-health` skill & structured medical templates |
 | **`decision-analysis`** | `decisions/` | `decision-analysis` skill + option/criteria trade-off matrix |
 | **`deep-research`** | `knowledge/research/` | `deep-research` skill + source rubric & brief templates |
+| **`gym-tracker`** | `minions/gym-tracker/` | Programmable workout tracker Minion (`minion.package.json`, `input.py`, `main.py`, OpenUI input & dashboard) |
 | **`areas`**, **`ideas`**, **`monitors`**, **`people`**, **`shopping`**, **`travel`** | Domain folders & inline Markdown views | Specialized personal & operational domains |
 
 ### Customizing Templates & Skills Safely

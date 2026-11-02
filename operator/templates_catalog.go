@@ -16,10 +16,16 @@ import (
 	"openlia/internal/releaseinfo"
 )
 
+const LegacyTemplatesRepo = "https://github.com/openlia/templates.git"
+
 var (
 	DefaultTemplatesRepo = releaseinfo.Default.Templates.Repository
 	DefaultTemplatesRef  = releaseinfo.Default.Templates.Revision
 )
+
+func isDefaultTemplatesRepo(source string) bool {
+	return source == DefaultTemplatesRepo || source == LegacyTemplatesRepo
+}
 
 type TemplatesSyncResult struct {
 	OK                bool                        `json:"ok"`
@@ -174,7 +180,7 @@ func ensureTemplatesCatalogIfNeeded(config Config) error {
 		}
 		data, err := os.ReadFile(filepath.Join(root, catalogProvenanceFile))
 		var info TemplatesCatalogProvenance
-		if err == nil && json.Unmarshal(data, &info) == nil && info.Schema == 1 && info.Source == source && info.Ref == ref {
+		if err == nil && json.Unmarshal(data, &info) == nil && info.Schema == 1 && (info.Source == source || (isDefaultTemplatesRepo(source) && isDefaultTemplatesRepo(info.Source))) && info.Ref == ref {
 			return nil
 		}
 	}

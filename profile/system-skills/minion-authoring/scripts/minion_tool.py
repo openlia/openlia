@@ -34,6 +34,60 @@ OPENUI_FIELD_NAME_RE = re.compile(
 )
 
 
+def portable_distribution_path(path: str) -> bool:
+    reserved = {
+        "config.json", "data", "state", "cache", "caches", "logs", "uploads", "tmp", "temp",
+        "node_modules", "__pycache__", "venv", "env", "dist", "build", "coverage",
+    }
+    if not path or re.search(r"[\\:\x00]", path) or path.startswith("/"):
+        return False
+    return all(
+        part and not part.startswith(".") and part.lower() not in reserved
+        and not re.search(r"\.(pyc|log|pem|key)$|credential|secret|token|id_rsa|id_ed25519", part.lower())
+        for part in path.split("/")
+    )
+
+
+def validate_distribution_manifest(minion_dir: Path) -> list[str]:
+    path = minion_dir / "minion.package.json"
+    if not path.exists() and not path.is_symlink():
+        return []  # Existing local apps do not need a sharing manifest.
+    try:
+        if path.is_symlink():
+            raise ValueError("manifest must not be a symlink")
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict) or set(manifest) != {"schema", "files"} or type(manifest["schema"]) is not int or manifest["schema"] != 1:
+            raise ValueError("expected schema: 1 and explicit files")
+        files = manifest["files"]
+        if not isinstance(files, list) or not files or any(not isinstance(name, str) for name in files):
+            raise ValueError("files must be a nonempty list of paths")
+        seen = {"minion.package.json"}
+        seen_fold = {"minion.package.json"}
+        for name in files:
+            if not portable_distribution_path(name) or name.lower() in seen_fold:
+                raise ValueError(f"unsafe or duplicate distribution file {name!r}")
+            file = minion_dir / name
+            for component in [file, *file.parents]:
+                if component.is_symlink():
+                    raise ValueError(f"symlink in distribution file {name}")
+                if component == minion_dir:
+                    break
+            if not file.is_file() or file.stat().st_size > 10 * 1024 * 1024:
+                raise ValueError(f"missing or oversized distribution file {name}")
+            seen.add(name)
+            seen_fold.add(name.lower())
+        required = {"README.md", "dashboard.openui", "input.openui", "input.schema.json", "config.schema.json"}
+        if not required.issubset(seen):
+            raise ValueError("missing required distribution files: " + ", ".join(sorted(required - seen)))
+        if ("main.py" in seen) == ("main.ts" in seen) or ("input.py" in seen) == ("input.ts" in seen) or ("main.py" in seen) != ("input.py" in seen):
+            raise ValueError("requires exactly one runtime and its input entrypoint")
+        if not any(name.startswith("tests/") for name in seen):
+            raise ValueError("distribution must include tests/")
+    except (OSError, UnicodeError, ValueError) as exc:
+        return [f"minion.package.json: {exc}"]
+    return []
+
+
 def _locate_openui_cli() -> Path | None:
     env_cli = os.environ.get("OPENLIA_OPENUI_AUTHORING_CLI", "").strip()
     repo_root = SCRIPT_DIR.parents[3]
@@ -1336,6 +1390,15 @@ test("loads config.json with required trigger", () => {
 """
         (minion_dir / "tests" / "main.test.ts").write_text(test_ts, encoding="utf-8")
 
+    distribution_files = [
+        "README.md", "dashboard.openui", "input.openui", "input.schema.json", "config.schema.json",
+        *(["input.py", "main.py", "requirements.txt", "tests/test_main.py"] if runtime == "python"
+          else ["input.ts", "main.ts", "package.json", "tests/main.test.ts"]),
+    ]
+    (minion_dir / "minion.package.json").write_text(
+        json.dumps({"schema": 1, "files": distribution_files}, indent=2) + "\n", encoding="utf-8"
+    )
+
     return {
         "ok": True,
         "status": "ok",
@@ -1367,7 +1430,7 @@ def validate_minion(workspace_root: Path | str, minion_id: str) -> dict[str, Any
             "warnings": [],
         }
 
-    errors: list[str] = []
+    errors: list[str] = validate_distribution_manifest(minion_dir)
     warnings: list[str] = []
 
     readme_path = minion_dir / "README.md"
@@ -1585,6 +1648,22 @@ def run_minion(
     runner_bin = _resolve_python_bin(minion_dir) if runtime == "python" else "bun"
 
     config_path = minion_dir / "config.json"
+    if mode != "test" and (minion_dir / "minion.package.json").is_file():
+        schema_path = minion_dir / "config.schema.json"
+        if config_path.is_symlink() or schema_path.is_symlink() or not config_path.is_file() or not schema_path.is_file():
+            raise ValueError("Packaged Minion needs valid local configuration before execution")
+        cfg_obj = json.loads(config_path.read_text(encoding="utf-8"))
+        cfg_schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        jsonschema.Draft202012Validator.check_schema(cfg_schema)
+        # No network/file resolution during validation; only schema-local refs.
+        from referencing import Registry
+        validator = jsonschema.Draft202012Validator(
+            cfg_schema, registry=Registry(), format_checker=jsonschema.Draft202012Validator.FORMAT_CHECKER
+        )
+        validator.validate(cfg_obj)
+        valid, errors, _ = validate_trigger_spec(cfg_obj.get("trigger") if isinstance(cfg_obj, dict) else None)
+        if not valid:
+            raise ValueError("Packaged Minion needs valid local configuration: " + "; ".join(errors))
     config_json_str = ""
     after_entry = True
     if config_path.is_file():

@@ -2,7 +2,7 @@
   "schema": 1,
   "openlia": "0.1.0",
   "templates": {
-    "repository": "https://github.com/openlia/templates.git",
+    "repository": "https://github.com/openlia/minions.git",
     "revision": "d417f11599876236add6a3062a741d4789e7666f"
   },
   "remind": {

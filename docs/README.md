@@ -11,13 +11,13 @@ Choose a guide below based on your role or what you want to accomplish.
 ### 📖 For End Users (Daily Companion)
 Use these guides when interacting with Lia day-to-day over Telegram or the Workspace UI to capture notes, compose inline views, ingest documents, and organize your workspace.
 
-- **[End User Guide](user-guide.md)**: Daily workflows with Lia—interfaces (Telegram, Workspace UI Chat, Document Editor with inline OpenUI), the Minimal Core Workspace, installing profiles/features/skills from [`openlia/templates`](https://github.com/openlia/templates.git), and delegation boundaries.
+- **[End User Guide](user-guide.md)**: Daily workflows with Lia—interfaces (Telegram, Workspace UI Chat, Document Editor with inline OpenUI), the Minimal Core Workspace, installing profiles/features/skills from [`openlia/minions`](https://github.com/openlia/minions.git), and delegation boundaries.
 - **[Inline OpenUI Views](workspace-domain-views.md)**: Interactive tables, charts, and domain views composed inside Markdown documents.
 
 ### 🛠️ For Operators (Self-Hosters & System Administrators)
 Use these guides when deploying, configuring, updating, backing up, or troubleshooting an OpenLia stack on your local workstation or a remote Linux server.
 
-- **[Operator Guide](operator-guide.md)**: The complete administrative handbook—machine roles, `config.toml` & `secrets.env`, syncing templates & managing `/opt/data/.local` dependencies, Telegram bot setup, Locho private networking, `openlia-browser` hosts, automatic fork detection & 3-way rebase, workspace Git checkpoints, folder migrations, and Age-encrypted S3/rsync backups.
+- **[Operator Guide](operator-guide.md)**: The complete administrative handbook—machine roles, `config.toml` & `secrets.env`, syncing `openlia/minions` & managing `/opt/data/.local` dependencies, Telegram bot setup, Locho private networking, `openlia-browser` hosts, automatic fork detection & 3-way rebase, workspace Git checkpoints, folder migrations, and Age-encrypted S3/rsync backups.
 - **[LLM Usage Monitoring](usage-monitoring.md)**: How OpenLia tracks estimated token usage and USD costs across Hermes, Ingestion, and Migration, including pricing overrides and operational boundaries.
 - **[End-to-End Verification Drills](e2e-drills.md)**: Repeatable operational runbook and troubleshooting field guide for testing disposable or remote deployments (`openlia_dev`).
 
@@ -26,7 +26,8 @@ Use these guides when onboarding to the codebase, building from source, adding C
 
 - **[Contributing & Onboarding Guide](../CONTRIBUTING.md)**: Development prerequisites, 5-minute local setup, component-specific workflows, test suites, and pull request conventions.
 - **[System Architecture & Codebase Tour](architecture.md)**: Full-stack architectural overview covering the Go CLI & target operator, `/opt/data/.local` tool & environment store, TypeScript/Bun Workspace UI & Browser Relay, Python Hermes plugins, Docker images, and release manifest pinning.
-- **[Skill & Feature Package Development](skill-and-feature-development.md)**: How to author, validate, and test profiles, features, and skills for [`openlia/templates`](https://github.com/openlia/templates.git) (including `requires.{tools,python,bun}`) as well as core system skills (`profile/system-skills/`).
+- **[Skill & Feature Package Development](skill-and-feature-development.md)**: How to author, validate, and test profiles, features, and skills for [`openlia/minions`](https://github.com/openlia/minions.git) (including `requires.{tools,python,bun}`) as well as core system skills (`profile/system-skills/`).
+- **[Minion Distribution](minion-distribution.md)**: Reviewed source-file manifests, code-only export/install, recipient configuration, and state-preserving managed updates.
 
 ---
 

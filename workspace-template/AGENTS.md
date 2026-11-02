@@ -21,7 +21,7 @@ user-owned delegation policy authorizes the scoped update.
   use case needing reusable organization or an interactive view, design the
   smallest useful folder, template, optional schema, and inline `openui` blocks
   in the requested Markdown artifact, or install a
-  feature/profile from the OpenLia Templates catalog (`https://github.com/openlia/templates.git`).
+  feature/profile from the OpenLia catalog (`https://github.com/openlia/minions.git`).
 - **Minions (`minions/<slug>/`)**: Programmable workspace apps that
   OpenLia/Hermes develops and maintains with the user as **Project Owner** (e.g.,
   `minions/family-menu/`, `minions/gym-tracker/`, `minions/portfolio-watch/`). Each
@@ -38,7 +38,16 @@ user-owned delegation policy authorizes the scoped update.
   - `requirements.txt` or `package.json`, scripts and tests (`scripts/`, `tests/`),
     and freely structured data files under `data/` (`.json`, `.yaml`/`.yml`, `.csv`,
     `.hledger`/`.journal`, `.rem`/`.remind`, `.md`, including nested subfolders).
+  - `minion.package.json`: explicit reviewed source-file list for sharing through
+    a feature, never local configuration, records, caches, or installed dependencies.
   Load `minion-authoring` and use `minion_scaffold`, `minion_validate`, and `minion_run` when constructing or updating Minions. Hermes has full autonomy inside `minions/<slug>/` to install dependencies, run scripts/tests/entrypoints, and update code, `.openui` views, and `data/` files.
+  Keep one authoritative location per dataset; do not duplicate existing domain
+  records merely to display them in an app. A cron setting does not itself
+  register a schedule. Verify actual schedule registration and execution, honor
+  scheduled-work permissions, and keep external effects approval-gated. A Minion
+  folder is not a process sandbox. For briefings/reviews, publish intentional,
+  source-linked Markdown reports outside `minions/` rather than scanning app
+  internals or counting cached copies as additional records.
 
 ## File handling
 
@@ -49,7 +58,7 @@ user-owned delegation policy authorizes the scoped update.
   - **Core Starter Templates**:
     - `inbox/ingestion/ingestion-template.md`: durable capture and processing records.
     - `sources/records/source-template.md`: retained source provenance and extraction metadata.
-  - **Optional Feature & Profile Templates** (available via `openlia features install <id>` from `https://github.com/openlia/templates.git` or custom feature packages):
+  - **Optional Feature & Profile Templates** (available via `openlia features install <id>` from `https://github.com/openlia/minions.git` or custom feature packages):
     - Install only the domains and skills that match the user's workflow (e.g. `tasks`, `goals`, `calendar`, `daily-briefing`, `personal-finance`, `personal-health`, `decision-analysis`, `deep-research`, `monitors`, `people`, `ideas`, `areas`, `travel`, `shopping`, or custom domains).
 - Prefer Markdown and small structured files with stable, descriptive names.
 - Distinguish semantic domain records from supporting artifacts. Use a suitable

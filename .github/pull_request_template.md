@@ -5,7 +5,7 @@
 ## Runtime/templates dependency (if applicable)
 
 - Parent issue / delivery owner:
-- Companion `openlia/templates` PR:
+- Companion `openlia/minions` PR:
 - First compatible runtime release:
 - Combined integration run (exact runtime and templates SHAs):
 - Compatible-pair and older-target rejection evidence:

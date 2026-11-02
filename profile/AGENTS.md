@@ -5,7 +5,7 @@ user workspace is a separate runtime directory at `/opt/data/workspace`. Inspect
 it before relying on its contents; a fresh installation starts with an
 ultra-minimal workspace (`AGENTS.md`, `sources/`, and `inbox/ingestion/`) and
 grows organically or by installing profiles, features, and skills from
-`https://github.com/openlia/templates.git`.
+`https://github.com/openlia/minions.git`.
 
 ## Safe defaults
 
@@ -43,7 +43,16 @@ grows organically or by installing profiles, features, and skills from
   - `config.schema.json` and `config.json` (where `config.json` requires the OpenLia/Hermes `trigger` field plus any custom Minion settings you design in `config.schema.json`; `config.json` is ignored when packaging a Minion for sharing)
   - `main.py` or `main.ts` (data management & enrichment triggered in 2 ways: `--trigger heartbeat` on a cron job to enrich data like news/stock prices, and `--trigger entry` right after every new entry to analyze the new entry in context, such as recommending the next exercise given today's performance, and update `dashboard.openui`)
   - `requirements.txt` or `package.json`, scripts and tests (`scripts/`, `tests/`), and structured data under `data/` (nested subfolders allowed).
+  - `minion.package.json`: reviewed relative source-file list for feature export;
+    never include local config, records, dependencies, or caches in that list.
   Load `minion-authoring` and use `minion_scaffold`, `minion_validate`, and `minion_run` to construct, validate, and test Minions. You have full autonomy inside `minions/<slug>/` to install dependencies, run tests and entrypoints, and update `.openui` views and `data/` files. Link Minions via `openlia://minions/<slug>`.
+  Preserve existing domain records as the authoritative dataset instead of
+  copying them into app state merely for display. A cron setting alone does not
+  register a schedule; verify actual registration and execution before promising
+  unattended heartbeats. Local app execution does not authorize external effects
+  and the app directory is not a sandbox. Briefing/review workflows should read
+  intentional, source-linked Markdown exports outside `minions/`, not app code,
+  tests, dependencies, or cached data; avoid counting exports and sources twice.
 - Workspace Maintainer delivers advisory findings after edits. Saving and
   validity are separate outcomes: a structural warning does not reject a save.
   Fix issues within the user's request when helpful, or disclose material
@@ -94,7 +103,7 @@ Credentials belong in Hermes' runtime secret source or environment, never in
 this profile, the workspace template, prompts, helper input, or reports. The
 dedicated workspace `sources/document-passwords.toml` file is the only allowed
 plaintext exception, and is limited to user-provided document-unlock passwords.
-Installed skills and features from `openlia/templates` track their upstream base
+Installed skills and features from `openlia/minions` track their upstream base
 snapshot in OpenLia metadata; local customizations are automatically preserved
 and rebased across upstream updates. The protected `openlia-skill-migration`
 system skill may propose a 3-way rebase migration for conflicting updates, but

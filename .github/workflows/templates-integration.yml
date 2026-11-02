@@ -69,7 +69,7 @@ jobs:
       - name: Check out templates revision
         uses: actions/checkout@v4
         with:
-          repository: openlia/templates
+          repository: openlia/minions
           ref: ${{ steps.templates.outputs.ref }}
           persist-credentials: false
           path: templates
