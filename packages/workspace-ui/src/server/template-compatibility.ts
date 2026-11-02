@@ -4,6 +4,7 @@ import { WorkspaceError } from "./workspace";
 const minimumPattern = /^>=(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 const runtimePattern =
   /^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+const supportedRequiredTools = new Set(["hledger", "jq", "remind", "sqlite3"]);
 
 export function runtimeMeetsMinimum(
   version: string,
@@ -42,7 +43,8 @@ export function runtimeMeetsMinimum(
 }
 
 export function readTemplatesRuntimeVersion(
-  path = "/opt/openlia/runtime-release.json",
+  path = process.env.OPENLIA_RUNTIME_RELEASE_PATH ??
+    "/opt/openlia/runtime-release.json",
 ): string {
   try {
     const identity = JSON.parse(readFileSync(path, "utf8"));
@@ -69,6 +71,28 @@ export function checkTemplateRequirements(
       400,
       "invalid_template_compatibility",
     );
+  }
+  if ("tools" in requires && requires.tools !== undefined) {
+    if (
+      !Array.isArray(requires.tools) ||
+      requires.tools.some((t) => typeof t !== "string" || !t.trim())
+    ) {
+      throw new WorkspaceError(
+        `${label}: requires.tools must be a list of tool names`,
+        400,
+        "invalid_template_compatibility",
+      );
+    }
+    for (const rawTool of requires.tools) {
+      const tool = rawTool.trim();
+      if (!supportedRequiredTools.has(tool)) {
+        throw new WorkspaceError(
+          `${label} requires unsupported tool "${tool}"; supported tools are hledger, jq, remind, sqlite3`,
+          400,
+          "unsupported_required_tool",
+        );
+      }
+    }
   }
   if (!("openlia" in requires)) return;
   const requirement = requires.openlia;

@@ -11,6 +11,7 @@ export interface SkillsNavigatorProps {
   filter: string;
   onFilterChange: (filter: string) => void;
   onCreateClick: () => void;
+  onOpenCatalog?: (() => void) | undefined;
   onTogglePin?: (id: string, pinned: boolean) => void;
   loading?: boolean;
 }
@@ -23,6 +24,7 @@ export function SkillsNavigator({
   filter,
   onFilterChange,
   onCreateClick,
+  onOpenCatalog,
   onTogglePin,
   loading = false,
 }: SkillsNavigatorProps) {
@@ -78,27 +80,39 @@ export function SkillsNavigator({
         <h2 className="text-sm font-semibold tracking-wide uppercase text-base-content/70">
           Skills ({skills.length})
         </h2>
-        <button
-          className="btn btn-primary btn-xs gap-1"
-          onClick={onCreateClick}
-          type="button"
-        >
-          <svg
-            className="h-3.5 w-3.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            viewBox="0 0 24 24"
+        <div className="flex items-center gap-1.5">
+          {onOpenCatalog && (
+            <button
+              className="btn btn-outline btn-xs"
+              data-testid="skills-browse-catalog"
+              onClick={onOpenCatalog}
+              type="button"
+            >
+              Catalog
+            </button>
+          )}
+          <button
+            className="btn btn-primary btn-xs gap-1"
+            onClick={onCreateClick}
+            type="button"
           >
-            <title>New Skill</title>
-            <path
-              d="M12 4v16m8-8H4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          New Skill
-        </button>
+            <svg
+              className="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              viewBox="0 0 24 24"
+            >
+              <title>New Skill</title>
+              <path
+                d="M12 4v16m8-8H4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            New Skill
+          </button>
+        </div>
       </div>
 
       <div className="shrink-0 border-b border-base-content/10 p-2">
@@ -200,6 +214,7 @@ export function SkillsNavigator({
                                 ? "bg-primary text-primary-content"
                                 : "hover:bg-base-200 text-base-content"
                             }`}
+                            data-testid={`skill-item-${skill.id}`}
                             onClick={() => onSelectSkill(skill.id)}
                             type="button"
                           >

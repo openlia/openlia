@@ -224,6 +224,7 @@ export interface WorkspaceErrorResponse {
   schema: 1;
   ok: false;
   error: string;
+  message?: string | undefined;
   current_revision?: string;
 }
 
@@ -946,8 +947,25 @@ export interface ShareFeatureMetadata {
   skills: string[];
 }
 
+export interface FeatureRequirements {
+  openlia?: string | undefined;
+  core_domains?: string[] | undefined;
+  features?: string[] | undefined;
+  tools?: string[] | undefined;
+  python?: string | undefined;
+  bun?: string | undefined;
+}
+
+export interface FeatureDomainSummary {
+  path: string;
+  label: string;
+  purpose: string;
+  kind?: "core" | "extension" | undefined;
+}
+
 export interface FeatureSummary {
   requires_openlia?: string | undefined;
+  requires?: FeatureRequirements | undefined;
   id: string;
   name: string;
   version: string;
@@ -957,7 +975,9 @@ export interface FeatureSummary {
   source: "builtin" | "imported" | "custom";
   state: "installed" | "partial" | "available";
   domains: string[];
+  domain_details?: FeatureDomainSummary[] | undefined;
   skills: string[];
+  minions?: string[] | undefined;
 }
 
 export interface FeaturesListResponse {

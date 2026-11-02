@@ -86,6 +86,14 @@ export function createConfiguredWorkspaceHandler() {
       : {}),
     ...(ingestionRoot ? { ingestionRoot } : {}),
     ...(migrationsRoot ? { migrationsRoot } : {}),
+    ...(process.env.OPENLIA_FEATURES_ROOT
+      ? { featuresRoot: resolve(process.env.OPENLIA_FEATURES_ROOT) }
+      : {}),
+    ...(process.env.OPENLIA_RUNTIME_RELEASE_PATH
+      ? {
+          runtimeReleasePath: resolve(process.env.OPENLIA_RUNTIME_RELEASE_PATH),
+        }
+      : {}),
     ...(releaseSha256 ? { releaseSha256 } : {}),
     passwordHashFile,
     publicOrigin: process.env.OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN,

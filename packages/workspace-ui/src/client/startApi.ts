@@ -1,6 +1,9 @@
 import type {
   AuthLoginResponse,
   AuthSessionResponse,
+  FeatureInstallRequest,
+  FeatureInstallResponse,
+  FeaturesListResponse,
   IngestionDetailResponse,
   IngestionOverviewResponse,
   MigrationActionResponse,
@@ -452,4 +455,19 @@ export const startWorkspaceApi: WorkspaceApi = {
     request<PublicShareResponse>({
       path: `/api/public/share/${encodeURIComponent(id)}`,
     }),
+  listFeatures: () =>
+    request<FeaturesListResponse>({
+      path: "/api/features",
+    }),
+  installFeature: async (req: FeatureInstallRequest) => {
+    const res = await request<FeatureInstallResponse>({
+      body: req,
+      method: "POST",
+      path: "/api/features/install",
+    });
+    for (const domain of res.installed_domains) {
+      notifyWorkspaceFileChange(domain);
+    }
+    return res;
+  },
 };

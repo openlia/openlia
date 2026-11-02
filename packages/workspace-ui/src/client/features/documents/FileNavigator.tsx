@@ -158,9 +158,9 @@ export function FileNavigator({
   useEffect(() => {
     if (!selectedPath) return;
     const parts = selectedPath.split("/");
-    const ancestors = parts
-      .slice(0, -1)
-      .map((_, index) => parts.slice(0, index + 1).join("/"));
+    const ancestors = parts.map((_, index) =>
+      parts.slice(0, index + 1).join("/"),
+    );
     setCollapsed((current) => {
       const next = new Set(current);
       for (const ancestor of ancestors) next.delete(ancestor);
@@ -171,9 +171,9 @@ export function FileNavigator({
   useEffect(() => {
     if (!revealToken || !selectedPath) return;
     const parts = selectedPath.split("/");
-    const ancestors = parts
-      .slice(0, -1)
-      .map((_, index) => parts.slice(0, index + 1).join("/"));
+    const ancestors = parts.map((_, index) =>
+      parts.slice(0, index + 1).join("/"),
+    );
     setCollapsed((current) => {
       const next = new Set(current);
       for (const ancestor of ancestors) next.delete(ancestor);
@@ -238,6 +238,7 @@ export function FileNavigator({
                         aria-controls={directoryId}
                         aria-expanded={childrenVisible}
                         className={`workspace-tree-row workspace-tree-directory flex-1 ${onCreateFile && isCreatable ? "pr-7" : ""}`}
+                        data-testid={`workspace-directory-${node.path}`}
                         disabled={forcedOpen}
                         onClick={() => {
                           setCollapsed((current) => {
@@ -267,6 +268,7 @@ export function FileNavigator({
                       <div
                         aria-label={`${node.name}, empty folder`}
                         className={`workspace-tree-row workspace-tree-directory workspace-tree-empty-directory flex-1 ${onCreateFile && isCreatable ? "pr-7" : ""}`}
+                        data-testid={`workspace-directory-${node.path}`}
                         role="treeitem"
                         style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
                         tabIndex={-1}
@@ -551,7 +553,9 @@ export function FileNavigator({
           </div>
         ) : loading ? (
           <p className="mt-5 text-sm text-base-content/50">Loading files...</p>
-        ) : visibleFiles === 0 ? (
+        ) : visibleFiles === 0 &&
+          !showMemorySection &&
+          !showWorkspaceSection ? (
           <div className="mt-5 rounded-lg border border-base-content/10 bg-base-200/40 p-4">
             <p className="text-sm font-semibold">
               {query ? `No files match “${filter}”` : "No documents yet"}

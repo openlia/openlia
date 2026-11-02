@@ -71,6 +71,7 @@ import { MigrationSection } from "./migration/MigrationSection";
 import { MaintainerFixModal } from "./MaintainerFixModal";
 import { MaintainerPage } from "./MaintainerPage";
 import { MinionsPage } from "./MinionsPage";
+import { CatalogPage } from "./CatalogPage";
 import { GoToModal } from "./GoToModal";
 import { diffLines } from "./markdown";
 import {
@@ -854,6 +855,7 @@ export function App({
           systemInfoResponse,
           ingestionResponse,
           migrationsResponse,
+          domainsResponse,
         ] = await Promise.all([
           bootstrap?.tree ?? api.loadTree(),
           api.loadGitStatus().catch(() => null),
@@ -868,6 +870,7 @@ export function App({
           api.loadSystemInfo().catch(() => null),
           api.loadIngestion().catch(() => null),
           api.loadMigrations().catch(() => []),
+          api.loadCreatableDomains().catch(() => null),
         ]);
         if (isActive && !isActive()) return;
 
@@ -882,6 +885,8 @@ export function App({
         setSystemInfo(systemInfoResponse);
         setIngestion(ingestionResponse);
         setMigrationsList(migrationsResponse);
+        if (domainsResponse?.domains)
+          setCreatableDomains(domainsResponse.domains);
         setNeedsLogin(false);
         setAuthReady(true);
 
@@ -896,6 +901,8 @@ export function App({
             setActiveTab("minions");
             setSelectedMinionId(route.minionId);
             setSelectedMinionFile(route.minionFile);
+          } else if (route.tab === "catalog") {
+            setActiveTab("catalog");
           } else if (route.tab === "skills" || route.skill) {
             setActiveTab("skills");
             if (route.skill) {
@@ -1253,6 +1260,8 @@ export function App({
           setPendingAction({ kind: "switchTab", tab: "configuration" });
         } else if (route.tab === "maintainer") {
           setPendingAction({ kind: "switchTab", tab: "maintainer" });
+        } else if (route.tab === "catalog") {
+          setPendingAction({ kind: "switchTab", tab: "catalog" });
         } else {
           setPendingAction({
             kind: "open",
@@ -1323,6 +1332,8 @@ export function App({
         setActiveTab("configuration");
       } else if (route.tab === "maintainer") {
         setActiveTab("maintainer");
+      } else if (route.tab === "catalog") {
+        setActiveTab("catalog");
       } else if (route.path) {
         setActiveTab("documents");
         if (route.path !== file?.path && route.path !== artifact?.path) {
@@ -1351,6 +1362,8 @@ export function App({
       document.title = selectedMinionId
         ? `${selectedMinionId} - OpenLia Minions`
         : "Minions - OpenLia Workspace";
+    } else if (activeTab === "catalog") {
+      document.title = "Catalog - OpenLia Workspace";
     } else if (activeTab === "skills") {
       document.title = selectedSkillDetail
         ? `${selectedSkillDetail.name} - OpenLia Skills`
@@ -1416,6 +1429,7 @@ export function App({
         settingsResponse,
         systemInfoResponse,
         ingestionResponse,
+        domainsResponse,
       ] = await Promise.all([
         api.loadTree(),
         api.loadGitStatus().catch(() => null),
@@ -1427,6 +1441,7 @@ export function App({
         api.loadSettings().catch(() => null),
         api.loadSystemInfo().catch(() => null),
         api.loadIngestion().catch(() => null),
+        api.loadCreatableDomains().catch(() => null),
       ]);
       setTree(treeResponse.entries);
       setTreeTruncated(treeResponse.truncated);
@@ -1438,6 +1453,8 @@ export function App({
       if (settingsResponse) setSettings(settingsResponse);
       setSystemInfo(systemInfoResponse);
       setIngestion(ingestionResponse);
+      if (domainsResponse?.domains)
+        setCreatableDomains(domainsResponse.domains);
       setWorkspaceError("");
 
       if (!initialPathOpened.current) {
@@ -1446,7 +1463,13 @@ export function App({
           typeof window !== "undefined"
             ? parseRoute(window.location)
             : initialRoute.current;
-        if (route.tab === "skills" || route.skill) {
+        if (route.tab === "minions" || route.minionId) {
+          setActiveTab("minions");
+          setSelectedMinionId(route.minionId);
+          setSelectedMinionFile(route.minionFile);
+        } else if (route.tab === "catalog") {
+          setActiveTab("catalog");
+        } else if (route.tab === "skills" || route.skill) {
           setActiveTab("skills");
           if (route.skill) {
             void appStateRef.current.openSkill(route.skill, route.skillFile);
@@ -2938,9 +2961,65 @@ export function App({
           }}
           onOpenFile={(docPath) => requestOpenFile(docPath)}
           onNavigateLink={handleNavigateLink}
+          onOpenCatalog={() => requestTabChange("catalog")}
           onAskLia={(prompt) => {
             setChatDraftPrompt(prompt);
             requestTabChange("chat");
+          }}
+        />
+      ) : activeTab === "catalog" ? (
+        <CatalogPage
+          api={api}
+          onOpenMinion={(minionId) => {
+            setSelectedMinionId(minionId);
+            setSelectedMinionFile(undefined);
+            setActiveTab("minions");
+            navigateRoute({
+              minionId,
+              tab: "minions",
+            });
+          }}
+          onOpenSkill={(skillId) => {
+            setActiveTab("skills");
+            requestOpenSkill(skillId);
+          }}
+          onOpenDomain={(domainPath) => {
+            setFilter(domainPath);
+            setActiveTab("documents");
+            navigateRoute({
+              filter: domainPath,
+              tab: "documents",
+            });
+          }}
+          onFeatureInstalled={async () => {
+            const [
+              treeResponse,
+              gitResponse,
+              skillsResponse,
+              activityResponse,
+              diagnosticsResponse,
+              domainsResponse,
+            ] = await Promise.all([
+              api.loadTree().catch(() => null),
+              api.loadGitStatus().catch(() => null),
+              api.loadSkills().catch(() => null),
+              api.loadActivity().catch(() => null),
+              api.loadDiagnostics().catch(() => null),
+              api.loadCreatableDomains().catch(() => null),
+            ]);
+            if (treeResponse) {
+              setTree(treeResponse.entries);
+              setTreeTruncated(treeResponse.truncated);
+            }
+            if (gitResponse) setGit(gitResponse);
+            if (skillsResponse) {
+              setSkills(skillsResponse.skills);
+              setSkillCategories(skillsResponse.categories);
+            }
+            if (activityResponse) setActivity(activityResponse);
+            if (diagnosticsResponse) setDiagnostics(diagnosticsResponse);
+            if (domainsResponse?.domains)
+              setCreatableDomains(domainsResponse.domains);
           }}
         />
       ) : activeTab === "skills" ? (
@@ -2958,6 +3037,7 @@ export function App({
                 setFilesOpen(false);
                 setIsCreateSkillOpen(true);
               }}
+              onOpenCatalog={() => requestTabChange("catalog")}
               onFilterChange={setSkillsFilter}
               onSelectSkill={requestOpenSkill}
               onTogglePin={(id, pinned) =>

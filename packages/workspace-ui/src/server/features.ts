@@ -15,8 +15,10 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 import type {
+  FeatureDomainSummary,
   FeatureInstallResponse,
   FeaturePackageRequest,
+  FeatureRequirements,
   FeatureSummary,
   FeaturesListResponse,
   ShareFeatureMetadata,
@@ -72,6 +74,9 @@ interface RawFeatureManifest {
     openlia?: string;
     core_domains?: string[];
     features?: string[];
+    tools?: string[];
+    python?: string;
+    bun?: string;
   };
   domains?: RawFeatureDomain[];
   skills?: RawFeatureSkill[];
@@ -101,6 +106,12 @@ export function validateFeatureId(value: unknown): string {
 }
 
 function resolveDefaultFeaturesRoot(): string {
+  if (
+    process.env.OPENLIA_FEATURES_ROOT &&
+    existsSync(process.env.OPENLIA_FEATURES_ROOT)
+  ) {
+    return resolve(process.env.OPENLIA_FEATURES_ROOT);
+  }
   for (const envCandidate of [
     process.env.OPENLIA_TEMPLATES_REPO,
     process.env.OPENLIA_TEMPLATES_ROOT,
@@ -299,13 +310,31 @@ export class FeatureService {
     for (const [id, { manifest }] of catalog.entries()) {
       seen.add(id);
       const domains = (manifest.domains ?? []).map((d) => d.path);
+      const domainDetails: FeatureDomainSummary[] = (
+        manifest.domains ?? []
+      ).map((d) => ({
+        path: d.path,
+        label: d.label || d.path,
+        purpose: d.purpose || "",
+        ...(d.kind === "core" || d.kind === "extension"
+          ? { kind: d.kind }
+          : {}),
+      }));
+      const minions = (manifest.domains ?? [])
+        .map((d) => minionDomainId(d.path))
+        .filter((m): m is string => Boolean(m));
       const skills = (manifest.skills ?? []).map((s) => s.id);
       let matched = 0;
       for (const dp of domains) {
         if (registered.has(dp)) matched++;
       }
       for (const sk of skills) {
-        if (existsSync(join(this.skillsRoot, sk, "SKILL.md"))) matched++;
+        if (
+          existsSync(join(this.skillsRoot, sk, "SKILL.md")) ||
+          existsSync(join(this.skillsRoot, ".openlia-disabled", sk, "SKILL.md"))
+        ) {
+          matched++;
+        }
       }
       const total = domains.length + skills.length;
       const state: FeatureSummary["state"] =
@@ -314,8 +343,44 @@ export class FeatureService {
           : matched > 0
             ? "partial"
             : "available";
+      const rawReq = manifest.requires;
+      const requires: FeatureRequirements | undefined =
+        rawReq && typeof rawReq === "object"
+          ? {
+              ...(typeof rawReq.openlia === "string"
+                ? { openlia: rawReq.openlia }
+                : {}),
+              ...(Array.isArray(rawReq.core_domains) &&
+              rawReq.core_domains.length > 0
+                ? {
+                    core_domains: rawReq.core_domains.filter(
+                      (x): x is string => typeof x === "string",
+                    ),
+                  }
+                : {}),
+              ...(Array.isArray(rawReq.features) && rawReq.features.length > 0
+                ? {
+                    features: rawReq.features.filter(
+                      (x): x is string => typeof x === "string",
+                    ),
+                  }
+                : {}),
+              ...(Array.isArray(rawReq.tools) && rawReq.tools.length > 0
+                ? {
+                    tools: rawReq.tools.filter(
+                      (x): x is string => typeof x === "string",
+                    ),
+                  }
+                : {}),
+              ...(typeof rawReq.python === "string"
+                ? { python: rawReq.python }
+                : {}),
+              ...(typeof rawReq.bun === "string" ? { bun: rawReq.bun } : {}),
+            }
+          : undefined;
       summaries.push({
         requires_openlia: manifest.requires?.openlia,
+        ...(requires && Object.keys(requires).length > 0 ? { requires } : {}),
         id,
         name: manifest.name || id,
         version: manifest.version || "1.0.0",
@@ -325,7 +390,9 @@ export class FeatureService {
         source: "builtin",
         state,
         domains,
+        ...(domainDetails.length > 0 ? { domain_details: domainDetails } : {}),
         skills,
+        ...(minions.length > 0 ? { minions } : {}),
       });
     }
 
@@ -391,7 +458,9 @@ export class FeatureService {
       const entry = catalog.get(validateFeatureId(id));
       if (!entry) {
         throw new WorkspaceError(
-          `feature not found: ${id}`,
+          id === featureId
+            ? `feature not found: ${id}`
+            : `required dependency feature not found: ${id} (required by ${featureId})`,
           404,
           "feature_not_found",
         );

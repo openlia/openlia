@@ -6,6 +6,9 @@ import type {
   DocumentPasswordListResponse,
   DocumentPasswordProfile,
   DocumentPasswordSuggestResponse,
+  FeatureInstallRequest,
+  FeatureInstallResponse,
+  FeaturesListResponse,
   IngestionDetailResponse,
   IngestionOverviewResponse,
   MaintainerFinding,
@@ -314,6 +317,11 @@ export interface WorkspaceApi {
   ): Promise<MinionRunResponse>;
   runMinion(id: string, request?: MinionRunRequest): Promise<MinionRunResponse>;
   testMinion(id: string): Promise<MinionRunResponse>;
+
+  listFeatures(): Promise<FeaturesListResponse>;
+  installFeature(
+    request: FeatureInstallRequest,
+  ): Promise<FeatureInstallResponse>;
 
   loadCronJobs(): Promise<CronOverviewResponse>;
   createCronJob(
@@ -798,6 +806,28 @@ function isMinionRunResponse(value: unknown): value is MinionRunResponse {
     typeof value.exit_code === "number" &&
     typeof value.stdout === "string" &&
     typeof value.stderr === "string"
+  );
+}
+
+function isFeaturesListResponse(value: unknown): value is FeaturesListResponse {
+  return (
+    isObject(value) &&
+    value.schema === 1 &&
+    value.ok === true &&
+    Array.isArray(value.features)
+  );
+}
+
+function isFeatureInstallResponse(
+  value: unknown,
+): value is FeatureInstallResponse {
+  return (
+    isObject(value) &&
+    value.schema === 1 &&
+    value.ok === true &&
+    typeof value.feature_id === "string" &&
+    Array.isArray(value.installed_domains) &&
+    Array.isArray(value.installed_skills)
   );
 }
 
@@ -1802,6 +1832,23 @@ export const httpWorkspaceApi: WorkspaceApi = {
         method: "POST",
       },
     ),
+  listFeatures: () =>
+    requestJson<FeaturesListResponse>("/api/features", isFeaturesListResponse),
+  installFeature: async (request) => {
+    const res = await requestJson<FeatureInstallResponse>(
+      "/api/features/install",
+      isFeatureInstallResponse,
+      {
+        body: JSON.stringify(request),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    );
+    for (const domain of res.installed_domains) {
+      notifyWorkspaceFileChange(domain);
+    }
+    return res;
+  },
 };
 
 export const api = httpWorkspaceApi;

@@ -136,6 +136,8 @@ def main(argv: list[str] | None = None) -> int:
                     **environment,
                     "OPENLIA_INTEGRATION_WORKSPACE": str(calendar),
                     "OPENLIA_INTEGRATION_STATE": str(scratch / "browser-state"),
+                    "OPENLIA_FEATURES_ROOT": str(snapshot / "features"),
+                    "OPENLIA_RUNTIME_RELEASE_PATH": str(ROOT / "release/manifest.json"),
                     "OPENLIA_REMIND_BINARY": remind,
                     "OPENLIA_WORKSPACE_UI_PORT": str(free_port()),
                     "WORKSPACE_UI_E2E_MODE": "real",

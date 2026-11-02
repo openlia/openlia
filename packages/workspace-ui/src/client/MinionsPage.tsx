@@ -158,6 +158,7 @@ export function MinionsPage({
   onOpenFile,
   onNavigateLink,
   onAskLia,
+  onOpenCatalog,
 }: {
   api: WorkspaceApi;
   selectedMinionId?: string | undefined;
@@ -166,6 +167,7 @@ export function MinionsPage({
   onOpenFile: (path: string) => void;
   onNavigateLink?: ((href: string) => void) | undefined;
   onAskLia?: ((prompt: string) => void) | undefined;
+  onOpenCatalog?: (() => void) | undefined;
 }) {
   const [navigatorOpen, setNavigatorOpen] = useState(false);
   const [titleRow, setTitleRow] = useState<HTMLDivElement | null>(null);
@@ -855,17 +857,32 @@ export function MinionsPage({
               Programmable workspace apps
             </p>
           </div>
-          <button
-            className="btn btn-primary btn-xs"
-            onClick={() => {
-              setNavigatorOpen(false);
-              setCreateModalOpen(true);
-            }}
-            type="button"
-            data-testid="create-minion-button"
-          >
-            + New Minion
-          </button>
+          <div className="flex items-center gap-1.5">
+            {onOpenCatalog && (
+              <button
+                className="btn btn-outline btn-xs"
+                onClick={() => {
+                  setNavigatorOpen(false);
+                  onOpenCatalog();
+                }}
+                type="button"
+                data-testid="minions-browse-catalog"
+              >
+                Catalog
+              </button>
+            )}
+            <button
+              className="btn btn-primary btn-xs"
+              onClick={() => {
+                setNavigatorOpen(false);
+                setCreateModalOpen(true);
+              }}
+              type="button"
+              data-testid="create-minion-button"
+            >
+              + New Minion
+            </button>
+          </div>
         </div>
 
         <div className="p-2 border-b border-base-content/10">
@@ -919,9 +936,19 @@ export function MinionsPage({
                     <span className="font-semibold text-sm truncate">
                       {m.name}
                     </span>
-                    <span className="badge badge-xs badge-ghost font-mono">
-                      {m.runtime === "python" ? "py" : "ts"}
-                    </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {m.configuration_required && (
+                        <span
+                          className="badge badge-xs badge-warning"
+                          data-testid={`minion-config-required-badge-${m.id}`}
+                        >
+                          Config required
+                        </span>
+                      )}
+                      <span className="badge badge-xs badge-ghost font-mono">
+                        {m.runtime === "python" ? "py" : "ts"}
+                      </span>
+                    </div>
                   </div>
                   <p className="text-xs text-base-content/60 line-clamp-2 mt-0.5">
                     {m.description}
@@ -1010,8 +1037,18 @@ export function MinionsPage({
                 started.
               </p>
               <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-center gap-2 pt-2">
+                {onOpenCatalog && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => onOpenCatalog()}
+                    type="button"
+                    data-testid="minions-empty-browse-catalog"
+                  >
+                    Browse Catalog
+                  </button>
+                )}
                 <button
-                  className="btn btn-primary btn-sm"
+                  className={`btn ${onOpenCatalog ? "btn-outline" : "btn-primary"} btn-sm`}
                   onClick={() => setCreateModalOpen(true)}
                   type="button"
                 >
@@ -1051,6 +1088,14 @@ export function MinionsPage({
                   <span className="badge badge-sm shrink-0 badge-primary/20 text-primary font-mono">
                     {detail.runtime === "python" ? "Python" : "TypeScript"}
                   </span>
+                  {detail.configuration_required && (
+                    <span
+                      className="badge badge-sm shrink-0 badge-warning"
+                      data-testid="minion-detail-config-required-badge"
+                    >
+                      Configuration required
+                    </span>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {wideActions && (
@@ -1111,6 +1156,28 @@ export function MinionsPage({
               <p className="text-xs text-base-content/70">
                 {detail.description}
               </p>
+              {detail.configuration_required && (
+                <div
+                  className="alert alert-warning py-2 px-3 text-xs flex flex-wrap items-center justify-between gap-2"
+                  data-testid="minion-config-required-banner"
+                  role="status"
+                >
+                  <span>
+                    <strong>Configuration required:</strong>{" "}
+                    <code className="font-mono">config.json</code> has required
+                    settings that must be completed before automatic triggers or
+                    scheduled runs can execute.
+                  </span>
+                  <button
+                    className="btn btn-warning btn-xs"
+                    onClick={() => setActiveSubTab("config")}
+                    type="button"
+                    data-testid="minion-configure-now"
+                  >
+                    Configure Minion
+                  </button>
+                </div>
+              )}
               <details className="minion-runtime-details">
                 <summary className="cursor-pointer py-2 text-xs text-base-content/60">
                   Runtime & triggers

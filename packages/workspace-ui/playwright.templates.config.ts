@@ -13,7 +13,7 @@ const baseURL = `http://127.0.0.1:${process.env.OPENLIA_WORKSPACE_UI_PORT ?? "80
 
 export default defineConfig({
   testDir: `${packageRoot}/e2e`,
-  testMatch: "calendar.spec.ts",
+  testMatch: ["calendar.spec.ts", "catalog.spec.ts"],
   outputDir: `${packageRoot}/.playwright/templates-results`,
   fullyParallel: false,
   forbidOnly: true,
@@ -65,6 +65,15 @@ export default defineConfig({
       OPENLIA_MEMORIES_ROOT: `${state}/memories`,
       OPENLIA_CRON_ROOT: `${state}/cron`,
       OPENLIA_INGESTION_ROOT: `${state}/ingestion`,
+      ...(process.env.OPENLIA_FEATURES_ROOT
+        ? { OPENLIA_FEATURES_ROOT: process.env.OPENLIA_FEATURES_ROOT }
+        : {}),
+      ...(process.env.OPENLIA_RUNTIME_RELEASE_PATH
+        ? {
+            OPENLIA_RUNTIME_RELEASE_PATH:
+              process.env.OPENLIA_RUNTIME_RELEASE_PATH,
+          }
+        : {}),
       WORKSPACE_UI_E2E_FIXTURE: "false",
       WORKSPACE_UI_E2E_MODE: "real",
     },
