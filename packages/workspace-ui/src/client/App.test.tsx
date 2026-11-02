@@ -1213,6 +1213,7 @@ messages:
       "Documents",
       "Ingestion",
       "Minions",
+      "Catalog",
       "Skills",
       "Shared Links",
       "Maintainer",

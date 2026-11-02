@@ -11,6 +11,7 @@ import { UsageSummary } from "../UsageSummary";
 import { MaintainerPage } from "../MaintainerPage";
 import { MaintainerFixModal } from "../MaintainerFixModal";
 import { MinionsPage } from "../MinionsPage";
+import { CatalogPage } from "../CatalogPage";
 import { MigrationSection } from "../migration/MigrationSection";
 import { action, file, finding, storyData, storyLoader } from "./fixtures";
 import { PageFrame } from "./frames";
@@ -34,6 +35,7 @@ const meta = {
       "MaintainerPage.tsx#MaintainerPage",
       "MaintainerFixModal.tsx#MaintainerFixModal",
       "MinionsPage.tsx#MinionsPage",
+      "CatalogPage.tsx#CatalogPage",
       "migration/MigrationSection.tsx#MigrationSection",
     ],
   },
@@ -216,6 +218,18 @@ export const Minions: Story = {
         onOpenFile={action("openFile")}
         onNavigateLink={action("navigateLink")}
         onAskLia={action("askLia")}
+      />
+    </PageFrame>
+  ),
+};
+export const Catalog: Story = {
+  render: (_args, { loaded }) => (
+    <PageFrame>
+      <CatalogPage
+        api={storyData(loaded).api}
+        onOpenMinion={action("openMinion")}
+        onOpenSkill={action("openSkill")}
+        onOpenDomain={action("openDomain")}
       />
     </PageFrame>
   ),

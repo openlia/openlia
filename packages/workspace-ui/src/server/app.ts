@@ -61,6 +61,7 @@ export interface WorkspaceHandlerOptions {
   usageRoot?: string;
   skillsRoot?: string;
   featuresRoot?: string;
+  runtimeReleasePath?: string;
   cronRoot?: string;
   backupSchedule?: string;
   backupScheduleEnabled?: boolean;
@@ -347,6 +348,7 @@ export function createWorkspaceHandler(
   });
   const featureService = new FeatureService({
     featuresRoot: options.featuresRoot,
+    runtimeReleasePath: options.runtimeReleasePath,
     skillsRoot,
     workspaceRoot: options.workspaceRoot,
   });
@@ -440,6 +442,8 @@ export function createWorkspaceHandler(
           url.pathname === "/skills" ||
           url.pathname.startsWith("/minions/") ||
           url.pathname === "/minions" ||
+          url.pathname.startsWith("/catalog/") ||
+          url.pathname === "/catalog" ||
           url.pathname.startsWith("/shares/") ||
           url.pathname === "/shares" ||
           url.pathname.startsWith("/share/") ||
@@ -2651,10 +2655,25 @@ export function createWorkspaceHandler(
         if (!isObject(bodyResult.value))
           return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
         const req = bodyResult.value as Partial<FeatureInstallRequest>;
-        return json(
-          featureService.install(req.id, req.approve_policy ?? true),
-          200,
-        );
+        try {
+          return json(
+            featureService.install(req.id, req.approve_policy ?? true),
+            200,
+          );
+        } catch (error) {
+          if (error instanceof WorkspaceError) {
+            return json(
+              {
+                schema: 1,
+                ok: false,
+                error: error.code,
+                ...(error.message ? { message: error.message } : {}),
+              },
+              error.status,
+            );
+          }
+          throw error;
+        }
       }
       if (
         request.method === "POST" &&

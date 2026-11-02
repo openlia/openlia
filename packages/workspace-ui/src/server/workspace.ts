@@ -1033,13 +1033,20 @@ export class WorkspaceService {
     }
 
     // 2. Discover collections from filesystem via Maintainer
-    for (const col of this.maintainer.discoverCollections()) {
+    const collections = this.maintainer.discoverCollections();
+    for (const col of collections) {
       if (isDisallowed(col.path) || byPath.has(col.path)) continue;
       const builtin = getBuiltinDomainContract(col.path);
+      const hasSubdomain = collections.some(
+        (child) =>
+          child.path.startsWith(`${col.path}/`) &&
+          Boolean(child.template_path || child.record_count > 0),
+      );
       if (
         col.path !== "knowledge" &&
         !col.template_path &&
-        col.record_count === 0
+        col.record_count === 0 &&
+        !hasSubdomain
       ) {
         continue;
       }

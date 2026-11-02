@@ -10,6 +10,7 @@ export type MainTab =
   | "chat"
   | "documents"
   | "minions"
+  | "catalog"
   | "skills"
   | "shares"
   | "ingestion"
@@ -99,6 +100,8 @@ export function parseRoute(
         parsedSkillFile = parsed.skillFile;
       }
       tab = "skills";
+    } else if (host === "catalog" || host === "features") {
+      tab = "catalog";
     } else if (host === "shares") {
       tab = "shares";
     } else if (host === "git-activity") {
@@ -162,6 +165,8 @@ export function parseRoute(
   } else if (pathname === "/minions") {
     minionId = undefined;
     tab = "minions";
+  } else if (pathname === "/catalog" || pathname.startsWith("/catalog/")) {
+    tab = "catalog";
   } else if (pathname.startsWith("/skills/")) {
     const raw = pathname.slice("/skills/".length);
     if (raw) skill = safeDecodeURIComponent(raw);
@@ -205,6 +210,7 @@ export function parseRoute(
   if (
     tabParam === "chat" ||
     tabParam === "minions" ||
+    tabParam === "catalog" ||
     tabParam === "skills" ||
     tabParam === "shares" ||
     tabParam === "documents" ||
@@ -299,6 +305,8 @@ export function buildRouteUrl(route: WorkspaceRoute): string {
     pathname = "/git-activity";
   } else if (route.tab === "configuration") {
     pathname = "/configuration";
+  } else if (route.tab === "catalog") {
+    pathname = "/catalog";
   } else if (route.tab === "minions" || route.minionId) {
     if (route.minionId) {
       pathname = `/minions/${encodeURIComponent(route.minionId)}`;

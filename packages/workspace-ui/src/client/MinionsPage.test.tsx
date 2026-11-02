@@ -82,3 +82,42 @@ test("the submit button follows the selected action and empty heartbeat still wo
     expect(heartbeat).toHaveBeenCalledExactlyOnceWith("sample-minion"),
   );
 });
+
+test("surfaces configuration_required state in sidebar and detail view with Configure Minion action", async () => {
+  const api = createMockWorkspaceApi();
+  const { minion } = await api.getMinion("sample-minion");
+  vi.spyOn(api, "listMinions").mockResolvedValue({
+    schema: 1,
+    minions: [{ ...minion, configuration_required: true }],
+  });
+  vi.spyOn(api, "getMinion").mockResolvedValue({
+    schema: 1,
+    minion: {
+      ...minion,
+      configuration_required: true,
+    },
+  });
+  const onOpenCatalog = vi.fn();
+  render(
+    <MinionsPage
+      api={api}
+      selectedMinionId="sample-minion"
+      onSelectMinion={vi.fn()}
+      onOpenFile={vi.fn()}
+      onOpenCatalog={onOpenCatalog}
+    />,
+  );
+
+  expect(
+    await screen.findByTestId("minion-config-required-badge-sample-minion"),
+  ).toHaveTextContent("Config required");
+  expect(
+    await screen.findByTestId("minion-config-required-banner"),
+  ).toHaveTextContent("Configuration required");
+
+  fireEvent.click(screen.getByTestId("minion-configure-now"));
+  expect(await screen.findByTestId("minion-save-config")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByTestId("minions-browse-catalog"));
+  expect(onOpenCatalog).toHaveBeenCalledTimes(1);
+});

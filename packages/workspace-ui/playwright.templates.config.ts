@@ -13,7 +13,7 @@ const baseURL = `http://127.0.0.1:${process.env.OPENLIA_WORKSPACE_UI_PORT ?? "80
 
 export default defineConfig({
   testDir: `${packageRoot}/e2e`,
-  testMatch: "calendar.spec.ts",
+  testMatch: ["calendar.spec.ts", "catalog.spec.ts"],
   outputDir: `${packageRoot}/.playwright/templates-results`,
   fullyParallel: false,
   forbidOnly: true,

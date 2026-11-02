@@ -4,6 +4,10 @@ import type {
   ConsequentialPermissionsResponse,
   DocumentPasswordProfile,
   DocumentPasswordSuggestResponse,
+  FeatureInstallRequest,
+  FeatureInstallResponse,
+  FeatureSummary,
+  FeaturesListResponse,
   IngestionDetailResponse,
   IngestionOverviewResponse,
   MaintainerFinding,
@@ -642,6 +646,229 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
 
   const mockShares: MockStoredShare[] = [];
   let mockShareSeq = 0;
+  const mockInstalledFeatureIds = new Set<string>();
+  const mockInstalledMinions = new Set<string>();
+  const useBrowserSessionPersistence =
+    typeof window !== "undefined" &&
+    !("happyDOM" in window) &&
+    typeof window.sessionStorage !== "undefined";
+
+  const mockCatalogFeatures: FeatureSummary[] = [
+    {
+      id: "gym-tracker",
+      name: "Gym Tracker",
+      version: "0.1.0",
+      description:
+        "Track workouts, sets, reps, and personal records with a dedicated Minion app.",
+      author: "OpenLia Team",
+      license: "MIT",
+      source: "builtin",
+      state: "available",
+      requires_openlia: ">=0.1.0",
+      requires: {
+        openlia: ">=0.1.0",
+      },
+      domains: ["minions/gym-tracker"],
+      domain_details: [
+        {
+          path: "minions/gym-tracker",
+          label: "Gym Tracker",
+          purpose:
+            "Workout sessions, exercise logs, personal records, and progression dashboard.",
+          kind: "extension",
+        },
+      ],
+      skills: [],
+      minions: ["gym-tracker"],
+    },
+    {
+      id: "personal-finance",
+      name: "Personal Finance",
+      version: "0.1.0",
+      description:
+        "Accounts, statement intake, double-entry hledger journals, portfolios, and net worth reviews.",
+      author: "OpenLia Team",
+      license: "MIT",
+      source: "builtin",
+      state: "available",
+      requires_openlia: ">=0.1.0",
+      requires: {
+        openlia: ">=0.1.0",
+        core_domains: ["inbox", "knowledge", "decisions", "tasks"],
+        tools: ["hledger"],
+      },
+      domains: [
+        "finance",
+        "finance/intake",
+        "finance/accounts",
+        "finance/portfolios",
+        "finance/reviews",
+      ],
+      domain_details: [
+        {
+          path: "finance",
+          label: "Finance",
+          purpose:
+            "Top-level financial management domain containing double-entry journals and sub-collections.",
+          kind: "extension",
+        },
+        {
+          path: "finance/intake",
+          label: "Statement Intake",
+          purpose:
+            "Raw statement and receipt intake summaries pending reconciliation.",
+          kind: "extension",
+        },
+        {
+          path: "finance/accounts",
+          label: "Accounts",
+          purpose: "Bank, credit, brokerage, and liability account profiles.",
+          kind: "extension",
+        },
+        {
+          path: "finance/portfolios",
+          label: "Portfolios",
+          purpose: "Investment holdings and allocation targets.",
+          kind: "extension",
+        },
+        {
+          path: "finance/reviews",
+          label: "Financial Reviews",
+          purpose: "Monthly and quarterly net-worth and cashflow reviews.",
+          kind: "extension",
+        },
+      ],
+      skills: ["personal-finance"],
+    },
+    {
+      id: "personal-health",
+      name: "Personal Health",
+      version: "0.1.0",
+      description:
+        "Health profiles, longitudinal medical history, active conditions, treatments, and periodic health reviews.",
+      author: "OpenLia Team",
+      license: "MIT",
+      source: "builtin",
+      state: "available",
+      requires_openlia: ">=0.1.0",
+      requires: {
+        openlia: ">=0.1.0",
+        core_domains: ["inbox", "knowledge", "decisions", "tasks"],
+      },
+      domains: [
+        "health",
+        "health/profiles",
+        "health/history",
+        "health/conditions",
+        "health/treatments",
+        "health/reviews",
+      ],
+      domain_details: [
+        {
+          path: "health",
+          label: "Health",
+          purpose:
+            "Top-level health domain organizing longitudinal medical records.",
+          kind: "extension",
+        },
+        {
+          path: "health/profiles",
+          label: "Health Profiles",
+          purpose: "Baseline health profiles, allergies, and emergency info.",
+          kind: "extension",
+        },
+        {
+          path: "health/history",
+          label: "Medical History",
+          purpose: "Lab results, encounters, imaging, and vitals.",
+          kind: "extension",
+        },
+        {
+          path: "health/conditions",
+          label: "Conditions",
+          purpose: "Active and resolved diagnoses and symptoms.",
+          kind: "extension",
+        },
+        {
+          path: "health/treatments",
+          label: "Treatments",
+          purpose: "Medications, supplements, and therapy protocols.",
+          kind: "extension",
+        },
+        {
+          path: "health/reviews",
+          label: "Health Reviews",
+          purpose: "Periodic wellness and lab review summaries.",
+          kind: "extension",
+        },
+      ],
+      skills: ["personal-health"],
+    },
+  ];
+
+  function applyInstalledMockFeature(found: FeatureSummary): void {
+    mockInstalledFeatureIds.add(found.id);
+    for (const minionId of found.minions ?? []) {
+      mockInstalledMinions.add(minionId);
+    }
+    for (const domainPath of found.domains) {
+      if (domainPath.startsWith("minions/")) continue;
+      if (
+        !entries.some((e) => e.kind === "directory" && e.path === domainPath)
+      ) {
+        entries.push({ kind: "directory", path: domainPath });
+      }
+    }
+    for (const skillId of found.skills) {
+      if (!mockSkills.some((s) => s.id === skillId)) {
+        mockSkills.push({
+          bundled: true,
+          category: "standalone",
+          description: found.description,
+          enabled: true,
+          fileCount: 1,
+          files: [
+            {
+              editable: true,
+              modified_at: modifiedAt,
+              path: "SKILL.md",
+              size: 120,
+            },
+          ],
+          id: skillId,
+          name: found.name,
+          pinned: false,
+          tags: [found.id],
+          useCount: 0,
+          version: found.version,
+        });
+        mockSkillFiles[`${skillId}:SKILL.md`] =
+          `---\nname: ${skillId}\ndescription: ${found.description}\nversion: ${found.version}\n---\n\n# ${found.name}\n\n${found.description}\n`;
+        mockSkillRevisions[`${skillId}:SKILL.md`] = "sha256:mock-installed";
+      }
+    }
+  }
+
+  if (useBrowserSessionPersistence) {
+    try {
+      if (
+        scenario === "auth" &&
+        window.sessionStorage.getItem("openlia:mock:authenticated") === "true"
+      ) {
+        authenticated = true;
+      }
+      const savedFeatures = JSON.parse(
+        window.sessionStorage.getItem("openlia:mock:installed-features") ??
+          "[]",
+      );
+      if (Array.isArray(savedFeatures)) {
+        for (const id of savedFeatures) {
+          const found = mockCatalogFeatures.find((f) => f.id === id);
+          if (found) applyInstalledMockFeature(found);
+        }
+      }
+    } catch {}
+  }
 
   function computeMockSkillRevision(skillId: string): string | null {
     const skill = mockSkills.find((s) => s.id === skillId);
@@ -887,15 +1114,30 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     async login(password): Promise<AuthLoginResponse> {
       if (!password) throw error(401, "invalid_login");
       authenticated = true;
+      if (useBrowserSessionPersistence) {
+        try {
+          window.sessionStorage.setItem("openlia:mock:authenticated", "true");
+        } catch {}
+      }
       return { ok: true, schema: 1 };
     },
     async loginWithFirebase(idToken): Promise<AuthLoginResponse> {
       if (!idToken) throw error(401, "invalid_login");
       authenticated = true;
+      if (useBrowserSessionPersistence) {
+        try {
+          window.sessionStorage.setItem("openlia:mock:authenticated", "true");
+        } catch {}
+      }
       return { ok: true, schema: 1 };
     },
     async logout(): Promise<AuthLoginResponse> {
       authenticated = false;
+      if (useBrowserSessionPersistence) {
+        try {
+          window.sessionStorage.removeItem("openlia:mock:authenticated");
+        } catch {}
+      }
       return { ok: true, schema: 1 };
     },
     async loadFile(requestedPath) {
@@ -2376,9 +2618,30 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     },
     async listMinions(): Promise<MinionsListResponse> {
       requireAuthentication();
+      const minions = [...mockInstalledMinions].map((id) => ({
+        id,
+        path: `minions/${id}`,
+        name: id === "gym-tracker" ? "Gym Tracker" : id,
+        description: `${id} minion`,
+        runtime: "python" as const,
+        entrypoint: "main.py" as const,
+        input_entrypoint: "input.py" as const,
+        input_schema_file: "input.schema.json",
+        config_file: "config.json",
+        config_schema_file: "config.schema.json",
+        ui_files: ["dashboard.openui", "input.openui"],
+        primary_ui_file: "dashboard.openui",
+        dashboard_ui_file: "dashboard.openui",
+        input_ui_file: "input.openui",
+        data_file_count: 2,
+        script_file_count: 3,
+        test_file_count: 1,
+        renderable: true,
+        quick_actions: [],
+      }));
       return {
         schema: 1,
-        minions: [],
+        minions,
       };
     },
     async getMinion(id: string): Promise<MinionDetailResponse> {
@@ -2582,6 +2845,61 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         stderr: "",
         duration_ms: 15,
         minion,
+      };
+    },
+    async listFeatures(): Promise<FeaturesListResponse> {
+      requireAuthentication();
+      return {
+        schema: 1,
+        ok: true,
+        features: mockCatalogFeatures.map((f) => ({
+          ...f,
+          state: mockInstalledFeatureIds.has(f.id) ? "installed" : f.state,
+        })),
+        catalog: {
+          schema: 1,
+          source: "https://github.com/openlia/minions.git",
+          ref: "main",
+          revision: "d417f11599876236add6a3062a741d4789e7666f",
+          mode: "git",
+          dirty: false,
+          content_sha256:
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        },
+      };
+    },
+    async installFeature(
+      request: FeatureInstallRequest,
+    ): Promise<FeatureInstallResponse> {
+      requireAuthentication();
+      const { features, catalog } = await this.listFeatures();
+      const found = features.find((f) => f.id === request.id);
+      if (!found) throw error(404, "feature_not_found");
+      applyInstalledMockFeature(found);
+      if (useBrowserSessionPersistence) {
+        try {
+          window.sessionStorage.setItem(
+            "openlia:mock:installed-features",
+            JSON.stringify([...mockInstalledFeatureIds]),
+          );
+        } catch {}
+      }
+      return {
+        schema: 1,
+        ok: true,
+        feature_id: found.id,
+        installed_domains: found.domains,
+        installed_skills: found.skills,
+        ...(found.minions?.length
+          ? {
+              minions: found.minions.map((id) => ({
+                id,
+                configuration_required: false,
+              })),
+            }
+          : {}),
+        policy_updated: false,
+        catalog,
       };
     },
   };
