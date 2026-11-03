@@ -31,6 +31,92 @@ async function open(api: ChatApi) {
 }
 
 describe("Workspace chat", () => {
+  it.each([
+    null,
+    "demo-chat",
+  ])("starts a fresh chat with conversation %s and preserves drafts", async (conversation) => {
+    const api = createChatMock();
+    const create = vi.spyOn(api, "create");
+    const send = vi.spyOn(api, "send");
+    const consume = vi.fn();
+    sessionStorage.setItem("chat-draft:demo-chat", "My existing draft");
+    if (conversation) {
+      window.history.replaceState(null, "", `/?conversation=${conversation}`);
+    }
+    render(
+      <ChatPage
+        api={api}
+        initialPrompt="Propose checkpoint commits; do not commit."
+        initialPromptNewChat
+        onConsumeInitialPrompt={consume}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Message Lia" })).toHaveValue(
+        "Propose checkpoint commits; do not commit.",
+      ),
+    );
+    await waitFor(() => expect(consume).toHaveBeenCalledOnce());
+    expect(create).toHaveBeenCalledOnce();
+    const created = await create.mock.results[0]!.value;
+    expect(new URL(window.location.href).searchParams.get("conversation")).toBe(
+      created.session.id,
+    );
+    expect(sessionStorage.getItem(`chat-draft:${created.session.id}`)).toBe(
+      "Propose checkpoint commits; do not commit.",
+    );
+    expect(sessionStorage.getItem("chat-draft:demo-chat")).toBe(
+      "My existing draft",
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
+  it("does not fall back to an existing chat or retry automatically if new-chat creation fails", async () => {
+    const api = createChatMock();
+    const create = vi
+      .spyOn(api, "create")
+      .mockRejectedValue(new Error("Create failed"));
+    const consume = vi.fn();
+    sessionStorage.setItem("chat-draft:demo-chat", "My existing draft");
+    window.history.replaceState(null, "", "/?conversation=demo-chat");
+    render(
+      <ChatPage
+        api={api}
+        initialPrompt="Propose commits"
+        initialPromptNewChat
+        onConsumeInitialPrompt={consume}
+      />,
+    );
+    await screen.findByText("Create failed");
+    expect(create).toHaveBeenCalledOnce();
+    expect(consume).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Message Lia" })).toHaveValue(
+      "My existing draft",
+    );
+    expect(sessionStorage.getItem("chat-draft:demo-chat")).toBe(
+      "My existing draft",
+    );
+  });
+  it("continues to reuse an existing chat for prompts without a new-chat request", async () => {
+    const api = createChatMock();
+    const create = vi.spyOn(api, "create");
+    const consume = vi.fn();
+    render(
+      <ChatPage
+        api={api}
+        initialPrompt="Revise my proposal"
+        onConsumeInitialPrompt={consume}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Message Lia" })).toHaveValue(
+        "Revise my proposal",
+      ),
+    );
+    expect(create).not.toHaveBeenCalled();
+    expect(new URL(window.location.href).searchParams.get("conversation")).toBe(
+      "demo-chat",
+    );
+  });
   it("keeps drafts across navigation and sends a stable retry identity", async () => {
     const api = createChatMock();
     const send = vi

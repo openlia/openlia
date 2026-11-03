@@ -1267,6 +1267,37 @@ messages:
     ).toBeInTheDocument();
   });
 
+  test("Propose commits opens a fresh chat and preserves the existing conversation draft", async () => {
+    const api = createMockWorkspaceApi();
+    const create = vi.spyOn(api.chat, "create");
+    const send = vi.spyOn(api.chat, "send");
+    sessionStorage.setItem("chat-draft:demo-chat", "Keep my draft");
+    window.history.replaceState(null, "", "/?conversation=demo-chat");
+    try {
+      render(<App api={api} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Git" }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Propose commits" }),
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByDisplayValue(/Use the workspace-git skill/),
+        ).toBeInTheDocument(),
+      );
+      expect(create).toHaveBeenCalledOnce();
+      const created = await create.mock.results[0]!.value;
+      expect(
+        new URL(window.location.href).searchParams.get("conversation"),
+      ).toBe(created.session.id);
+      expect(sessionStorage.getItem("chat-draft:demo-chat")).toBe(
+        "Keep my draft",
+      );
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      sessionStorage.clear();
+    }
+  });
+
   test("triggers export from Configuration", async () => {
     let exportCalled = false;
     const customApi = createMockWorkspaceApi();

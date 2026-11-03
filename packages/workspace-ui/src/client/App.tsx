@@ -455,6 +455,7 @@ export function App({
   const [filter, setFilter] = useState(() => initialRoute.current.filter ?? "");
   const [file, setFile] = useState<WorkspaceFile | null>(null);
   const [chatDraftPrompt, setChatDraftPrompt] = useState<string>("");
+  const [chatDraftNewChat, setChatDraftNewChat] = useState(false);
   const [artifact, setArtifact] = useState<WorkspaceFileMetadata | null>(null);
   const [draft, setDraft] = useState("");
   const [git, setGit] = useState<WorkspaceGitStatus | null>(null);
@@ -3119,7 +3120,11 @@ export function App({
         <ChatPage
           api={api.chat}
           initialPrompt={chatDraftPrompt || undefined}
-          onConsumeInitialPrompt={() => setChatDraftPrompt("")}
+          initialPromptNewChat={chatDraftNewChat}
+          onConsumeInitialPrompt={() => {
+            setChatDraftPrompt("");
+            setChatDraftNewChat(false);
+          }}
         />
       ) : activeTab === "shares" ? (
         <div className="workspace-layout xl:grid-cols-1">
@@ -3257,8 +3262,9 @@ export function App({
             proposals={
               <CheckpointProposals
                 api={api}
-                onAskLia={(prompt) => {
+                onAskLia={(prompt, options) => {
                   setChatDraftPrompt(prompt);
+                  setChatDraftNewChat(options?.newChat ?? false);
                   requestTabChange("chat");
                 }}
                 onApplied={() => {
