@@ -117,9 +117,13 @@ duplicate entries, traversal, and symlinks.
 Run `minion_validate` and app tests before publishing; file-list checks do not
 prove that code is correct or safe. The paired templates integration runner
 includes Go/TypeScript archive round trips and state-preserving rebase checks.
-Declare the actual first compatible **released** runtime in `requires.openlia`
-when promoting catalog apps; never substitute a development version or assumed
-release number. Do not change a production catalog pin merely to test a local app.
+Before the first stable release, coordinated development previews intentionally
+leave `requires.openlia` unset and test exact runtime/catalog commit SHAs together.
+This provides no minimum-version guard or compatibility guarantee. For stable
+catalog releases, declare the actual first compatible **released** runtime; never
+substitute a development version or assumed release number, or move a published
+version tag. Do not change a production catalog pin merely to test a local app.
+See [development compatibility policy](template-compatibility.md#development-before-the-first-stable-release).
 
 Automatic cron registration, scheduling permissions, retries, concurrency, and
 pilot apps remain the next rollout phase. A cron expression in config is not a

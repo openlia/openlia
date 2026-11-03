@@ -62,11 +62,30 @@ imported packages, or provenance. Catalog discovery/sync and temporary extractio
 may happen before a check. Preflight is not a general transaction: subsequent
 I/O/provisioning failures still follow existing operation behavior.
 
-## Release and rollout checklist
+## Development before the first stable release
 
-1. Choose a new OpenLia release version when introducing capabilities that newer
-   templates require. Do not reuse a version that older incompatible images also
-   report. Update `release/manifest.json` through the normal release process and
+For coordinated development previews, intentionally leave `requires.openlia`
+unset until a compatible stable release exists. This provides no minimum-version
+guard or compatibility guarantee; it does not relax other tool/dependency checks
+or remove runtime requirements already declared by other packages.
+
+Use `main` as the moving development branch and test exact runtime/catalog commit
+SHAs together. `main` is supported as an explicit catalog source ref, not as a
+`requires.openlia` value. A commit SHA is also not a supported minimum-version
+requirement. The compatibility parser and enforcement behavior are unchanged.
+
+No release bump, version tag, or production catalog pin change is needed merely
+to review, merge, or test development changes. At the first stable release,
+publish an immutable version tag and declare actual compatible minimums in the
+affected packages. Never move a published version tag to newer code. An
+unreleased `0.1.0` may become the first compatible release; an already published
+version must not be reused for incompatible code.
+
+## Stable release and rollout checklist
+
+1. Choose the first compatible stable OpenLia release version for capabilities
+   that newer templates require. Do not reuse a version that incompatible released
+   images also report. Update `release/manifest.json` through the normal release process and
    run `make versions-generate` / `make versions-check`.
 2. Build and deploy the enforcing, compatible Workspace UI runtime first. Old
    images do not contain the baked identity; a newer CLI alone cannot fix that.
