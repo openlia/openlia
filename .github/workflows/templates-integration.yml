@@ -85,11 +85,11 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: runtime/requirements-templates-integration.txt
-      - name: Install native Calendar dependencies
+      - name: Install native Calendar and Finance dependencies
         working-directory: runtime
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc libc6-dev make tzdata
+          sudo apt-get install -y gcc libc6-dev make tzdata hledger
           version="$(python3 -c 'import json; print(json.load(open("release/manifest.json"))["remind"]["version"])')"
           prefix="${RUNNER_TEMP}/openlia-remind/${version}"
           python3 docker/install-remind.py --prefix "$prefix"

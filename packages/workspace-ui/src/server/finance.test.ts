@@ -104,6 +104,41 @@ test("exposes hidden contracts before saving and saves only a complete mapping w
   );
 });
 
+test("Minion data uses portable sibling contracts and keeps mappings in instance data", () => {
+  const path = "minions/personal-finance/data";
+  const templates = join(root, "minions/personal-finance/templates/accounts");
+  mkdirSync(templates, { recursive: true });
+  writeFileSync(
+    join(templates, "accounts-template.md"),
+    financeAccountTemplate,
+  );
+  writeFileSync(
+    join(templates, "accounts-template.schema.json"),
+    JSON.stringify(financeAccountSchema),
+  );
+  const context = finance.context(path);
+  expect(context.contract.available).toBe(true);
+  expect(context.journals).toEqual([]);
+  expect(existsSync(join(root, path))).toBe(false);
+  const result = finance.createMapping(
+    create({
+      path,
+      contractRevision: context.contract.revision,
+      fields: {
+        ...financeAccountDefaults,
+        ledger_account: "assets:bank:B",
+        journal_path: `${path}/journal.hledger`,
+      },
+    }),
+  );
+  expect(result.mapping.path.startsWith(`${path}/accounts/`)).toBe(true);
+  expect(result.mapping.valid).toBe(true);
+  const content = readFileSync(join(root, result.mapping.path), "utf8");
+  expect(content).toContain("templates/accounts/accounts-template.schema.json");
+  expect(finance.context(path).mappings).toHaveLength(1);
+  expect(existsSync(join(root, path, "journal.hledger"))).toBe(false);
+});
+
 test("rejects invalid schemas, stale contracts, path traversal, and field loss without creating shells", () => {
   expect(() => finance.context("../finance")).toThrow();
   expect(() =>

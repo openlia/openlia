@@ -684,7 +684,7 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     {
       id: "personal-finance",
       name: "Personal Finance",
-      version: "0.1.0",
+      version: "0.6.0",
       description:
         "Accounts, statement intake, double-entry hledger journals, portfolios, and net worth reviews.",
       author: "OpenLia Team",
@@ -697,53 +697,23 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         core_domains: ["inbox", "knowledge", "decisions", "tasks"],
         tools: ["hledger"],
       },
-      domains: [
-        "finance",
-        "finance/intake",
-        "finance/accounts",
-        "finance/portfolios",
-        "finance/reviews",
-      ],
+      domains: ["minions/personal-finance"],
       domain_details: [
         {
-          path: "finance",
-          label: "Finance",
+          path: "minions/personal-finance",
+          label: "Personal Finance",
           purpose:
-            "Top-level financial management domain containing double-entry journals and sub-collections.",
-          kind: "extension",
-        },
-        {
-          path: "finance/intake",
-          label: "Statement Intake",
-          purpose:
-            "Raw statement and receipt intake summaries pending reconciliation.",
-          kind: "extension",
-        },
-        {
-          path: "finance/accounts",
-          label: "Accounts",
-          purpose: "Bank, credit, brokerage, and liability account profiles.",
-          kind: "extension",
-        },
-        {
-          path: "finance/portfolios",
-          label: "Portfolios",
-          purpose: "Investment holdings and allocation targets.",
-          kind: "extension",
-        },
-        {
-          path: "finance/reviews",
-          label: "Financial Reviews",
-          purpose: "Monthly and quarterly net-worth and cashflow reviews.",
+            "Native reports and confirmed postings using canonical app data.",
           kind: "extension",
         },
       ],
       skills: ["personal-finance"],
+      minions: ["personal-finance"],
     },
     {
       id: "personal-health",
       name: "Personal Health",
-      version: "0.1.0",
+      version: "0.4.0",
       description:
         "Health profiles, longitudinal medical history, active conditions, treatments, and periodic health reviews.",
       author: "OpenLia Team",
@@ -755,54 +725,17 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         openlia: ">=0.1.0",
         core_domains: ["inbox", "knowledge", "decisions", "tasks"],
       },
-      domains: [
-        "health",
-        "health/profiles",
-        "health/history",
-        "health/conditions",
-        "health/treatments",
-        "health/reviews",
-      ],
+      domains: ["minions/personal-health"],
       domain_details: [
         {
-          path: "health",
-          label: "Health",
-          purpose:
-            "Top-level health domain organizing longitudinal medical records.",
-          kind: "extension",
-        },
-        {
-          path: "health/profiles",
-          label: "Health Profiles",
-          purpose: "Baseline health profiles, allergies, and emergency info.",
-          kind: "extension",
-        },
-        {
-          path: "health/history",
-          label: "Medical History",
-          purpose: "Lab results, encounters, imaging, and vitals.",
-          kind: "extension",
-        },
-        {
-          path: "health/conditions",
-          label: "Conditions",
-          purpose: "Active and resolved diagnoses and symptoms.",
-          kind: "extension",
-        },
-        {
-          path: "health/treatments",
-          label: "Treatments",
-          purpose: "Medications, supplements, and therapy protocols.",
-          kind: "extension",
-        },
-        {
-          path: "health/reviews",
-          label: "Health Reviews",
-          purpose: "Periodic wellness and lab review summaries.",
+          path: "minions/personal-health",
+          label: "Personal Health",
+          purpose: "Person-scoped clinical documents and source-linked input.",
           kind: "extension",
         },
       ],
       skills: ["personal-health"],
+      minions: ["personal-health"],
     },
   ];
 
@@ -810,6 +743,21 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
     mockInstalledFeatureIds.add(found.id);
     for (const minionId of found.minions ?? []) {
       mockInstalledMinions.add(minionId);
+      const collections =
+        minionId === "personal-finance"
+          ? ["intake", "accounts", "portfolios", "reviews"]
+          : minionId === "personal-health"
+            ? ["profiles", "history", "conditions", "treatments", "reviews"]
+            : [];
+      for (const path of [
+        "minions",
+        `minions/${minionId}`,
+        `minions/${minionId}/templates`,
+        ...collections.map((name) => `minions/${minionId}/templates/${name}`),
+      ]) {
+        if (!entries.some((entry) => entry.path === path))
+          entries.push({ kind: "directory", path });
+      }
     }
     for (const domainPath of found.domains) {
       if (domainPath.startsWith("minions/")) continue;

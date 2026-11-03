@@ -10,7 +10,7 @@ import { ApiError } from "./api";
 import { CatalogPage } from "./CatalogPage";
 import { createMockWorkspaceApi } from "./mockApi";
 
-test("lists catalog features, distinguishes Minion App vs Domains & Skills packages, and shows requirements including hledger", async () => {
+test("lists all three Minion App packages and shows requirements including hledger", async () => {
   const api = createMockWorkspaceApi();
   render(
     <CatalogPage
@@ -33,19 +33,19 @@ test("lists catalog features, distinguishes Minion App vs Domains & Skills packa
   expect(gymCard).toHaveTextContent("Available");
   expect(gymCard).toHaveTextContent("Minion: minions/gym-tracker");
 
-  expect(financeCard).toHaveTextContent("Domains & Skills Package");
+  expect(financeCard).toHaveTextContent("Minion App Package");
   expect(financeCard).toHaveTextContent("requires tool: hledger");
-  expect(financeCard).toHaveTextContent("5 domains");
+  expect(financeCard).toHaveTextContent("Minion: minions/personal-finance");
   expect(financeCard).toHaveTextContent("Skill: personal-finance");
 
-  expect(healthCard).toHaveTextContent("Domains & Skills Package");
-  expect(healthCard).toHaveTextContent("6 domains");
+  expect(healthCard).toHaveTextContent("Minion App Package");
+  expect(healthCard).toHaveTextContent("Minion: minions/personal-health");
   expect(healthCard).toHaveTextContent("Skill: personal-health");
 
   // Select personal-finance and verify detail panel contents and requirements
   fireEvent.click(screen.getByTestId("catalog-select-personal-finance"));
   const detailPanel = screen.getByTestId("catalog-detail-panel");
-  expect(detailPanel).toHaveTextContent("finance/accounts");
+  expect(detailPanel).toHaveTextContent("minions/personal-finance");
   expect(detailPanel).toHaveTextContent("hledger");
 });
 
@@ -98,8 +98,12 @@ test("installs features, displays installation results, and navigates to install
     screen.getByTestId("catalog-feature-status-personal-finance"),
   ).toHaveTextContent("Installed");
 
-  fireEvent.click(screen.getByTestId("catalog-card-open-domain-finance"));
-  expect(onOpenDomain).toHaveBeenCalledWith("finance");
+  fireEvent.click(
+    within(screen.getByTestId("catalog-install-result")).getByTestId(
+      "catalog-open-installed-minion-personal-finance",
+    ),
+  );
+  expect(onOpenMinion).toHaveBeenCalledWith("personal-finance");
 
   fireEvent.click(
     within(screen.getByTestId("catalog-install-result")).getByTestId(

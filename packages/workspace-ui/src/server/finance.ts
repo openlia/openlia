@@ -154,7 +154,13 @@ export class FinanceService {
       schemaJson: {},
     };
     try {
-      const contract = this.workspace.collectionContract(`${root}/accounts`);
+      // App records are instance data; their managed contracts live outside data/.
+      const contractRoot = /^minions\/[a-z0-9][a-z0-9-]*\/data$/.test(root)
+        ? root.replace(/\/data$/, "/templates")
+        : root;
+      const contract = this.workspace.collectionContract(
+        `${contractRoot}/accounts`,
+      );
       const { metadata, body } = parseRecordFrontmatter(contract.template);
       const schemaJson: unknown = JSON.parse(contract.schema);
       if (
@@ -325,7 +331,7 @@ export class FinanceService {
     if ("$schema" in value.fields)
       fail("The schema directive is controlled by the local template.");
     const schemaDirective = posix.relative(
-      posix.dirname(contract.templatePath),
+      `${root}/accounts`,
       contract.schemaPath,
     );
     const body = value.body.replace(/^#\s+.*$/m, () => `# ${value.title}`);

@@ -27,6 +27,7 @@ import {
   financeFlowColors,
 } from "./FinanceChart";
 import { CHART_COLORS } from "../charts/palette";
+import { FinanceView } from "./Finance";
 
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () {
@@ -40,6 +41,24 @@ const scope = {
   to: "2026-11-01",
   accountPrefix: "",
 };
+
+it("uses an explicit app data scope rather than the Minion source directory", async () => {
+  const api = createFinanceMock();
+  const load = vi.spyOn(api, "loadFinanceContext");
+  render(
+    <OpenLiaOpenUIProvider
+      value={{ financeApi: api, domainPath: "minions/personal-finance" }}
+    >
+      <FinanceView dataPath="minions/personal-finance/data">
+        App reports
+      </FinanceView>
+    </OpenLiaOpenUIProvider>,
+  );
+  await waitFor(() =>
+    expect(load).toHaveBeenCalledWith("minions/personal-finance/data"),
+  );
+  expect(load).not.toHaveBeenCalledWith("minions/personal-finance");
+});
 
 it("Finance supplies semantic metadata without changing flow data or debit/credit meaning", () => {
   const nodes = [

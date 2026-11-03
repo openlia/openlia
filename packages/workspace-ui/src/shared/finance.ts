@@ -108,6 +108,7 @@ export const financeOpenUIProps = {
   Finance: z.object({
     children: z.array(z.any()),
     journal: z.string().optional(),
+    dataPath: z.string().optional(),
   }),
   FinanceOverview: z.object({ title: z.string().optional() }),
   FinanceChart: z.object({
