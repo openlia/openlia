@@ -34,12 +34,14 @@ function shiftMonth(month: string, amount: number) {
 export function FinanceView({
   children,
   journal: configuredJournal,
+  dataPath,
 }: {
   children: ReactNode;
   journal?: string | undefined;
+  dataPath?: string | undefined;
 }) {
   const { financeApi: api, domainPath, onOpenRecord } = useOpenLiaOpenUI();
-  const path = domainPath ?? "finance";
+  const path = dataPath ?? domainPath ?? "finance";
   const [data, setData] = useState<FinanceContextResponse | null>(null);
   const [report, setReport] = useState<FinanceReport | null>(null);
   const [journal, setJournal] = useState("");
@@ -427,7 +429,7 @@ export const Finance = defineComponent({
     "Read-only native hledger scope and local account-mapping creation, composed by the Finance feature",
   props: financeOpenUIProps.Finance,
   component: ({ props, renderNode }) => (
-    <FinanceView journal={props.journal}>
+    <FinanceView journal={props.journal} dataPath={props.dataPath}>
       {renderNode(props.children)}
     </FinanceView>
   ),

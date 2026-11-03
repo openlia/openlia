@@ -84,7 +84,8 @@ function MinionOpenUIView({
       loadFile: api.loadFile,
       domainPath: minion.path,
       filePath: `${minion.path}/${uiFileName}`,
-      onOpenRecord: onNavigateLink,
+      onOpenRecord: (path: string) =>
+        onNavigateLink?.(`openlia://workspace/${path}`),
       onSendChatPrompt: onAskLia,
     }),
     [api, minion.path, uiFileName, onNavigateLink, onAskLia],
