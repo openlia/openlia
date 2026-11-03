@@ -125,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
             report["docker_bind_mounts"] = "passed with isolated pinned Alpine container" if args.docker else "not-run (opt in with --docker)"
             sandbox = scratch / "installed"
             run("real catalog installation and inline Markdown OpenUI diagnostics", ["bun", "scripts/check-templates.ts", str(snapshot), str(sandbox)], cwd=UI)
+            run("personal app installation and structured input", ["bun", "test", "src/server/personal-apps.integration.test.ts"], cwd=UI,
+                env={**environment, "OPENLIA_INTEGRATION_TEMPLATES_ROOT": str(snapshot)})
             report["catalog"] = json.loads((sandbox / "catalog-checks.json").read_text())
             calendar = sandbox / "install-calendar/workspace"
             run("installed Calendar workspace validation", [sys.executable, str(ROOT / "profile/system-skills/workspace-template-customization/scripts/validate_workspace.py"), "--workspace-root", str(calendar)])
