@@ -11,7 +11,7 @@ export function CheckpointProposals({
     WorkspaceApi,
     "loadCheckpointProposals" | "approveCheckpoint" | "dismissCheckpoint"
   >;
-  onAskLia: (prompt: string) => void;
+  onAskLia: (prompt: string, options?: { newChat: boolean }) => void;
   onApplied?: (() => void) | undefined;
 }) {
   const [proposals, setProposals] = useState<CheckpointProposal[]>([]);
@@ -111,6 +111,7 @@ export function CheckpointProposals({
             onClick={() =>
               onAskLia(
                 "Use the workspace-git skill to inspect my current workspace diffs and propose one or more coherent checkpoint commits for review in Git Activity. Explain the grouping and excluded changes. Save the proposal with workspace_git_propose; do not commit. I will confirm in the UI.",
+                { newChat: true },
               )
             }
           >

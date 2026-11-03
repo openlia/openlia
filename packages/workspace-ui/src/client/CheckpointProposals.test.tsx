@@ -82,6 +82,7 @@ it("disables stale approval and routes revisions to chat without committing", as
   expect(input.onAskLia.mock.calls[0]?.[0]).toContain(
     `proposal ${draft.id}, revision 3`,
   );
+  expect(input.onAskLia.mock.calls[0]).toHaveLength(1);
   expect(input.api.approveCheckpoint).not.toHaveBeenCalled();
 });
 it("sends a review prompt and dismisses without approving", async () => {
@@ -89,6 +90,7 @@ it("sends a review prompt and dismisses without approving", async () => {
   render(<CheckpointProposals {...input} />);
   fireEvent.click(screen.getByRole("button", { name: "Propose commits" }));
   expect(input.onAskLia.mock.calls[0]?.[0]).toContain("do not commit");
+  expect(input.onAskLia.mock.calls[0]?.[1]).toEqual({ newChat: true });
   fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
   await waitFor(() =>
     expect(input.api.dismissCheckpoint).toHaveBeenCalledWith(draft.id, 3),

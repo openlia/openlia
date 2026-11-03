@@ -53,10 +53,12 @@ function errorText(error: unknown) {
 export function ChatPage({
   api,
   initialPrompt,
+  initialPromptNewChat = false,
   onConsumeInitialPrompt,
 }: {
   api: ChatApi;
   initialPrompt?: string | undefined;
+  initialPromptNewChat?: boolean | undefined;
   onConsumeInitialPrompt?: (() => void) | undefined;
 }) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -90,6 +92,7 @@ export function ChatPage({
   const pane = useRef<HTMLElement>(null);
   const generation = useRef(0);
   const controlPending = useRef(false);
+  const creatingPrompt = useRef<string | null>(null);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const runRef = useRef(run);
@@ -256,15 +259,23 @@ export function ChatPage({
   }, [api, other, select]);
 
   useEffect(() => {
-    if (!initialPrompt || loading) return;
-    if (selected?.writable) {
+    if (!initialPrompt) {
+      creatingPrompt.current = null;
+      return;
+    }
+    if (loading) return;
+    // A new-chat handoff must never overwrite an existing conversation's draft,
+    // including while creation/selection is in flight or after creation fails.
+    if (initialPromptNewChat && creatingPrompt.current === initialPrompt)
+      return;
+    if (!initialPromptNewChat && selected?.writable) {
       setDraft(initialPrompt);
       storageSet(`chat-draft:${selected.id}`, initialPrompt);
       onConsumeInitialPrompt?.();
       return;
     }
     const firstWritable = sessions.find((s) => s.writable);
-    if (firstWritable) {
+    if (!initialPromptNewChat && firstWritable) {
       storageSet(`chat-draft:${firstWritable.id}`, initialPrompt);
       void select(firstWritable).then(() => {
         setDraft(initialPrompt);
@@ -273,6 +284,7 @@ export function ChatPage({
       return;
     }
     if (ready && !busy) {
+      creatingPrompt.current = initialPrompt;
       setBusy(true);
       setError("");
       void (async () => {
@@ -294,6 +306,7 @@ export function ChatPage({
     api,
     busy,
     initialPrompt,
+    initialPromptNewChat,
     list,
     loading,
     onConsumeInitialPrompt,
