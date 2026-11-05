@@ -12,6 +12,7 @@ import type {
 import { extractFormDataFromOpenUIEvent, openUIErrors } from "../shared/openui";
 import type { WorkspaceApi } from "./api";
 import { CodeEditor } from "./CodeEditor";
+import { MinionDataViews } from "./MinionDataViews";
 import { ResponsiveDrawer } from "./components/common/ResponsiveDrawer";
 import { ActionMenu } from "./components/common/ActionMenu";
 import { ScrollableToolbar } from "./components/common/ScrollableToolbar";
@@ -1509,6 +1510,18 @@ export function MinionsPage({
                   )}
                 </div>
               )}
+
+              {activeSubTab === "dashboard" &&
+                detail.code_files.some((file) =>
+                  file.path.endsWith("/data.views.json"),
+                ) && (
+                  <MinionDataViews
+                    key={detail.id}
+                    id={detail.id}
+                    api={api}
+                    onNavigateLink={onNavigateLink}
+                  />
+                )}
 
               {activeSubTab === "input" && (
                 <div className="space-y-4">

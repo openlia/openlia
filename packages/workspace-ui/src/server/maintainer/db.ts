@@ -100,8 +100,9 @@ export class MaintainerDB {
   private db: Database;
 
   constructor(dbPath: string) {
-    this.dbPath = resolve(dbPath);
-    mkdirSync(dirname(this.dbPath), { recursive: true, mode: 0o700 });
+    this.dbPath = dbPath === ":memory:" ? dbPath : resolve(dbPath);
+    if (dbPath !== ":memory:")
+      mkdirSync(dirname(this.dbPath), { recursive: true, mode: 0o700 });
     this.db = new Database(this.dbPath, { create: true });
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA busy_timeout = 5000;");

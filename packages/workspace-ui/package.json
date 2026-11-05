@@ -29,7 +29,7 @@
     "build:client": "vite build",
     "build:server": "bun run build:client && bun run bundle:server",
     "bundle:server": "bun build src/server/start-main.ts --target=bun --format=esm --outfile=dist/server.js && bun run bundle:openui",
-    "bundle:openui": "bun build scripts/openui-authoring.ts --target=bun --format=esm --outfile=dist/openui-authoring.js",
+    "bundle:openui": "bun build scripts/openui-authoring.ts --target=bun --format=esm --outfile=dist/openui-authoring.js && bun build scripts/minion-views.ts --target=bun --format=esm --outfile=dist/minion-views.js",
     "preview": "bun run build && bun scripts/preview.ts",
     "format:check": "biome format src scripts e2e storybook-tests test-fixtures .storybook package.json tsconfig*.json *.config.ts",
     "lint": "biome lint src scripts e2e storybook-tests test-fixtures .storybook package.json tsconfig*.json *.config.ts",

@@ -1,7 +1,7 @@
 ---
 name: minion-authoring
 description: Design, scaffold, customize, validate, and run autonomous Workspace Minions in minions/<slug>/ with dashboard.openui, input.openui, input.schema.json, config.schema.json, config.json, input.py/input.ts, and dual-triggered main.py/main.ts.
-version: 0.2.0
+version: 0.3.0
 system: true
 forkable: false
 protected: true
@@ -19,9 +19,13 @@ Keep Minions distinct from ordinary document collections and workflow skills.
 Use inline OpenUI in Markdown for document presentation; do not create an app
 merely to display notes. Preserve one authoritative location per dataset instead
 of copying existing task, calendar, ledger, or clinical records into app state.
-Generic briefing/review discovery excludes Minion internals. Publish intentional,
-dated Markdown reports outside `minions/` for those workflows, respecting the
-destination's template and permissions and linking canonical sources.
+Generic discovery excludes Minion internals. Declare named structured views in
+`data.views.json` for bounded read-only queries shared by Dashboard, Hermes and
+briefing. Use `minion_describe` to discover views and `minion_query` to read them;
+never execute `main.py` or a heartbeat simply to read data. Local config opts into
+scheduled inclusion with `data_views.briefing` (default empty), and
+`data_views.scopes` restricts all queries. Require explicit person/account scope
+for sensitive views. Dashboard pagination or hidden columns are not permissions.
 
 Every Minion lives in `minions/<slug>/` (`^[a-z0-9][a-z0-9-]*$`) and consists of:
 
@@ -86,6 +90,18 @@ Every Minion lives in `minions/<slug>/` (`^[a-z0-9][a-z0-9-]*$`) and consists of
       the app directory intact; it does not disable manual app execution.
 
 ## Hermes Tools for Constructing Minions
+
+Optional `data.views.json` contains `schema: 1` and up to eight named views.
+Declare only canonical `data/` paths, approved readers (`markdown`, `json`,
+`calendar`), explicit scalar `fields`, `title_field`, and `date_field`. Add this
+file to `minion.package.json`. Keep automatic participation off in distributed
+config defaults (`data_views.briefing: []`, `data_views.scopes: {}`). Require
+`person_id` or account filters for sensitive views; do not infer identity.
+`minion_validate` checks declarations through the trusted runtime. Use
+`minion_describe(id=...)` and `minion_query(id=..., view=..., from=..., to=...)`
+to preview read-only results. Dates use an exclusive end and a 1–31 day range.
+Queries return canonical links, revisions, observation times and truncation;
+unavailable or unknown-date evidence is not proof of zero activity.
 
 Always use the built-in Hermes Minion and OpenUI tools rather than hand-crafting boilerplate from scratch:
 

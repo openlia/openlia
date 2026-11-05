@@ -55,7 +55,11 @@ for (const entry of readdirSync(join(templates, "features"), {
     runtimeReleasePath,
   }).install(manifest.id);
   const requiredView = {
-    calendar: "calendar/overview.md",
+    calendar: manifest.domains?.some(
+      (domain: { path: string }) => domain.path === "minions/calendar",
+    )
+      ? "minions/calendar/overview.md"
+      : "calendar/overview.md",
     "personal-finance": manifest.domains?.some(
       (domain: { path: string }) => domain.path === "minions/personal-finance",
     )

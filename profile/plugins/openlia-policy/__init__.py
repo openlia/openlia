@@ -12,6 +12,7 @@ import importlib.util
 import json
 import logging
 import os
+import shutil
 import re
 import shlex
 import subprocess
@@ -110,6 +111,32 @@ def _openui_request(request: dict[str, Any]) -> str:
             "message": "The bundled OpenUI authoring validator is unavailable. Do not claim schema validation or rendering success; report the blocker and use Workspace UI preview.",
         })
 
+
+def _minion_view_request(workspace_root: Path, request: dict[str, Any]) -> str:
+    """Use the trusted runtime reader, never an app's interpreter or entrypoint."""
+    try:
+        environment = dict(os.environ)
+        environment["OPENLIA_WORKSPACE_ROOT"] = str(workspace_root)
+        reader = Path("/usr/local/lib/openlia/minion-views.js")
+        binary = "/usr/local/bin/bun"
+        if not reader.is_file():
+            # Source-checkout development only; never select a workspace script.
+            reader = Path(__file__).resolve().parents[3] / "packages/workspace-ui/scripts/minion-views.ts"
+            binary = shutil.which("bun") or binary
+        if not reader.is_file():
+            raise ValueError("Runtime reader missing")
+        result = subprocess.run(
+            [binary, str(reader)],
+            input=json.dumps(request), text=True, capture_output=True, timeout=20,
+            cwd=str(reader.parent), env=environment, check=False,
+        )
+        response = json.loads(result.stdout)
+        if not isinstance(response, dict) or (result.returncode and response.get("status") == "ok"):
+            raise ValueError("Invalid view service response")
+        return json.dumps(response, ensure_ascii=False)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return json.dumps({"schema": 1, "status": "unavailable", "message": "Runtime Minion data-view reader is unavailable; do not run app code or scan data as a fallback."})
+
 _PATCH_FILE_HEADER = re.compile(
     r"^\*\*\*\s*(?P<operation>Update|Add|Delete)\s+File:\s*(?P<path>.+?)\s*$",
     re.MULTILINE,
@@ -140,6 +167,8 @@ _READ_ONLY_TOOLS = {
     "list_document_password_profiles",
     "ingestion_suggest_passwords",
     "maintainer_status",
+    "minion_describe",
+    "minion_query",
     "maintainer_audit",
     "openui_describe",
     "openui_validate",
@@ -925,6 +954,12 @@ class PolicyEnforcer:
                     "OpenLia policy requires YouTube URLs to be processed through the Ingestion Vault. "
                     "Call ingestion_capture(kind='youtube', url=..., wait_seconds=15) and ingestion_get_document(source_id=...) instead."
                 )
+        if tool_name == "minion_query" and self._is_scheduled(session_id):
+            authority = self._load()
+            if not authority.permissions.get("scheduled_work", {}).get("enabled", True):
+                return _block("Scheduled work is disabled.")
+            if args.get("purpose") != "briefing":
+                return _block("Scheduled Minion reads require purpose='briefing' and local view opt-in.")
         if tool_name in _READ_ONLY_TOOLS or tool_name in _BROWSER_READ_TOOLS:
             return None
         if tool_name == "terminal":
@@ -1261,6 +1296,11 @@ class PolicyEnforcer:
             minion_tool = _get_minion_tool()
             res = minion_tool.validate_minion(self.workspace_root, minion_id)
             minion_dir = (self.workspace_root / "minions" / minion_tool.validate_minion_id(minion_id)).resolve()
+            if (minion_dir / "data.views.json").exists():
+                view_result = json.loads(_minion_view_request(self.workspace_root, {"action": "describe", "id": minion_id}))
+                res["data_views"] = view_result
+                if view_result.get("status") == "unavailable":
+                    res["errors"].append("data.views.json: " + str(view_result.get("message", "validation unavailable")))
             openui_checks: dict[str, Any] = {}
             for ui_rel in res.get("openui_files", []):
                 ui_abs = minion_dir / ui_rel
@@ -1292,6 +1332,15 @@ class PolicyEnforcer:
                 {"status": "error", "ok": False, "valid": False, "message": str(exc)},
                 ensure_ascii=False,
             )
+
+    def tool_minion_describe(self, id: Any = None, **kwargs: Any) -> str:
+        params = self._unpack_tool_args(id, kwargs, primary_key="id")
+        selected = params.get("id")
+        return _minion_view_request(self.workspace_root, {"action": "describe", "id": selected} if selected else {"action": "list"})
+
+    def tool_minion_query(self, id: Any = None, **kwargs: Any) -> str:
+        params = self._unpack_tool_args(id, kwargs, primary_key="id")
+        return _minion_view_request(self.workspace_root, {"action": "query", "query": params})
 
     def tool_minion_run(
         self,
@@ -1336,6 +1385,23 @@ def register(ctx: Any) -> None:
     ctx.register_hook("post_tool_call", enforcer.post_tool_call)
     if hasattr(ctx, "register_tool"):
         for name, description, parameters, handler in [
+            (
+                "minion_describe",
+                "Discover declared Minion data views and local briefing participation without running app code. Omit id to list views; unavailable is not zero activity.",
+                {"type": "object", "properties": {"id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"}}, "additionalProperties": False},
+                enforcer.tool_minion_describe,
+            ),
+            (
+                "minion_query",
+                "Read a named Minion data view through the trusted runtime. No app execution or writes. Requires an exclusive-end date range of 1–31 days; respects local scope and briefing opt-in. Missing data is unavailable, not zero activity.",
+                {"type": "object", "properties": {
+                    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+                    "view": {"type": "string"}, "from": {"type": "string"}, "to": {"type": "string"},
+                    "purpose": {"type": "string", "enum": ["interactive", "briefing"]},
+                    "filters": {"type": "object"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}
+                }, "required": ["id", "view", "from", "to"], "additionalProperties": False},
+                enforcer.tool_minion_query,
+            ),
             (
                 "openui_describe",
                 "Discover supported inline OpenUI components, or inspect one component's runtime schema, exact property names, enums, argument order, and tested recipes. Read-only and offline.",

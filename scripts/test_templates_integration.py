@@ -127,6 +127,13 @@ def main(argv: list[str] | None = None) -> int:
             run("real catalog installation and inline Markdown OpenUI diagnostics", ["bun", "scripts/check-templates.ts", str(snapshot), str(sandbox)], cwd=UI)
             run("personal app installation and structured input", ["bun", "test", "src/server/personal-apps.integration.test.ts"], cwd=UI,
                 env={**environment, "OPENLIA_INTEGRATION_TEMPLATES_ROOT": str(snapshot)})
+            run("Minion data-view catalog compatibility and optional CLI parity", ["bun", "test", "src/server/minion-views.integration.test.ts"], cwd=UI,
+                env={**environment, "OPENLIA_INTEGRATION_TEMPLATES_ROOT": str(snapshot)})
+            report["minion_data_views"] = (
+                "named-view installation and CLI parity passed"
+                if any((snapshot / "features").glob("*/workspace/minions/*/data.views.json"))
+                else "legacy catalog compatibility passed; named-view acceptance not applicable"
+            )
             report["catalog"] = json.loads((sandbox / "catalog-checks.json").read_text())
             calendar = sandbox / "install-calendar/workspace"
             run("installed Calendar workspace validation", [sys.executable, str(ROOT / "profile/system-skills/workspace-template-customization/scripts/validate_workspace.py"), "--workspace-root", str(calendar)])
@@ -134,6 +141,13 @@ def main(argv: list[str] | None = None) -> int:
                 report["browser_acceptance"] = "skipped explicitly; not UI acceptance evidence"
             else:
                 run("production Workspace UI build", ["bun", "run", "build"], cwd=UI)
+                calendar_minion = (calendar / "minions/calendar/overview.md").is_file()
+                if calendar_minion:
+                    # Synthetic acceptance data only; installation/readers never
+                    # initialize or mutate recipient calendar records.
+                    calendar_data = calendar / "minions/calendar/data"
+                    calendar_data.mkdir(parents=True, exist_ok=True)
+                    (calendar_data / "reminders.rem").write_text("# Disposable native browser acceptance calendar\n")
                 browser_env = {
                     **environment,
                     "OPENLIA_INTEGRATION_WORKSPACE": str(calendar),
@@ -143,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
                     "OPENLIA_REMIND_BINARY": remind,
                     "OPENLIA_WORKSPACE_UI_PORT": str(free_port()),
                     "WORKSPACE_UI_E2E_MODE": "real",
+                    "OPENLIA_INTEGRATION_CALENDAR_MINION": "true" if calendar_minion else "false",
                 }
                 run("Calendar desktop/mobile real-backend acceptance", ["bunx", "--no-install", "playwright", "test", "--config", "playwright.templates.config.ts"], cwd=UI, env=browser_env)
                 report["browser_acceptance"] = "passed desktop and mobile with native Remind and actual catalog composition"

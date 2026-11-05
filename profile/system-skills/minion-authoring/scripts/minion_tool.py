@@ -1390,7 +1390,11 @@ test("loads config.json with required trigger", () => {
 """
         (minion_dir / "tests" / "main.test.ts").write_text(test_ts, encoding="utf-8")
 
+    (minion_dir / "data.views.json").write_text(
+        json.dumps({"schema": 1, "views": []}, indent=2) + "\n", encoding="utf-8"
+    )
     distribution_files = [
+        "data.views.json",
         "README.md", "dashboard.openui", "input.openui", "input.schema.json", "config.schema.json",
         *(["input.py", "main.py", "requirements.txt", "tests/test_main.py"] if runtime == "python"
           else ["input.ts", "main.ts", "package.json", "tests/main.test.ts"]),

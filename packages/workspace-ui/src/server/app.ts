@@ -45,6 +45,7 @@ import {
 import { MemoryFileService } from "./memory";
 import { MigrationService } from "./migration";
 import { MinionService } from "./minions";
+import { MinionViewService } from "./minion-views";
 import { ShareService } from "./shares";
 import { SkillService } from "./skills";
 import { UsageService } from "./usage";
@@ -325,6 +326,7 @@ export function createWorkspaceHandler(
     service,
     options.timezone ?? process.env.OPENLIA_TIMEZONE ?? process.env.TZ ?? "UTC",
   );
+  const minionViews = new MinionViewService(service, calendar);
   const checkpointService = new CheckpointService(service.workspaceRoot);
   const memoryService = new MemoryFileService(service, options.memoriesRoot);
   const ingestionService = new IngestionService(options);
@@ -2355,6 +2357,56 @@ export function createWorkspaceHandler(
       }
       if (request.method === "GET" && url.pathname === "/api/minions") {
         return json(minionService.listMinions());
+      }
+      if (request.method === "GET" && url.pathname === "/api/minion-views") {
+        return json(minionViews.list());
+      }
+      if (
+        request.method === "GET" &&
+        url.pathname.startsWith("/api/minion-views/")
+      ) {
+        try {
+          return json(
+            minionViews.describe(
+              decodeURIComponent(
+                url.pathname.slice("/api/minion-views/".length),
+              ),
+            ),
+          );
+        } catch (error) {
+          return json(
+            {
+              schema: 1,
+              status: "unavailable",
+              message:
+                error instanceof Error ? error.message : "View unavailable",
+            },
+            400,
+          );
+        }
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/minion-views/query"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json({ schema: 1, error: "origin_not_allowed" }, 403);
+        const body = await readJson(request, 16384);
+        if (body.tooLarge)
+          return json({ schema: 1, error: "request_too_large" }, 413);
+        try {
+          return json(await minionViews.query(body.value));
+        } catch (error) {
+          return json(
+            {
+              schema: 1,
+              status: "unavailable",
+              message:
+                error instanceof Error ? error.message : "View unavailable",
+            },
+            400,
+          );
+        }
       }
       if (request.method === "POST" && url.pathname === "/api/minions") {
         if (!sameOrigin(request, url, publicOrigin))

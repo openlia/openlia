@@ -1,5 +1,10 @@
 [
   {
+    "name": "briefing participation and recipient scope defaults are never enabled",
+    "schema": {"type":"object","required":["trigger"],"properties":{"trigger":{"type":"object"},"data_views":{"type":"object","default":{"briefing":["reviews"],"scopes":{"reviews":{"person_id":"private-person"}}}}}},
+    "expected": {"trigger":{"on_new_entry":false},"data_views":{"briefing":[],"scopes":{}}}
+  },
+  {
     "name": "property defaults with automatic triggers off",
     "schema": {"type":"object","required":["trigger"],"properties":{"trigger":{"type":"object","default":{"on_new_entry":true,"cron":"0 * * * *"}},"target":{"type":"integer","default":3}}},
     "expected": {"trigger":{"on_new_entry":false},"target":3}

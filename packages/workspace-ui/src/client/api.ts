@@ -96,6 +96,13 @@ import {
   financeReportSchema,
 } from "../shared/finance";
 import { isMemoryDocument, memoryFilename } from "../shared/memory";
+import {
+  minionViewDescriptionSchema,
+  minionQueryResultSchema,
+  type MinionViewDescription,
+  type MinionQuery,
+  type MinionQueryResult,
+} from "../shared/minionViews";
 import type { UsageRates, UsageResponse } from "../shared/usage";
 import { httpChatApi } from "./chatApi";
 import { notifyWorkspaceFileChange } from "./workspaceFileChanges";
@@ -117,6 +124,8 @@ export class ApiError extends Error {
 }
 
 export interface WorkspaceApi {
+  describeMinionViews?: (id: string) => Promise<MinionViewDescription>;
+  queryMinionView?: (query: MinionQuery) => Promise<MinionQueryResult>;
   loadFinanceContext(path: string): Promise<FinanceContextResponse>;
   loadFinanceReport(scope: FinanceReportRequest): Promise<FinanceReport>;
   createFinanceMapping(
@@ -832,6 +841,25 @@ function isFeatureInstallResponse(
 }
 
 export const httpWorkspaceApi: WorkspaceApi = {
+  describeMinionViews: async (id) => {
+    return requestJson(
+      `/api/minion-views/${encodeURIComponent(id)}`,
+      (value): value is MinionViewDescription =>
+        minionViewDescriptionSchema.safeParse(value).success,
+    );
+  },
+  queryMinionView: async (query) => {
+    return requestJson(
+      "/api/minion-views/query",
+      (value): value is MinionQueryResult =>
+        minionQueryResultSchema.safeParse(value).success,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(query),
+      },
+    );
+  },
   loadCheckpointProposals: () =>
     requestJson(
       "/api/workspace/git/proposals",

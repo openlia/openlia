@@ -30,6 +30,7 @@ import type {
 } from "../shared/api";
 import { openUIDiagnostics } from "../shared/openui";
 import { MINION_PACKAGE_FILE, safeMinionPath } from "./minion-distribution";
+import { minionViewsSchema } from "../shared/minionViews";
 import { extractHeadings, parseRecordFrontmatter } from "./validator";
 import {
   DEFAULT_MAX_EDITABLE_BYTES,
@@ -547,6 +548,18 @@ export class MinionService {
     const uiFiles: string[] = [];
     const uiContents: Record<string, string> = {};
     const renderErrors: string[] = [];
+    const dataViewsPath = join(dirAbs, "data.views.json");
+    if (isRegularFile(dataViewsPath)) {
+      try {
+        minionViewsSchema.parse(
+          JSON.parse(readFileSync(dataViewsPath, "utf-8")),
+        );
+      } catch (error) {
+        renderErrors.push(
+          `data.views.json: ${error instanceof Error ? error.message : "Invalid data view"}`,
+        );
+      }
+    }
     const dataFiles: WorkspaceFileMetadata[] = [];
     const codeFiles: WorkspaceFileMetadata[] = [];
     const testFiles: WorkspaceFileMetadata[] = [];
@@ -680,6 +693,7 @@ export class MinionService {
         relToMinion === "config.json" ||
         relToMinion === "config.schema.json" ||
         relToMinion === MINION_PACKAGE_FILE ||
+        relToMinion === "data.views.json" ||
         relToMinion === "requirements.txt" ||
         relToMinion === "package.json" ||
         relToMinion.startsWith("scripts/") ||
@@ -1942,11 +1956,17 @@ test("loads config.json with required trigger", () => {
     }
 
     writeFileSync(
+      join(dir, "data.views.json"),
+      JSON.stringify({ schema: 1, views: [] }, null, 2) + "\n",
+      "utf-8",
+    );
+    writeFileSync(
       join(dir, MINION_PACKAGE_FILE),
       `${JSON.stringify(
         {
           schema: 1,
           files: [
+            "data.views.json",
             "README.md",
             "dashboard.openui",
             "input.openui",

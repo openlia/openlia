@@ -601,6 +601,12 @@ class PolicyPluginTests(unittest.TestCase):
             self.assertIsNotNone(decision, cmd)
             self.assertEqual(decision["action"], "approve", cmd)
 
+    def test_scheduled_minion_reads_require_local_briefing_mode(self):
+        self.policy.on_session_start(session_id="view-cron", platform="cron")
+        blocked = self.policy.pre_tool_call("minion_query", {"id": "calendar", "purpose": "interactive"}, session_id="view-cron")
+        self.assertEqual(blocked["action"], "block")
+        self.assertIsNone(self.policy.pre_tool_call("minion_query", {"id": "calendar", "purpose": "briefing"}, session_id="view-cron"))
+
     def test_minion_native_hermes_tools_scaffold_validate_and_run(self):
         import json
 

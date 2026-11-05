@@ -166,6 +166,9 @@ func compileMinionConfig(data []byte) (*jsonschema.Schema, map[string]any, error
 	}
 	// Never turn on automatic work merely by installing a package.
 	defaults["trigger"] = map[string]any{"on_new_entry": false}
+	if _, present := defaults["data_views"]; present {
+		defaults["data_views"] = map[string]any{"briefing": []any{}, "scopes": map[string]any{}}
+	}
 	if compiled.Validate(defaults) != nil {
 		defaults = nil // Required user settings are reported, not invented.
 	}
