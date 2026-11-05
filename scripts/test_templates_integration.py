@@ -127,8 +127,13 @@ def main(argv: list[str] | None = None) -> int:
             run("real catalog installation and inline Markdown OpenUI diagnostics", ["bun", "scripts/check-templates.ts", str(snapshot), str(sandbox)], cwd=UI)
             run("personal app installation and structured input", ["bun", "test", "src/server/personal-apps.integration.test.ts"], cwd=UI,
                 env={**environment, "OPENLIA_INTEGRATION_TEMPLATES_ROOT": str(snapshot)})
-            run("shared Minion data views and CLI parity", ["bun", "test", "src/server/minion-views.integration.test.ts"], cwd=UI,
+            run("Minion data-view catalog compatibility and optional CLI parity", ["bun", "test", "src/server/minion-views.integration.test.ts"], cwd=UI,
                 env={**environment, "OPENLIA_INTEGRATION_TEMPLATES_ROOT": str(snapshot)})
+            report["minion_data_views"] = (
+                "named-view installation and CLI parity passed"
+                if any((snapshot / "features").glob("*/workspace/minions/*/data.views.json"))
+                else "legacy catalog compatibility passed; named-view acceptance not applicable"
+            )
             report["catalog"] = json.loads((sandbox / "catalog-checks.json").read_text())
             calendar = sandbox / "install-calendar/workspace"
             run("installed Calendar workspace validation", [sys.executable, str(ROOT / "profile/system-skills/workspace-template-customization/scripts/validate_workspace.py"), "--workspace-root", str(calendar)])

@@ -17,7 +17,73 @@ import { MinionService } from "./minions";
 import { WorkspaceService } from "./workspace";
 
 const templates = process.env.OPENLIA_INTEGRATION_TEMPLATES_ROOT;
-test.skipIf(!templates)(
+const appIds = [
+  "calendar",
+  "gym-tracker",
+  "personal-finance",
+  "personal-health",
+];
+// Automatic CI deliberately uses the production catalog pin, not an unmerged
+// companion PR. If ANY app declares views, run the full suite so a missing or
+// broken declaration in another app cannot silently downgrade acceptance.
+const catalogDeclaresViews = Boolean(
+  templates &&
+    appIds.some((id) =>
+      existsSync(
+        join(
+          templates,
+          "features",
+          id,
+          "workspace/minions",
+          id,
+          "data.views.json",
+        ),
+      ),
+    ),
+);
+
+test.skipIf(!templates || catalogDeclaresViews)(
+  "legacy catalog remains installable without implicitly exposing Minion data",
+  async () => {
+    if (!templates) throw new Error("Choose a catalog explicitly");
+    const root = mkdtempSync(join(tmpdir(), "legacy-data-views-catalog-"));
+    try {
+      const workspaceRoot = join(root, "workspace");
+      const features = new FeatureService({
+        workspaceRoot,
+        skillsRoot: join(root, "skills"),
+        featuresRoot: join(templates, "features"),
+      });
+      for (const id of appIds) features.install(id);
+      const service = new MinionViewService(
+        new WorkspaceService({
+          workspaceRoot,
+          maintainerDatabasePath: ":memory:",
+        }),
+      );
+      const before = readdirSync(root, { recursive: true }).map(String).sort();
+      const discovered = service.list();
+      expect(discovered.status).toBe("ok");
+      for (const app of discovered.minions)
+        expect(app.status).toBe("unavailable");
+      await expect(
+        service.query({
+          id: "gym-tracker",
+          view: "sessions",
+          from: "2026-10-01",
+          to: "2026-10-08",
+        }),
+      ).rejects.toThrow();
+      expect(readdirSync(root, { recursive: true }).map(String).sort()).toEqual(
+        before,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test.skipIf(!templates || !catalogDeclaresViews)(
   "catalog installs preserve state and all apps expose valid opt-in views",
   async () => {
     if (!templates) throw new Error("Choose a catalog explicitly");
