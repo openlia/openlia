@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { MinionsPage } from "./MinionsPage";
 import { createMockWorkspaceApi } from "./mockApi";
@@ -38,6 +44,54 @@ test("Ctrl+Enter submits multiline input without trimming the draft", async () =
       "",
     ),
   );
+});
+
+test("structured input remains disabled after the response until form reset and refresh finish", async () => {
+  const api = renderMinion();
+  await screen.findByTestId("minion-tab-input");
+  fireEvent.click(screen.getByTestId("minion-tab-input"));
+  const form = await screen.findByTestId("minion-openui-input");
+  fireEvent.change(within(form).getByRole("textbox"), {
+    target: { value: "First entry" },
+  });
+  const listing = await api.listMinions();
+  let finishRefresh!: (value: typeof listing) => void;
+  const refresh = vi.spyOn(api, "listMinions").mockReturnValue(
+    new Promise((resolve) => {
+      finishRefresh = resolve;
+    }),
+  );
+  const submit = vi.spyOn(api, "submitMinionInput");
+  fireEvent.click(within(form).getByRole("button", { name: "Submit Entry" }));
+  await waitFor(() => expect(refresh).toHaveBeenCalled());
+  expect(screen.getByTestId("minion-openui-input")).toHaveAttribute(
+    "aria-busy",
+    "true",
+  );
+  expect(
+    within(screen.getByTestId("minion-openui-input")).getByRole("button", {
+      name: "Submit Entry",
+    }),
+  ).toBeDisabled();
+  expect(
+    within(screen.getByTestId("minion-openui-input")).getByRole("textbox"),
+  ).toBeDisabled();
+  expect(submit).toHaveBeenCalledTimes(1);
+  finishRefresh(listing);
+  await waitFor(() =>
+    expect(screen.getByTestId("minion-openui-input")).toHaveAttribute(
+      "aria-busy",
+      "false",
+    ),
+  );
+  expect(
+    within(screen.getByTestId("minion-openui-input")).getByRole("textbox"),
+  ).toHaveValue("");
+  expect(
+    within(screen.getByTestId("minion-openui-input")).getByRole("button", {
+      name: "Submit Entry",
+    }),
+  ).toBeEnabled();
 });
 
 test("Cmd+Enter preserves a failed draft and does not submit during IME composition", async () => {

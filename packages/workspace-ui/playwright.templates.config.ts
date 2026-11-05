@@ -4,6 +4,9 @@ import { defineConfig, devices } from "@playwright/test";
 const packageRoot = fileURLToPath(new URL(".", import.meta.url));
 const workspace = process.env.OPENLIA_INTEGRATION_WORKSPACE;
 const state = process.env.OPENLIA_INTEGRATION_STATE;
+const project = process.env.OPENLIA_INTEGRATION_PROJECT;
+if (project && !["desktop", "mobile"].includes(project))
+  throw new Error("Invalid integration project");
 if (!workspace || !state) {
   throw new Error(
     "Use scripts/test_templates_integration.py to create an isolated catalog workspace",
@@ -14,7 +17,7 @@ const baseURL = `http://127.0.0.1:${process.env.OPENLIA_WORKSPACE_UI_PORT ?? "80
 export default defineConfig({
   testDir: `${packageRoot}/e2e`,
   testMatch: ["calendar.spec.ts", "catalog.spec.ts"],
-  outputDir: `${packageRoot}/.playwright/templates-results`,
+  outputDir: `${packageRoot}/.playwright/templates-results${project ? `/${project}` : ""}`,
   fullyParallel: false,
   forbidOnly: true,
   workers: 1,
@@ -24,7 +27,7 @@ export default defineConfig({
       "html",
       {
         open: "never",
-        outputFolder: `${packageRoot}/.playwright/templates-report`,
+        outputFolder: `${packageRoot}/.playwright/templates-report${project ? `/${project}` : ""}`,
       },
     ],
   ],

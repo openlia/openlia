@@ -60,6 +60,7 @@ function MinionOpenUIView({
   onNavigateLink,
   onAskLia,
   onSubmitFormData,
+  disabled = false,
 }: {
   api: WorkspaceApi;
   code: string;
@@ -69,6 +70,7 @@ function MinionOpenUIView({
   onNavigateLink?: ((href: string) => void) | undefined;
   onAskLia?: ((prompt: string) => void) | undefined;
   onSubmitFormData?: ((data: Record<string, unknown>) => void) | undefined;
+  disabled?: boolean | undefined;
 }) {
   const { normalized, hasErrors } = useMemo(() => {
     const errors = openUIErrors(code);
@@ -107,7 +109,12 @@ function MinionOpenUIView({
   }
 
   return (
-    <div className="workspace-inline-openui" data-testid={testId}>
+    <fieldset
+      className="workspace-inline-openui m-0 min-w-0 border-0 p-0"
+      data-testid={testId}
+      disabled={disabled}
+      aria-busy={disabled}
+    >
       <ThemeProvider
         mode="dark"
         darkTheme={CHART_THEME}
@@ -125,6 +132,7 @@ function MinionOpenUIView({
                 const formData = extractFormDataFromOpenUIEvent(event);
                 if (
                   onSubmitFormData &&
+                  !disabled &&
                   formData &&
                   Object.keys(formData).length > 0
                 ) {
@@ -148,7 +156,7 @@ function MinionOpenUIView({
           </OpenUIErrorBoundary>
         </OpenLiaOpenUIProvider>
       </ThemeProvider>
-    </div>
+    </fieldset>
   );
 }
 
@@ -1488,6 +1496,7 @@ export function MinionsPage({
                       code={detail.ui_contents[dashboardUiFile] ?? ""}
                       uiFileName={dashboardUiFile}
                       testId="minion-openui-dashboard"
+                      disabled={runningState !== "idle"}
                       minion={detail}
                       onNavigateLink={onNavigateLink}
                       onAskLia={onAskLia}
@@ -1616,6 +1625,7 @@ export function MinionsPage({
                         code={detail.ui_contents[inputUiFile] ?? ""}
                         uiFileName={inputUiFile}
                         testId="minion-openui-input"
+                        disabled={runningState !== "idle"}
                         minion={detail}
                         onNavigateLink={onNavigateLink}
                         onAskLia={onAskLia}

@@ -245,7 +245,7 @@ test.describe("feature catalog and installation", () => {
 
   test("real personal app forms preserve confirmed finance and person-scoped health input after reload", async ({
     page,
-  }) => {
+  }, testInfo) => {
     test.skip(
       !realWorkspace,
       "Requires the isolated real-backend catalog workspace",
@@ -309,17 +309,28 @@ test.describe("feature catalog and installation", () => {
       ).toBeVisible();
       await section("input");
     };
-    const submit = async (id: string, button: string) => {
+    const submit = async (
+      id: string,
+      button: string,
+      scope: Page | Locator = page,
+    ) => {
       const pending = page.waitForResponse(
         (response) =>
           response.url().endsWith(`/api/minions/${id}/input`) &&
           response.request().method() === "POST",
       );
-      await page.getByRole("button", { name: button, exact: true }).click();
+      await scope.getByRole("button", { name: button, exact: true }).click();
       const response = await pending;
       const body = await response.json();
       expect(response.ok(), JSON.stringify(body)).toBe(true);
       expect(body.ok, body.stderr).toBe(true);
+      // A successful network response precedes form reset and detail/list
+      // refresh. Do not start another action while the UI still owns that work.
+      await expect(
+        page
+          .getByTestId("minion-openui-input")
+          .or(page.getByTestId("minion-openui-dashboard")),
+      ).toHaveAttribute("aria-busy", "false");
       return body;
     };
     const journalUrl =
@@ -331,17 +342,26 @@ test.describe("feature catalog and installation", () => {
     const before = original.ok() ? await original.text() : "";
     const description = `Synthetic browser posting ${crypto.randomUUID()}`;
     await openApp("personal-finance");
-    for (const [name, value] of Object.entries({
-      date: "2026-10-02",
-      description,
-      amount: "1.01",
-      commodity: "USD",
-      debit_account: "expenses:test",
-      credit_account: "assets:test",
-    })) {
-      await page.locator(`input[name="${name}"]`).fill(value);
-    }
-    const preview = await submit("personal-finance", "Validate & Preview");
+    const previewPosting = async (description: string) => {
+      await section("input");
+      for (const [name, value] of Object.entries({
+        date: "2026-10-02",
+        description,
+        amount: "1.01",
+        commodity: "USD",
+        debit_account: "expenses:test",
+        credit_account: "assets:test",
+      }))
+        await page.locator(`input[name="${name}"]`).fill(value);
+      return submit("personal-finance", "Validate & Preview");
+    };
+    // Deliberately keep another proposal pending. Confirmation must be scoped
+    // by identity, not by the first Action/Proposal control on the page.
+    const unrelatedDescription = `Unrelated pending posting ${crypto.randomUUID()}`;
+    const unrelatedId = JSON.parse(
+      (await previewPosting(unrelatedDescription)).stdout,
+    ).proposal_id;
+    const preview = await previewPosting(description);
     const identifier = JSON.parse(preview.stdout).proposal_id;
     const untouched = await page.request.get(journalUrl);
     expect(untouched.ok() ? await untouched.text() : "").toBe(before);
@@ -349,12 +369,55 @@ test.describe("feature catalog and installation", () => {
     await expect(page.getByTestId("minion-openui-dashboard")).toContainText(
       description,
     );
-    await selectValue("action", "confirm");
-    await selectValue("proposal_id", identifier);
-    await page.locator('input[name="confirmation"]').fill("POST");
-    await submit("personal-finance", "Apply selected action");
+    const review = page.getByRole("group", {
+      name: `finance-proposal-${identifier}`,
+      exact: true,
+    });
+    const unrelated = page.getByRole("group", {
+      name: `finance-proposal-${unrelatedId}`,
+      exact: true,
+    });
+    await expect(review).toHaveCount(1);
+    await expect(unrelated).toHaveCount(1);
+    await unrelated.getByRole("radio", { name: /^Cancel proposal/ }).click();
+    await unrelated.locator('input[name="confirmation"]').fill("POST");
+    await expect(review.locator('input[name="confirmation"]')).toHaveValue("");
+    await review.getByRole("radio", { name: /^Confirm posting/ }).click();
+    await expect(
+      unrelated.getByRole("radio", { name: /^Cancel proposal/ }),
+    ).toBeChecked();
+    await expect(review.getByRole("combobox")).toHaveText(identifier);
+    await captureScreenshot(page, testInfo, "finance-proposal-specific-review");
+    // Exercise the confirmation controls after scrolling away and back; no
+    // forced clicks, keyboard-only fallback, or hidden DOM value injection.
+    await page
+      .getByRole("region", { name: "Shared Minion data views" })
+      .scrollIntoViewIfNeeded();
+    await review.locator('input[name="confirmation"]').fill("POST");
+    const confirmation = await submit(
+      "personal-finance",
+      "Apply selected action",
+      review,
+    );
+    expect(JSON.parse(confirmation.stdout).proposal_id).toBe(identifier);
     const posted = await page.request.get(journalUrl);
-    expect(await posted.text()).toContain(description);
+    const postedJournal = (await posted.json()).content;
+    expect(postedJournal).toContain(description);
+    expect(postedJournal).not.toContain(unrelatedDescription);
+    await unrelated.getByRole("radio", { name: /^Cancel proposal/ }).click();
+    await unrelated.locator('input[name="confirmation"]').fill("");
+    const cancelled = await submit(
+      "personal-finance",
+      "Apply selected action",
+      unrelated,
+    );
+    expect(JSON.parse(cancelled.stdout)).toMatchObject({
+      proposal_id: unrelatedId,
+      status: "cancelled",
+    });
+    expect((await (await page.request.get(journalUrl)).json()).content).toBe(
+      postedJournal,
+    );
     await page.reload();
     await expect(page.getByTestId("minion-openui-dashboard")).toContainText(
       description,

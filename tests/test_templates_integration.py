@@ -13,6 +13,21 @@ spec.loader.exec_module(runner)
 
 
 class TemplatesIntegrationRunnerTests(unittest.TestCase):
+    def test_browser_projects_do_not_share_pending_proposals(self):
+        with tempfile.TemporaryDirectory() as temp:
+            scratch = Path(temp)
+            source = scratch / "installed/workspace"
+            source.mkdir(parents=True)
+            (source / "starter.md").write_text("# Starter\n")
+            desktop = runner.prepare_browser_workspace(source, scratch, "desktop")
+            pending = desktop / "minions/personal-finance/data/pending"
+            pending.mkdir(parents=True)
+            (pending / "abandoned.json").write_text('{"status":"pending"}')
+            mobile = runner.prepare_browser_workspace(source, scratch, "mobile")
+            self.assertFalse((mobile / "minions/personal-finance/data/pending").exists())
+            self.assertFalse((source / "minions").exists())
+            self.assertEqual((mobile / "starter.md").read_text(), "# Starter\n")
+
     def test_environment_does_not_select_live_deployments(self):
         with patch.dict(os.environ, {
             "OPENLIA_WORKSPACE_ROOT": "/real/user/workspace",
