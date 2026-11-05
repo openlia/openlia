@@ -51,8 +51,10 @@ grows organically or by installing profiles, features, and skills from
   register a schedule; verify actual registration and execution before promising
   unattended heartbeats. Local app execution does not authorize external effects
   and the app directory is not a sandbox. Briefing/review workflows should read
-  intentional, source-linked Markdown exports outside `minions/`, not app code,
-  tests, dependencies, or cached data; avoid counting exports and sources twice.
+   named `data.views.json` views through `minion_describe` / `minion_query`, not
+   app code, tests, dependencies, or caches. Scheduled inclusion requires local
+   `data_views.briefing` opt-in and explicit person/account scope where required;
+   never execute app code as a read fallback or count duplicate copies.
 - Workspace Maintainer delivers advisory findings after edits. Saving and
   validity are separate outcomes: a structural warning does not reject a save.
   Fix issues within the user's request when helpful, or disclose material

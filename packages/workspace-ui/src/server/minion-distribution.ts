@@ -173,6 +173,8 @@ export function compileMinionConfig(schema: unknown) {
   const raw = schemaDefault(schema);
   const defaults = object(raw) ? raw : {};
   defaults.trigger = { on_new_entry: false };
+  if ("data_views" in defaults)
+    defaults.data_views = { briefing: [], scopes: {} };
   return { validate, defaults: validate(defaults) ? defaults : undefined };
 }
 

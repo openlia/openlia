@@ -54,6 +54,11 @@ without one, but must add one before sharing.
 
 ## Source versus instance state
 
+Optional reviewed `data.views.json` declarations expose bounded structured data
+through the runtime, never app entrypoints. See [Minion data views](minion-data-views.md).
+Local briefing participation and subject scopes live in `config.json` and remain
+excluded from source distribution.
+
 Export never includes `config.json`, `data/`, `state/`, caches, logs, uploads,
 temporary directories, virtual environments, installed dependencies, build
 outputs, hidden paths, or credential-like filenames—even with `--include-records`

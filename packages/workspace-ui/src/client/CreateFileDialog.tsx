@@ -200,7 +200,7 @@ export function CreateFileDialog({
                 This creates an event note, not a scheduled appointment.{" "}
                 <a
                   className="link link-primary"
-                  href="/files/calendar/overview.md"
+                  href="/minions/calendar"
                   target="_blank"
                   rel="noreferrer"
                 >

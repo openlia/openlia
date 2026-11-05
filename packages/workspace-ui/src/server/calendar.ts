@@ -43,7 +43,10 @@ export class CalendarService {
     private readonly binary = process.env.OPENLIA_REMIND_BINARY || "remind",
   ) {}
 
-  private snapshot(source: string): Snapshot {
+  private snapshot(
+    source: string,
+    limits?: { maxFiles: number; maxBytes: number },
+  ): Snapshot {
     if (
       !/^(?:[\w-]+\/)+[\w.-]+\.rem(?:ind)?$/.test(source) ||
       source.includes("..")
@@ -59,11 +62,14 @@ export class CalendarService {
     const visit = (path: string, ancestors: Set<string>) => {
       if (ancestors.has(path)) invalid("Calendar includes contain a cycle.");
       if (files.has(path)) return;
-      if (files.size >= 32) invalid("Calendar has too many included files.");
+      if (files.size >= Math.min(32, limits?.maxFiles ?? 32))
+        invalid("Calendar has too many included files.");
       const file = this.workspace.read(path);
       if (path === source) rootRevision = file.revision;
       bytes += Buffer.byteLength(file.content);
-      if (bytes > 2 * 1024 * 1024)
+      if (
+        bytes > Math.min(2 * 1024 * 1024, limits?.maxBytes ?? 2 * 1024 * 1024)
+      )
         invalid("Calendar exceeds the evaluation size limit.");
       files.set(path, file.content);
       const next = new Set([...ancestors, path]);
@@ -315,9 +321,12 @@ export class CalendarService {
     }
   }
 
-  async load(request: CalendarRangeRequest): Promise<CalendarResponse> {
+  async load(
+    request: CalendarRangeRequest,
+    limits?: { maxFiles: number; maxBytes: number },
+  ): Promise<CalendarResponse> {
     this.range(request.from, request.to);
-    const snapshot = this.snapshot(request.source);
+    const snapshot = this.snapshot(request.source, limits);
     return {
       schema: 1,
       timezone: this.timezone,

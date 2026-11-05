@@ -45,9 +45,10 @@ user-owned delegation policy authorizes the scoped update.
   records merely to display them in an app. A cron setting does not itself
   register a schedule. Verify actual schedule registration and execution, honor
   scheduled-work permissions, and keep external effects approval-gated. A Minion
-  folder is not a process sandbox. For briefings/reviews, publish intentional,
-  source-linked Markdown reports outside `minions/` rather than scanning app
-  internals or counting cached copies as additional records.
+  folder is not a process sandbox. For briefings/reviews, use `minion_describe`
+  and `minion_query` for named `data.views.json` views; never run app code just
+  to read data. Scheduled reads require local `data_views.briefing` opt-in and
+  explicit subject scope where required. Never count cached copies twice.
 
 ## File handling
 
