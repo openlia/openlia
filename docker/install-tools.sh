@@ -3,10 +3,21 @@ set -eu
 
 packages="ffmpeg poppler-utils"
 
-apt-get -o Acquire::Check-Valid-Until=false update
+# Snapshot downloads can occasionally return transient gateway errors. Keep
+# the install reproducible while allowing APT to retry those fetches.
+apt-get \
+	-o Acquire::Check-Valid-Until=false \
+	-o Acquire::Retries=5 \
+	-o Acquire::http::Timeout=60 \
+	-o Acquire::https::Timeout=60 \
+	update
 # Package names come only from the capability map above.
 # shellcheck disable=SC2086
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $packages
+DEBIAN_FRONTEND=noninteractive apt-get \
+	-o Acquire::Retries=5 \
+	-o Acquire::http::Timeout=60 \
+	-o Acquire::https::Timeout=60 \
+	install -y --no-install-recommends $packages
 rm -rf /var/lib/apt/lists/*
 
 uv pip install --python /opt/hermes/.venv/bin/python --no-cache --require-hashes --no-deps \
