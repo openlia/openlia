@@ -33,8 +33,23 @@ RUN sed -i \
         -e "s|URIs: http://deb.debian.org/debian$|URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|" \
         -e "s|URIs: http://deb.debian.org/debian-security$|URIs: http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|" \
         /etc/apt/sources.list.d/debian.sources \
-    && apt-get -o Acquire::Check-Valid-Until=false update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl git python3-yaml tzdata unzip xz-utils \
+    && apt-get \
+        -o Acquire::Check-Valid-Until=false \
+        -o Acquire::Retries=3 \
+        -o Acquire::Queue-Mode=host \
+        -o Acquire::http::Timeout=30 \
+        -o Acquire::http::Pipeline-Depth=0 \
+        -o Acquire::https::Timeout=30 \
+        -o Acquire::https::Pipeline-Depth=0 \
+        update \
+    && DEBIAN_FRONTEND=noninteractive apt-get \
+        -o Acquire::Retries=3 \
+        -o Acquire::Queue-Mode=host \
+        -o Acquire::http::Timeout=30 \
+        -o Acquire::http::Pipeline-Depth=0 \
+        -o Acquire::https::Timeout=30 \
+        -o Acquire::https::Pipeline-Depth=0 \
+        install -y --no-install-recommends ca-certificates curl git python3-yaml tzdata unzip xz-utils \
     && rm -rf /var/lib/apt/lists/* \
     && set -eu; \
     case "${TARGETARCH:-amd64}" in \
