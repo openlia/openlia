@@ -72,8 +72,22 @@ jobs:
       - name: Build release binaries
         run: make build
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 1
+
       - name: Build Workspace UI image
-        run: docker build --file docker/workspace-ui.Dockerfile --tag openlia-workspace-ui:ci .
+        run: >-
+          docker buildx build
+          --cache-from type=gha,scope=workspace-ui
+          --cache-to type=gha,mode=max,scope=workspace-ui
+          --file docker/workspace-ui.Dockerfile
+          --tag openlia-workspace-ui:ci
+          --load
+          .
 
       - name: Verify pinned Remind in Workspace UI image
         run: python tests/check_remind_image.py openlia-workspace-ui:ci
@@ -83,13 +97,16 @@ jobs:
           set -a
           . docker/.env.example
           set +a
-          docker build \
+          docker buildx build \
             --build-arg HERMES_BASE_IMAGE="$HERMES_BASE_IMAGE" \
             --build-arg HERMES_BASE_TAG="$HERMES_BASE_TAG" \
             --build-arg HERMES_BASE_DIGEST="$HERMES_BASE_DIGEST" \
             --build-arg OPENLIA_PROJECT_NAME=ci \
+            --cache-from type=gha,scope=hermes-ingestion \
+            --cache-to type=gha,mode=max,scope=hermes-ingestion \
             --file docker/Dockerfile \
             --tag openlia-hermes:ci \
+            --load \
             .
 
       - name: Verify Hermes ingestion dependencies

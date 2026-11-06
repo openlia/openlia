@@ -34,7 +34,13 @@ Every Minion lives in `minions/<slug>/` (`^[a-z0-9][a-z0-9-]*$`) and consists of
 2. **`dashboard.openui`** (Required):
    - The main OpenUI dashboard rendered from `data/` and `data/context.json` (using `Stack`, `Callout`, `Card`, `Table`, `ChartPanel`, `Tabs`, etc.).
 3. **`input.openui`** (Required for interactive entry):
-   - OpenUI input form (`Form(name: "minionInput", fields: [FormControl(label: "...", input: Input(name: "...", ...))], buttons: Buttons(...))`) rendered in the **Input Form** tab.
+    - OpenUI input form (`Form(name: "minionInput", fields: [FormControl(label: "...", input: Input(name: "...", ...))], buttons: Buttons(...))`) rendered in the **Input Form** tab.
+    - Repeated dashboard forms must use distinct, stable names per record or proposal
+      (e.g. `finance-proposal-<id>`). OpenUI shares field state by form name; reusing
+      `minionInput` for multiple proposals can mix their action/confirmation state.
+      The runtime exposes form names as accessible groups and includes explicit
+      field values in submissions without overwriting user edits. Never prefill
+      approval words or automatically select a consequential confirmation action.
    - Every `Input(name: "<field>")` or `Select(name: "<field>")` inside `input.openui` **must** correspond to a property in `input.schema.json`.
 4. **`input.schema.json`** (Required):
    - Draft 2020-12 JSON Schema validating every new entry before `input.py` / `input.ts` records it.

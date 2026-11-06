@@ -10,6 +10,7 @@ import { Finance } from "./finance/Finance";
 import { FinanceAccounts } from "./finance/FinanceAccounts";
 import { FinanceChart } from "./finance/FinanceChart";
 import { FinanceOverview } from "./finance/FinanceOverview";
+import { NamedForm } from "./NamedForm";
 
 export { normalizeOpenUIProgram };
 
@@ -27,5 +28,5 @@ export const openliaComponents = [
 ];
 
 export const openliaLibrary = openuiLibrary.extend({
-  components: { add: openliaComponents },
+  components: { add: openliaComponents, override: [NamedForm] },
 });

@@ -59,6 +59,20 @@ def free_port() -> int:
         return sock.getsockname()[1]
 
 
+def prepare_browser_workspace(source: Path, scratch: Path, project: str) -> Path:
+    if project not in {"desktop", "mobile"}:
+        raise ValueError("Unknown browser acceptance project")
+    target = scratch / "browser-workspaces" / project / "workspace"
+    shutil.copytree(source, target)
+    if (target / "minions/calendar/overview.md").is_file():
+        calendar_data = target / "minions/calendar/data"
+        calendar_data.mkdir(parents=True, exist_ok=True)
+        reminders = calendar_data / "reminders.rem"
+        if not reminders.exists():
+            reminders.write_text("# Disposable native browser acceptance calendar\n")
+    return target
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--templates-root", required=True, type=Path)
@@ -142,24 +156,25 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 run("production Workspace UI build", ["bun", "run", "build"], cwd=UI)
                 calendar_minion = (calendar / "minions/calendar/overview.md").is_file()
-                if calendar_minion:
-                    # Synthetic acceptance data only; installation/readers never
-                    # initialize or mutate recipient calendar records.
-                    calendar_data = calendar / "minions/calendar/data"
-                    calendar_data.mkdir(parents=True, exist_ok=True)
-                    (calendar_data / "reminders.rem").write_text("# Disposable native browser acceptance calendar\n")
-                browser_env = {
-                    **environment,
-                    "OPENLIA_INTEGRATION_WORKSPACE": str(calendar),
-                    "OPENLIA_INTEGRATION_STATE": str(scratch / "browser-state"),
-                    "OPENLIA_FEATURES_ROOT": str(snapshot / "features"),
-                    "OPENLIA_RUNTIME_RELEASE_PATH": str(ROOT / "release/manifest.json"),
-                    "OPENLIA_REMIND_BINARY": remind,
-                    "OPENLIA_WORKSPACE_UI_PORT": str(free_port()),
-                    "WORKSPACE_UI_E2E_MODE": "real",
-                    "OPENLIA_INTEGRATION_CALENDAR_MINION": "true" if calendar_minion else "false",
-                }
-                run("Calendar desktop/mobile real-backend acceptance", ["bunx", "--no-install", "playwright", "test", "--config", "playwright.templates.config.ts"], cwd=UI, env=browser_env)
+                report["browser_projects"] = {}
+                for project in ("desktop", "mobile"):
+                    # Never let an abandoned proposal or partial browser test
+                    # affect another device's acceptance workspace.
+                    browser_workspace = prepare_browser_workspace(calendar, scratch, project)
+                    browser_env = {
+                        **environment,
+                        "OPENLIA_INTEGRATION_WORKSPACE": str(browser_workspace),
+                        "OPENLIA_INTEGRATION_STATE": str(scratch / "browser-state" / project),
+                        "OPENLIA_INTEGRATION_PROJECT": project,
+                        "OPENLIA_FEATURES_ROOT": str(snapshot / "features"),
+                        "OPENLIA_RUNTIME_RELEASE_PATH": str(ROOT / "release/manifest.json"),
+                        "OPENLIA_REMIND_BINARY": remind,
+                        "OPENLIA_WORKSPACE_UI_PORT": str(free_port()),
+                        "WORKSPACE_UI_E2E_MODE": "real",
+                        "OPENLIA_INTEGRATION_CALENDAR_MINION": "true" if calendar_minion else "false",
+                    }
+                    run(f"{project} real-backend acceptance (isolated workspace)", ["bunx", "--no-install", "playwright", "test", "--config", "playwright.templates.config.ts", "--project", project], cwd=UI, env=browser_env)
+                    report["browser_projects"][project] = "passed"
                 report["browser_acceptance"] = "passed desktop and mobile with native Remind and actual catalog composition"
         if checkout_identity(ROOT) != report["runtime"] or checkout_identity(templates) != report["templates"]:
             raise RuntimeError("Sources changed during integration; rerun on stable working trees")
