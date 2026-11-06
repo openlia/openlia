@@ -8,15 +8,21 @@ packages="ffmpeg poppler-utils"
 apt-get \
 	-o Acquire::Check-Valid-Until=false \
 	-o Acquire::Retries=3 \
+	-o Acquire::Queue-Mode=host \
 	-o Acquire::http::Timeout=30 \
+	-o Acquire::http::Pipeline-Depth=0 \
 	-o Acquire::https::Timeout=30 \
+	-o Acquire::https::Pipeline-Depth=0 \
 	update
 # Package names come only from the capability map above.
 # shellcheck disable=SC2086
 DEBIAN_FRONTEND=noninteractive apt-get \
 	-o Acquire::Retries=3 \
+	-o Acquire::Queue-Mode=host \
 	-o Acquire::http::Timeout=30 \
+	-o Acquire::http::Pipeline-Depth=0 \
 	-o Acquire::https::Timeout=30 \
+	-o Acquire::https::Pipeline-Depth=0 \
 	install -y --no-install-recommends $packages
 rm -rf /var/lib/apt/lists/*
 
