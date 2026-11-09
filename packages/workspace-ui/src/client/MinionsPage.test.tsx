@@ -21,6 +21,21 @@ function renderMinion(api = createMockWorkspaceApi()) {
   return api;
 }
 
+test("keeps quick entry and minion details in the scrollable workspace panel", async () => {
+  renderMinion();
+  const scrollPanel = await screen.findByTestId("minion-scroll-content");
+
+  expect(
+    within(scrollPanel).getByRole("textbox", { name: "Quick input" }),
+  ).toBeInTheDocument();
+  expect(
+    within(scrollPanel).getByText("sample-minion minion"),
+  ).toBeInTheDocument();
+  expect(scrollPanel).not.toContainElement(
+    screen.getByTestId("minion-tab-dashboard"),
+  );
+});
+
 test("Ctrl+Enter submits multiline input without trimming the draft", async () => {
   const api = createMockWorkspaceApi();
   const submit = vi.spyOn(api, "submitMinionInput");

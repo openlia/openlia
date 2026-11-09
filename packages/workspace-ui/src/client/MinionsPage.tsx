@@ -1082,361 +1082,375 @@ export function MinionsPage({
           </div>
         ) : (
           <>
-            {/* Minion Header & Quick Actions Bar */}
-            <div className="border-b border-base-content/10 p-4 space-y-3 bg-base-200/30">
-              <div
-                ref={setTitleRow}
-                className="minion-title-row flex min-w-0 items-center justify-between gap-3"
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <h2
-                    className="min-w-0 truncate text-lg font-bold tracking-tight"
-                    title={detail.name}
-                  >
-                    {detail.name}
-                  </h2>
-                  <span className="badge badge-sm shrink-0 badge-primary/20 text-primary font-mono">
-                    {detail.runtime === "python" ? "Python" : "TypeScript"}
-                  </span>
-                  {detail.configuration_required && (
-                    <span
-                      className="badge badge-sm shrink-0 badge-warning"
-                      data-testid="minion-detail-config-required-badge"
+            {/* Compact title/actions and section navigation stay available while scrolling. */}
+            <div className="shrink-0 border-b border-base-content/10 bg-base-200/30">
+              <div className="p-4 pb-3">
+                <div
+                  ref={setTitleRow}
+                  className="minion-title-row flex min-w-0 items-center justify-between gap-3"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <h2
+                      className="min-w-0 truncate text-lg font-bold tracking-tight"
+                      title={detail.name}
                     >
-                      Configuration required
+                      {detail.name}
+                    </h2>
+                    <span className="badge badge-sm shrink-0 badge-primary/20 text-primary font-mono">
+                      {detail.runtime === "python" ? "Python" : "TypeScript"}
                     </span>
-                  )}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  {wideActions && (
-                    <>
-                      {heartbeatAction}
-                      {askLiaAction}
-                    </>
-                  )}
-                  <ActionMenu label="Minion actions" className="btn-sm">
-                    {!wideActions && (
+                    {detail.configuration_required && (
+                      <span
+                        className="badge badge-sm shrink-0 badge-warning"
+                        data-testid="minion-detail-config-required-badge"
+                      >
+                        Configuration required
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {wideActions && (
                       <>
                         {heartbeatAction}
                         {askLiaAction}
                       </>
                     )}
-                    <button
-                      className="btn btn-sm btn-ghost"
-                      disabled={runningState !== "idle"}
-                      onClick={() => void handleScheduleHeartbeatCron()}
-                      type="button"
-                      data-testid="minion-schedule-heartbeat"
-                      title="Create a scheduled cron job for this Minion's heartbeat trigger"
-                    >
-                      {runningState === "schedule"
-                        ? "Scheduling..."
-                        : "Schedule Heartbeat"}
-                    </button>
-                    <button
-                      className="btn btn-sm btn-ghost"
-                      disabled={runningState !== "idle"}
-                      onClick={() => void handleInstallDeps()}
-                      type="button"
-                      data-testid="minion-install-deps"
-                    >
-                      {runningState === "install"
-                        ? "Installing..."
-                        : "Install Deps"}
-                    </button>
-                    <button
-                      className="btn btn-sm btn-ghost"
-                      disabled={runningState !== "idle"}
-                      onClick={() => void handleRunTests()}
-                      type="button"
-                      data-testid="minion-run-tests"
-                    >
-                      {runningState === "test" ? "Testing..." : "Run Tests"}
-                    </button>
-                    <button
-                      className="btn btn-xs btn-ghost"
-                      onClick={() => onOpenFile(`${detail.path}/README.md`)}
-                      type="button"
-                    >
-                      Open in Documents
-                    </button>
-                  </ActionMenu>
+                    <ActionMenu label="Minion actions" className="btn-sm">
+                      {!wideActions && (
+                        <>
+                          {heartbeatAction}
+                          {askLiaAction}
+                        </>
+                      )}
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        disabled={runningState !== "idle"}
+                        onClick={() => void handleScheduleHeartbeatCron()}
+                        type="button"
+                        data-testid="minion-schedule-heartbeat"
+                        title="Create a scheduled cron job for this Minion's heartbeat trigger"
+                      >
+                        {runningState === "schedule"
+                          ? "Scheduling..."
+                          : "Schedule Heartbeat"}
+                      </button>
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        disabled={runningState !== "idle"}
+                        onClick={() => void handleInstallDeps()}
+                        type="button"
+                        data-testid="minion-install-deps"
+                      >
+                        {runningState === "install"
+                          ? "Installing..."
+                          : "Install Deps"}
+                      </button>
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        disabled={runningState !== "idle"}
+                        onClick={() => void handleRunTests()}
+                        type="button"
+                        data-testid="minion-run-tests"
+                      >
+                        {runningState === "test" ? "Testing..." : "Run Tests"}
+                      </button>
+                      <button
+                        className="btn btn-xs btn-ghost"
+                        onClick={() => onOpenFile(`${detail.path}/README.md`)}
+                        type="button"
+                      >
+                        Open in Documents
+                      </button>
+                    </ActionMenu>
+                  </div>
                 </div>
               </div>
-              <p className="text-xs text-base-content/70">
-                {detail.description}
-              </p>
-              {detail.configuration_required && (
-                <div
-                  className="alert alert-warning py-2 px-3 text-xs flex flex-wrap items-center justify-between gap-2"
-                  data-testid="minion-config-required-banner"
-                  role="status"
-                >
-                  <span>
-                    <strong>Configuration required:</strong>{" "}
-                    <code className="font-mono">config.json</code> has required
-                    settings that must be completed before automatic triggers or
-                    scheduled runs can execute.
-                  </span>
-                  <button
-                    className="btn btn-warning btn-xs"
-                    onClick={() => setActiveSubTab("config")}
-                    type="button"
-                    data-testid="minion-configure-now"
-                  >
-                    Configure Minion
-                  </button>
-                </div>
-              )}
-              <details className="minion-runtime-details">
-                <summary className="cursor-pointer py-2 text-xs text-base-content/60">
-                  Runtime & triggers
-                </summary>
-                <div className="flex flex-wrap gap-2 pb-2">
-                  {detail.input_entrypoint && (
-                    <span
-                      className="badge badge-sm badge-ghost font-mono"
-                      title="Input entrypoint"
-                    >
-                      input: {detail.input_entrypoint}
-                    </span>
-                  )}
-                  <span
-                    className="badge badge-sm badge-ghost font-mono"
-                    title="Data & enrichment entrypoint"
-                  >
-                    main: {detail.entrypoint}
-                  </span>
-                  {detail.triggers?.after_entry !== false && (
-                    <span
-                      className="badge badge-sm badge-info/20 text-info font-mono"
-                      title="main runs automatically right after every new entry"
-                    >
-                      trigger: after-entry
-                    </span>
-                  )}
-                  {detail.triggers?.heartbeat_schedule && (
-                    <span
-                      className="badge badge-sm badge-ghost font-mono"
-                      title="Recommended cron schedule for heartbeat enrichment"
-                    >
-                      heartbeat: {detail.triggers.heartbeat_schedule}
-                    </span>
-                  )}
-                </div>
-              </details>
-
-              {/* Multiline quick entry stays in the normal page flow. */}
-              <form
-                onSubmit={(e) => void handleRunQuickInput(e)}
-                className="minion-quick-entry flex flex-col gap-2"
-                data-testid="minion-quick-input-form"
-              >
-                {detail.quick_actions.length > 1 ? (
-                  <select
-                    className="select select-bordered select-sm max-w-full self-start font-medium"
-                    aria-label="Input action"
-                    value={selectedActionId}
-                    onChange={(e) => setSelectedActionId(e.target.value)}
-                  >
-                    {detail.quick_actions.map((act) => (
-                      <option key={act.id} value={act.id}>
-                        {act.label}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-                <textarea
-                  ref={setQuickInputElement}
-                  rows={3}
-                  className="textarea textarea-bordered w-full min-w-0"
-                  aria-label="Quick input"
-                  aria-describedby={quickInputHintId}
-                  placeholder={
-                    activeQuickAction?.placeholder ?? "Paste or type an entry…"
-                  }
-                  value={quickInputText}
-                  onChange={(e) => setQuickInputText(e.target.value)}
-                  readOnly={runningState !== "idle"}
-                  onKeyDown={(event) => {
+              <div className="px-4 pb-3">
+                {/* Sub-tab Navigation */}
+                <select
+                  aria-label="Minion section"
+                  className="workspace-compact-select select select-bordered w-full sm:hidden"
+                  value={activeSubTab}
+                  onChange={(event) => {
+                    const tab = event.target.value as MinionSubTab;
+                    setActiveSubTab(tab);
                     if (
-                      event.key !== "Enter" ||
-                      (!event.ctrlKey && !event.metaKey) ||
-                      event.nativeEvent.isComposing
-                    )
-                      return;
-                    event.preventDefault();
-                    if (runningState === "idle")
-                      event.currentTarget.form?.requestSubmit();
-                  }}
-                  data-testid="minion-quick-input"
-                />
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p
-                    id={quickInputHintId}
-                    className="min-w-0 flex-1 text-xs text-base-content/50"
-                  >
-                    Enter for a new line · Ctrl/⌘ + Enter to submit
-                  </p>
-                  <button
-                    type="submit"
-                    className="btn btn-primary btn-sm ml-auto shrink-0"
-                    disabled={runningState !== "idle"}
-                    data-testid="minion-run-button"
-                  >
-                    {runningState === "run" ||
-                    runningState === "input" ||
-                    runningState === "heartbeat"
-                      ? "Running..."
-                      : (activeQuickAction?.label ?? "Add Entry")}
-                  </button>
-                </div>
-              </form>
-
-              {/* Execution Log Banner */}
-              {executionLog && (
-                <div
-                  className={`rounded-lg border p-2.5 text-xs font-mono space-y-1.5 ${
-                    executionLog.ok
-                      ? "border-success/30 bg-success/5"
-                      : "border-error/30 bg-error/5"
-                  }`}
-                  data-testid="minion-execution-log"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold">
-                        [{executionLog.kind.toUpperCase()}] exit{" "}
-                        {executionLog.exit_code} ({executionLog.duration_ms}ms)
-                        at {executionLog.timestamp}
-                      </span>
-                      {executionLog.steps && executionLog.steps.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-1">
-                          {executionLog.steps.map((s, idx) => (
-                            <span
-                              key={`${s.step}-${s.script}`}
-                              className={`badge badge-xs font-mono ${
-                                s.exit_code === 0
-                                  ? "badge-success/20 text-success"
-                                  : "badge-error/20 text-error"
-                              }`}
-                            >
-                              {idx + 1}. {s.step} ({s.script}: {s.duration_ms}
-                              ms)
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-2xs"
-                      onClick={() => setExecutionLog(null)}
-                    >
-                      Close
-                    </button>
-                  </div>
-                  {executionLog.stdout && (
-                    <pre className="whitespace-pre-wrap overflow-x-auto max-h-40 text-[11px] bg-base-300/40 p-2 rounded">
-                      {executionLog.stdout}
-                    </pre>
-                  )}
-                  {executionLog.stderr && (
-                    <pre className="whitespace-pre-wrap overflow-x-auto max-h-40 text-[11px] text-error bg-error/10 p-2 rounded">
-                      {executionLog.stderr}
-                    </pre>
-                  )}
-                </div>
-              )}
-
-              {/* Sub-tab Navigation */}
-              <select
-                aria-label="Minion section"
-                className="workspace-compact-select select select-bordered w-full sm:hidden"
-                value={activeSubTab}
-                onChange={(event) => {
-                  const tab = event.target.value as MinionSubTab;
-                  setActiveSubTab(tab);
-                  if (
-                    tab === "data" &&
-                    detail.data_files[0] &&
-                    !activeFile?.path.startsWith(`${detail.path}/data/`)
-                  )
-                    void openMinionFile(detail.id, detail.data_files[0].path);
-                  if (tab === "code")
-                    void openMinionFile(detail.id, detail.entrypoint);
-                }}
-              >
-                <option value="dashboard">Dashboard</option>
-                <option value="input">Input Form</option>
-                <option value="config">Config</option>
-                <option value="data">Data ({detail.data_file_count})</option>
-                <option value="code">Code & Tests</option>
-                <option value="readme">README</option>
-              </select>
-              <div className="workspace-wide-controls hidden sm:flex flex-wrap tabs tabs-boxed bg-base-200/60 p-0.5 w-fit max-w-full">
-                <button
-                  type="button"
-                  className={`tab tab-xs ${activeSubTab === "dashboard" ? "tab-active" : ""}`}
-                  onClick={() => setActiveSubTab("dashboard")}
-                  data-testid="minion-tab-dashboard"
-                >
-                  Dashboard ({dashboardUiFile})
-                </button>
-                <button
-                  type="button"
-                  className={`tab tab-xs ${activeSubTab === "input" ? "tab-active" : ""}`}
-                  onClick={() => setActiveSubTab("input")}
-                  data-testid="minion-tab-input"
-                >
-                  Input Form ({inputUiFile})
-                </button>
-                <button
-                  type="button"
-                  className={`tab tab-xs ${activeSubTab === "config" ? "tab-active" : ""}`}
-                  onClick={() => setActiveSubTab("config")}
-                  data-testid="minion-tab-config"
-                >
-                  Config ({detail.config_file ?? "config.json"})
-                </button>
-                <button
-                  type="button"
-                  className={`tab tab-xs ${activeSubTab === "data" ? "tab-active" : ""}`}
-                  onClick={() => {
-                    setActiveSubTab("data");
-                    if (
+                      tab === "data" &&
                       detail.data_files[0] &&
                       !activeFile?.path.startsWith(`${detail.path}/data/`)
-                    ) {
+                    )
                       void openMinionFile(detail.id, detail.data_files[0].path);
-                    }
+                    if (tab === "code")
+                      void openMinionFile(detail.id, detail.entrypoint);
                   }}
                 >
-                  Data ({detail.data_file_count})
-                </button>
-                <button
-                  type="button"
-                  className={`tab tab-xs ${activeSubTab === "code" ? "tab-active" : ""}`}
-                  onClick={() => {
-                    setActiveSubTab("code");
-                    void openMinionFile(detail.id, detail.entrypoint);
-                  }}
-                >
-                  Code & Tests (
-                  {detail.code_files.length + detail.test_files.length})
-                </button>
-                <button
-                  type="button"
-                  className={`tab tab-xs ${activeSubTab === "readme" ? "tab-active" : ""}`}
-                  onClick={() => setActiveSubTab("readme")}
-                >
-                  README
-                </button>
+                  <option value="dashboard">Dashboard</option>
+                  <option value="input">Input Form</option>
+                  <option value="config">Config</option>
+                  <option value="data">Data ({detail.data_file_count})</option>
+                  <option value="code">Code & Tests</option>
+                  <option value="readme">README</option>
+                </select>
+                <div className="workspace-wide-controls hidden sm:flex flex-wrap tabs tabs-boxed bg-base-200/60 p-0.5 w-fit max-w-full">
+                  <button
+                    type="button"
+                    className={`tab tab-xs ${activeSubTab === "dashboard" ? "tab-active" : ""}`}
+                    onClick={() => setActiveSubTab("dashboard")}
+                    data-testid="minion-tab-dashboard"
+                  >
+                    Dashboard ({dashboardUiFile})
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab tab-xs ${activeSubTab === "input" ? "tab-active" : ""}`}
+                    onClick={() => setActiveSubTab("input")}
+                    data-testid="minion-tab-input"
+                  >
+                    Input Form ({inputUiFile})
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab tab-xs ${activeSubTab === "config" ? "tab-active" : ""}`}
+                    onClick={() => setActiveSubTab("config")}
+                    data-testid="minion-tab-config"
+                  >
+                    Config ({detail.config_file ?? "config.json"})
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab tab-xs ${activeSubTab === "data" ? "tab-active" : ""}`}
+                    onClick={() => {
+                      setActiveSubTab("data");
+                      if (
+                        detail.data_files[0] &&
+                        !activeFile?.path.startsWith(`${detail.path}/data/`)
+                      ) {
+                        void openMinionFile(
+                          detail.id,
+                          detail.data_files[0].path,
+                        );
+                      }
+                    }}
+                  >
+                    Data ({detail.data_file_count})
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab tab-xs ${activeSubTab === "code" ? "tab-active" : ""}`}
+                    onClick={() => {
+                      setActiveSubTab("code");
+                      void openMinionFile(detail.id, detail.entrypoint);
+                    }}
+                  >
+                    Code & Tests (
+                    {detail.code_files.length + detail.test_files.length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab tab-xs ${activeSubTab === "readme" ? "tab-active" : ""}`}
+                    onClick={() => setActiveSubTab("readme")}
+                  >
+                    README
+                  </button>
+                </div>
               </div>
             </div>
 
             {/* Sub-tab Content */}
-            <div className="workspace-mobile-content flex-1 overflow-y-auto p-4 min-h-0">
+            <div
+              className="workspace-mobile-content minion-scroll-content flex-1 overflow-y-auto p-4 min-h-0"
+              data-testid="minion-scroll-content"
+            >
+              <div className="minion-scroll-overview mb-4 space-y-3 rounded-xl border border-base-content/10 bg-base-200/30 p-3 sm:p-4">
+                <p className="text-xs text-base-content/70">
+                  {detail.description}
+                </p>
+                {detail.configuration_required && (
+                  <div
+                    className="alert alert-warning py-2 px-3 text-xs flex flex-wrap items-center justify-between gap-2"
+                    data-testid="minion-config-required-banner"
+                    role="status"
+                  >
+                    <span>
+                      <strong>Configuration required:</strong>{" "}
+                      <code className="font-mono">config.json</code> has
+                      required settings that must be completed before automatic
+                      triggers or scheduled runs can execute.
+                    </span>
+                    <button
+                      className="btn btn-warning btn-xs"
+                      onClick={() => setActiveSubTab("config")}
+                      type="button"
+                      data-testid="minion-configure-now"
+                    >
+                      Configure Minion
+                    </button>
+                  </div>
+                )}
+                <details className="minion-runtime-details">
+                  <summary className="cursor-pointer py-2 text-xs text-base-content/60">
+                    Runtime & triggers
+                  </summary>
+                  <div className="flex flex-wrap gap-2 pb-2">
+                    {detail.input_entrypoint && (
+                      <span
+                        className="badge badge-sm badge-ghost font-mono"
+                        title="Input entrypoint"
+                      >
+                        input: {detail.input_entrypoint}
+                      </span>
+                    )}
+                    <span
+                      className="badge badge-sm badge-ghost font-mono"
+                      title="Data & enrichment entrypoint"
+                    >
+                      main: {detail.entrypoint}
+                    </span>
+                    {detail.triggers?.after_entry !== false && (
+                      <span
+                        className="badge badge-sm badge-info/20 text-info font-mono"
+                        title="main runs automatically right after every new entry"
+                      >
+                        trigger: after-entry
+                      </span>
+                    )}
+                    {detail.triggers?.heartbeat_schedule && (
+                      <span
+                        className="badge badge-sm badge-ghost font-mono"
+                        title="Recommended cron schedule for heartbeat enrichment"
+                      >
+                        heartbeat: {detail.triggers.heartbeat_schedule}
+                      </span>
+                    )}
+                  </div>
+                </details>
+
+                {/* Multiline quick entry scrolls with the selected section. */}
+                <form
+                  onSubmit={(e) => void handleRunQuickInput(e)}
+                  className="minion-quick-entry flex flex-col gap-2"
+                  data-testid="minion-quick-input-form"
+                >
+                  {detail.quick_actions.length > 1 ? (
+                    <select
+                      className="select select-bordered select-sm max-w-full self-start font-medium"
+                      aria-label="Input action"
+                      value={selectedActionId}
+                      onChange={(e) => setSelectedActionId(e.target.value)}
+                    >
+                      {detail.quick_actions.map((act) => (
+                        <option key={act.id} value={act.id}>
+                          {act.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <textarea
+                    ref={setQuickInputElement}
+                    rows={3}
+                    className="textarea textarea-bordered w-full min-w-0"
+                    aria-label="Quick input"
+                    aria-describedby={quickInputHintId}
+                    placeholder={
+                      activeQuickAction?.placeholder ??
+                      "Paste or type an entry…"
+                    }
+                    value={quickInputText}
+                    onChange={(e) => setQuickInputText(e.target.value)}
+                    readOnly={runningState !== "idle"}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key !== "Enter" ||
+                        (!event.ctrlKey && !event.metaKey) ||
+                        event.nativeEvent.isComposing
+                      )
+                        return;
+                      event.preventDefault();
+                      if (runningState === "idle")
+                        event.currentTarget.form?.requestSubmit();
+                    }}
+                    data-testid="minion-quick-input"
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p
+                      id={quickInputHintId}
+                      className="min-w-0 flex-1 text-xs text-base-content/50"
+                    >
+                      Enter for a new line · Ctrl/⌘ + Enter to submit
+                    </p>
+                    <button
+                      type="submit"
+                      className="btn btn-primary btn-sm ml-auto shrink-0"
+                      disabled={runningState !== "idle"}
+                      data-testid="minion-run-button"
+                    >
+                      {runningState === "run" ||
+                      runningState === "input" ||
+                      runningState === "heartbeat"
+                        ? "Running..."
+                        : (activeQuickAction?.label ?? "Add Entry")}
+                    </button>
+                  </div>
+                </form>
+
+                {/* Execution Log Banner */}
+                {executionLog && (
+                  <div
+                    className={`rounded-lg border p-2.5 text-xs font-mono space-y-1.5 ${
+                      executionLog.ok
+                        ? "border-success/30 bg-success/5"
+                        : "border-error/30 bg-error/5"
+                    }`}
+                    data-testid="minion-execution-log"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">
+                          [{executionLog.kind.toUpperCase()}] exit{" "}
+                          {executionLog.exit_code} ({executionLog.duration_ms}
+                          ms) at {executionLog.timestamp}
+                        </span>
+                        {executionLog.steps &&
+                          executionLog.steps.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1">
+                              {executionLog.steps.map((s, idx) => (
+                                <span
+                                  key={`${s.step}-${s.script}`}
+                                  className={`badge badge-xs font-mono ${
+                                    s.exit_code === 0
+                                      ? "badge-success/20 text-success"
+                                      : "badge-error/20 text-error"
+                                  }`}
+                                >
+                                  {idx + 1}. {s.step} ({s.script}:{" "}
+                                  {s.duration_ms}
+                                  ms)
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-2xs"
+                        onClick={() => setExecutionLog(null)}
+                      >
+                        Close
+                      </button>
+                    </div>
+                    {executionLog.stdout && (
+                      <pre className="whitespace-pre-wrap overflow-x-auto max-h-40 text-[11px] bg-base-300/40 p-2 rounded">
+                        {executionLog.stdout}
+                      </pre>
+                    )}
+                    {executionLog.stderr && (
+                      <pre className="whitespace-pre-wrap overflow-x-auto max-h-40 text-[11px] text-error bg-error/10 p-2 rounded">
+                        {executionLog.stderr}
+                      </pre>
+                    )}
+                  </div>
+                )}
+              </div>
               {activeSubTab === "dashboard" && (
                 <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 min-w-0">
