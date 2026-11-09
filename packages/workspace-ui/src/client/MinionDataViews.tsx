@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { minionQuerySchema, type MinionView } from "../shared/minionViews";
+import { type MinionView, minionQuerySchema } from "../shared/minionViews";
 import type { WorkspaceApi } from "./api";
 
 type Result = {
@@ -89,12 +89,10 @@ export function MinionDataViews({
       className="rounded-xl border border-base-content/15 p-4 space-y-3"
       aria-label="Shared Minion data views"
     >
-      <h3 className="font-semibold">Shared data views</h3>
-      <p className="text-xs">
-        Read-only data shared with Hermes. Briefing participation is off unless
-        enabled in Configuration under data_views.briefing; local scopes apply
-        to every query.
-      </p>
+      <div className="flex items-center gap-2">
+        <h3 className="font-semibold">Shared data views</h3>
+        <span className="badge badge-xs badge-ghost">Read-only</span>
+      </div>
       {error && <p role="alert">{error}</p>}
       {views.length > 0 && (
         <div className="flex flex-wrap gap-2 items-end">
