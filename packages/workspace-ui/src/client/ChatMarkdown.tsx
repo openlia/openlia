@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type Prism from "prismjs";
 import type { Token } from "prismjs";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 function renderTokens(value: string | Token | (string | Token)[]): ReactNode {
@@ -51,19 +51,44 @@ function HighlightedCode({
   return <code className={className}>{highlighted}</code>;
 }
 
-export function ChatMarkdown({ content }: { content: string }) {
+export function ChatMarkdown({
+  content,
+  onNavigateLink,
+}: {
+  content: string;
+  onNavigateLink?: ((href: string) => void) | undefined;
+}) {
   return (
     <div className="workspace-markdown chat-markdown">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        urlTransform={(url) =>
+          /^openlia:\/\//i.test(url) ? url : defaultUrlTransform(url)
+        }
         components={{
           // No remote-image tracking or raw HTML in chat. Attachments are a later feature.
           img: ({ alt }) => <span>[Image: {alt || "attachment"}]</span>,
-          a: ({ children, href }) => (
-            <a href={href} rel="noopener noreferrer" target="_blank">
-              {children}
-            </a>
-          ),
+          a: ({ children, href }) => {
+            if (href && /^openlia:\/\//i.test(href) && onNavigateLink) {
+              return (
+                <a
+                  href={href}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    onNavigateLink(href);
+                  }}
+                  title="Open in Workspace UI"
+                >
+                  {children}
+                </a>
+              );
+            }
+            return (
+              <a href={href} rel="noopener noreferrer" target="_blank">
+                {children}
+              </a>
+            );
+          },
           code: ({ children, className }) =>
             typeof children === "string" ? (
               <HighlightedCode content={children} className={className} />

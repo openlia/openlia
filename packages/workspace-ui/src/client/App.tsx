@@ -3121,6 +3121,7 @@ export function App({
           api={api.chat}
           initialPrompt={chatDraftPrompt || undefined}
           initialPromptNewChat={chatDraftNewChat}
+          onNavigateLink={handleNavigateLink}
           onConsumeInitialPrompt={() => {
             setChatDraftPrompt("");
             setChatDraftNewChat(false);

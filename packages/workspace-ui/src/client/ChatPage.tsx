@@ -54,11 +54,13 @@ export function ChatPage({
   api,
   initialPrompt,
   initialPromptNewChat = false,
+  onNavigateLink,
   onConsumeInitialPrompt,
 }: {
   api: ChatApi;
   initialPrompt?: string | undefined;
   initialPromptNewChat?: boolean | undefined;
+  onNavigateLink?: ((href: string) => void) | undefined;
   onConsumeInitialPrompt?: (() => void) | undefined;
 }) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -727,7 +729,10 @@ export function ChatPage({
                 </button>
               )}
               {loading && <p role="status">Loading conversation…</p>}
-              <ChatTranscript messages={messages} />
+              <ChatTranscript
+                messages={messages}
+                onNavigateLink={onNavigateLink}
+              />
               {activity.length > 0 && active && (
                 <details className="chat-live-activity chat-tool-group">
                   <summary>Agent activity ({activity.length})</summary>
@@ -745,7 +750,10 @@ export function ChatPage({
                   aria-label="Lia streaming response"
                 >
                   <div className="chat-speaker">Lia</div>
-                  <ChatMarkdown content={stream} />
+                  <ChatMarkdown
+                    content={stream}
+                    onNavigateLink={onNavigateLink}
+                  />
                 </article>
               )}
               {!loading && selected.writable && (
