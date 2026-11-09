@@ -98,7 +98,10 @@ test("discovery is schema-derived, bounded, and includes Table shorthand", () =>
   expect(tabs.positionalOrder).toEqual(["items"]);
   expect(tabs.referencedComponents).toContain("TabItem");
   expect(tabs.recipes?.length).toBeGreaterThan(0);
-  expect(describeOpenUI("Table")).toHaveProperty("rowTable");
+  const table = describeOpenUI("Table");
+  expect(table).toHaveProperty("rowTable");
+  expect(JSON.stringify(table)).toContain("showAllOption");
+  expect(JSON.stringify(table)).toContain("expandLongText");
   expect(describeOpenUI("NotAComponent").status).toBe("error");
   expect(JSON.stringify(describeOpenUI("Card")).length).toBeLessThan(10_000);
 });

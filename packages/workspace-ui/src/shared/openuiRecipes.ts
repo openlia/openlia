@@ -16,6 +16,25 @@ export const openUIRecipes = [
     code: 'Table(title: "Thực đơn", columns: [{key: "dish", label: "Món ăn"}], rows: [{dish: "Phở bò"}, {dish: "Cơm gà"}])',
   },
   {
+    name: "wide-table",
+    components: ["Table", "Col"],
+    code: `Table(
+  title: "Weekly meals",
+  columns: [
+    {key: "day", label: "Day"},
+    {key: "meal", label: "Meal"},
+    {key: "ingredients", label: "Ingredients"},
+    {key: "recipe", label: "Recipe"}
+  ],
+  rows: [
+    {day: "Monday", meal: "Lunch", ingredients: "Rice noodles, herbs, and slow-cooked beef", recipe: "https://youtu.be/example"},
+    {day: "Monday", meal: "Dinner", ingredients: "Chicken, rice, vegetables, and a long cooking note that can be expanded when needed", recipe: "https://www.youtube.com/watch?v=example"}
+  ],
+  pagination: {enabled: true, pageSize: 14, showAllOption: true},
+  layout: {horizontalScroll: true, wrapText: true, expandLongText: true}
+)`,
+  },
+  {
     name: "card",
     components: ["Card", "CardHeader", "TextContent"],
     code: 'Card(children: [CardHeader(title: "Summary", subtitle: "Today"), TextContent(text: "Two tasks completed.")])',

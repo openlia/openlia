@@ -82,6 +82,10 @@ approval boundaries still apply to consequential actions.
   `openui_describe(component: "ChartPanel")`.
 - Row tables require literal columns `{key, label}` and literal object rows.
   Cells are strings, numbers, booleans, or null, not nested objects or components.
+  Tables keep the 10-row pagination default; use `pagination: {enabled: false}`
+  to show all rows or configure `pageSize` and `showAllOption`. Wide tables can
+  enable `layout: {horizontalScroll: true, wrapText: true,
+  expandLongText: true}`. Absolute HTTP(S) URLs in cells render as concise links.
   See the syntax reference below for a complete Markdown example.
 - Quote and escape strings correctly, especially multiline text, quotes, and
   backslashes. Do not embed fetch calls, JavaScript maps, or invented query tools.

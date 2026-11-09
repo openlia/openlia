@@ -25,10 +25,19 @@ Table(
 - Arguments are positional (upstream syntax) or all named. Named arguments use
   component schema property names; unknown/duplicate names and mixed modes fail.
 - Row `Table(columns, rows, title?)` and named `Table(title: ..., columns: ...,
-  rows: ...)` accept literal column definitions `{key, label}` and object rows.
-  They become upstream `Table([Col(label, data), ...])`; a title adds a Card header.
-  Missing/null cells are empty; string, number, and boolean cells are supported.
-- Upstream column tables, such as `Table([Col("Dish", ["Phở"])])`, are unchanged.
+  rows: ..., pagination: ..., layout: ...)` accept literal column definitions
+  `{key, label}` and object rows. Missing/null cells are empty; string, number,
+  and boolean cells are supported. A title adds a Card header.
+- `pagination` accepts `enabled` (default `true`), positive-integer `pageSize`
+  (default `10`), and `showAllOption` (default `false`). Disable pagination to
+  show every row; enable `showAllOption` to let readers toggle between paged and
+  full views.
+- `layout` accepts `horizontalScroll` (default `true`), `wrapText` (default
+  `false`), and `expandLongText` (default `false`). Absolute HTTP(S) URL cells
+  render as concise external links; other strings remain text.
+- Row tables normalize to `Table([Col(label, data), ...], pagination, layout)`;
+  upstream column tables, such as `Table([Col("Dish", ["Phở"])])`, remain valid.
+- Row/column spans are not supported. Repeat group values in each row.
 - Nested components, escaped strings, and line comments are supported. Do not
   embed executable JavaScript, network requests, or computed expressions in row
   table literals. Use ordinary assignment programs for upstream expressions.

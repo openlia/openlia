@@ -2,6 +2,7 @@ import { createParser } from "@openuidev/lang-core";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { validateCalendarProps } from "./calendar";
 import { openliaOpenUISchema, openUIPropOrder } from "./openuiSchema";
+import { tableLayoutSchema, tablePaginationSchema } from "./table";
 
 export interface MarkdownOpenUIBlock {
   code: string;
@@ -160,7 +161,9 @@ function literal(source: string): unknown {
         throw new Error("Table numbers must be finite");
       return number;
     }
-    throw new Error("Row tables require literal columns, rows, and title");
+    throw new Error(
+      "Row Table values must be literal; columns and rows are required",
+    );
   };
   const parsed = value();
   if (pos !== list.length)
@@ -173,14 +176,27 @@ function rowTable(args: { key?: string; value: string }[]): string | null {
   const fields = new Map(
     args.flatMap((arg) => (arg.key ? [[arg.key, arg.value] as const] : [])),
   );
-  if (!(named ? fields.has("rows") : args.length >= 2)) return null;
+  if (named ? !fields.has("rows") : args.length < 2) return null;
+  if (!named) {
+    // Normalized Table calls contain Col() references and may also have option
+    // arguments. Only treat literal first arguments as row-table shorthand.
+    try {
+      if (!Array.isArray(literal(args[0]?.value ?? ""))) return null;
+    } catch {
+      return null;
+    }
+  }
   if (
     named &&
     args.some(
-      (arg) => !arg.key || !["title", "columns", "rows"].includes(arg.key),
+      (arg) =>
+        !arg.key ||
+        !["title", "columns", "rows", "pagination", "layout"].includes(arg.key),
     )
   )
-    throw new Error("Row Table accepts only title, columns, and rows");
+    throw new Error(
+      "Row Table accepts only title, columns, rows, pagination, and layout",
+    );
   if (!named && args.length > 3)
     throw new Error("Too many row Table arguments");
   const columns = literal(
@@ -207,8 +223,13 @@ function rowTable(args: { key?: string; value: string }[]): string | null {
     });
     return `Col(${JSON.stringify(column.label)}, ${JSON.stringify(cells)})`;
   });
-  const table = `Table([${cols.join(", ")}])`;
   const titleSource = named ? fields.get("title") : args[2]?.value;
+  const paginationSource = named ? fields.get("pagination") : undefined;
+  const layoutSource = named ? fields.get("layout") : undefined;
+  const pagination =
+    paginationSource === undefined ? {} : literal(paginationSource);
+  const layout = layoutSource === undefined ? {} : literal(layoutSource);
+  const table = `Table([${cols.join(", ")}], ${JSON.stringify(pagination)}, ${JSON.stringify(layout)})`;
   if (titleSource === undefined) return table;
   const title = literal(titleSource);
   if (typeof title !== "string")
@@ -343,10 +364,10 @@ export function openUIDiagnostics(source: string): OpenUIDiagnostic[] {
         code: "missing-root",
         message: "Missing required root statement",
       });
-    // JSON Schema cannot express calendar chronology, IANA zones, or unique IDs.
-    // Validate resolved props as well, including nested and referenced calendars.
+    // Validate semantics that the parser's JSON Schema traversal cannot enforce,
+    // including Calendar chronology and nested Table option objects.
     const visited = new WeakSet<object>();
-    const validateCalendars = (value: unknown): void => {
+    const validateComponentProps = (value: unknown): void => {
       if (!value || typeof value !== "object" || visited.has(value)) return;
       visited.add(value);
       if (
@@ -365,9 +386,35 @@ export function openUIDiagnostics(source: string): OpenUIDiagnostic[] {
               hint: "Use either a Remind source or read-only inline events. Inline IDs must be unique, dates and timezones valid, and end after start.",
             });
       }
-      for (const child of Object.values(value)) validateCalendars(child);
+      if (
+        "typeName" in value &&
+        value.typeName === "Table" &&
+        "props" in value &&
+        value.props &&
+        typeof value.props === "object"
+      ) {
+        const props = value.props as Record<string, unknown>;
+        for (const [name, schema] of [
+          ["pagination", tablePaginationSchema],
+          ["layout", tableLayoutSchema],
+        ] as const) {
+          if (!Object.hasOwn(props, name) || props[name] === undefined)
+            continue;
+          const checked = schema.safeParse(props[name]);
+          if (!checked.success)
+            for (const issue of checked.error.issues)
+              diagnostics.push({
+                code: "invalid-table-option",
+                component: "Table",
+                path: `/${name}${issue.path.length ? `/${issue.path.join("/")}` : ""}`,
+                message: issue.message,
+                hint: "Use pagination.enabled, a positive integer pageSize, and showAllOption; layout accepts horizontalScroll, wrapText, and expandLongText booleans.",
+              });
+        }
+      }
+      for (const child of Object.values(value)) validateComponentProps(child);
     };
-    validateCalendars(result.root);
+    validateComponentProps(result.root);
     return diagnostics;
   } catch (error) {
     if (error instanceof OpenUIArgumentError) return [error.diagnostic];

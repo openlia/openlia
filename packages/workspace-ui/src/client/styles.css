@@ -13,6 +13,75 @@ body {
   min-height: 100vh;
 }
 
+.openlia-openui-table {
+  min-width: 0;
+  width: 100%;
+}
+
+.openlia-openui-table__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.375rem;
+  padding-top: 0.5rem;
+}
+
+.openlia-openui-table__status,
+.openlia-openui-table__page {
+  color: var(--openui-text-neutral-secondary);
+  font-size: 0.75rem;
+}
+
+.openlia-openui-table__cell--wrap {
+  max-width: 20rem;
+  overflow-wrap: anywhere;
+  white-space: normal !important;
+}
+
+.openlia-openui-table__cell--wrap a {
+  overflow-wrap: anywhere;
+}
+
+.openlia-openui-table__table--scroll .openui-table-head,
+.openlia-openui-table__table--scroll .openlia-openui-table__cell {
+  min-width: 8rem;
+}
+
+.openlia-openui-table__expandable-text {
+  display: block;
+  min-width: 8rem;
+}
+
+.openlia-openui-table__truncated-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.openlia-openui-table__text-toggle {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--openui-text-info-primary);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.openlia-openui-table__text-toggle:focus-visible {
+  border-radius: 0.125rem;
+  outline: 2px solid var(--openui-border-interactive-emphasis);
+  outline-offset: 2px;
+}
+
+.openlia-openui-table__container--no-scroll {
+  overflow-x: visible !important;
+}
+
 button,
 input,
 textarea {

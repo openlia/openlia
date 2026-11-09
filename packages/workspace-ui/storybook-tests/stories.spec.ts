@@ -85,6 +85,29 @@ for (const story of Object.values(index.entries).filter(
       expect(layout.table).toBeGreaterThanOrEqual(layout.wrapper - 1);
       expect(layout.overflow).toBe("auto");
     }
+    if (story.id === "openui-inline-markdown--authoring-recipes") {
+      await page.setViewportSize({ width: 390, height: 844 });
+      const table = page
+        .locator(".openlia-openui-table")
+        .nth(1)
+        .getByRole("table", { name: "OpenUI data table" });
+      await expect(table).toBeVisible();
+      const layout = await table.evaluate((element) => {
+        const container = element.parentElement;
+        if (!container)
+          throw new Error("Wide table scroll container is missing");
+        return {
+          containerWidth: container.clientWidth,
+          scrollWidth: container.scrollWidth,
+          overflow: getComputedStyle(container).overflowX,
+          documentWidth: document.documentElement.scrollWidth,
+          viewportWidth: document.documentElement.clientWidth,
+        };
+      });
+      expect(layout.overflow).toBe("auto");
+      expect(layout.scrollWidth).toBeGreaterThan(layout.containerWidth);
+      expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
+    }
     if (story.id === "openui-inline-markdown--inline-calendar") {
       await expect(page.getByText("Inline events · read-only")).toBeVisible();
       await expect(
