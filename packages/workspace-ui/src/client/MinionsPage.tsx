@@ -12,11 +12,11 @@ import type {
 import { extractFormDataFromOpenUIEvent, openUIErrors } from "../shared/openui";
 import type { WorkspaceApi } from "./api";
 import { CodeEditor } from "./CodeEditor";
-import { MinionDataViews } from "./MinionDataViews";
-import { ResponsiveDrawer } from "./components/common/ResponsiveDrawer";
 import { ActionMenu } from "./components/common/ActionMenu";
+import { ResponsiveDrawer } from "./components/common/ResponsiveDrawer";
 import { ScrollableToolbar } from "./components/common/ScrollableToolbar";
 import { MarkdownPreview } from "./components/editor/MarkdownPreview";
+import { MinionDataViews } from "./MinionDataViews";
 import { buildCanonicalMinionUri } from "./openliaLinks";
 import { CHART_THEME } from "./openui/charts/palette";
 import { OpenLiaOpenUIProvider } from "./openui/context";
@@ -1733,6 +1733,29 @@ export function MinionsPage({
                       </div>
                     </div>
                   </div>
+
+                  {detail.code_files.some((file) =>
+                    file.path.endsWith("/data.views.json"),
+                  ) && (
+                    <details
+                      className="rounded-lg border border-base-content/10 px-3 py-2 text-xs"
+                      data-testid="minion-data-view-sharing-help"
+                    >
+                      <summary className="cursor-pointer text-base-content/70">
+                        Data view sharing
+                      </summary>
+                      <p className="mt-2 text-base-content/60">
+                        These declared views are read-only and queryable by
+                        Hermes. Scheduled briefings do not include them by
+                        default; add view IDs to this Minion&apos;s local{" "}
+                        <code>config.json</code> under{" "}
+                        <code>data_views.briefing</code> to opt in. Any{" "}
+                        <code>data_views.scopes</code> restrictions apply to
+                        every query, including dashboard reads. These local
+                        settings are not included when sharing the Minion.
+                      </p>
+                    </details>
+                  )}
 
                   <div className="min-w-0 space-y-2">
                     <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">

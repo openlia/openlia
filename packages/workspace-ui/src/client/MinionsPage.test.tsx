@@ -36,6 +36,34 @@ test("keeps quick entry and minion details in the scrollable workspace panel", a
   );
 });
 
+test("keeps data view sharing guidance collapsed in Minion configuration", async () => {
+  const api = createMockWorkspaceApi();
+  const { minion } = await api.getMinion("sample-minion");
+  vi.spyOn(api, "getMinion").mockResolvedValue({
+    schema: 1,
+    minion: {
+      ...minion,
+      code_files: [
+        {
+          path: "minions/sample-minion/data.views.json",
+          size: 0,
+          modified_at: "2026-11-09T00:00:00.000Z",
+          editable: true,
+        },
+      ],
+    },
+  });
+  renderMinion(api);
+
+  fireEvent.click(await screen.findByTestId("minion-tab-config"));
+  const help = await screen.findByTestId("minion-data-view-sharing-help");
+  expect(help).not.toHaveAttribute("open");
+  fireEvent.click(screen.getByText("Data view sharing"));
+  expect(help).toHaveAttribute("open");
+  expect(help).toHaveTextContent("Scheduled briefings do not include them");
+  expect(help).toHaveTextContent("data_views.scopes");
+});
+
 test("Ctrl+Enter submits multiline input without trimming the draft", async () => {
   const api = createMockWorkspaceApi();
   const submit = vi.spyOn(api, "submitMinionInput");

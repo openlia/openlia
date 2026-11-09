@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import {
-  minionViewDescriptionSchema,
   minionQueryResultSchema,
+  minionViewDescriptionSchema,
 } from "../shared/minionViews";
 import { MinionDataViews } from "./MinionDataViews";
 
@@ -62,6 +62,8 @@ it("uses the injected runtime API, including TanStack transport", async () => {
     purpose: "interactive",
   });
   expect(screen.getByText(/Additional records omitted/)).toBeTruthy();
+  expect(screen.getByText("Read-only")).toBeTruthy();
+  expect(screen.queryByText(/Briefing participation/)).toBeNull();
 });
 it("distinguishes unavailable data from zero activity", async () => {
   render(
