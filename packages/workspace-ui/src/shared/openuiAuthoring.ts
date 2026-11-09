@@ -11,7 +11,7 @@ export function describeOpenUI(component?: string) {
       status: "ok",
       components,
       guidance:
-        "Request a component for its schema, positional order, and tested recipes. Prefer named arguments. Table additionally supports literal columns/rows/title.",
+        "Request a component for its schema, positional order, and tested recipes. Prefer named arguments. Table additionally supports literal columns/rows/title and pagination/layout options.",
       recipes: openUIRecipes.map(({ name, components }) => ({
         name,
         components,
@@ -60,6 +60,10 @@ export function describeOpenUI(component?: string) {
             columns: "Array<{key: string, label: string}>",
             rows: "Array<Record<string, string | number | boolean | null>>",
             title: "optional string",
+            pagination:
+              "optional {enabled?: boolean, pageSize?: positive integer, showAllOption?: boolean}; defaults to enabled with 10 rows per page",
+            layout:
+              "optional {horizontalScroll?: boolean, wrapText?: boolean, expandLongText?: boolean}; horizontal scrolling is enabled by default",
           },
         }
       : {}),

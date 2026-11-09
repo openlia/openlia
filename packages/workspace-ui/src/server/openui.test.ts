@@ -30,6 +30,14 @@ test("upstream column tables and positional row tables remain valid", () => {
       'Table([{key: "v", label: "Value"}], [{v: 1e+2}, {v: -2.5e-3}])',
     ),
   ).toEqual([]);
+  const configured =
+    'Table(title: "Weekly meals", columns: [{key: "meal", label: "Meal"}], rows: [{meal: "Lunch"}], pagination: {enabled: false}, layout: {wrapText: true, expandLongText: true})';
+  expect(openUIErrors(configured)).toEqual([]);
+  const normalized = normalizeOpenUIProgram(configured);
+  expect(normalized).toContain(
+    'Table([Col("Meal", ["Lunch"])], {"enabled":false}, {"wrapText":true,"expandLongText":true})',
+  );
+  expect(normalizeOpenUIProgram(normalized)).toBe(normalized);
 });
 
 test("retained custom components validate through the shared catalog", () => {
@@ -54,6 +62,9 @@ test("invalid arguments and malformed literals terminate with diagnostics", () =
     'Table(columns: [{key: "v", label: "V"}], rows: [{v: 1 v: 2}])',
     'Table(columns: [{key: "v", label: "V"}], rows: [{v: "unterminated}])',
     'Table(columns: [{key: "v", label: "V"}], rows: [{v: 1}], typo: "x")',
+    'Table(columns: [{key: "v", label: "V"}], rows: [{v: 1}], pagination: {pageSize: 0})',
+    'Table(columns: [{key: "v", label: "V"}], rows: [{v: 1}], layout: {wrapText: "yes"})',
+    'Table(columns: [{key: "v", label: "V"}], rows: [{v: 1}], pagination: null)',
     "UnknownWidget()",
   ])
     expect(openUIErrors(source).length, source).toBeGreaterThan(0);

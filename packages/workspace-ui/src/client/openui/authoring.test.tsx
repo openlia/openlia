@@ -75,6 +75,14 @@ test.each(
   expect(screen.getByText("After")).toBeInTheDocument();
   if (recipe.name === "table")
     expect(screen.getByRole("cell", { name: "Phở bò" })).toBeInTheDocument();
+  if (recipe.name === "wide-table") {
+    expect(
+      screen.getByRole("columnheader", { name: "Ingredients" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("link", { name: "Open YouTube in a new tab" }),
+    ).toHaveLength(2);
+  }
   if (recipe.name === "tabs") {
     fireEvent.click(screen.getByRole("tab", { name: "Details" }));
     expect(screen.getByText("More information")).toBeInTheDocument();

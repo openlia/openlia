@@ -17,6 +17,38 @@ and column tables remain supported. Calendar, Finance, ChartPanel, and
 SankeyDiagram are available alongside upstream components. Relative data paths
 resolve from the Markdown document's parent directory.
 
+### Configurable and responsive tables
+
+Row tables retain their default pagination of 10 rows. Set `pageSize` to choose a
+different page size, `pagination: {enabled: false}` to show every row, or
+`showAllOption: true` to let readers switch between paged and full views. Wide
+tables retain horizontal scrolling; `wrapText` keeps long cell values from
+forcing a very wide table, and `expandLongText` adds controls for long text.
+Absolute HTTP(S) URLs render as concise external links; other strings remain text.
+
+```openui
+Table(
+  title: "Weekly meals",
+  columns: [
+    {key: "day", label: "Day"},
+    {key: "meal", label: "Meal"},
+    {key: "ingredients", label: "Ingredients"},
+    {key: "instructions", label: "Cooking method"},
+    {key: "recipe", label: "Recipe"}
+  ],
+  rows: [
+    {day: "Monday", meal: "Lunch", ingredients: "Rice noodles, herbs, and slow-cooked beef", instructions: "Prepare the broth in advance, then cook the noodles just before serving.", recipe: "https://youtu.be/example"},
+    {day: "Monday", meal: "Dinner", ingredients: "Chicken, rice, seasonal vegetables, and aromatics", instructions: "Roast the chicken until cooked through; serve with rice and vegetables.", recipe: "https://www.youtube.com/watch?v=example"}
+  ],
+  pagination: {enabled: false},
+  layout: {horizontalScroll: true, wrapText: true, expandLongText: true}
+)
+```
+
+For a 14-meal week, the same table can use `pageSize: 14` instead of disabling
+pagination. Row spans and column spans are not supported; repeat group values in
+each row to keep the table data and layout straightforward.
+
 Each block is isolated. Syntax errors show diagnostics and raw source; runtime
 errors preserve source and do not break the rest of the document. Inline
 diagnostics are advisory and separate from template/schema validity.
