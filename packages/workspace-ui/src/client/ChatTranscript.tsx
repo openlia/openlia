@@ -90,7 +90,13 @@ function ToolActivity({ messages }: { messages: ChatMessage[] }) {
   );
 }
 
-export function ChatTranscript({ messages }: { messages: ChatMessage[] }) {
+export function ChatTranscript({
+  messages,
+  onNavigateLink,
+}: {
+  messages: ChatMessage[];
+  onNavigateLink?: ((href: string) => void) | undefined;
+}) {
   return groupChatMessages(messages).map((turn) => {
     const text = turn.messages
       .filter((message) => message.role !== "tool")
@@ -112,7 +118,11 @@ export function ChatTranscript({ messages }: { messages: ChatMessage[] }) {
               message.role !== "tool" && chatMessageText(message).trim(),
           )
           .map((message) => (
-            <ChatMarkdown key={message.id} content={chatMessageText(message)} />
+            <ChatMarkdown
+              key={message.id}
+              content={chatMessageText(message)}
+              onNavigateLink={onNavigateLink}
+            />
           ))}
         {text.length > 0 && (
           <button

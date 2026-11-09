@@ -435,6 +435,48 @@ describe("Workspace chat", () => {
     finish({});
     await waitFor(() => expect(button).not.toBeDisabled());
   });
+  it("routes canonical document and Minion links from saved chat messages", async () => {
+    const api = createChatMock();
+    vi.spyOn(api, "messages").mockResolvedValue({
+      data: [
+        {
+          id: "links",
+          role: "assistant",
+          content:
+            "[Project notes](openlia://workspace/projects/roadmap.md)\n\n[Planner](openlia://minions/planner)",
+        },
+      ],
+      session_id: "demo-chat",
+    });
+    const onNavigateLink = vi.fn();
+    render(<ChatPage api={api} onNavigateLink={onNavigateLink} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Getting started with Lia/ }),
+    );
+
+    const documentLink = await screen.findByRole("link", {
+      name: "Project notes",
+    });
+    const minionLink = screen.getByRole("link", { name: "Planner" });
+    expect(documentLink).toHaveAttribute(
+      "href",
+      "openlia://workspace/projects/roadmap.md",
+    );
+    expect(minionLink).toHaveAttribute("href", "openlia://minions/planner");
+    expect(documentLink).not.toHaveAttribute("target", "_blank");
+    expect(minionLink).not.toHaveAttribute("target", "_blank");
+
+    fireEvent.click(documentLink);
+    fireEvent.click(minionLink);
+    expect(onNavigateLink).toHaveBeenNthCalledWith(
+      1,
+      "openlia://workspace/projects/roadmap.md",
+    );
+    expect(onNavigateLink).toHaveBeenNthCalledWith(
+      2,
+      "openlia://minions/planner",
+    );
+  });
   it("does not execute raw HTML, render tracking images, or allow script links", async () => {
     const { container } = render(
       <ChatMarkdown
