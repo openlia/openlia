@@ -19,7 +19,7 @@ flowchart TD
         Config["Operator Config & Keys<br/>(~/.config/openlia/)"]
     end
 
-    subgraph Catalog["Public / Custom Minions & Catalog"]
+    subgraph Catalog["Public / Custom Catalog"]
         Templates["openlia/minions Git Repo<br/>(profiles/, features/, skills/, catalog.json)"]
     end
 
@@ -142,6 +142,14 @@ See [`packages/workspace-ui/README.md`](../packages/workspace-ui/README.md) for 
 - **Mutating Call Idempotency**: Requires a caller-supplied `operation_id` on mutating tools (`browser_click`, `browser_type`, etc.) to prevent duplicate clicks/submissions on retry.
 
 See [`packages/openlia-browser/README.md`](../packages/openlia-browser/README.md) for full details.
+
+### C. Generative UI with Moi
+OpenLia supports [Moi](https://github.com/moi-computer/moi) (`moi.computer`) as an external Generative UI workspace.
+- **ACP Integration**: Moi connects to Hermes over standard I/O via the Agent Client Protocol (`hermes -p personal-os acp`).
+- **Workspace-Local Components**: Generated React components live in `.moi/` inside the user's workspace, versioned directly with Git.
+- **Complementary to Inline OpenUI**: Fenced `openui` code blocks provide lightweight declarative views embedded within notes, while Moi provides interactive, stateful canvases.
+
+See [`docs/generative-ui-moi.md`](generative-ui-moi.md) for the complete integration guide.
 
 ---
 

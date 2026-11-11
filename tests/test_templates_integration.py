@@ -20,12 +20,12 @@ class TemplatesIntegrationRunnerTests(unittest.TestCase):
             source.mkdir(parents=True)
             (source / "starter.md").write_text("# Starter\n")
             desktop = runner.prepare_browser_workspace(source, scratch, "desktop")
-            pending = desktop / "minions/personal-finance/data/pending"
+            pending = desktop / "finance/data/pending"
             pending.mkdir(parents=True)
             (pending / "abandoned.json").write_text('{"status":"pending"}')
             mobile = runner.prepare_browser_workspace(source, scratch, "mobile")
-            self.assertFalse((mobile / "minions/personal-finance/data/pending").exists())
-            self.assertFalse((source / "minions").exists())
+            self.assertFalse((mobile / "finance/data/pending").exists())
+            self.assertFalse((source / "finance").exists())
             self.assertEqual((mobile / "starter.md").read_text(), "# Starter\n")
 
     def test_environment_does_not_select_live_deployments(self):

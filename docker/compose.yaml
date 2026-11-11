@@ -30,6 +30,9 @@ services:
         source: "${OPENLIA_DATA_ROOT:?OPENLIA_DATA_ROOT is required}"
         target: /opt/data
       - type: bind
+        source: "${OPENLIA_DATA_ROOT}/bin/moi"
+        target: /usr/local/bin/moi
+      - type: bind
         source: "${OPENLIA_SYSTEM_SKILLS_ROOT:?OPENLIA_SYSTEM_SKILLS_ROOT is required}/openlia-skill-migration"
         target: /opt/data/skills/openlia-skill-migration
         read_only: true
@@ -40,10 +43,6 @@ services:
       - type: bind
         source: "${OPENLIA_SYSTEM_SKILLS_ROOT:?OPENLIA_SYSTEM_SKILLS_ROOT is required}/inline-openui-authoring"
         target: /opt/data/skills/inline-openui-authoring
-        read_only: true
-      - type: bind
-        source: "${OPENLIA_SYSTEM_SKILLS_ROOT:?OPENLIA_SYSTEM_SKILLS_ROOT is required}/minion-authoring"
-        target: /opt/data/skills/minion-authoring
         read_only: true
       - type: bind
         source: "${OPENLIA_SECRET_DIR:?OPENLIA_SECRET_DIR is required}"

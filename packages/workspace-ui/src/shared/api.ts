@@ -977,7 +977,6 @@ export interface FeatureSummary {
   domains: string[];
   domain_details?: FeatureDomainSummary[] | undefined;
   skills: string[];
-  minions?: string[] | undefined;
 }
 
 export interface FeaturesListResponse {
@@ -993,7 +992,6 @@ export interface FeatureInstallRequest {
 }
 
 export interface FeatureInstallResponse {
-  minions?: Array<{ id: string; configuration_required: boolean }> | undefined;
   catalog?: TemplatesCatalogProvenance | undefined;
   schema: 1;
   ok: true;
@@ -1102,125 +1100,4 @@ export interface PublicShareResponse {
     feature_metadata?: ShareFeatureMetadata | undefined;
     files: PublicShareFileEntry[];
   };
-}
-
-export type MinionRuntime = "python" | "typescript";
-
-export type MinionTriggerKind = "entry" | "heartbeat" | "input" | "manual";
-
-export type MinionTriggerSpec =
-  | "entry"
-  | "cron"
-  | "both"
-  | {
-      on_new_entry?: boolean | undefined;
-      cron?: string | undefined;
-    };
-
-export interface MinionConfig {
-  trigger: MinionTriggerSpec;
-  [key: string]: unknown;
-}
-
-export interface MinionTriggersConfig {
-  after_entry: boolean;
-  heartbeat_schedule?: string | undefined;
-}
-
-export interface MinionQuickAction {
-  id: string;
-  label: string;
-  description?: string | undefined;
-  placeholder?: string | undefined;
-  args?: string[] | undefined;
-}
-
-export interface MinionSummary {
-  configuration_required?: boolean | undefined;
-  id: string;
-  path: string;
-  name: string;
-  description: string;
-  icon?: string | undefined;
-  runtime: MinionRuntime;
-  entrypoint: "main.py" | "main.ts";
-  input_entrypoint?: "input.py" | "input.ts" | undefined;
-  input_schema_file?: string | undefined;
-  config_file?: string | undefined;
-  config_schema_file?: string | undefined;
-  dependency_file?: "requirements.txt" | "package.json" | undefined;
-  ui_files: string[];
-  dashboard_ui_file?: string | undefined;
-  input_ui_file?: string | undefined;
-  primary_ui_file?: string | undefined;
-  triggers?: MinionTriggersConfig | undefined;
-  data_file_count: number;
-  script_file_count: number;
-  test_file_count: number;
-  renderable: boolean;
-  render_errors?: string[] | undefined;
-  quick_actions: MinionQuickAction[];
-}
-
-export interface MinionDetail extends MinionSummary {
-  readme_content: string;
-  ui_contents: Record<string, string>;
-  input_schema?: Record<string, unknown> | undefined;
-  input_schema_content?: string | undefined;
-  config?: MinionConfig | undefined;
-  config_content?: string | undefined;
-  config_schema?: Record<string, unknown> | undefined;
-  config_schema_content?: string | undefined;
-  data_files: WorkspaceFileMetadata[];
-  code_files: WorkspaceFileMetadata[];
-  test_files: WorkspaceFileMetadata[];
-}
-
-export interface MinionsListResponse {
-  schema: 1;
-  minions: MinionSummary[];
-}
-
-export interface MinionDetailResponse {
-  schema: 1;
-  minion: MinionDetail;
-}
-
-export interface MinionCreateRequest {
-  id: string;
-  name: string;
-  description?: string | undefined;
-  runtime: MinionRuntime;
-  heartbeat_schedule?: string | undefined;
-}
-
-export interface MinionRunRequest {
-  trigger?: MinionTriggerKind | undefined;
-  action?: string | undefined;
-  input?: string | undefined;
-  data?: Record<string, unknown> | undefined;
-  args?: string[] | undefined;
-  skip_post_entry_main?: boolean | undefined;
-}
-
-export interface MinionExecutionStep {
-  step: "input" | "post_entry_main" | "heartbeat" | "main";
-  script: string;
-  trigger?: string | undefined;
-  ok?: boolean | undefined;
-  exit_code: number;
-  stdout: string;
-  stderr: string;
-  duration_ms: number;
-}
-
-export interface MinionRunResponse {
-  schema: 1;
-  ok: boolean;
-  exit_code: number;
-  stdout: string;
-  stderr: string;
-  duration_ms: number;
-  steps?: MinionExecutionStep[] | undefined;
-  minion: MinionDetail;
 }

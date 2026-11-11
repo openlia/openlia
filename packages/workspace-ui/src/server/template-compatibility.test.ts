@@ -149,7 +149,7 @@ describe("browser feature installs", () => {
   test("discovery and install results expose the selected catalog identity", () => {
     const catalog = {
       schema: 1,
-      source: "https://github.com/openlia/minions.git",
+      source: "https://github.com/openlia/catalog.git",
       ref: "a".repeat(40),
       revision: "a".repeat(40),
       mode: "git",
@@ -222,7 +222,7 @@ describe("browser feature installs", () => {
     ).toContain("name: yaml-child");
   });
 
-  test("exposes declared requirements (including hledger), minion ids, and domain details in list()", () => {
+  test("exposes declared requirements (including hledger) and domain details in list()", () => {
     put(
       "catalog/personal-finance/feature.yaml",
       [
@@ -245,23 +245,6 @@ describe("browser feature installs", () => {
         "    path: skills/personal-finance",
       ].join("\n"),
     );
-    put(
-      "catalog/gym-tracker/feature.yaml",
-      [
-        "schema: 1",
-        "id: gym-tracker",
-        "name: Gym Tracker",
-        "version: 0.1.0",
-        "description: Workout tracker Minion app.",
-        "requires:",
-        "  openlia: '>=0.1.0'",
-        "domains:",
-        "  - path: minions/gym-tracker",
-        "    label: Gym Tracker",
-        "    purpose: Workout sessions and progression dashboard.",
-        "    lifecycle: active -> archived",
-      ].join("\n"),
-    );
 
     const listed = service.list();
     const finance = listed.features.find((f) => f.id === "personal-finance");
@@ -270,11 +253,7 @@ describe("browser feature installs", () => {
       core_domains: ["inbox", "knowledge"],
       tools: ["hledger"],
     });
-    expect(finance?.minions).toBeUndefined();
     expect(finance?.domain_details?.[0]?.label).toBe("Finance");
-
-    const gym = listed.features.find((f) => f.id === "gym-tracker");
-    expect(gym?.minions).toEqual(["gym-tracker"]);
   });
 
   test("rejects unsupported required tools before writing any files", () => {
@@ -288,29 +267,7 @@ describe("browser feature installs", () => {
     expect(existsSync(join(root, "workspace"))).toBe(false);
   });
 
-  test("HTTP handler returns actionable error message on conflict and preserves installed state across sequential installs", async () => {
-    put(
-      "catalog/gym-tracker/feature.yaml",
-      "schema: 1\nid: gym-tracker\nname: Gym Tracker\nversion: 0.1.0\nrequires: {openlia: '>=0.1.0'}\ndomains:\n  - path: minions/gym-tracker\n    label: Gym Tracker\n    purpose: Workout tracker\n    lifecycle: active -> archived\n",
-    );
-    const gymFiles = {
-      "README.md": "# Gym Tracker\n\nTrack workouts.\n",
-      "main.py": "print('ok')\n",
-      "input.py": "print('input')\n",
-      "input.schema.json": '{"type":"object"}\n',
-      "dashboard.openui": 'Text(value: "Gym")\n',
-      "input.openui": 'Text(value: "Input")\n',
-      "tests/test_main.py": "# reviewed test\n",
-      "config.schema.json":
-        '{"type":"object","required":["trigger"],"properties":{"trigger":{"type":"object","default":{"on_new_entry":false}}}}\n',
-    };
-    for (const [name, content] of Object.entries(gymFiles)) {
-      put(`catalog/gym-tracker/workspace/minions/gym-tracker/${name}`, content);
-    }
-    put(
-      "catalog/gym-tracker/workspace/minions/gym-tracker/minion.package.json",
-      JSON.stringify({ schema: 1, files: Object.keys(gymFiles) }),
-    );
+  test("HTTP handler installs features and exposes discoverable domains", async () => {
     put(
       "catalog/personal-health/feature.yaml",
       [
@@ -352,37 +309,6 @@ describe("browser feature installs", () => {
       skillsRoot: join(root, "skills"),
       workspaceRoot: join(root, "workspace"),
     });
-
-    const installGym = await handler(
-      new Request("http://localhost/api/features/install", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Origin: "http://localhost",
-        },
-        body: JSON.stringify({ id: "gym-tracker" }),
-      }),
-    );
-    expect(installGym.status).toBe(200);
-
-    // Re-installing existing Minion returns 409 with minion_install_requires_cli and descriptive message
-    const conflictRes = await handler(
-      new Request("http://localhost/api/features/install", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Origin: "http://localhost",
-        },
-        body: JSON.stringify({ id: "gym-tracker" }),
-      }),
-    );
-    expect(conflictRes.status).toBe(409);
-    const conflictBody = (await conflictRes.json()) as {
-      error: string;
-      message?: string;
-    };
-    expect(conflictBody.error).toBe("minion_install_requires_cli");
-    expect(conflictBody.message).toContain("use the managed CLI");
 
     const installHealth = await handler(
       new Request("http://localhost/api/features/install", {

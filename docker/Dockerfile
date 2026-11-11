@@ -115,7 +115,6 @@ PY
 # OpenLia's policy plugin is bundled with the image and enabled by profile/config.yaml.
 COPY profile/plugins/openlia-policy /opt/hermes/plugins/openlia-policy
 COPY --chmod=0644 packages/workspace-ui/dist/openui-authoring.js /usr/local/lib/openlia/openui-authoring.js
-COPY --chmod=0644 packages/workspace-ui/dist/minion-views.js /usr/local/lib/openlia/minion-views.js
 
 ARG OPENLIA_PROJECT_NAME="openlia"
 COPY docker/yt-dlp-requirements.txt /usr/local/share/openlia/yt-dlp-requirements.txt

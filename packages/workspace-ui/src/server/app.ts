@@ -5,8 +5,6 @@ import type {
   AuthLoginResponse,
   FeatureInstallRequest,
   FeaturePackageRequest,
-  MinionCreateRequest,
-  MinionRunRequest,
   ShareCreateRequest,
   ShareExpirationPreset,
   ShareUpdateRequest,
@@ -44,8 +42,6 @@ import {
 } from "./maintainer";
 import { MemoryFileService } from "./memory";
 import { MigrationService } from "./migration";
-import { MinionService } from "./minions";
-import { MinionViewService } from "./minion-views";
 import { ShareService } from "./shares";
 import { SkillService } from "./skills";
 import { UsageService } from "./usage";
@@ -326,7 +322,6 @@ export function createWorkspaceHandler(
     service,
     options.timezone ?? process.env.OPENLIA_TIMEZONE ?? process.env.TZ ?? "UTC",
   );
-  const minionViews = new MinionViewService(service, calendar);
   const checkpointService = new CheckpointService(service.workspaceRoot);
   const memoryService = new MemoryFileService(service, options.memoriesRoot);
   const ingestionService = new IngestionService(options);
@@ -363,10 +358,6 @@ export function createWorkspaceHandler(
     maxFailedLookups: options.maxFailedShareLookups,
     skillService,
     workspaceService: service,
-  });
-  const minionService = new MinionService({
-    workspaceRoot: options.workspaceRoot,
-    maxEditableBytes: options.maxEditableBytes,
   });
   const cronRoot =
     options.cronRoot ??
@@ -442,8 +433,6 @@ export function createWorkspaceHandler(
           url.pathname === "/file" ||
           url.pathname.startsWith("/skills/") ||
           url.pathname === "/skills" ||
-          url.pathname.startsWith("/minions/") ||
-          url.pathname === "/minions" ||
           url.pathname.startsWith("/catalog/") ||
           url.pathname === "/catalog" ||
           url.pathname.startsWith("/shares/") ||
@@ -2354,245 +2343,6 @@ export function createWorkspaceHandler(
             400,
           );
         }
-      }
-      if (request.method === "GET" && url.pathname === "/api/minions") {
-        return json(minionService.listMinions());
-      }
-      if (request.method === "GET" && url.pathname === "/api/minion-views") {
-        return json(minionViews.list());
-      }
-      if (
-        request.method === "GET" &&
-        url.pathname.startsWith("/api/minion-views/")
-      ) {
-        try {
-          return json(
-            minionViews.describe(
-              decodeURIComponent(
-                url.pathname.slice("/api/minion-views/".length),
-              ),
-            ),
-          );
-        } catch (error) {
-          return json(
-            {
-              schema: 1,
-              status: "unavailable",
-              message:
-                error instanceof Error ? error.message : "View unavailable",
-            },
-            400,
-          );
-        }
-      }
-      if (
-        request.method === "POST" &&
-        url.pathname === "/api/minion-views/query"
-      ) {
-        if (!sameOrigin(request, url, publicOrigin))
-          return json({ schema: 1, error: "origin_not_allowed" }, 403);
-        const body = await readJson(request, 16384);
-        if (body.tooLarge)
-          return json({ schema: 1, error: "request_too_large" }, 413);
-        try {
-          return json(await minionViews.query(body.value));
-        } catch (error) {
-          return json(
-            {
-              schema: 1,
-              status: "unavailable",
-              message:
-                error instanceof Error ? error.message : "View unavailable",
-            },
-            400,
-          );
-        }
-      }
-      if (request.method === "POST" && url.pathname === "/api/minions") {
-        if (!sameOrigin(request, url, publicOrigin))
-          return json(
-            { schema: 1, ok: false, error: "origin_not_allowed" },
-            403,
-          );
-        const bodyResult = await readJson(request, 16384);
-        if (bodyResult.tooLarge)
-          return json(
-            { schema: 1, ok: false, error: "request_too_large" },
-            413,
-          );
-        if (!isObject(bodyResult.value))
-          return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
-        const created = minionService.createMinion(
-          bodyResult.value as Partial<MinionCreateRequest>,
-        );
-        return json(created, 201);
-      }
-      if (
-        request.method === "POST" &&
-        url.pathname.startsWith("/api/minions/") &&
-        url.pathname.endsWith("/install")
-      ) {
-        if (!sameOrigin(request, url, publicOrigin))
-          return json(
-            { schema: 1, ok: false, error: "origin_not_allowed" },
-            403,
-          );
-        const prefix = "/api/minions/";
-        const suffix = "/install";
-        const id = decodeURIComponent(
-          url.pathname.slice(
-            prefix.length,
-            url.pathname.length - suffix.length,
-          ),
-        );
-        return json(await minionService.installMinionDependencies(id));
-      }
-      if (
-        request.method === "PUT" &&
-        url.pathname.startsWith("/api/minions/") &&
-        url.pathname.endsWith("/config")
-      ) {
-        if (!sameOrigin(request, url, publicOrigin))
-          return json(
-            { schema: 1, ok: false, error: "origin_not_allowed" },
-            403,
-          );
-        const prefix = "/api/minions/";
-        const suffix = "/config";
-        const id = decodeURIComponent(
-          url.pathname.slice(
-            prefix.length,
-            url.pathname.length - suffix.length,
-          ),
-        );
-        const bodyResult = await readJson(request, 64 * 1024);
-        if (bodyResult.tooLarge)
-          return json(
-            { schema: 1, ok: false, error: "request_too_large" },
-            413,
-          );
-        if (!isObject(bodyResult.value))
-          return json(
-            { schema: 1, ok: false, error: "request_body_must_be_json" },
-            400,
-          );
-        return json(minionService.updateMinionConfig(id, bodyResult.value));
-      }
-      if (
-        request.method === "POST" &&
-        url.pathname.startsWith("/api/minions/") &&
-        url.pathname.endsWith("/input")
-      ) {
-        if (!sameOrigin(request, url, publicOrigin))
-          return json(
-            { schema: 1, ok: false, error: "origin_not_allowed" },
-            403,
-          );
-        const prefix = "/api/minions/";
-        const suffix = "/input";
-        const id = decodeURIComponent(
-          url.pathname.slice(
-            prefix.length,
-            url.pathname.length - suffix.length,
-          ),
-        );
-        const bodyResult = await readJson(request, 64 * 1024);
-        if (bodyResult.tooLarge)
-          return json(
-            { schema: 1, ok: false, error: "request_too_large" },
-            413,
-          );
-        const body = isObject(bodyResult.value)
-          ? (bodyResult.value as Partial<MinionRunRequest>)
-          : {};
-        return json(await minionService.submitMinionInput(id, body));
-      }
-      if (
-        request.method === "POST" &&
-        url.pathname.startsWith("/api/minions/") &&
-        url.pathname.endsWith("/heartbeat")
-      ) {
-        if (!sameOrigin(request, url, publicOrigin))
-          return json(
-            { schema: 1, ok: false, error: "origin_not_allowed" },
-            403,
-          );
-        const prefix = "/api/minions/";
-        const suffix = "/heartbeat";
-        const id = decodeURIComponent(
-          url.pathname.slice(
-            prefix.length,
-            url.pathname.length - suffix.length,
-          ),
-        );
-        const bodyResult = await readJson(request, 64 * 1024);
-        if (bodyResult.tooLarge)
-          return json(
-            { schema: 1, ok: false, error: "request_too_large" },
-            413,
-          );
-        const body = isObject(bodyResult.value)
-          ? (bodyResult.value as Partial<MinionRunRequest>)
-          : {};
-        return json(await minionService.runMinionHeartbeat(id, body));
-      }
-      if (
-        request.method === "POST" &&
-        url.pathname.startsWith("/api/minions/") &&
-        url.pathname.endsWith("/run")
-      ) {
-        if (!sameOrigin(request, url, publicOrigin))
-          return json(
-            { schema: 1, ok: false, error: "origin_not_allowed" },
-            403,
-          );
-        const prefix = "/api/minions/";
-        const suffix = "/run";
-        const id = decodeURIComponent(
-          url.pathname.slice(
-            prefix.length,
-            url.pathname.length - suffix.length,
-          ),
-        );
-        const bodyResult = await readJson(request, 64 * 1024);
-        if (bodyResult.tooLarge)
-          return json(
-            { schema: 1, ok: false, error: "request_too_large" },
-            413,
-          );
-        const body = isObject(bodyResult.value)
-          ? (bodyResult.value as Partial<MinionRunRequest>)
-          : {};
-        return json(await minionService.runMinion(id, body));
-      }
-      if (
-        request.method === "POST" &&
-        url.pathname.startsWith("/api/minions/") &&
-        url.pathname.endsWith("/test")
-      ) {
-        if (!sameOrigin(request, url, publicOrigin))
-          return json(
-            { schema: 1, ok: false, error: "origin_not_allowed" },
-            403,
-          );
-        const prefix = "/api/minions/";
-        const suffix = "/test";
-        const id = decodeURIComponent(
-          url.pathname.slice(
-            prefix.length,
-            url.pathname.length - suffix.length,
-          ),
-        );
-        return json(await minionService.testMinion(id));
-      }
-      if (
-        request.method === "GET" &&
-        url.pathname.startsWith("/api/minions/")
-      ) {
-        const id = decodeURIComponent(
-          url.pathname.slice("/api/minions/".length),
-        );
-        return json(minionService.getMinion(id));
       }
       if (request.method === "GET" && url.pathname === "/api/skills/list") {
         return json(skillService.list());

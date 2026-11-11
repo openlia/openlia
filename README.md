@@ -2,7 +2,7 @@
 
 > A self-hosted, AI-native workspace for turning personal context into organized knowledge, decisions, and action—with [Hermes Agent](https://hermes-agent.nousresearch.com/) as its agent runtime.
 
-OpenLia helps you organize documents, connect projects and daily context, and act with a clear human approval boundary. Your information lives in a **Git-versioned plain-text workspace**, not proprietary app silos or a fixed domain layout. Start small and extend it with profiles, domain features, programmable Minions, and workflow skills from the public **[`openlia/minions`](https://github.com/openlia/minions.git)** catalog.
+OpenLia helps you organize documents, connect projects and daily context, and act with a clear human approval boundary. Your information lives in a **Git-versioned plain-text workspace**, not proprietary app silos or a fixed domain layout. Start small and extend it with profiles, domain features, and workflow skills from the public **[`openlia/minions`](https://github.com/openlia/minions.git)** catalog.
 
 **Hermes Agent** powers Lia, the assistant you collaborate with through chat and **Workspace UI**. **Durable multi-format ingestion** retains your sources, while **inline OpenUI** provides interactive views inside Markdown documents. An **on-demand dependency store**, private connectivity through **[Locho](https://github.com/trchopan/locho)**, and a **separate operator control plane** support deployment and ongoing operations.
 
@@ -68,6 +68,7 @@ Browse the full documentation in **[`docs/README.md`](docs/README.md)**:
 | :--- | :--- | :--- |
 | **End Users** | 📖 **[End User Guide](docs/user-guide.md)** | Daily workflows, Telegram & Workspace UI, Minimal Core Workspace, Public Catalog (`openlia/minions`), and approval rules. |
 | **End Users** | 📊 **[Inline OpenUI Views](docs/workspace-domain-views.md)** | Interactive tables, charts, Calendar, and Finance inside Markdown documents. |
+| **End Users** | 🎨 **[Generative UI with Moi](docs/generative-ui-moi.md)** | Dynamic React component workspace over ACP (`hermes -p personal-os acp`). |
 | **Operators** | 🛠️ **[Operator Guide](docs/operator-guide.md)** | Complete `openlia` CLI handbook, `config.toml` & `secrets.env`, `openlia/minions` catalog & on-demand dependencies (`/opt/data/.local`), Locho & Browser hosts, migrations, and Age-encrypted backups. |
 | **Operators** | 📈 **[LLM Usage Monitoring](docs/usage-monitoring.md)** | Token and USD cost tracking across Hermes, Ingestion, and Migration, plus custom pricing overrides. |
 | **Operators / QA** | 🧪 **[End-to-End Drills](docs/e2e-drills.md)** | Repeatable verification runbook and troubleshooting guide for disposable or remote deployments. |
@@ -86,9 +87,9 @@ Every new OpenLia deployment starts with a clean, unopinionated core workspace (
 - `sources/` (`artifacts/`, `records/`, and `document-passwords.toml`)
 - `feature.schema.json` (JSON Schema for modular feature manifests)
 
-Install starter profiles, domain features, Minions, and standalone skills on demand from [`https://github.com/openlia/minions.git`](https://github.com/openlia/minions.git) (or your own catalog repository / local directory / `.zip` archive):
+Install starter profiles, domain features, and standalone skills on demand from [`https://github.com/openlia/minions.git`](https://github.com/openlia/minions.git) (or your own catalog repository / local directory / `.zip` archive):
 - **Starter Profiles**: `personal-os` (installs `goals`, `tasks`, `calendar`, `daily-briefing`, and core productivity skills in one command)
-- **Modular Features**: `goals`, `tasks`, `calendar`, `daily-briefing`, `personal-finance`, `personal-health`, `decision-analysis`, `deep-research`, `gym-tracker`, `areas`, `ideas`, `monitors`, `people`, `shopping`, `travel`
+- **Modular Features**: `goals`, `tasks`, `calendar`, `daily-briefing`, `personal-finance`, `personal-health`, `decision-analysis`, `deep-research`, `areas`, `ideas`, `monitors`, `people`, `shopping`, `travel`
 - **Standalone Skills**: `daily-briefing`, `weekly-review`, `workspace-organize`, `workspace-git`, `calendar`, `document-intelligence`
 
 ### 2. On-Demand Tool & Dependency Store (`/opt/data/.local`)
@@ -194,7 +195,7 @@ Operator Machine (macOS / Linux Workstation)
    source = "/Users/yourname/.config/openlia/secrets.env"
    ```
 
-4. **Initialize, deploy, and install optional features, Minions, and skills**:
+4. **Initialize, deploy, and install optional features and skills**:
    ```bash
    # Local deployment on this machine:
    openlia init --local --root "$HOME/.openlia"

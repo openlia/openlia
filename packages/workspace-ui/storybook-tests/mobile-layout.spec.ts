@@ -99,42 +99,6 @@ test("skills use a section selector and a file picker on mobile", async ({
   ).not.toBeVisible();
 });
 
-test("minions keep selectors and secondary actions out of the content area", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 320, height: 844 });
-  await story(page, "workspace-features--minions");
-  await expect(
-    page.getByRole("combobox", { name: "Minion section" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Minion actions" }).click();
-  await expect(
-    page.getByRole("button", { name: "Schedule Heartbeat", exact: true }),
-  ).toBeVisible();
-  await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Browse minions" }).click();
-  await expect(page.getByRole("dialog", { name: "Minions" })).toBeVisible();
-  await page.keyboard.press("Escape");
-  const outside = await page
-    .locator("button:visible, input:visible, select:visible")
-    .evaluateAll((elements) =>
-      elements
-        .filter((element) => {
-          const bounds = element.getBoundingClientRect();
-          return (
-            bounds.top < innerHeight &&
-            bounds.bottom > 0 &&
-            (bounds.left < -1 || bounds.right > innerWidth + 1)
-          );
-        })
-        .map(
-          (element) =>
-            element.getAttribute("aria-label") ?? element.textContent,
-        ),
-    );
-  expect(outside).toEqual([]);
-});
-
 test("desktop keeps workspace navigation and the file sidebar visible", async ({
   page,
 }) => {

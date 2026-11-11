@@ -14,12 +14,6 @@ import type {
   MaintainerFixApplyResponse,
   MaintainerFixPreviewResponse,
   MaintainerOverviewResponse,
-  MinionCreateRequest,
-  MinionDetail,
-  MinionDetailResponse,
-  MinionRunRequest,
-  MinionRunResponse,
-  MinionsListResponse,
   PublicShareFileEntry,
   PublicShareResponse,
   ShareCreateRequest,
@@ -647,40 +641,12 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
   const mockShares: MockStoredShare[] = [];
   let mockShareSeq = 0;
   const mockInstalledFeatureIds = new Set<string>();
-  const mockInstalledMinions = new Set<string>();
   const useBrowserSessionPersistence =
     typeof window !== "undefined" &&
     !("happyDOM" in window) &&
     typeof window.sessionStorage !== "undefined";
 
   const mockCatalogFeatures: FeatureSummary[] = [
-    {
-      id: "gym-tracker",
-      name: "Gym Tracker",
-      version: "0.1.0",
-      description:
-        "Track workouts, sets, reps, and personal records with a dedicated Minion app.",
-      author: "OpenLia Team",
-      license: "MIT",
-      source: "builtin",
-      state: "available",
-      requires_openlia: ">=0.1.0",
-      requires: {
-        openlia: ">=0.1.0",
-      },
-      domains: ["minions/gym-tracker"],
-      domain_details: [
-        {
-          path: "minions/gym-tracker",
-          label: "Gym Tracker",
-          purpose:
-            "Workout sessions, exercise logs, personal records, and progression dashboard.",
-          kind: "extension",
-        },
-      ],
-      skills: [],
-      minions: ["gym-tracker"],
-    },
     {
       id: "personal-finance",
       name: "Personal Finance",
@@ -697,18 +663,17 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         core_domains: ["inbox", "knowledge", "decisions", "tasks"],
         tools: ["hledger"],
       },
-      domains: ["minions/personal-finance"],
+      domains: ["finance"],
       domain_details: [
         {
-          path: "minions/personal-finance",
+          path: "finance",
           label: "Personal Finance",
           purpose:
-            "Native reports and confirmed postings using canonical app data.",
+            "Double-entry accounting, statements, and net worth tracking.",
           kind: "extension",
         },
       ],
       skills: ["personal-finance"],
-      minions: ["personal-finance"],
     },
     {
       id: "personal-health",
@@ -725,42 +690,23 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         openlia: ">=0.1.0",
         core_domains: ["inbox", "knowledge", "decisions", "tasks"],
       },
-      domains: ["minions/personal-health"],
+      domains: ["health"],
       domain_details: [
         {
-          path: "minions/personal-health",
+          path: "health",
           label: "Personal Health",
-          purpose: "Person-scoped clinical documents and source-linked input.",
+          purpose:
+            "Person-scoped clinical documents and source-linked records.",
           kind: "extension",
         },
       ],
       skills: ["personal-health"],
-      minions: ["personal-health"],
     },
   ];
 
   function applyInstalledMockFeature(found: FeatureSummary): void {
     mockInstalledFeatureIds.add(found.id);
-    for (const minionId of found.minions ?? []) {
-      mockInstalledMinions.add(minionId);
-      const collections =
-        minionId === "personal-finance"
-          ? ["intake", "accounts", "portfolios", "reviews"]
-          : minionId === "personal-health"
-            ? ["profiles", "history", "conditions", "treatments", "reviews"]
-            : [];
-      for (const path of [
-        "minions",
-        `minions/${minionId}`,
-        `minions/${minionId}/templates`,
-        ...collections.map((name) => `minions/${minionId}/templates/${name}`),
-      ]) {
-        if (!entries.some((entry) => entry.path === path))
-          entries.push({ kind: "directory", path });
-      }
-    }
     for (const domainPath of found.domains) {
-      if (domainPath.startsWith("minions/")) continue;
       if (
         !entries.some((e) => e.kind === "directory" && e.path === domainPath)
       ) {
@@ -2564,237 +2510,6 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         permissions,
       };
     },
-    async listMinions(): Promise<MinionsListResponse> {
-      requireAuthentication();
-      const minions = [...mockInstalledMinions].map((id) => ({
-        id,
-        path: `minions/${id}`,
-        name: id === "gym-tracker" ? "Gym Tracker" : id,
-        description: `${id} minion`,
-        runtime: "python" as const,
-        entrypoint: "main.py" as const,
-        input_entrypoint: "input.py" as const,
-        input_schema_file: "input.schema.json",
-        config_file: "config.json",
-        config_schema_file: "config.schema.json",
-        ui_files: ["dashboard.openui", "input.openui"],
-        primary_ui_file: "dashboard.openui",
-        dashboard_ui_file: "dashboard.openui",
-        input_ui_file: "input.openui",
-        data_file_count: 2,
-        script_file_count: 3,
-        test_file_count: 1,
-        renderable: true,
-        quick_actions: [],
-      }));
-      return {
-        schema: 1,
-        minions,
-      };
-    },
-    async getMinion(id: string): Promise<MinionDetailResponse> {
-      requireAuthentication();
-      const detail: MinionDetail = {
-        id,
-        path: `minions/${id}`,
-        name: id,
-        description: `${id} minion`,
-        runtime: "python",
-        entrypoint: "main.py",
-        input_entrypoint: "input.py",
-        input_schema_file: "input.schema.json",
-        config_file: "config.json",
-        config_schema_file: "config.schema.json",
-        ui_files: ["dashboard.openui", "input.openui"],
-        primary_ui_file: "dashboard.openui",
-        dashboard_ui_file: "dashboard.openui",
-        input_ui_file: "input.openui",
-        triggers: {
-          after_entry: true,
-          heartbeat_schedule: "0 */6 * * *",
-        },
-        ui_contents: {
-          "dashboard.openui":
-            'Stack(children: [\n  Callout(variant: "info", title: "Context & Recommendations", description: "1 total entry."),\n  Table(title: "Minion Dashboard", columns: [{key: "date", label: "Date"}, {key: "item", label: "Item"}], rows: [])\n])\n',
-          "input.openui":
-            'Card(children: [\n  CardHeader(title: "Record Entry"),\n  Form(name: "minionInput", fields: [\n    FormControl(label: "Entry", input: Input(name: "item", placeholder: "Describe activity...", rules: {required: true}))\n  ], buttons: Buttons(buttons: [\n    Button(label: "Submit Entry", variant: "primary")\n  ]))\n])\n',
-        },
-        input_schema: {
-          type: "object",
-          required: ["item"],
-          properties: {
-            item: { type: "string", title: "Entry" },
-          },
-        },
-        input_schema_content:
-          '{\n  "type": "object",\n  "required": ["item"],\n  "properties": {\n    "item": { "type": "string", "title": "Entry" }\n  }\n}\n',
-        config: {
-          trigger: {
-            on_new_entry: true,
-            cron: "0 */6 * * *",
-          },
-        },
-        config_content:
-          '{\n  "trigger": {\n    "on_new_entry": true,\n    "cron": "0 */6 * * *"\n  }\n}\n',
-        config_schema: {
-          type: "object",
-          required: ["trigger"],
-          additionalProperties: true,
-          properties: {
-            trigger: {
-              type: "object",
-              properties: {
-                on_new_entry: { type: "boolean", default: true },
-                cron: { type: "string" },
-              },
-            },
-          },
-        },
-        config_schema_content:
-          '{\n  "type": "object",\n  "required": ["trigger"],\n  "additionalProperties": true\n}\n',
-        data_file_count: 2,
-        script_file_count: 3,
-        test_file_count: 1,
-        renderable: true,
-        readme_content: `# ${id}\n\n${id} minion`,
-        quick_actions: [
-          {
-            id: "add",
-            label: "Quick Add",
-            placeholder: "Type an item...",
-          },
-        ],
-        data_files: [],
-        code_files: [],
-        test_files: [],
-      };
-      return { schema: 1, minion: detail };
-    },
-    async createMinion(
-      request: MinionCreateRequest,
-    ): Promise<MinionDetailResponse> {
-      requireAuthentication();
-      return this.getMinion(request.id || "sample-minion");
-    },
-    async updateMinionConfig(
-      id: string,
-      config: Record<string, unknown>,
-    ): Promise<MinionDetailResponse> {
-      requireAuthentication();
-      const { minion } = await this.getMinion(id);
-      return {
-        schema: 1,
-        minion: {
-          ...minion,
-          config: config as MinionDetail["config"],
-          config_content: `${JSON.stringify(config, null, 2)}\n`,
-        },
-      };
-    },
-    async installMinionDependencies(id: string): Promise<MinionRunResponse> {
-      requireAuthentication();
-      const { minion } = await this.getMinion(id);
-      return {
-        schema: 1,
-        ok: true,
-        exit_code: 0,
-        stdout: "Dependencies installed",
-        stderr: "",
-        duration_ms: 42,
-        minion,
-      };
-    },
-    async submitMinionInput(
-      id: string,
-      _request?: MinionRunRequest,
-    ): Promise<MinionRunResponse> {
-      requireAuthentication();
-      const { minion } = await this.getMinion(id);
-      return {
-        schema: 1,
-        ok: true,
-        exit_code: 0,
-        stdout:
-          "Added entry (2 total)\nPost-entry analysis complete (2 total): Next step recommended.",
-        stderr: "",
-        duration_ms: 35,
-        steps: [
-          {
-            step: "input",
-            script: "input.py",
-            exit_code: 0,
-            stdout: "Added entry (2 total)\n",
-            stderr: "",
-            duration_ms: 15,
-          },
-          {
-            step: "post_entry_main",
-            script: "main.py",
-            exit_code: 0,
-            stdout:
-              "Post-entry analysis complete (2 total): Next step recommended.\n",
-            stderr: "",
-            duration_ms: 20,
-          },
-        ],
-        minion,
-      };
-    },
-    async runMinionHeartbeat(
-      id: string,
-      _request?: MinionRunRequest,
-    ): Promise<MinionRunResponse> {
-      requireAuthentication();
-      const { minion } = await this.getMinion(id);
-      return {
-        schema: 1,
-        ok: true,
-        exit_code: 0,
-        stdout: "Heartbeat enrichment complete (1 entries)",
-        stderr: "",
-        duration_ms: 28,
-        steps: [
-          {
-            step: "heartbeat",
-            script: "main.py",
-            exit_code: 0,
-            stdout: "Heartbeat enrichment complete (1 entries)\n",
-            stderr: "",
-            duration_ms: 28,
-          },
-        ],
-        minion,
-      };
-    },
-    async runMinion(
-      id: string,
-      _request?: MinionRunRequest,
-    ): Promise<MinionRunResponse> {
-      requireAuthentication();
-      const { minion } = await this.getMinion(id);
-      return {
-        schema: 1,
-        ok: true,
-        exit_code: 0,
-        stdout: '{"ok": true}',
-        stderr: "",
-        duration_ms: 25,
-        minion,
-      };
-    },
-    async testMinion(id: string): Promise<MinionRunResponse> {
-      requireAuthentication();
-      const { minion } = await this.getMinion(id);
-      return {
-        schema: 1,
-        ok: true,
-        exit_code: 0,
-        stdout: "Ran 1 test in 0.01s\nOK",
-        stderr: "",
-        duration_ms: 15,
-        minion,
-      };
-    },
     async listFeatures(): Promise<FeaturesListResponse> {
       requireAuthentication();
       return {
@@ -2806,7 +2521,7 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         })),
         catalog: {
           schema: 1,
-          source: "https://github.com/openlia/minions.git",
+          source: "https://github.com/openlia/catalog.git",
           ref: "main",
           revision: "d417f11599876236add6a3062a741d4789e7666f",
           mode: "git",
@@ -2838,14 +2553,6 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         feature_id: found.id,
         installed_domains: found.domains,
         installed_skills: found.skills,
-        ...(found.minions?.length
-          ? {
-              minions: found.minions.map((id) => ({
-                id,
-                configuration_required: false,
-              })),
-            }
-          : {}),
         policy_updated: false,
         catalog,
       };

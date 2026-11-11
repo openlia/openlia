@@ -1212,7 +1212,6 @@ messages:
       "Chat",
       "Documents",
       "Ingestion",
-      "Minions",
       "Catalog",
       "Skills",
       "Shared Links",

@@ -43,39 +43,6 @@ def _load_maintainer_bridge_cls() -> Any:
 MaintainerBridge = _load_maintainer_bridge_cls()
 
 
-def _load_minion_tool_module() -> ModuleType:
-    env_override = os.environ.get("OPENLIA_MINION_TOOL", "").strip()
-    candidates = [
-        *( [Path(env_override)] if env_override else [] ),
-        Path(__file__).resolve().parent.parent.parent
-        / "system-skills"
-        / "minion-authoring"
-        / "scripts"
-        / "minion_tool.py",
-        Path("/opt/data/skills/minion-authoring/scripts/minion_tool.py"),
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            spec = importlib.util.spec_from_file_location(
-                "openlia_policy_minion_tool", candidate
-            )
-            if spec is not None and spec.loader is not None:
-                mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mod)
-                return mod
-    raise RuntimeError("cannot locate minion_tool.py")
-
-
-_MINION_TOOL_MOD: ModuleType | None = None
-
-
-def _get_minion_tool() -> ModuleType:
-    global _MINION_TOOL_MOD
-    if _MINION_TOOL_MOD is None:
-        _MINION_TOOL_MOD = _load_minion_tool_module()
-    return _MINION_TOOL_MOD
-
-
 LOGGER = logging.getLogger("openlia.policy")
 PLUGIN_NAME = "openlia-policy"
 DEFAULT_HELPER = Path(
@@ -112,31 +79,6 @@ def _openui_request(request: dict[str, Any]) -> str:
         })
 
 
-def _minion_view_request(workspace_root: Path, request: dict[str, Any]) -> str:
-    """Use the trusted runtime reader, never an app's interpreter or entrypoint."""
-    try:
-        environment = dict(os.environ)
-        environment["OPENLIA_WORKSPACE_ROOT"] = str(workspace_root)
-        reader = Path("/usr/local/lib/openlia/minion-views.js")
-        binary = "/usr/local/bin/bun"
-        if not reader.is_file():
-            # Source-checkout development only; never select a workspace script.
-            reader = Path(__file__).resolve().parents[3] / "packages/workspace-ui/scripts/minion-views.ts"
-            binary = shutil.which("bun") or binary
-        if not reader.is_file():
-            raise ValueError("Runtime reader missing")
-        result = subprocess.run(
-            [binary, str(reader)],
-            input=json.dumps(request), text=True, capture_output=True, timeout=20,
-            cwd=str(reader.parent), env=environment, check=False,
-        )
-        response = json.loads(result.stdout)
-        if not isinstance(response, dict) or (result.returncode and response.get("status") == "ok"):
-            raise ValueError("Invalid view service response")
-        return json.dumps(response, ensure_ascii=False)
-    except (OSError, subprocess.TimeoutExpired, ValueError):
-        return json.dumps({"schema": 1, "status": "unavailable", "message": "Runtime Minion data-view reader is unavailable; do not run app code or scan data as a fallback."})
-
 _PATCH_FILE_HEADER = re.compile(
     r"^\*\*\*\s*(?P<operation>Update|Add|Delete)\s+File:\s*(?P<path>.+?)\s*$",
     re.MULTILINE,
@@ -167,12 +109,9 @@ _READ_ONLY_TOOLS = {
     "list_document_password_profiles",
     "ingestion_suggest_passwords",
     "maintainer_status",
-    "minion_describe",
-    "minion_query",
     "maintainer_audit",
     "openui_describe",
     "openui_validate",
-    "minion_validate",
 }
 _READ_ONLY_COMMANDS = {
     "basename",
@@ -372,27 +311,14 @@ def _within(path: str, parent: str) -> bool:
     return path_parts[: len(parent_parts)] == parent_parts
 
 
-def _is_minion_path(relative_path: str) -> bool:
-    parts = relative_path.strip("/").split("/")
-    return (
-        len(parts) >= 2
-        and parts[0] == "minions"
-        and bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", parts[1]))
-    )
-
-
 def _is_protected_workspace_path(relative_path: str) -> bool:
     if relative_path in _PROTECTED_ROOT_FILES:
         return True
     parts = relative_path.split("/")
-    if _is_minion_path(relative_path):
-        # Allow .venv inside a minion while keeping .env/.git and protected basenames blocked
-        if any(
-            part.startswith(".") and part != ".venv"
-            for part in parts
-        ):
-            return True
-        if parts[-1] in _PROTECTED_BASENAMES:
+    if parts and parts[0] == ".moi":
+        # Allow agent-authored applets and files under .moi/ (views, widgets, package.json)
+        # Protect internal hidden files/directories (.workspace.json, .cache, .build, .scratchpad*)
+        if any(part.startswith(".") for part in parts[1:]):
             return True
         return False
     if any(part.startswith(".") for part in parts):
@@ -533,8 +459,6 @@ class PolicyEnforcer:
             return _block(
                 f"OpenLia policy blocked scheduled structural edit on {relative_path}."
             )
-        if _is_minion_path(relative_path):
-            return None
         destination = scheduled_policy.get("report_destination", "inbox/daily-briefing")
         if _within(relative_path, destination):
             return None
@@ -618,7 +542,7 @@ class PolicyEnforcer:
                     return _block(
                         f"OpenLia policy blocked scheduled move from {relative_path} to {destination_path}."
                     )
-                if dest_exists and not _is_minion_path(destination_path):
+                if dest_exists:
                     decision = self._destructive_action(
                         authority, "overwrite_records", destination_path
                     )
@@ -627,7 +551,6 @@ class PolicyEnforcer:
                     if (
                         exists
                         and operation in {"add", "replace"}
-                        and not _is_minion_path(relative_path)
                     ):
                         return _block(
                             f"OpenLia policy blocked scheduled overwrite of {relative_path}."
@@ -635,12 +558,12 @@ class PolicyEnforcer:
                     decision = self._scheduled_path_decision(
                         authority, "generate_reports", relative_path
                     )
-                elif exists and operation in {"add", "replace"} and not _is_minion_path(relative_path):
+                elif exists and operation in {"add", "replace"}:
                     decision = self._destructive_action(
                         authority, "overwrite_records", relative_path
                     )
                 else:
-                    # Ordinary file creation, targeted patch update, or Minion file update is allowed!
+                    # Ordinary file creation or targeted patch update is allowed!
                     decision = None
 
             if decision is not None and decision.get("action") == "block":
@@ -682,14 +605,6 @@ class PolicyEnforcer:
             return self._destructive_action(authority, "delete_records", "terminal target")
         if re.search(r"\bgit\s+(?:clean|reset|restore|checkout)\b", lowered):
             return self._destructive_action(authority, "overwrite_records", "terminal target")
-        if self._minion_terminal_allowed(command):
-            if scheduled and not authority.permissions.get("scheduled_work", {}).get(
-                "enabled", True
-            ):
-                return _block(
-                    "OpenLia policy blocked scheduled work: scheduled_work is disabled."
-                )
-            return None
         if _REDIRECT.search(command) or re.search(
             r"\b(?:cp|install|mkdir|mv|tee|touch|truncate|shred|dd)\b", lowered
         ) or re.search(r"\b(?:python|python3|node|bun|ruby|perl)\b", lowered):
@@ -705,175 +620,6 @@ class PolicyEnforcer:
             "OpenLia policy cannot classify this terminal command as read-only; approval is required.",
             "openlia.policy.terminal_unknown",
         )
-
-    def _resolve_minion_slug(self, raw_path: str, base_dir: Path) -> str | None:
-        candidate = Path(raw_path).expanduser()
-        if not candidate.is_absolute():
-            candidate = base_dir / candidate
-        target = _safe_workspace_target(self.workspace_root, str(candidate))
-        if target is None:
-            return None
-        rel, _ = target
-        if not _is_minion_path(rel):
-            return None
-        return rel.split("/")[1]
-
-    def _minion_terminal_allowed(self, command: str) -> bool:
-        """Allow autonomous execution, testing, and dependency installation scoped to minions/<slug>/."""
-        if re.search(r"[;|<>`$\n\r]", command):
-            return False
-        segments = [seg.strip() for seg in command.split("&&") if seg.strip()]
-        if not segments:
-            return False
-
-        allowed_bins = {
-            "python",
-            "python3",
-            "pip",
-            "pip3",
-            "uv",
-            "pytest",
-            "bun",
-            "bunx",
-            "node",
-            "npm",
-            "npx",
-            "sh",
-            "bash",
-            "mkdir",
-            "cp",
-            "mv",
-            "touch",
-            "chmod",
-            "ls",
-            "cat",
-            "head",
-            "tail",
-            "find",
-            "grep",
-            "rg",
-            "test",
-            "remind",
-            "hledger",
-            "jq",
-            "sqlite3",
-        }
-        allowed_system_prefixes = (
-            "/usr/bin/",
-            "/usr/local/bin/",
-            "/bin/",
-            "/opt/hermes/.venv/bin/",
-            "/opt/data/.local/bin/",
-        )
-
-        active_minion: str | None = None
-        cwd = self.workspace_root
-        saw_action = False
-
-        for segment in segments:
-            try:
-                tokens = shlex.split(segment)
-            except ValueError:
-                return False
-            if not tokens:
-                return False
-
-            while tokens and (
-                tokens[0] in {"env", "timeout"}
-                or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tokens[0])
-            ):
-                if tokens[0] == "timeout" and len(tokens) > 1:
-                    tokens.pop(0)
-                tokens.pop(0)
-            if not tokens:
-                return False
-
-            if tokens[0] == "cd":
-                if len(tokens) != 2:
-                    return False
-                slug = self._resolve_minion_slug(tokens[1], cwd)
-                if not slug or (active_minion and active_minion != slug):
-                    return False
-                active_minion = slug
-                cwd = (cwd / tokens[1]).resolve(strict=False)
-                continue
-
-            saw_action = True
-            exe = tokens[0]
-            bin_name = exe.rsplit("/", 1)[-1]
-            if bin_name not in allowed_bins:
-                return False
-            if "/" in exe and not exe.startswith(allowed_system_prefixes):
-                slug = self._resolve_minion_slug(exe, cwd)
-                if not slug or (active_minion and active_minion != slug):
-                    return False
-                active_minion = slug
-
-            if bin_name in {"python", "python3"} and "-c" in tokens[1:]:
-                return False
-
-            # Support invoking the protected minion_tool.py helper directly via terminal
-            if (
-                bin_name in {"python", "python3"}
-                and len(tokens) >= 2
-                and tokens[1].endswith("/minion-authoring/scripts/minion_tool.py")
-            ):
-                if "--self-test" in tokens[2:]:
-                    return True
-                if "--id" in tokens[2:]:
-                    idx = tokens.index("--id")
-                    if idx + 1 < len(tokens):
-                        candidate_slug = tokens[idx + 1].strip()
-                        if _is_minion_path(f"minions/{candidate_slug}"):
-                            active_minion = candidate_slug
-                            continue
-
-            segment_minion = active_minion
-            skip_next_as_payload = False
-            value_flags = {
-                "--data",
-                "--entry",
-                "--input",
-                "--action",
-                "--trigger",
-                "--name",
-                "--description",
-                "--heartbeat-schedule",
-            }
-            for arg in tokens[1:]:
-                if skip_next_as_payload:
-                    skip_next_as_payload = False
-                    continue
-                if arg in value_flags:
-                    skip_next_as_payload = True
-                    continue
-                if any(arg.startswith(f"{flag}=") for flag in value_flags):
-                    continue
-                if ".." in arg.split("/"):
-                    return False
-                if arg.startswith("-"):
-                    if "=" in arg:
-                        _, val = arg.split("=", 1)
-                        if "/" in val or val.startswith("minions"):
-                            slug = self._resolve_minion_slug(val, cwd)
-                            if not slug or (segment_minion and segment_minion != slug):
-                                return False
-                            segment_minion = slug
-                    continue
-                if arg.startswith("/") or arg.startswith("minions/") or "/" in arg:
-                    slug = self._resolve_minion_slug(arg, cwd)
-                    if slug:
-                        if segment_minion and segment_minion != slug:
-                            return False
-                        segment_minion = slug
-                    elif arg.startswith("/"):
-                        return False
-
-            if not segment_minion:
-                return False
-            active_minion = segment_minion
-
-        return saw_action and active_minion is not None
 
     def _workspace_validation_command(self, command: str) -> bool:
         """Allow only the protected, read-only validator invocation, not Python generally."""
@@ -954,12 +700,6 @@ class PolicyEnforcer:
                     "OpenLia policy requires YouTube URLs to be processed through the Ingestion Vault. "
                     "Call ingestion_capture(kind='youtube', url=..., wait_seconds=15) and ingestion_get_document(source_id=...) instead."
                 )
-        if tool_name == "minion_query" and self._is_scheduled(session_id):
-            authority = self._load()
-            if not authority.permissions.get("scheduled_work", {}).get("enabled", True):
-                return _block("Scheduled work is disabled.")
-            if args.get("purpose") != "briefing":
-                return _block("Scheduled Minion reads require purpose='briefing' and local view opt-in.")
         if tool_name in _READ_ONLY_TOOLS or tool_name in _BROWSER_READ_TOOLS:
             return None
         if tool_name == "terminal":
@@ -982,15 +722,6 @@ class PolicyEnforcer:
 
         if tool_name in {"write_file", "patch"}:
             return self._workspace_tool_decision(authority, tool_name, args, scheduled)
-        if tool_name in {"minion_scaffold", "minion_run"}:
-            slug = str(args.get("id") or "").strip()
-            if not slug or not _is_minion_path(f"minions/{slug}"):
-                return _block(f"OpenLia policy requires a valid Minion id for {tool_name}.")
-            if scheduled and not authority.permissions.get("scheduled_work", {}).get(
-                "enabled", True
-            ):
-                return _block("OpenLia policy blocked scheduled work: scheduled_work is disabled.")
-            return None
         if tool_name == "delete_document_password_profile":
             return self._destructive_action(
                 authority, "delete_records", "sources/document-passwords.toml"
@@ -1089,60 +820,6 @@ class PolicyEnforcer:
             return rels
         return []
 
-    def _extract_touched_minion_slugs(
-        self, tool_name: str, args: dict[str, Any] | None
-    ) -> list[str]:
-        if not isinstance(args, dict):
-            return []
-        slugs: list[str] = []
-        if tool_name in {"write_file", "patch"}:
-            for rel in self._mutated_workspace_paths(tool_name, args):
-                if _is_minion_path(rel):
-                    slug = rel.split("/")[1]
-                    if slug not in slugs:
-                        slugs.append(slug)
-        elif tool_name == "minion_run":
-            slug = str(args.get("id") or "").strip()
-            if slug and _is_minion_path(f"minions/{slug}"):
-                slugs.append(slug)
-        elif tool_name == "terminal":
-            cmd = str(args.get("command") or args.get("cmd") or "")
-            for m in re.finditer(r"\bminions/([A-Za-z0-9][A-Za-z0-9._-]*)", cmd):
-                slug = m.group(1)
-                if slug not in slugs and _is_minion_path(f"minions/{slug}"):
-                    slugs.append(slug)
-            if "minion_tool.py" in cmd:
-                for m in re.finditer(r"--id\s+([A-Za-z0-9][A-Za-z0-9._-]*)", cmd):
-                    slug = m.group(1)
-                    if slug not in slugs and _is_minion_path(f"minions/{slug}"):
-                        slugs.append(slug)
-        return slugs
-
-    def _format_minion_post_validation_advisory(self, slugs: list[str]) -> str | None:
-        if not slugs:
-            return None
-        try:
-            minion_tool = _get_minion_tool()
-        except Exception:
-            return None
-        messages: list[str] = []
-        for slug in slugs:
-            minion_dir = self.workspace_root / "minions" / slug
-            if not minion_dir.is_dir():
-                continue
-            try:
-                val_res = minion_tool.validate_minion(self.workspace_root, slug)
-                errors = list(val_res.get("errors", []))
-            except Exception as exc:
-                errors = [str(exc)]
-            if errors:
-                joined = "; ".join(errors[:5])
-                messages.append(
-                    f"Minion validation failed for minions/{slug} ({len(errors)} error(s)): {joined}. "
-                    f"Fix the OpenUI view or generator in main.py/main.ts and re-run minion_validate(id='{slug}') and minion_run(id='{slug}', mode='test') before finishing."
-                )
-        return "\n".join(messages) if messages else None
-
     def post_tool_call(
         self,
         tool_name: str,
@@ -1169,14 +846,6 @@ class PolicyEnforcer:
                         advisories.append(advisory)
             except Exception as exc:
                 LOGGER.warning("maintainer post-tool validation failed: %s", exc)
-        if tool_name in {"write_file", "patch", "terminal", "minion_run"}:
-            try:
-                slugs = self._extract_touched_minion_slugs(tool_name, args)
-                minion_adv = self._format_minion_post_validation_advisory(slugs)
-                if minion_adv and minion_adv not in advisories:
-                    advisories.append(minion_adv)
-            except Exception as exc:
-                LOGGER.warning("minion post-tool validation failed: %s", exc)
         if advisories:
             combined = "\n".join(advisories)
             return {"advisory": combined, "message": combined}
@@ -1252,130 +921,6 @@ class PolicyEnforcer:
         )
         return json.dumps(res, ensure_ascii=False, sort_keys=True)
 
-    def tool_minion_scaffold(
-        self,
-        id: Any = None,
-        name: str = "",
-        description: str = "",
-        runtime: str = "python",
-        heartbeat_schedule: str = "0 */6 * * *",
-        **kwargs: Any,
-    ) -> str:
-        try:
-            params = self._unpack_tool_args(id, kwargs, primary_key="id")
-            minion_id = str(params.get("id") or "")
-            resolved_name = str(params.get("name") if "name" in params else name or "")
-            resolved_desc = str(
-                params.get("description") if "description" in params else description or ""
-            )
-            resolved_runtime = str(
-                params.get("runtime") if "runtime" in params else runtime or "python"
-            )
-            resolved_schedule = str(
-                params.get("heartbeat_schedule")
-                if "heartbeat_schedule" in params
-                else heartbeat_schedule or "0 */6 * * *"
-            )
-            minion_tool = _get_minion_tool()
-            res = minion_tool.scaffold_minion(
-                self.workspace_root,
-                minion_id=minion_id,
-                name=resolved_name,
-                description=resolved_desc,
-                runtime=resolved_runtime,
-                heartbeat_schedule=resolved_schedule,
-            )
-            return json.dumps(res, ensure_ascii=False)
-        except Exception as exc:
-            return json.dumps({"status": "error", "message": str(exc)}, ensure_ascii=False)
-
-    def tool_minion_validate(self, id: Any = None, **kwargs: Any) -> str:
-        try:
-            params = self._unpack_tool_args(id, kwargs, primary_key="id")
-            minion_id = str(params.get("id") or "")
-            minion_tool = _get_minion_tool()
-            res = minion_tool.validate_minion(self.workspace_root, minion_id)
-            minion_dir = (self.workspace_root / "minions" / minion_tool.validate_minion_id(minion_id)).resolve()
-            if (minion_dir / "data.views.json").exists():
-                view_result = json.loads(_minion_view_request(self.workspace_root, {"action": "describe", "id": minion_id}))
-                res["data_views"] = view_result
-                if view_result.get("status") == "unavailable":
-                    res["errors"].append("data.views.json: " + str(view_result.get("message", "validation unavailable")))
-            openui_checks: dict[str, Any] = {}
-            for ui_rel in res.get("openui_files", []):
-                ui_abs = minion_dir / ui_rel
-                if not ui_abs.is_file():
-                    continue
-                raw_ui = ui_abs.read_text(encoding="utf-8")
-                ui_check_raw = _openui_request(
-                    {"action": "validate", "content": raw_ui, "format": "openui"}
-                )
-                try:
-                    ui_check = json.loads(ui_check_raw)
-                except Exception:
-                    ui_check = {"status": "unavailable"}
-                openui_checks[ui_rel] = ui_check
-                if ui_check.get("status") == "ok" and ui_check.get("valid") is False:
-                    for block in ui_check.get("blocks", []):
-                        for diag in block.get("diagnostics", []):
-                            msg = diag.get("message") or diag.get("code") or "OpenUI schema error"
-                            err_line = f"{ui_rel}: {msg}"
-                            if err_line not in res["errors"]:
-                                res["errors"].append(err_line)
-            res["openui_validation"] = openui_checks
-            res["valid"] = len(res["errors"]) == 0
-            res["ok"] = res["valid"]
-            res["status"] = "ok" if res["valid"] else "error"
-            return json.dumps(res, ensure_ascii=False)
-        except Exception as exc:
-            return json.dumps(
-                {"status": "error", "ok": False, "valid": False, "message": str(exc)},
-                ensure_ascii=False,
-            )
-
-    def tool_minion_describe(self, id: Any = None, **kwargs: Any) -> str:
-        params = self._unpack_tool_args(id, kwargs, primary_key="id")
-        selected = params.get("id")
-        return _minion_view_request(self.workspace_root, {"action": "describe", "id": selected} if selected else {"action": "list"})
-
-    def tool_minion_query(self, id: Any = None, **kwargs: Any) -> str:
-        params = self._unpack_tool_args(id, kwargs, primary_key="id")
-        return _minion_view_request(self.workspace_root, {"action": "query", "query": params})
-
-    def tool_minion_run(
-        self,
-        id: Any = None,
-        mode: str = "heartbeat",
-        data: dict[str, Any] | None = None,
-        input: str = "",
-        **kwargs: Any,
-    ) -> str:
-        try:
-            params = self._unpack_tool_args(id, kwargs, primary_key="id")
-            minion_id = str(params.get("id") or "")
-            resolved_mode = str(
-                params.get("mode") if "mode" in params else mode or "heartbeat"
-            )
-            resolved_data = params.get("data") if "data" in params else data
-            resolved_input = str(
-                params.get("input") if "input" in params else input or ""
-            )
-            minion_tool = _get_minion_tool()
-            res = minion_tool.run_minion(
-                self.workspace_root,
-                minion_id=minion_id,
-                mode=resolved_mode,
-                data=resolved_data if isinstance(resolved_data, dict) else None,
-                input_text=resolved_input,
-            )
-            return json.dumps(res, ensure_ascii=False)
-        except Exception as exc:
-            return json.dumps(
-                {"status": "error", "ok": False, "message": str(exc)},
-                ensure_ascii=False,
-            )
-
-
 def register(ctx: Any) -> None:
     enforcer = PolicyEnforcer()
     ctx.register_hook("on_session_start", enforcer.on_session_start)
@@ -1385,23 +930,6 @@ def register(ctx: Any) -> None:
     ctx.register_hook("post_tool_call", enforcer.post_tool_call)
     if hasattr(ctx, "register_tool"):
         for name, description, parameters, handler in [
-            (
-                "minion_describe",
-                "Discover declared Minion data views and local briefing participation without running app code. Omit id to list views; unavailable is not zero activity.",
-                {"type": "object", "properties": {"id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"}}, "additionalProperties": False},
-                enforcer.tool_minion_describe,
-            ),
-            (
-                "minion_query",
-                "Read a named Minion data view through the trusted runtime. No app execution or writes. Requires an exclusive-end date range of 1–31 days; respects local scope and briefing opt-in. Missing data is unavailable, not zero activity.",
-                {"type": "object", "properties": {
-                    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
-                    "view": {"type": "string"}, "from": {"type": "string"}, "to": {"type": "string"},
-                    "purpose": {"type": "string", "enum": ["interactive", "briefing"]},
-                    "filters": {"type": "object"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}
-                }, "required": ["id", "view", "from", "to"], "additionalProperties": False},
-                enforcer.tool_minion_query,
-            ),
             (
                 "openui_describe",
                 "Discover supported inline OpenUI components, or inspect one component's runtime schema, exact property names, enums, argument order, and tested recipes. Read-only and offline.",
@@ -1508,92 +1036,3 @@ def register(ctx: Any) -> None:
             is_async=False,
             description=triage_schema["description"],
         )
-        for name, description, parameters, handler in [
-            (
-                "minion_scaffold",
-                "Scaffold a complete Workspace Minion in minions/<id>/ with README.md, dashboard.openui, input.openui, input.schema.json, config.schema.json, config.json (with required trigger), input.py/input.ts, main.py/main.ts, data/, and tests/.",
-                {
-                    "type": "object",
-                    "required": ["id"],
-                    "properties": {
-                        "id": {
-                            "type": "string",
-                            "description": "Minion slug (lowercase alphanumeric and hyphens, e.g. 'gym-tracker').",
-                        },
-                        "name": {
-                            "type": "string",
-                            "description": "Human-friendly display name for the Minion.",
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "Concise summary of the Minion's purpose.",
-                        },
-                        "runtime": {
-                            "type": "string",
-                            "enum": ["python", "typescript"],
-                            "default": "python",
-                        },
-                        "heartbeat_schedule": {
-                            "type": "string",
-                            "default": "0 */6 * * *",
-                            "description": "5-field cron expression stored in config.json trigger.cron.",
-                        },
-                    },
-                    "additionalProperties": False,
-                },
-                enforcer.tool_minion_scaffold,
-            ),
-            (
-                "minion_validate",
-                "Validate a Workspace Minion in minions/<id>/: checks required files, config.schema.json, config.json (including the required OpenLia/Hermes trigger contract), input.schema.json, input.openui <-> input.schema.json field alignment, and OpenUI component schemas.",
-                {
-                    "type": "object",
-                    "required": ["id"],
-                    "properties": {
-                        "id": {
-                            "type": "string",
-                            "description": "Minion slug in minions/<id>/.",
-                        },
-                    },
-                    "additionalProperties": False,
-                },
-                enforcer.tool_minion_validate,
-            ),
-            (
-                "minion_run",
-                "Execute a Workspace Minion in minions/<id>/: mode='input' (runs input.py/input.ts then main --trigger entry if enabled by config.json trigger), mode='heartbeat' (runs main --trigger heartbeat), or mode='test' (runs unit tests).",
-                {
-                    "type": "object",
-                    "required": ["id"],
-                    "properties": {
-                        "id": {
-                            "type": "string",
-                            "description": "Minion slug in minions/<id>/.",
-                        },
-                        "mode": {
-                            "type": "string",
-                            "enum": ["input", "heartbeat", "test"],
-                            "default": "heartbeat",
-                        },
-                        "data": {
-                            "type": "object",
-                            "description": "Structured JSON object conforming to input.schema.json (used when mode='input').",
-                        },
-                        "input": {
-                            "type": "string",
-                            "description": "Quick text input (used when mode='input').",
-                        },
-                    },
-                    "additionalProperties": False,
-                },
-                enforcer.tool_minion_run,
-            ),
-        ]:
-            ctx.register_tool(
-                name=name,
-                toolset="openlia-policy",
-                schema={"name": name, "description": description, "parameters": parameters},
-                handler=handler,
-                is_async=False,
-                description=description,
-            )

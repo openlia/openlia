@@ -9,7 +9,6 @@ import {
 export type MainTab =
   | "chat"
   | "documents"
-  | "minions"
   | "catalog"
   | "skills"
   | "shares"
@@ -27,8 +26,6 @@ export interface WorkspaceRoute {
   view?: WorkspaceView | undefined;
   filter?: string | undefined;
   scenario?: string | undefined;
-  minionId?: string | undefined;
-  minionFile?: string | undefined;
   skill?: string | undefined;
   skillFile?: string | undefined;
   shareId?: string | undefined;
@@ -64,8 +61,6 @@ export function parseRoute(
 
   const pathname = url.pathname;
   let path: string | undefined;
-  let minionId: string | undefined;
-  let parsedMinionFile: string | undefined;
   let skill: string | undefined;
   let shareId: string | undefined;
   let tab: MainTab | undefined;
@@ -82,16 +77,6 @@ export function parseRoute(
     } else if (host === "workspace") {
       if (raw) path = safeDecodeURIComponent(raw);
       tab = "documents";
-    } else if (host === "minions" || host === "minion") {
-      if (raw) {
-        const decoded = safeDecodeURIComponent(raw);
-        const parts = decoded.split("/").filter(Boolean);
-        minionId = parts[0] || undefined;
-        if (parts.length > 1) {
-          parsedMinionFile = parts.slice(1).join("/");
-        }
-      }
-      tab = "minions";
     } else if (host === "skills") {
       if (raw) {
         const decoded = safeDecodeURIComponent(raw);
@@ -151,20 +136,6 @@ export function parseRoute(
   } else if (pathname === "/file") {
     path = undefined;
     tab = "documents";
-  } else if (pathname.startsWith("/minions/")) {
-    const raw = pathname.slice("/minions/".length).replace(/\/+$/, "");
-    if (raw) {
-      const decoded = safeDecodeURIComponent(raw);
-      const parts = decoded.split("/").filter(Boolean);
-      minionId = parts[0] || undefined;
-      if (parts.length > 1) {
-        parsedMinionFile = parts.slice(1).join("/");
-      }
-    }
-    tab = "minions";
-  } else if (pathname === "/minions") {
-    minionId = undefined;
-    tab = "minions";
   } else if (pathname === "/catalog" || pathname.startsWith("/catalog/")) {
     tab = "catalog";
   } else if (pathname.startsWith("/skills/")) {
@@ -209,7 +180,6 @@ export function parseRoute(
   const tabParam = url.searchParams.get("tab");
   if (
     tabParam === "chat" ||
-    tabParam === "minions" ||
     tabParam === "catalog" ||
     tabParam === "skills" ||
     tabParam === "shares" ||
@@ -224,17 +194,6 @@ export function parseRoute(
   ) {
     tab = tabParam;
   }
-
-  const minionParam = url.searchParams.get("minion");
-  if (minionParam) {
-    minionId = minionParam.trim();
-    tab = "minions";
-  }
-
-  const minionFileParam = url.searchParams.get("minionFile");
-  const minionFile = minionFileParam
-    ? minionFileParam.trim()
-    : parsedMinionFile;
 
   const skillParam = url.searchParams.get("skill");
   if (skillParam) {
@@ -277,8 +236,6 @@ export function parseRoute(
     filter,
     ingestionId: ingestionId || undefined,
     migrationId: migrationId || undefined,
-    minionFile,
-    minionId: minionId || undefined,
     path: path || undefined,
     scenario,
     shareId: shareId || undefined,
@@ -307,12 +264,6 @@ export function buildRouteUrl(route: WorkspaceRoute): string {
     pathname = "/configuration";
   } else if (route.tab === "catalog") {
     pathname = "/catalog";
-  } else if (route.tab === "minions" || route.minionId) {
-    if (route.minionId) {
-      pathname = `/minions/${encodeURIComponent(route.minionId)}`;
-    } else {
-      pathname = "/minions";
-    }
   } else if (route.tab === "skills" || route.skill) {
     if (route.skill) {
       const segments = route.skill
@@ -355,9 +306,6 @@ export function buildRouteUrl(route: WorkspaceRoute): string {
   }
   if (route.skillFile) {
     params.set("skillFile", route.skillFile);
-  }
-  if (route.minionFile) {
-    params.set("minionFile", route.minionFile);
   }
   if (route.ingestionId && pathname === "/ingestion") {
     params.set("ingestion", route.ingestionId);

@@ -6,24 +6,10 @@ import type {
 } from "../shared/api";
 import { ApiError, type WorkspaceApi } from "./api";
 
-export type CatalogFilterKind =
-  | "all"
-  | "available"
-  | "installed"
-  | "minion"
-  | "domains";
-
-function getFeatureMinions(feature: FeatureSummary): string[] {
-  if (feature.minions && feature.minions.length > 0) {
-    return feature.minions;
-  }
-  return feature.domains
-    .filter((d) => d.startsWith("minions/") && d.split("/").length === 2)
-    .map((d) => d.slice("minions/".length));
-}
+export type CatalogFilterKind = "all" | "available" | "installed" | "domains";
 
 function getWorkspaceDomains(feature: FeatureSummary): string[] {
-  return feature.domains.filter((d) => !d.startsWith("minions/"));
+  return feature.domains;
 }
 
 function formatInstallError(
@@ -38,17 +24,6 @@ function formatInstallError(
   if (caught instanceof ApiError) {
     const code = caught.payload?.error || caught.message || "request_failed";
     const backendMessage = caught.payload?.message;
-
-    if (code === "minion_install_requires_cli") {
-      return {
-        code,
-        title: "Existing Minion App Conflict — Managed CLI Required",
-        detail:
-          backendMessage ||
-          `A Minion app from '${featureId}' already exists in this workspace. Browser installation will not overwrite local code customizations or instance state.`,
-        cliCommand: `openlia feature install ${featureId}`,
-      };
-    }
 
     if (code === "skill_install_requires_cli") {
       return {
@@ -123,13 +98,11 @@ function formatInstallError(
 
 export function CatalogPage({
   api,
-  onOpenMinion,
   onOpenSkill,
   onOpenDomain,
   onFeatureInstalled,
 }: {
   api: WorkspaceApi;
-  onOpenMinion?: ((minionId: string) => void) | undefined;
   onOpenSkill?: ((skillId: string) => void) | undefined;
   onOpenDomain?: ((domainPath: string) => void) | undefined;
   onFeatureInstalled?:
@@ -192,16 +165,12 @@ export function CatalogPage({
   const filteredFeatures = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return features.filter((feature) => {
-      const minions = getFeatureMinions(feature);
       const workspaceDomains = getWorkspaceDomains(feature);
 
       if (filterKind === "available" && feature.state === "installed") {
         return false;
       }
       if (filterKind === "installed" && feature.state !== "installed") {
-        return false;
-      }
-      if (filterKind === "minion" && minions.length === 0) {
         return false;
       }
       if (
@@ -275,7 +244,7 @@ export function CatalogPage({
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-bold tracking-tight">
-                Feature &amp; Minion Catalog
+                Feature Catalog
               </h1>
               <span
                 className="badge badge-sm badge-ghost font-mono"
@@ -289,7 +258,7 @@ export function CatalogPage({
                   data-testid="catalog-provenance-badge"
                   title={`Source: ${catalogProvenance.source} (${catalogProvenance.mode})`}
                 >
-                  openlia/minions
+                  catalog
                   {catalogProvenance.revision
                     ? `@${catalogProvenance.revision.slice(0, 7)}`
                     : ""}
@@ -297,12 +266,9 @@ export function CatalogPage({
               )}
             </div>
             <p className="text-sm text-base-content/70 max-w-3xl">
-              Discover and install curated feature packages from{" "}
-              <code className="font-mono text-xs">openlia/minions</code>. A
-              feature package may install a programmable{" "}
-              <strong>Minion app</strong> (under{" "}
-              <code className="font-mono text-xs">minions/</code>), structured{" "}
-              <strong>workspace domains</strong> (templates &amp; schemas), and
+              Discover and install curated feature packages from the OpenLia
+              catalog. A feature package may install structured{" "}
+              <strong>workspace domains</strong> (templates &amp; schemas) and
               bundled <strong>assistant skills</strong>.
             </p>
           </div>
@@ -341,7 +307,6 @@ export function CatalogPage({
                 { id: "all", label: "All Packages" },
                 { id: "available", label: "Available" },
                 { id: "installed", label: "Installed" },
-                { id: "minion", label: "Minion Apps" },
                 { id: "domains", label: "Domains & Skills" },
               ] as const
             ).map((tab) => (
@@ -426,55 +391,9 @@ export function CatalogPage({
             </div>
 
             <div
-              className="grid gap-3 sm:grid-cols-3 text-xs"
+              className="grid gap-3 sm:grid-cols-2 text-xs"
               data-testid={`catalog-install-result-${latestInstallResult.feature_id}`}
             >
-              {/* Installed Minions */}
-              <div className="rounded-lg border border-base-content/10 bg-base-100 p-3 space-y-1.5">
-                <div className="font-semibold text-base-content/80">
-                  Minion Apps ({latestInstallResult.minions?.length ?? 0})
-                </div>
-                {latestInstallResult.minions &&
-                latestInstallResult.minions.length > 0 ? (
-                  <ul className="space-y-1.5">
-                    {latestInstallResult.minions.map((m) => (
-                      <li
-                        key={m.id}
-                        className="flex flex-wrap items-center justify-between gap-1.5"
-                      >
-                        <code className="font-mono">minions/{m.id}</code>
-                        <div className="flex items-center gap-1">
-                          {m.configuration_required && (
-                            <span
-                              className="badge badge-warning badge-xs"
-                              data-testid={`catalog-install-config-required-${m.id}`}
-                            >
-                              Config required
-                            </span>
-                          )}
-                          {onOpenMinion && (
-                            <button
-                              className="btn btn-primary btn-xs"
-                              data-testid={`catalog-open-installed-minion-${m.id}`}
-                              onClick={() => onOpenMinion(m.id)}
-                              type="button"
-                            >
-                              {m.configuration_required
-                                ? "Configure Minion"
-                                : "Open Minion"}
-                            </button>
-                          )}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-base-content/50">
-                    None (domains &amp; skills package)
-                  </p>
-                )}
-              </div>
-
               {/* Installed Workspace Domains */}
               <div className="rounded-lg border border-base-content/10 bg-base-100 p-3 space-y-1.5">
                 <div className="font-semibold text-base-content/80">
@@ -574,7 +493,6 @@ export function CatalogPage({
             {/* Left Column: Package Cards */}
             <div className="space-y-3" data-testid="catalog-feature-list">
               {filteredFeatures.map((feature) => {
-                const minions = getFeatureMinions(feature);
                 const workspaceDomains = getWorkspaceDomains(feature);
                 const isSelected = selectedFeature?.id === feature.id;
                 const isInstalling = installingId === feature.id;
@@ -582,11 +500,9 @@ export function CatalogPage({
                 const requiredOpenlia =
                   feature.requires?.openlia ?? feature.requires_openlia;
                 const packageKindLabel =
-                  minions.length > 0
-                    ? "Minion App Package"
-                    : feature.skills.length > 0
-                      ? "Domains & Skills Package"
-                      : "Workspace Domains Package";
+                  feature.skills.length > 0
+                    ? "Domains & Skills Package"
+                    : "Workspace Domains Package";
 
                 return (
                   <article
@@ -616,11 +532,7 @@ export function CatalogPage({
                             v{feature.version}
                           </span>
                           <span
-                            className={`badge badge-xs ${
-                              minions.length > 0
-                                ? "badge-primary/20 text-primary"
-                                : "badge-secondary/20 text-secondary"
-                            }`}
+                            className="badge badge-xs badge-secondary/20 text-secondary"
                             data-testid={`catalog-package-kind-${feature.id}`}
                           >
                             {packageKindLabel}
@@ -676,15 +588,6 @@ export function CatalogPage({
 
                     {/* Summary Pills: Contents & Requirements */}
                     <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
-                      {minions.map((minionId) => (
-                        <span
-                          key={minionId}
-                          className="badge badge-sm badge-outline font-mono"
-                          data-testid={`catalog-card-minion-${feature.id}-${minionId}`}
-                        >
-                          Minion: minions/{minionId}
-                        </span>
-                      ))}
                       {workspaceDomains.length > 0 && (
                         <span
                           className="badge badge-sm badge-ghost font-mono"
@@ -729,37 +632,6 @@ export function CatalogPage({
                         <span className="text-base-content/60 font-medium">
                           Installed artifacts:
                         </span>
-                        {minions.map((minionId) => {
-                          const installMinionStatus = installResults[
-                            feature.id
-                          ]?.minions?.find((m) => m.id === minionId);
-                          return (
-                            <span
-                              key={minionId}
-                              className="inline-flex items-center gap-1"
-                            >
-                              {onOpenMinion ? (
-                                <button
-                                  className="btn btn-xs btn-outline font-mono"
-                                  data-testid={`catalog-card-open-minion-${minionId}`}
-                                  onClick={() => onOpenMinion(minionId)}
-                                  type="button"
-                                >
-                                  Open minions/{minionId}
-                                </button>
-                              ) : (
-                                <code className="font-mono">
-                                  minions/{minionId}
-                                </code>
-                              )}
-                              {installMinionStatus?.configuration_required && (
-                                <span className="badge badge-warning badge-xs">
-                                  Config required
-                                </span>
-                              )}
-                            </span>
-                          );
-                        })}
                         {workspaceDomains.map((domainPath) =>
                           onOpenDomain ? (
                             <button
@@ -815,7 +687,6 @@ export function CatalogPage({
                 data-testid="catalog-detail-panel"
               >
                 {(() => {
-                  const minions = getFeatureMinions(selectedFeature);
                   const workspaceDomains = getWorkspaceDomains(selectedFeature);
                   const requiredOpenlia =
                     selectedFeature.requires?.openlia ??
@@ -876,15 +747,12 @@ export function CatalogPage({
                       {/* Package Architecture Distinction */}
                       <div className="rounded-lg border border-base-content/10 bg-base-100 p-3 text-xs space-y-1">
                         <div className="font-semibold">
-                          Package Type:{" "}
-                          {minions.length > 0
-                            ? "Standalone Minion App Package"
-                            : "Workspace Domains & Skills Package"}
+                          Package Type: Workspace Domains &amp; Skills Package
                         </div>
                         <p className="text-base-content/70">
-                          {minions.length > 0
-                            ? "This feature installs an interactive Minion app under minions/ with its own dashboard, input schema, and execution entrypoints. Automatic triggers remain disabled until configured."
-                            : "This feature installs structured workspace document domains (templates & schemas) and assistant skills. It does not install a standalone Minion app."}
+                          This feature installs structured workspace document
+                          domains (templates &amp; schemas) and assistant
+                          skills.
                         </p>
                       </div>
 
@@ -970,37 +838,6 @@ export function CatalogPage({
                         <h3 className="text-xs font-bold uppercase tracking-wider text-base-content/60">
                           Package Contents
                         </h3>
-
-                        {/* Minion Apps */}
-                        {minions.length > 0 && (
-                          <div className="rounded-lg border border-base-content/10 bg-base-100 p-3 space-y-2 text-xs">
-                            <div className="font-semibold">
-                              Minion Apps ({minions.length})
-                            </div>
-                            <ul className="space-y-1.5">
-                              {minions.map((minionId) => (
-                                <li
-                                  key={minionId}
-                                  className="flex items-center justify-between gap-2"
-                                >
-                                  <code className="font-mono">
-                                    minions/{minionId}
-                                  </code>
-                                  {selectedFeature.state === "installed" &&
-                                    onOpenMinion && (
-                                      <button
-                                        className="btn btn-xs btn-primary"
-                                        onClick={() => onOpenMinion(minionId)}
-                                        type="button"
-                                      >
-                                        Open in Minions
-                                      </button>
-                                    )}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
 
                         {/* Workspace Domains */}
                         {workspaceDomains.length > 0 && (

@@ -197,16 +197,7 @@ export function CreateFileDialog({
             )}
             {selectedDomain === "calendar" && (
               <p className="mt-2 text-xs">
-                This creates an event note, not a scheduled appointment.{" "}
-                <a
-                  className="link link-primary"
-                  href="/minions/calendar"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open Calendar in a new tab to create an appointment
-                </a>
-                .
+                This creates an event note, not a scheduled appointment.
               </p>
             )}
             {(selectedDomain === "finance" ||

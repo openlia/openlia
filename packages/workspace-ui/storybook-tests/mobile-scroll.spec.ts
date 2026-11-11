@@ -99,29 +99,6 @@ for (const size of [
       true,
     );
   });
-
-  test(`minion controls scroll away at ${size.width}×${size.height}`, async ({
-    page,
-  }) => {
-    await page.setViewportSize(size);
-    await story(page, "workspace-features--minions");
-    await expect(page.getByTestId("minion-openui-dashboard")).toBeVisible();
-    const owner = page.getByRole("region", { name: "Minion workspace" });
-    expect((await owner.boundingBox())?.height).toBeGreaterThan(
-      size.height - 80,
-    );
-    await page.getByText("Runtime & triggers", { exact: true }).click();
-    await owner.evaluate((element) => {
-      element.scrollTop = element.scrollHeight;
-    });
-    await expect(page.getByTestId("minion-openui-dashboard")).toBeInViewport({
-      ratio: 1,
-    });
-    await expect(
-      page.getByRole("button", { name: "Browse minions" }),
-    ).not.toBeInViewport();
-    expect((await page.locator(".workspace-header").boundingBox())?.y).toBe(0);
-  });
 }
 
 test("filter sheets do not take height from the document library", async ({

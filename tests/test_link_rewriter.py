@@ -181,10 +181,6 @@ def test_rewrite_source_links():
             rewrite_openlia_links(sample)
             == "[Invoice](/ingestion/src_12345)"
         )
-        assert (
-            rewrite_openlia_links("[Gym](openlia://minions/gym-tracker)")
-            == "[Gym](/minions/gym-tracker)"
-        )
     finally:
         os.environ.pop("OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN", None)
 

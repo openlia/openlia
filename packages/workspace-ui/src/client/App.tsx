@@ -70,13 +70,11 @@ import {
 import { MigrationSection } from "./migration/MigrationSection";
 import { MaintainerFixModal } from "./MaintainerFixModal";
 import { MaintainerPage } from "./MaintainerPage";
-import { MinionsPage } from "./MinionsPage";
 import { CatalogPage } from "./CatalogPage";
 import { GoToModal } from "./GoToModal";
 import { diffLines } from "./markdown";
 import {
   buildCanonicalWorkspaceUri,
-  buildMinionLink,
   buildSkillLink,
   resolveLinkTarget,
 } from "./openliaLinks";
@@ -406,8 +404,6 @@ export function App({
       ? parseRoute(window.location)
       : {
           filter: undefined,
-          minionFile: undefined,
-          minionId: undefined,
           path: undefined,
           scenario: undefined,
           shareId: undefined,
@@ -432,18 +428,8 @@ export function App({
   const [activeTab, setActiveTab] = useState<MainTab>(
     () =>
       initialRoute.current.tab ??
-      (initialRoute.current.minionId
-        ? "minions"
-        : initialRoute.current.skill
-          ? "skills"
-          : "documents"),
+      (initialRoute.current.skill ? "skills" : "documents"),
   );
-  const [selectedMinionId, setSelectedMinionId] = useState<string | undefined>(
-    () => initialRoute.current.minionId,
-  );
-  const [selectedMinionFile, setSelectedMinionFile] = useState<
-    string | undefined
-  >(() => initialRoute.current.minionFile);
 
   // Documents state
   const [tree, setTree] = useState<WorkspaceTreeEntry[]>(
@@ -679,24 +665,20 @@ export function App({
   const diff = docDirty && file ? diffLines(file.content, draft) : [];
 
   const currentLink =
-    activeTab === "minions"
-      ? selectedMinionId
-        ? buildMinionLink(selectedMinionId, selectedMinionFile)
+    activeTab === "skills"
+      ? selectedSkillDetail
+        ? buildSkillLink(
+            selectedSkillDetail.id,
+            selectedSkillFile?.path ?? undefined,
+          )
         : undefined
-      : activeTab === "skills"
-        ? selectedSkillDetail
-          ? buildSkillLink(
-              selectedSkillDetail.id,
-              selectedSkillFile?.path ?? undefined,
-            )
-          : undefined
-        : activeTab === "documents"
-          ? file
-            ? buildCanonicalWorkspaceUri(file.path)
-            : artifact
-              ? buildCanonicalWorkspaceUri(artifact.path)
-              : undefined
-          : undefined;
+      : activeTab === "documents"
+        ? file
+          ? buildCanonicalWorkspaceUri(file.path)
+          : artifact
+            ? buildCanonicalWorkspaceUri(artifact.path)
+            : undefined
+        : undefined;
 
   const directories = useMemo(() => {
     const set = new Set<string>();
@@ -898,11 +880,7 @@ export function App({
               ? parseRoute(window.location)
               : initialRoute.current;
 
-          if (route.tab === "minions" || route.minionId) {
-            setActiveTab("minions");
-            setSelectedMinionId(route.minionId);
-            setSelectedMinionFile(route.minionFile);
-          } else if (route.tab === "catalog") {
+          if (route.tab === "catalog") {
             setActiveTab("catalog");
           } else if (route.tab === "skills" || route.skill) {
             setActiveTab("skills");
@@ -1285,11 +1263,7 @@ export function App({
         if (nextView === "info") setDetailsOpen(true);
       }
 
-      if (route.tab === "minions" || route.minionId) {
-        setActiveTab("minions");
-        setSelectedMinionId(route.minionId);
-        setSelectedMinionFile(route.minionFile);
-      } else if (route.tab === "skills" || route.skill) {
+      if (route.tab === "skills" || route.skill) {
         setActiveTab("skills");
         if (route.skill) {
           void openSkill(route.skill, route.skillFile);
@@ -1359,11 +1333,7 @@ export function App({
 
   useEffect(() => {
     if (typeof document === "undefined" || publicShareId) return;
-    if (activeTab === "minions") {
-      document.title = selectedMinionId
-        ? `${selectedMinionId} - OpenLia Minions`
-        : "Minions - OpenLia Workspace";
-    } else if (activeTab === "catalog") {
+    if (activeTab === "catalog") {
       document.title = "Catalog - OpenLia Workspace";
     } else if (activeTab === "skills") {
       document.title = selectedSkillDetail
@@ -1397,7 +1367,6 @@ export function App({
     artifact?.path,
     file?.path,
     publicShareId,
-    selectedMinionId,
     selectedSkillDetail,
   ]);
 
@@ -1464,11 +1433,7 @@ export function App({
           typeof window !== "undefined"
             ? parseRoute(window.location)
             : initialRoute.current;
-        if (route.tab === "minions" || route.minionId) {
-          setActiveTab("minions");
-          setSelectedMinionId(route.minionId);
-          setSelectedMinionFile(route.minionFile);
-        } else if (route.tab === "catalog") {
+        if (route.tab === "catalog") {
           setActiveTab("catalog");
         } else if (route.tab === "skills" || route.skill) {
           setActiveTab("skills");
@@ -1738,8 +1703,6 @@ export function App({
     } else {
       setActiveTab(nextTab);
       navigateRoute({
-        minionFile: nextTab === "minions" ? selectedMinionFile : undefined,
-        minionId: nextTab === "minions" ? selectedMinionId : undefined,
         path: nextTab === "documents" ? file?.path : undefined,
         skill:
           nextTab === "skills" ? (selectedSkillId ?? undefined) : undefined,
@@ -1988,15 +1951,6 @@ export function App({
     if (!target) return;
     if (target.kind === "workspace") {
       requestOpenFile(target.path);
-    } else if (target.kind === "minion") {
-      setActiveTab("minions");
-      setSelectedMinionId(target.minionId);
-      setSelectedMinionFile(target.minionFile);
-      navigateRoute({
-        minionFile: target.minionFile,
-        minionId: target.minionId,
-        tab: "minions",
-      });
     } else if (target.kind === "skill") {
       requestOpenSkill(target.skillId, target.skillFile);
     } else if (target.kind === "git-activity") {
@@ -2946,40 +2900,9 @@ export function App({
             </div>
           )}
         </div>
-      ) : activeTab === "minions" ? (
-        <MinionsPage
-          api={api}
-          selectedMinionId={selectedMinionId}
-          selectedMinionFile={selectedMinionFile}
-          onSelectMinion={(minionId, minionFile) => {
-            setSelectedMinionId(minionId);
-            setSelectedMinionFile(minionFile);
-            navigateRoute({
-              minionFile,
-              minionId,
-              tab: "minions",
-            });
-          }}
-          onOpenFile={(docPath) => requestOpenFile(docPath)}
-          onNavigateLink={handleNavigateLink}
-          onOpenCatalog={() => requestTabChange("catalog")}
-          onAskLia={(prompt) => {
-            setChatDraftPrompt(prompt);
-            requestTabChange("chat");
-          }}
-        />
       ) : activeTab === "catalog" ? (
         <CatalogPage
           api={api}
-          onOpenMinion={(minionId) => {
-            setSelectedMinionId(minionId);
-            setSelectedMinionFile(undefined);
-            setActiveTab("minions");
-            navigateRoute({
-              minionId,
-              tab: "minions",
-            });
-          }}
           onOpenSkill={(skillId) => {
             setActiveTab("skills");
             requestOpenSkill(skillId);

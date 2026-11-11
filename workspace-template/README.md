@@ -25,16 +25,6 @@ Every workspace starts with a clean, unopinionated foundation:
   cleanup (`inbox/ingestion/ingestion-template.md`).
 - `knowledge/`: free-form Obsidian-style PKM vault for notes, project pages, and
   linked knowledge.
-- `minions/<slug>/` (optional): autonomous programmable workspace apps with
-  `README.md`, `dashboard.openui` (main dashboard), `input.openui` +
-  `input.schema.json` + `input.py` or `input.ts` (structured input form &
-  validation), `config.schema.json` + `config.json` (required `trigger` plus
-  agent-defined Minion settings; `config.json` is ignored when packaged for
-  sharing), `main.py` or `main.ts` (data management & enrichment triggered
-  both on cron heartbeats and right after every new entry), `requirements.txt`
-  or `package.json`, scripts and tests, and freely structured `data/` files
-  (with nested subfolders supported) that OpenLia programs with the user as
-  Project Owner.
 - `sources/`: retained originals, source records, immutable extraction artifacts,
   and evidence manifests created by durable ingestion (`sources/records/source-template.md`).
 
@@ -85,8 +75,7 @@ skill, or run this in Hermes:
 ## Inline OpenUI
 
 Add fenced `openui` blocks to Markdown documents for interactive tables, cards,
-charts, Calendar, or Finance views. Workspace UI renders them inline in Documents
-(and renders standalone `dashboard.openui` and `input.openui` views for Minions under `minions/<slug>/`).
+charts, Calendar, or Finance views. Workspace UI renders them inline in Documents.
 Public snapshots render literal views without granting access to live private
 workspace data or mutations.
 
