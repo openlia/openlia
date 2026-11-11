@@ -27,8 +27,6 @@ import { Route as MemoryIndexRouteImport } from './routes/memory/index'
 import { Route as MemorySplatRouteImport } from './routes/memory/$'
 import { Route as MigrationIndexRouteImport } from './routes/migration/index'
 import { Route as MigrationSplatRouteImport } from './routes/migration/$'
-import { Route as MinionsIndexRouteImport } from './routes/minions/index'
-import { Route as MinionsSplatRouteImport } from './routes/minions/$'
 import { Route as ShareSplatRouteImport } from './routes/share/$'
 import { Route as SkillsIndexRouteImport } from './routes/skills/index'
 import { Route as SkillsSplatRouteImport } from './routes/skills/$'
@@ -123,16 +121,6 @@ const MigrationSplatRoute = MigrationSplatRouteImport.update({
   path: '/migration/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const MinionsIndexRoute = MinionsIndexRouteImport.update({
-  id: '/minions/',
-  path: '/minions/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MinionsSplatRoute = MinionsSplatRouteImport.update({
-  id: '/minions/$',
-  path: '/minions/$',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ShareSplatRoute = ShareSplatRouteImport.update({
   id: '/share/$',
   path: '/share/$',
@@ -164,14 +152,12 @@ export interface FileRoutesByFullPath {
   '/ingestion/$': typeof IngestionSplatRoute
   '/memory/$': typeof MemorySplatRoute
   '/migration/$': typeof MigrationSplatRoute
-  '/minions/$': typeof MinionsSplatRoute
   '/share/$': typeof ShareSplatRoute
   '/skills/$': typeof SkillsSplatRoute
   '/files/': typeof FilesIndexRoute
   '/ingestion/': typeof IngestionIndexRoute
   '/memory/': typeof MemoryIndexRoute
   '/migration/': typeof MigrationIndexRoute
-  '/minions/': typeof MinionsIndexRoute
   '/skills/': typeof SkillsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -189,14 +175,12 @@ export interface FileRoutesByTo {
   '/ingestion/$': typeof IngestionSplatRoute
   '/memory/$': typeof MemorySplatRoute
   '/migration/$': typeof MigrationSplatRoute
-  '/minions/$': typeof MinionsSplatRoute
   '/share/$': typeof ShareSplatRoute
   '/skills/$': typeof SkillsSplatRoute
   '/files': typeof FilesIndexRoute
   '/ingestion': typeof IngestionIndexRoute
   '/memory': typeof MemoryIndexRoute
   '/migration': typeof MigrationIndexRoute
-  '/minions': typeof MinionsIndexRoute
   '/skills': typeof SkillsIndexRoute
 }
 export interface FileRoutesById {
@@ -215,14 +199,12 @@ export interface FileRoutesById {
   '/ingestion/$': typeof IngestionSplatRoute
   '/memory/$': typeof MemorySplatRoute
   '/migration/$': typeof MigrationSplatRoute
-  '/minions/$': typeof MinionsSplatRoute
   '/share/$': typeof ShareSplatRoute
   '/skills/$': typeof SkillsSplatRoute
   '/files/': typeof FilesIndexRoute
   '/ingestion/': typeof IngestionIndexRoute
   '/memory/': typeof MemoryIndexRoute
   '/migration/': typeof MigrationIndexRoute
-  '/minions/': typeof MinionsIndexRoute
   '/skills/': typeof SkillsIndexRoute
 }
 export interface FileRouteTypes {
@@ -242,14 +224,12 @@ export interface FileRouteTypes {
     | '/ingestion/$'
     | '/memory/$'
     | '/migration/$'
-    | '/minions/$'
     | '/share/$'
     | '/skills/$'
     | '/files/'
     | '/ingestion/'
     | '/memory/'
     | '/migration/'
-    | '/minions/'
     | '/skills/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -267,14 +247,12 @@ export interface FileRouteTypes {
     | '/ingestion/$'
     | '/memory/$'
     | '/migration/$'
-    | '/minions/$'
     | '/share/$'
     | '/skills/$'
     | '/files'
     | '/ingestion'
     | '/memory'
     | '/migration'
-    | '/minions'
     | '/skills'
   id:
     | '__root__'
@@ -292,14 +270,12 @@ export interface FileRouteTypes {
     | '/ingestion/$'
     | '/memory/$'
     | '/migration/$'
-    | '/minions/$'
     | '/share/$'
     | '/skills/$'
     | '/files/'
     | '/ingestion/'
     | '/memory/'
     | '/migration/'
-    | '/minions/'
     | '/skills/'
   fileRoutesById: FileRoutesById
 }
@@ -318,14 +294,12 @@ export interface RootRouteChildren {
   IngestionSplatRoute: typeof IngestionSplatRoute
   MemorySplatRoute: typeof MemorySplatRoute
   MigrationSplatRoute: typeof MigrationSplatRoute
-  MinionsSplatRoute: typeof MinionsSplatRoute
   ShareSplatRoute: typeof ShareSplatRoute
   SkillsSplatRoute: typeof SkillsSplatRoute
   FilesIndexRoute: typeof FilesIndexRoute
   IngestionIndexRoute: typeof IngestionIndexRoute
   MemoryIndexRoute: typeof MemoryIndexRoute
   MigrationIndexRoute: typeof MigrationIndexRoute
-  MinionsIndexRoute: typeof MinionsIndexRoute
   SkillsIndexRoute: typeof SkillsIndexRoute
 }
 
@@ -457,20 +431,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MigrationSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/minions/': {
-      id: '/minions/'
-      path: '/minions'
-      fullPath: '/minions/'
-      preLoaderRoute: typeof MinionsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/minions/$': {
-      id: '/minions/$'
-      path: '/minions/$'
-      fullPath: '/minions/$'
-      preLoaderRoute: typeof MinionsSplatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/share/$': {
       id: '/share/$'
       path: '/share/$'
@@ -510,14 +470,12 @@ const rootRouteChildren: RootRouteChildren = {
   IngestionSplatRoute: IngestionSplatRoute,
   MemorySplatRoute: MemorySplatRoute,
   MigrationSplatRoute: MigrationSplatRoute,
-  MinionsSplatRoute: MinionsSplatRoute,
   ShareSplatRoute: ShareSplatRoute,
   SkillsSplatRoute: SkillsSplatRoute,
   FilesIndexRoute: FilesIndexRoute,
   IngestionIndexRoute: IngestionIndexRoute,
   MemoryIndexRoute: MemoryIndexRoute,
   MigrationIndexRoute: MigrationIndexRoute,
-  MinionsIndexRoute: MinionsIndexRoute,
   SkillsIndexRoute: SkillsIndexRoute,
 }
 export const routeTree = rootRouteImport

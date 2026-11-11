@@ -10,7 +10,6 @@ import { UsagePage, UsagePricingOverrides } from "../UsagePage";
 import { UsageSummary } from "../UsageSummary";
 import { MaintainerPage } from "../MaintainerPage";
 import { MaintainerFixModal } from "../MaintainerFixModal";
-import { MinionsPage } from "../MinionsPage";
 import { CatalogPage } from "../CatalogPage";
 import { MigrationSection } from "../migration/MigrationSection";
 import { action, file, finding, storyData, storyLoader } from "./fixtures";
@@ -34,7 +33,6 @@ const meta = {
       "UsageSummary.tsx#UsageSummary",
       "MaintainerPage.tsx#MaintainerPage",
       "MaintainerFixModal.tsx#MaintainerFixModal",
-      "MinionsPage.tsx#MinionsPage",
       "CatalogPage.tsx#CatalogPage",
       "migration/MigrationSection.tsx#MigrationSection",
     ],
@@ -208,26 +206,11 @@ export const FixPreview: Story = {
     />
   ),
 };
-export const Minions: Story = {
-  render: (_args, { loaded }) => (
-    <PageFrame>
-      <MinionsPage
-        api={storyData(loaded).api}
-        selectedMinionId="sample-minion"
-        onSelectMinion={action("selectMinion")}
-        onOpenFile={action("openFile")}
-        onNavigateLink={action("navigateLink")}
-        onAskLia={action("askLia")}
-      />
-    </PageFrame>
-  ),
-};
 export const Catalog: Story = {
   render: (_args, { loaded }) => (
     <PageFrame>
       <CatalogPage
         api={storyData(loaded).api}
-        onOpenMinion={action("openMinion")}
         onOpenSkill={action("openSkill")}
         onOpenDomain={action("openDomain")}
       />

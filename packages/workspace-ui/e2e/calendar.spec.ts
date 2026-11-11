@@ -12,11 +12,7 @@ test.describe("native Calendar project", () => {
   }, testInfo) => {
     const title = `Appointment UI ${crypto.randomUUID()}`;
     const today = new Date().toISOString().slice(0, 10);
-    await page.goto(
-      process.env.OPENLIA_INTEGRATION_CALENDAR_MINION === "true"
-        ? "/files/minions/calendar/overview.md"
-        : "/files/calendar/overview.md",
-    );
+    await page.goto("/files/calendar/overview.md");
     await expect(
       page.getByRole("button", { name: "New appointment", exact: true }),
     ).toBeEnabled();

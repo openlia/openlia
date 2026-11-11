@@ -296,47 +296,6 @@ def _human_label(rel_path: str) -> str:
 _IGNORED_DIR_NAMES = {"node_modules", "__pycache__", ".venv", ".pytest_cache"}
 
 
-def _parse_minion_readme(readme_path: Path, default_label: str, rel_path: str) -> tuple[str, str]:
-    label = default_label
-    purpose = f"Autonomous Minion in {rel_path}"
-    has_explicit_name = False
-    if readme_path.is_symlink():
-        return label, purpose
-    try:
-        text = readme_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        return label, purpose
-
-    body = text
-    if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) == 3:
-            try:
-                fm = yaml.load(parts[1], Loader=UniqueKeySafeLoader)
-                if isinstance(fm, dict):
-                    if isinstance(fm.get("name"), str) and fm["name"].strip():
-                        label = fm["name"].strip()
-                        has_explicit_name = True
-                    if isinstance(fm.get("description"), str) and fm["description"].strip():
-                        purpose = fm["description"].strip()
-            except Exception:
-                pass
-            body = parts[2]
-
-    lines = [line.strip() for line in body.splitlines()]
-    for idx, line in enumerate(lines):
-        if line.startswith("# ") and len(line) > 2:
-            if not has_explicit_name:
-                label = line[2:].strip()
-            for next_line in lines[idx + 1 :]:
-                if next_line and not next_line.startswith("#"):
-                    if purpose == f"Autonomous Minion in {rel_path}":
-                        purpose = next_line
-                    break
-            break
-    return label, purpose
-
-
 def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
     """Discover workspace domains and collections from folders, templates, and manifests."""
     root = Path(workspace).expanduser().resolve()
@@ -349,24 +308,12 @@ def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
     else:
         discovered_paths.add("decisions")
 
-    # 1. Top-level directories and minions/<slug> directories
+    # 1. Top-level directories
     try:
         for entry in sorted(root.iterdir()):
             if entry.name.startswith(".") or entry.is_symlink() or not entry.is_dir():
                 continue
             if entry.name in _IGNORED_DIR_NAMES:
-                continue
-            if entry.name == "minions":
-                for minion_dir in sorted(entry.iterdir()):
-                    if (
-                        minion_dir.name.startswith(".")
-                        or minion_dir.is_symlink()
-                        or not minion_dir.is_dir()
-                        or minion_dir.name in _IGNORED_DIR_NAMES
-                        or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", minion_dir.name)
-                    ):
-                        continue
-                    discovered_paths.add(f"minions/{minion_dir.name}")
                 continue
             discovered_paths.add(entry.name)
     except OSError:
@@ -379,7 +326,6 @@ def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
             name for name in directories
             if not name.startswith(".") and name not in _IGNORED_DIR_NAMES
             and not (folder / name).is_symlink()
-            and not (folder == root and name == "minions")
         )
         rel_parent = folder.relative_to(root).as_posix()
         if rel_parent == ".":
@@ -422,19 +368,6 @@ def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
         route = known.get("route")
 
         parts = rel_path.split("/")
-        is_minion = False
-        entrypoint: str | None = None
-        if len(parts) == 2 and parts[0] == "minions" and folder.is_dir():
-            has_readme = (folder / "README.md").is_file()
-            if (folder / "main.py").is_file():
-                entrypoint = "main.py"
-            elif (folder / "main.ts").is_file():
-                entrypoint = "main.ts"
-            if has_readme and entrypoint:
-                is_minion = True
-                label, purpose = _parse_minion_readme(
-                    folder / "README.md", _human_label(parts[1]), rel_path
-                )
 
         if rel_path not in _KNOWN_DOMAIN_METADATA and rel_path in leaf_custom_candidates:
             if rel_path.startswith("finance/"):
@@ -449,11 +382,6 @@ def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
             # Avoid overlapping briefing paths when a finance/* leaf collection is present
             include_in_briefing = False
 
-        # Apps are discoverable, but their code and cached data are not records.
-        # Include intentional Markdown exports outside minions/ instead.
-        if parts[0] == "minions":
-            include_in_briefing = False
-            briefing_category = None
 
         template_rel: str | None = None
         if folder.is_dir():
@@ -470,25 +398,6 @@ def discover_domains(workspace: str | Path) -> list[dict[str, Any]]:
             "purpose": purpose,
             "include_in_briefing": include_in_briefing,
         }
-        if is_minion:
-            entry_dict["minion"] = True
-            entry_dict["entrypoint"] = entrypoint
-            if (folder / "input.py").is_file():
-                entry_dict["input_entrypoint"] = "input.py"
-            elif (folder / "input.ts").is_file():
-                entry_dict["input_entrypoint"] = "input.ts"
-            if (folder / "input.schema.json").is_file():
-                entry_dict["input_schema"] = "input.schema.json"
-            if (folder / "config.json").is_file():
-                entry_dict["config_file"] = "config.json"
-            if (folder / "config.schema.json").is_file():
-                entry_dict["config_schema"] = "config.schema.json"
-            if (folder / "dashboard.openui").is_file():
-                entry_dict["dashboard_ui"] = "dashboard.openui"
-            elif (folder / "ui.openui").is_file():
-                entry_dict["dashboard_ui"] = "ui.openui"
-            if (folder / "input.openui").is_file():
-                entry_dict["input_ui"] = "input.openui"
         if briefing_category:
             entry_dict["briefing_category"] = briefing_category
         if route:

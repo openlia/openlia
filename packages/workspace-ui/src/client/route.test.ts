@@ -404,26 +404,4 @@ describe("route helpers", () => {
       "/share/abcd1234efgh5678",
     );
   });
-
-  test("parses and builds minions routes and openlia://minions links", () => {
-    expect(parseRoute("/minions")).toMatchObject({
-      tab: "minions",
-      minionId: undefined,
-    });
-    expect(parseRoute("/minions/family-menu")).toMatchObject({
-      tab: "minions",
-      minionId: "family-menu",
-    });
-    expect(
-      parseRoute("openlia://minions/family-menu/data/2026/week-44.yaml"),
-    ).toMatchObject({
-      tab: "minions",
-      minionId: "family-menu",
-      minionFile: "data/2026/week-44.yaml",
-    });
-    expect(buildRouteUrl({ tab: "minions" })).toBe("/minions");
-    expect(buildRouteUrl({ tab: "minions", minionId: "family-menu" })).toBe(
-      "/minions/family-menu",
-    );
-  });
 });

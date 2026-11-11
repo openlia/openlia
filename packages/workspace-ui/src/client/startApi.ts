@@ -71,10 +71,6 @@ async function request<T>(input: WorkspaceServerRequest): Promise<T> {
 
 export const startWorkspaceApi: WorkspaceApi = {
   ...httpWorkspaceApi,
-  describeMinionViews: (id) =>
-    request({ path: `/api/minion-views/${encodeURIComponent(id)}` }),
-  queryMinionView: (query) =>
-    request({ path: "/api/minion-views/query", method: "POST", body: query }),
   loadCheckpointProposals: () =>
     request({ path: "/api/workspace/git/proposals" }),
   approveCheckpoint: (id, revision) =>

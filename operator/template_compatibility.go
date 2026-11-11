@@ -135,7 +135,6 @@ type templatePreflight struct {
 	version      func() (string, error)
 	active       map[string]bool
 	done         map[string]bool
-	minionOwners map[string]string
 }
 
 func newTemplatePreflight(config Config) *templatePreflight {
@@ -151,7 +150,7 @@ func newTemplatePreflight(config Config) *templatePreflight {
 			}
 			return version, versionErr
 		},
-		active: map[string]bool{}, done: map[string]bool{}, minionOwners: map[string]string{},
+		active: map[string]bool{}, done: map[string]bool{},
 	}
 }
 
@@ -186,19 +185,6 @@ func (p *templatePreflight) feature(manifest FeatureManifest, pkgDir string) err
 	p.active[manifest.ID] = true
 	defer delete(p.active, manifest.ID)
 	if err := p.check("feature "+manifest.ID+" "+manifest.Version, manifest.Requires.OpenLia); err != nil {
-		return err
-	}
-	packages, err := featureMinionPackages(filepath.Join(pkgDir, "workspace"), manifest.Domains)
-	if err != nil {
-		return fmt.Errorf("feature %s: %w", manifest.ID, err)
-	}
-	for _, pkg := range packages {
-		if owner := p.minionOwners[pkg.ID]; owner != "" && owner != manifest.ID {
-			return fmt.Errorf("Minion %s is declared by both %s and %s", pkg.ID, owner, manifest.ID)
-		}
-		p.minionOwners[pkg.ID] = manifest.ID
-	}
-	if err := preflightFeatureMinionDestinations(p.config, manifest.ID, packages); err != nil {
 		return err
 	}
 	for _, id := range manifest.Requires.Features {

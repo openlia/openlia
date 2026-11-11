@@ -154,13 +154,7 @@ export class FinanceService {
       schemaJson: {},
     };
     try {
-      // App records are instance data; their managed contracts live outside data/.
-      const contractRoot = /^minions\/[a-z0-9][a-z0-9-]*\/data$/.test(root)
-        ? root.replace(/\/data$/, "/templates")
-        : root;
-      const contract = this.workspace.collectionContract(
-        `${contractRoot}/accounts`,
-      );
+      const contract = this.workspace.collectionContract(`${root}/accounts`);
       const { metadata, body } = parseRecordFrontmatter(contract.template);
       const schemaJson: unknown = JSON.parse(contract.schema);
       if (

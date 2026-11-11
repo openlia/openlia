@@ -22,33 +22,6 @@ user-owned delegation policy authorizes the scoped update.
   smallest useful folder, template, optional schema, and inline `openui` blocks
   in the requested Markdown artifact, or install a
   feature/profile from the OpenLia catalog (`https://github.com/openlia/minions.git`).
-- **Minions (`minions/<slug>/`)**: Programmable workspace apps that
-  OpenLia/Hermes develops and maintains with the user as **Project Owner** (e.g.,
-  `minions/family-menu/`, `minions/gym-tracker/`, `minions/portfolio-watch/`). Each
-  Minion folder contains:
-  - `README.md`: documentation, `triggers` (`after_entry: true`, `heartbeat_schedule`), and `quick_actions`.
-  - `dashboard.openui`: the main OpenUI dashboard view.
-  - `input.openui`: the OpenUI input form (`Form(name: "minionInput", ...)`).
-  - `input.schema.json`: JSON Schema contract validating input form data.
-  - `input.py` or `input.ts`: input handler that validates and records new entries into `data/`.
-  - `config.schema.json` & `config.json`: `config.json` holds the required OpenLia/Hermes `trigger` (`on_new_entry` and/or `cron`) plus any Minion-specific settings designed by the agent (e.g., news URL, stock endpoint, or workspace `.rem` calendar path) and is validated by `config.schema.json` (when packaged for sharing, `config.json` is ignored and only `config.schema.json` is packaged).
-  - `main.py` or `main.ts`: data management & enrichment entrypoint triggered in **two ways**:
-    1. **Heartbeat trigger (`--trigger heartbeat`)** at a cron job or manual run to enrich data (e.g., fetching news, retrieving latest stock prices, computing rollups) and update `dashboard.openui`.
-    2. **Post-entry trigger (`--trigger entry`)** right after every new entry recorded by `input.py` / `input.ts` to analyze the new entry with existing context (e.g., recommending the next exercise given today's recorded performance) and update `dashboard.openui`.
-  - `requirements.txt` or `package.json`, scripts and tests (`scripts/`, `tests/`),
-    and freely structured data files under `data/` (`.json`, `.yaml`/`.yml`, `.csv`,
-    `.hledger`/`.journal`, `.rem`/`.remind`, `.md`, including nested subfolders).
-  - `minion.package.json`: explicit reviewed source-file list for sharing through
-    a feature, never local configuration, records, caches, or installed dependencies.
-  Load `minion-authoring` and use `minion_scaffold`, `minion_validate`, and `minion_run` when constructing or updating Minions. Hermes has full autonomy inside `minions/<slug>/` to install dependencies, run scripts/tests/entrypoints, and update code, `.openui` views, and `data/` files.
-  Keep one authoritative location per dataset; do not duplicate existing domain
-  records merely to display them in an app. A cron setting does not itself
-  register a schedule. Verify actual schedule registration and execution, honor
-  scheduled-work permissions, and keep external effects approval-gated. A Minion
-  folder is not a process sandbox. For briefings/reviews, use `minion_describe`
-  and `minion_query` for named `data.views.json` views; never run app code just
-  to read data. Scheduled reads require local `data_views.briefing` opt-in and
-  explicit subject scope where required. Never count cached copies twice.
 
 ## File handling
 
@@ -78,7 +51,7 @@ user-owned delegation policy authorizes the scoped update.
   - Treat inline OpenUI as a first-class presentation option. When creating or substantially updating reports, reviews, comparisons, or data-rich documents, proactively consider OpenUI without waiting for the user to request it. Load `inline-openui-authoring` when a view would make the data easier to understand.
   - Use charts for trends, tables for comparisons and structured results, and tabs/cards for related views. Prefer plain Markdown for simple notes or when a view adds no value; honor requests for plain-text or static output.
   - Keep report conclusions and source links in ordinary Markdown outside views. Label reporting periods, snapshot dates, and units; distinguish missing data from zero. Never invent data to fill a component or imply a literal snapshot updates live. Keep generated reports separate from source records.
-  - Put interactive tables, cards, charts, Calendar, and Finance views in fenced `openui` blocks inside Markdown documents (or `dashboard.openui` and `input.openui` inside a Minion folder).
+  - Put interactive tables, cards, charts, Calendar, and Finance views in fenced `openui` blocks inside Markdown documents.
   - Load `inline-openui-authoring`, discover exact component APIs with `openui_describe`, and check the final Markdown draft with `openui_validate`. Repair diagnostics; do not equate schema validity with verified rendering.
   - Use bare component roots, schema-named arguments, and row tables (`Table(columns: [{key, label}], rows: [{...}])`). Paths resolve relative to the containing document's folder.
   - Validate syntax with `validate_workspace.py` and use Workspace UI for full component diagnostics. Findings are advisory; link the containing document via `openlia://workspace/<path>`.
@@ -113,7 +86,6 @@ user-owned delegation policy authorizes the scoped update.
 When referencing or providing links to workspace documents, notes, or skills in user-facing responses or workspace records:
 - Format links using canonical `openlia://` URIs:
   - Workspace documents: `[Label](openlia://workspace/<path>)` (e.g. `[Source Record](openlia://workspace/sources/records/source-template.md)`).
-  - Minions: `[Label](openlia://minions/<slug>)` (e.g. `[Family Menu](openlia://minions/family-menu)`).
   - Skills: `[Label](openlia://skills/<skill-id>)` (e.g. `[Template Customization](openlia://skills/workspace-template-customization)`).
   - Inside workspace markdown files, document-relative links (e.g. `[Specs](./specs.md)`) are also supported.
 - Never embed environment-specific HTTP origins or hostnames into workspace records.

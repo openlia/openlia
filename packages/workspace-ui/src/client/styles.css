@@ -947,25 +947,6 @@ textarea {
   display: none;
 }
 
-.minion-title-row .btn {
-  min-height: 44px;
-  height: auto;
-}
-.minion-title-row .btn-square {
-  min-width: 44px;
-}
-
-.minion-quick-entry textarea {
-  box-sizing: border-box;
-  min-height: calc(4.5rem + 1.5rem + 2px);
-  max-height: calc(12rem + 1.5rem + 2px);
-  padding: 0.75rem;
-  font-size: 1rem;
-  line-height: 1.5rem;
-  resize: none;
-  overflow-y: auto;
-}
-
 .workspace-scrollable-toolbar {
   min-width: 0;
   max-width: 100%;
@@ -1068,17 +1049,6 @@ textarea {
   }
   .document-workspace > .workspace-empty-document {
     min-height: 0;
-  }
-  .minion-file-layout,
-  .minion-file-editor {
-    height: auto;
-    min-height: 0;
-  }
-  .minion-file-layout > * {
-    min-width: 0;
-  }
-  .minion-file-layout .workspace-editor-frame {
-    flex: none;
   }
   .ingestion-workspace .ingestion-library,
   .ingestion-workspace .ingestion-inspector-container,

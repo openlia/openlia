@@ -85,15 +85,9 @@ const editableExtensions = new Set([
   ".openui",
 ]);
 
-const minionCodeExtensions = new Set([".py", ".ts", ".js", ".sh", ".bash"]);
-
 function isEditablePath(relativePath: string): boolean {
   const ext = fileExtension(relativePath);
-  if (editableExtensions.has(ext)) return true;
-  if (relativePath.startsWith("minions/") && minionCodeExtensions.has(ext)) {
-    return true;
-  }
-  return false;
+  return editableExtensions.has(ext);
 }
 
 const protectedDirectoryNames = new Set([
@@ -248,7 +242,6 @@ export function protectedPath(path: string): boolean {
 
 export function isTemplateOrSchemaPath(path: string): boolean {
   const normalized = path.replaceAll("\\", "/").toLowerCase();
-  if (normalized.startsWith("minions/")) return false;
   const basename = normalized.split("/").at(-1) ?? "";
   return (
     basename.endsWith("-template.md") ||

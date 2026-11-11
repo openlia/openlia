@@ -64,8 +64,8 @@ def prepare_browser_workspace(source: Path, scratch: Path, project: str) -> Path
         raise ValueError("Unknown browser acceptance project")
     target = scratch / "browser-workspaces" / project / "workspace"
     shutil.copytree(source, target)
-    if (target / "minions/calendar/overview.md").is_file():
-        calendar_data = target / "minions/calendar/data"
+    if (target / "calendar/overview.md").is_file():
+        calendar_data = target / "calendar/data"
         calendar_data.mkdir(parents=True, exist_ok=True)
         reminders = calendar_data / "reminders.rem"
         if not reminders.exists():
@@ -123,8 +123,6 @@ def main(argv: list[str] | None = None) -> int:
                     raise RuntimeError(f"Catalog symlinks are not supported: {path.relative_to(snapshot)}")
             run("catalog validation", [sys.executable, str(snapshot / "scripts/validate_catalog.py"), "--no-self-test"])
             run("catalog regression tests", [sys.executable, "-m", "unittest", "discover", "-s", str(snapshot / "scripts"), "-p", "test_*.py"])
-            run("runtime Minion collection discovery", [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_minion_collection_discovery.py"])
-            run("Hermes Minion distribution contract", [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_minion_distribution_tools.py"])
             catalog = runpy.run_path(str(snapshot / "scripts/validate_catalog.py"))
             if json.loads((snapshot / "catalog.json").read_text()) != catalog["build_catalog"]():
                 raise RuntimeError("catalog.json is stale; regenerate deliberately and review the diff")
@@ -132,22 +130,13 @@ def main(argv: list[str] | None = None) -> int:
             go_env = {**environment, "OPENLIA_INTEGRATION_TEMPLATES_ROOT": str(snapshot), "OPENLIA_INTEGRATION_GO_REPORT": str(go_report)}
             if args.docker:
                 go_env["OPENLIA_INTEGRATION_DOCKER"] = "true"
-            run("real Go catalog sync/install/profile/package/import and regressions", ["go", "test", "./operator", "-run", "TestCompatibility|TestRuntimeMeetsMinimum|TestParseOpenLiaRequirement|TestTemplates|TestRealTemplatesCatalogIntegration|TestMinionDistribution", "-count=1"], env=go_env)
+            run("real Go catalog sync/install/profile/package/import and regressions", ["go", "test", "./operator", "-run", "TestCompatibility|TestRuntimeMeetsMinimum|TestParseOpenLiaRequirement|TestTemplates|TestRealTemplatesCatalogIntegration", "-count=1"], env=go_env)
             report["go_catalog"] = json.loads(go_report.read_text())
             if remind:
                 run("native Calendar server regression tests", ["bun", "test", "src/server/calendar.test.ts"], cwd=UI, env={**environment, "OPENLIA_REMIND_BINARY": remind})
             report["docker_bind_mounts"] = "passed with isolated pinned Alpine container" if args.docker else "not-run (opt in with --docker)"
             sandbox = scratch / "installed"
             run("real catalog installation and inline Markdown OpenUI diagnostics", ["bun", "scripts/check-templates.ts", str(snapshot), str(sandbox)], cwd=UI)
-            run("personal app installation and structured input", ["bun", "test", "src/server/personal-apps.integration.test.ts"], cwd=UI,
-                env={**environment, "OPENLIA_INTEGRATION_TEMPLATES_ROOT": str(snapshot)})
-            run("Minion data-view catalog compatibility and optional CLI parity", ["bun", "test", "src/server/minion-views.integration.test.ts"], cwd=UI,
-                env={**environment, "OPENLIA_INTEGRATION_TEMPLATES_ROOT": str(snapshot)})
-            report["minion_data_views"] = (
-                "named-view installation and CLI parity passed"
-                if any((snapshot / "features").glob("*/workspace/minions/*/data.views.json"))
-                else "legacy catalog compatibility passed; named-view acceptance not applicable"
-            )
             report["catalog"] = json.loads((sandbox / "catalog-checks.json").read_text())
             calendar = sandbox / "install-calendar/workspace"
             run("installed Calendar workspace validation", [sys.executable, str(ROOT / "profile/system-skills/workspace-template-customization/scripts/validate_workspace.py"), "--workspace-root", str(calendar)])
@@ -155,7 +144,6 @@ def main(argv: list[str] | None = None) -> int:
                 report["browser_acceptance"] = "skipped explicitly; not UI acceptance evidence"
             else:
                 run("production Workspace UI build", ["bun", "run", "build"], cwd=UI)
-                calendar_minion = (calendar / "minions/calendar/overview.md").is_file()
                 report["browser_projects"] = {}
                 for project in ("desktop", "mobile"):
                     # Never let an abandoned proposal or partial browser test
@@ -171,7 +159,6 @@ def main(argv: list[str] | None = None) -> int:
                         "OPENLIA_REMIND_BINARY": remind,
                         "OPENLIA_WORKSPACE_UI_PORT": str(free_port()),
                         "WORKSPACE_UI_E2E_MODE": "real",
-                        "OPENLIA_INTEGRATION_CALENDAR_MINION": "true" if calendar_minion else "false",
                     }
                     run(f"{project} real-backend acceptance (isolated workspace)", ["bunx", "--no-install", "playwright", "test", "--config", "playwright.templates.config.ts", "--project", project], cwd=UI, env=browser_env)
                     report["browser_projects"][project] = "passed"

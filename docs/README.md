@@ -13,6 +13,7 @@ Use these guides when interacting with Lia day-to-day over Telegram or the Works
 
 - **[End User Guide](user-guide.md)**: Daily workflows with Lia—interfaces (Telegram, Workspace UI Chat, Document Editor with inline OpenUI), the Minimal Core Workspace, installing profiles/features/skills from [`openlia/minions`](https://github.com/openlia/minions.git), and delegation boundaries.
 - **[Inline OpenUI Views](workspace-domain-views.md)**: Interactive tables, charts, and domain views composed inside Markdown documents.
+- **[Generative UI with Moi](generative-ui-moi.md)**: Generative React component workspace integration via ACP (`hermes -p personal-os acp`).
 
 ### 🛠️ For Operators (Self-Hosters & System Administrators)
 Use these guides when deploying, configuring, updating, backing up, or troubleshooting an OpenLia stack on your local workstation or a remote Linux server.
@@ -27,7 +28,7 @@ Use these guides when onboarding to the codebase, building from source, adding C
 - **[Contributing & Onboarding Guide](../CONTRIBUTING.md)**: Development prerequisites, 5-minute local setup, component-specific workflows, test suites, and pull request conventions.
 - **[System Architecture & Codebase Tour](architecture.md)**: Full-stack architectural overview covering the Go CLI & target operator, `/opt/data/.local` tool & environment store, TypeScript/Bun Workspace UI & Browser Relay, Python Hermes plugins, Docker images, and release manifest pinning.
 - **[Skill & Feature Package Development](skill-and-feature-development.md)**: How to author, validate, and test profiles, features, and skills for [`openlia/minions`](https://github.com/openlia/minions.git) (including `requires.{tools,python,bun}`) as well as core system skills (`profile/system-skills/`).
-- **[Minion Distribution](minion-distribution.md)**: Reviewed source-file manifests, code-only export/install, recipient configuration, and state-preserving managed updates.
+- **[Generative UI with Moi](generative-ui-moi.md)**: Generative React component workspace integration via ACP.
 
 ---
 

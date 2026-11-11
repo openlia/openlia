@@ -42,22 +42,16 @@ const scope = {
   accountPrefix: "",
 };
 
-it("uses an explicit app data scope rather than the Minion source directory", async () => {
+it("uses an explicit data scope rather than the fallback domain path", async () => {
   const api = createFinanceMock();
   const load = vi.spyOn(api, "loadFinanceContext");
   render(
-    <OpenLiaOpenUIProvider
-      value={{ financeApi: api, domainPath: "minions/personal-finance" }}
-    >
-      <FinanceView dataPath="minions/personal-finance/data">
-        App reports
-      </FinanceView>
+    <OpenLiaOpenUIProvider value={{ financeApi: api, domainPath: "finance" }}>
+      <FinanceView dataPath="finance/nested">Reports</FinanceView>
     </OpenLiaOpenUIProvider>,
   );
-  await waitFor(() =>
-    expect(load).toHaveBeenCalledWith("minions/personal-finance/data"),
-  );
-  expect(load).not.toHaveBeenCalledWith("minions/personal-finance");
+  await waitFor(() => expect(load).toHaveBeenCalledWith("finance/nested"));
+  expect(load).not.toHaveBeenCalledWith("finance");
 });
 
 it("Finance supplies semantic metadata without changing flow data or debit/credit meaning", () => {

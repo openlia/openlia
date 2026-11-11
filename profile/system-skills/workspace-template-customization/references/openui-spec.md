@@ -74,5 +74,4 @@ block's document line. Python tools perform lightweight syntax checks offline;
 use `openui_validate` or Workspace UI for component/property validation, and
 browser preview for actual rendering and interactions.
 
-Link the containing document: `openlia://workspace/family-menu/menu.md`, or a
-Minion dashboard (`minions/<slug>/dashboard.openui` and `input.openui`): `openlia://minions/family-menu`.
+Link the containing document: `openlia://workspace/family-menu/menu.md`.

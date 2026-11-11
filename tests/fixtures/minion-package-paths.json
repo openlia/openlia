@@ -1,4 +1,0 @@
-{
-  "allowed": ["README.md", "main.py", "main.ts", "dashboard.openui", "input.schema.json", "config.schema.json", "requirements.txt", "package.json", "bun.lock", "scripts/analysis.py", "tests/test_main.py", "tests/fixtures/example.json", "templates/report.md"],
-  "rejected": ["", "/main.py", "../main.py", "scripts/../main.py", "scripts//main.py", "main.py/", "scripts\\main.py", "C:main.py", "config.json", "data/items.json", "tests/data/private.json", "state/status.json", "cache/report.json", "logs/run.txt", "uploads/bank.pdf", "tmp/report.json", "node_modules/pkg/index.js", ".venv/bin/python", "venv/bin/python", "env/settings.json", "__pycache__/main.pyc", "dist/main.js", "build/main.js", "coverage/index.html", "secrets.json", "credentials.yaml", "access-token.json", ".env", "keys/private.pem", "settings.key"]
-}

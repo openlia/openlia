@@ -18,6 +18,7 @@ const meta = {
       "openui/OpenUIErrorBoundary.tsx#OpenUIErrorBoundary",
       "openui/calendar/InlineCalendar.tsx#InlineCalendarView",
       "openui/calendar/CalendarPresentation.tsx#CalendarPresentation",
+      "openui/table/Table.tsx#OpenLiaTable",
     ],
   },
 } satisfies Meta;

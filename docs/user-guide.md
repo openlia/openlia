@@ -83,7 +83,7 @@ workspace/
 ```
 
 ### Public Catalog (`https://github.com/openlia/minions.git`)
-You can keep your workspace completely custom or install starter profiles, modular features, programmable Minions, and workflow skills from **[`openlia/minions`](https://github.com/openlia/minions.git)**:
+You can keep your workspace completely custom or install starter profiles, modular features, and workflow skills from **[`openlia/minions`](https://github.com/openlia/minions.git)**:
 
 - **`personal-os` Profile (`openlia features install --profile personal-os`)**: Installs the full Personal OS suite (`goals`, `tasks`, `calendar`, `daily-briefing`, and core productivity skills) in one command.
 - **Modular Features (`openlia features install <id>`)**:
@@ -98,7 +98,6 @@ You can keep your workspace completely custom or install starter profiles, modul
 | **`personal-health`** | `health/`, `health/profiles/`, `health/history/`, `health/conditions/`, `health/treatments/`, `health/reviews/` | `personal-health` skill & structured medical templates |
 | **`decision-analysis`** | `decisions/` | `decision-analysis` skill + option/criteria trade-off matrix |
 | **`deep-research`** | `knowledge/research/` | `deep-research` skill + source rubric & brief templates |
-| **`gym-tracker`** | `minions/gym-tracker/` | Programmable workout tracker Minion (`minion.package.json`, `input.py`, `main.py`, OpenUI input & dashboard) |
 | **`areas`**, **`ideas`**, **`monitors`**, **`people`**, **`shopping`**, **`travel`** | Domain folders & inline Markdown views | Specialized personal & operational domains |
 
 ### Customizing Templates & Skills Safely
@@ -130,6 +129,11 @@ When you send Lia a PDF, image, Excel spreadsheet, CSV, text file, or YouTube li
 1. The ingestion runtime retains the original file and extracted artifacts under `sources/`.
 2. It creates a durable intake record in `inbox/ingestion/` and a source provenance record in `sources/records/`.
 3. For password-protected PDFs or spreadsheets, you can store document-unlock passwords in `sources/document-passwords.toml`.
+
+### Generative UI with Moi
+In addition to inline OpenUI views embedded directly in Markdown documents, OpenLia supports [Moi](https://github.com/moi-computer/moi) (`moi.computer`) as a Generative UI workspace.
+Hermes connects directly to Moi via ACP (`hermes -p personal-os acp`), allowing agents to generate tailored, stateful React components in `.moi/` within your workspace on demand.
+See [Generative UI with Moi](generative-ui-moi.md) for installation and workflows.
 
 ---
 
