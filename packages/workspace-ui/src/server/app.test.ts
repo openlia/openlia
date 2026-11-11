@@ -1587,6 +1587,88 @@ describe("workspace HTTP handler", () => {
     expect(habitFile.validation?.valid).toBe(true);
   });
 
+  test("uploads text and binary files directly to any workspace folder via /api/workspace/upload-file", async () => {
+    // 1. Upload a markdown file as-is into root without template injection
+    const mdForm = new FormData();
+    mdForm.set("path", "custom-note.md");
+    mdForm.set(
+      "file",
+      new File(
+        ["# Raw Uploaded Note\n\nNo frontmatter injected.\n"],
+        "custom-note.md",
+        {
+          type: "text/markdown",
+        },
+      ),
+    );
+    const mdRes = await request("/api/workspace/upload-file", {
+      body: mdForm,
+      method: "POST",
+    });
+    expect(mdRes.status).toBe(201);
+    const mdPayload = (await mdRes.json()) as any;
+    expect(mdPayload.ok).toBe(true);
+    expect(mdPayload.path).toBe("custom-note.md");
+    expect(mdPayload.editable).toBe(true);
+
+    const readMdRes = await request("/api/workspace/file?path=custom-note.md");
+    expect(readMdRes.status).toBe(200);
+    const readMd = (await readMdRes.json()) as WorkspaceFile;
+    expect(readMd.content).toBe(
+      "# Raw Uploaded Note\n\nNo frontmatter injected.\n",
+    );
+
+    // 2. Upload a binary file into a nested non-domain folder
+    const pngBytes = new Uint8Array([
+      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13,
+    ]);
+    const binForm = new FormData();
+    binForm.set("path", "inbox/attachments/diagram.png");
+    binForm.set(
+      "file",
+      new File([pngBytes], "diagram.png", { type: "image/png" }),
+    );
+    const binRes = await request("/api/workspace/upload-file", {
+      body: binForm,
+      method: "POST",
+    });
+    expect(binRes.status).toBe(201);
+    const binPayload = (await binRes.json()) as any;
+    expect(binPayload.ok).toBe(true);
+    expect(binPayload.path).toBe("inbox/attachments/diagram.png");
+    expect(binPayload.editable).toBe(false);
+    expect(binPayload.size).toBe(pngBytes.byteLength);
+
+    // 3. Reject duplicate path with 409
+    const dupForm = new FormData();
+    dupForm.set("path", "custom-note.md");
+    dupForm.set("file", new File(["duplicate"], "custom-note.md"));
+    const dupRes = await request("/api/workspace/upload-file", {
+      body: dupForm,
+      method: "POST",
+    });
+    expect(dupRes.status).toBe(409);
+
+    // 4. Reject protected path (.env) with 403 and template/schema path with 400
+    const envForm = new FormData();
+    envForm.set("path", ".env");
+    envForm.set("file", new File(["SECRET=1"], ".env"));
+    const envRes = await request("/api/workspace/upload-file", {
+      body: envForm,
+      method: "POST",
+    });
+    expect(envRes.status).toBe(403);
+
+    const tplForm = new FormData();
+    tplForm.set("path", "tasks/custom-template.md");
+    tplForm.set("file", new File(["# Template"], "custom-template.md"));
+    const tplRes = await request("/api/workspace/upload-file", {
+      body: tplForm,
+      method: "POST",
+    });
+    expect(tplRes.status).toBe(400);
+  });
+
   test("manages cron jobs through API endpoints", async () => {
     // Initial overview
     const getRes = await request("/api/cron/jobs");

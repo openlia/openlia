@@ -48,6 +48,7 @@ import type {
   WorkspaceSystemInfo,
   WorkspaceTreeEntry,
   WorkspaceTreeResponse,
+  WorkspaceUploadFileResponse,
   WorkspaceWriteResponse,
 } from "../shared/api";
 import type { CalendarEvent } from "../shared/calendar";
@@ -910,7 +911,15 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
       throw error(403, "memory_editing_disabled");
     }
     const current = fileContents[filePath];
-    if (current === undefined) throw error(404, "not_found");
+    if (current === undefined) {
+      const entry = entries.find(
+        (item) => item.kind === "file" && item.path === filePath,
+      );
+      if (entry && entry.kind === "file" && !entry.editable) {
+        throw error(415, "binary_file");
+      }
+      throw error(404, "not_found");
+    }
     return {
       ...metadata(filePath, current),
       content: current,
@@ -1386,6 +1395,114 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         revision: nextRev,
         schema: 1,
         validation: { errors: [], valid: true },
+      };
+    },
+    async uploadWorkspaceFile(
+      formData: FormData,
+    ): Promise<WorkspaceUploadFileResponse> {
+      requireAuthentication();
+      const rawPath = formData.get("path");
+      const rawFile = formData.get("file");
+      if (
+        typeof rawFile !== "object" ||
+        rawFile === null ||
+        !("arrayBuffer" in rawFile)
+      ) {
+        throw error(400, "no_file_uploaded");
+      }
+      const fileBlob = rawFile as Blob & { name?: string };
+      const targetPath = (
+        typeof rawPath === "string" && rawPath.trim()
+          ? rawPath.trim()
+          : fileBlob.name || ""
+      ).replace(/^\/+|\/+$/g, "");
+      if (
+        !targetPath ||
+        targetPath.includes("\\") ||
+        targetPath
+          .split("/")
+          .some((part) => !part || part === "." || part === "..")
+      ) {
+        throw error(400, "invalid_path");
+      }
+      const baseName = targetPath.split("/").at(-1) ?? targetPath;
+      if (
+        baseName.toLowerCase().endsWith("-template.md") ||
+        baseName.toLowerCase().endsWith(".schema.json")
+      ) {
+        throw error(400, "invalid_filename");
+      }
+      if (isMemoryDocument(targetPath)) {
+        throw error(403, "protected_path");
+      }
+      if (
+        fileContents[targetPath] !== undefined ||
+        entries.some((e) => e.kind === "file" && e.path === targetPath)
+      ) {
+        throw error(409, "destination_exists");
+      }
+
+      const bytes = new Uint8Array(await fileBlob.arrayBuffer());
+      const extIndex = baseName.lastIndexOf(".");
+      const ext = extIndex >= 0 ? baseName.slice(extIndex).toLowerCase() : "";
+      const editableExts = new Set([
+        ".md",
+        ".markdown",
+        ".txt",
+        ".yaml",
+        ".yml",
+        ".json",
+        ".toml",
+        ".csv",
+        ".journal",
+        ".hledger",
+        ".rem",
+        ".remind",
+        ".openui",
+      ]);
+      const isEditable =
+        editableExts.has(ext) &&
+        !bytes.includes(0) &&
+        bytes.byteLength <= 2 * 1024 * 1024;
+      const nextRev = `sha256:mock-${++saveCount}`;
+      fileRevisions[targetPath] = nextRev;
+
+      const parentDir = targetPath.includes("/")
+        ? targetPath.slice(0, targetPath.lastIndexOf("/"))
+        : "";
+      if (
+        parentDir &&
+        !entries.some((e) => e.kind === "directory" && e.path === parentDir)
+      ) {
+        entries.push({ kind: "directory", path: parentDir });
+      }
+
+      if (isEditable) {
+        const text = new TextDecoder("utf-8").decode(bytes);
+        fileContents[targetPath] = text;
+        const fileMeta = metadata(targetPath, text);
+        entries.push({ ...fileMeta, kind: "file" });
+        return {
+          ...fileMeta,
+          ok: true,
+          revision: nextRev,
+          schema: 1,
+          validation: { errors: [], valid: true },
+        };
+      }
+
+      const binaryMeta: WorkspaceFileMetadata = {
+        editable: false,
+        modified_at: modifiedAt,
+        path: targetPath,
+        size: bytes.byteLength,
+      };
+      entries.push({ ...binaryMeta, kind: "file" });
+      return {
+        ...binaryMeta,
+        ok: true,
+        revision: nextRev,
+        schema: 1,
       };
     },
     async fixTemplateIssues(

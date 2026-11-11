@@ -41,6 +41,7 @@ import type {
   WorkspaceSettings,
   WorkspaceTreeResponse,
   WorkspaceUncommittedChange,
+  WorkspaceUploadFileResponse,
   WorkspaceWriteResponse,
 } from "../shared/api";
 import {
@@ -1682,6 +1683,118 @@ export class WorkspaceService {
     const emptyRevision = revision(new Uint8Array());
     this.write(relativePath, templateContent, emptyRevision);
     return this.read(relativePath);
+  }
+
+  uploadFile(
+    pathValue: unknown,
+    contents: Uint8Array,
+  ): WorkspaceUploadFileResponse {
+    const settings = this.settings();
+    if (typeof pathValue === "string") {
+      const normalizedCandidate = pathValue.trim().replaceAll("\\", "/");
+      if (isTemplateOrSchemaPath(normalizedCandidate)) {
+        throw new WorkspaceError(
+          "cannot upload a template or schema file directly",
+          400,
+          "invalid_filename",
+        );
+      }
+    }
+    let path: string;
+    try {
+      path = validateRelativePath(pathValue, settings);
+    } catch (err) {
+      if (
+        err instanceof WorkspaceError &&
+        err.code === "hidden_path" &&
+        typeof pathValue === "string" &&
+        isTemplateOrSchemaPath(pathValue)
+      ) {
+        throw new WorkspaceError(
+          "cannot upload a template or schema file directly",
+          400,
+          "invalid_filename",
+        );
+      }
+      throw err;
+    }
+
+    if (isTemplateOrSchemaPath(path)) {
+      throw new WorkspaceError(
+        "cannot upload a template or schema file directly",
+        400,
+        "invalid_filename",
+      );
+    }
+
+    if (contents.byteLength > this.maxDownloadBytes) {
+      throw new WorkspaceError(
+        "uploaded file is too large",
+        413,
+        "file_too_large",
+      );
+    }
+
+    const absolute = this.assertNoSymlink(path);
+    if (existsSync(absolute)) {
+      throw new WorkspaceError(
+        `file "${path}" already exists`,
+        409,
+        "destination_exists",
+      );
+    }
+
+    const parent = dirname(absolute);
+    mkdirSync(parent, { recursive: true, mode: 0o700 });
+
+    const temporary = join(
+      parent,
+      `.${absolute.split(sep).at(-1)}.openlia-${randomUUID()}.tmp`,
+    );
+    const descriptor = openSync(temporary, "wx", 0o600);
+    try {
+      writeSync(descriptor, contents);
+      fsyncSync(descriptor);
+    } catch (error) {
+      if (existsSync(temporary)) unlinkSync(temporary);
+      throw error;
+    } finally {
+      closeSync(descriptor);
+    }
+
+    try {
+      linkSync(temporary, absolute);
+      unlinkSync(temporary);
+    } catch (error) {
+      if (existsSync(temporary)) unlinkSync(temporary);
+      if (asNodeError(error).code === "EEXIST") {
+        throw new WorkspaceError(
+          `file "${path}" already exists`,
+          409,
+          "destination_exists",
+        );
+      }
+      throw error;
+    }
+
+    const nextRev = revision(contents);
+    const meta = this.fileMetadata(absolute, path);
+    let validation: WorkspaceFileValidation | undefined;
+
+    if (meta.editable && !contents.includes(0)) {
+      try {
+        const text = new TextDecoder("utf-8", { fatal: true }).decode(contents);
+        validation = this.validateWithMaintainer(path, text, nextRev);
+      } catch {}
+    }
+
+    return {
+      schema: 1,
+      ok: true,
+      revision: nextRev,
+      ...(validation ? { validation } : {}),
+      ...meta,
+    };
   }
 
   /** Narrow read-only access to a collection's hidden local contract, not arbitrary hidden files. */

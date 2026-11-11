@@ -1520,6 +1520,43 @@ messages:
     ).toBeInTheDocument();
   });
 
+  test("uploads a file directly to the workspace via the + New File modal and opens it", async () => {
+    window.history.replaceState(null, "", "/");
+    render(<App api={createMockWorkspaceApi()} />);
+
+    const newFileBtn = await screen.findByRole("button", {
+      name: "+ New File",
+    });
+    fireEvent.click(newFileBtn);
+
+    expect(await screen.findByText("Create New File")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Upload File" }));
+
+    const fileInput = screen.getByLabelText("File");
+    const uploadedMarkdown = new File(
+      ["# Uploaded Note\n\nDirect workspace upload content.\n"],
+      "direct-upload.md",
+      { type: "text/markdown" },
+    );
+    fireEvent.change(fileInput, { target: { files: [uploadedMarkdown] } });
+
+    const folderSelect = screen.getByRole("combobox", {
+      name: "Destination Folder",
+    });
+    fireEvent.change(folderSelect, { target: { value: "projects" } });
+
+    expect(screen.getByText("projects/direct-upload.md")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload File" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Code editor" });
+    expect(editor).toHaveTextContent("# Uploaded Note");
+    expect(editor).toHaveTextContent("Direct workspace upload content.");
+    expect(
+      await screen.findByRole("button", { name: "direct-upload.md" }),
+    ).toBeInTheDocument();
+  });
+
   test("shows Template & Schema Warning with Fix in Migrations button and navigates to migration on click", async () => {
     window.history.replaceState(null, "", "/");
     const mockApi = createMockWorkspaceApi();

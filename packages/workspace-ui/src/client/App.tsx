@@ -2177,6 +2177,70 @@ export function App({
     }
   }
 
+  async function handleUploadWorkspaceFile(
+    destinationPath: string,
+    uploadedFile: File,
+  ): Promise<void> {
+    if (!pendingCreateFile || creatingFile) return;
+    setCreatingFile(true);
+    setCreateFileError("");
+    try {
+      if (file && docDirty) {
+        const saved = await save();
+        if (!saved) {
+          setCreatingFile(false);
+          return;
+        }
+      }
+      const formData = new FormData();
+      formData.set("path", destinationPath);
+      formData.set("file", uploadedFile);
+      const uploaded = await api.uploadWorkspaceFile(formData);
+      setPendingCreateFile(null);
+      const [treeRes, nextGit, nextActivity, nextDiag] = await Promise.all([
+        api.loadTree().catch(() => null),
+        api.loadGitStatus().catch(() => null),
+        api.loadActivity().catch(() => null),
+        api.loadDiagnostics().catch(() => null),
+      ]);
+      if (treeRes) {
+        setTree(treeRes.entries);
+        setTreeTruncated(treeRes.truncated);
+      }
+      if (nextGit) setGit(nextGit);
+      if (nextActivity) setActivity(nextActivity);
+      if (nextDiag) setDiagnostics(nextDiag);
+      await openFile(uploaded.path, {
+        requestedView: uploaded.editable ? "edit" : undefined,
+      });
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 401) {
+        setPendingCreateFile(null);
+        handleUnauthorized();
+      } else if (caught instanceof ApiError && caught.status === 409) {
+        setCreateFileError(
+          "A file with this path already exists in the workspace.",
+        );
+      } else if (caught instanceof ApiError && caught.status === 413) {
+        setCreateFileError(
+          "The selected file exceeds the maximum upload size.",
+        );
+      } else if (caught instanceof ApiError && caught.status === 403) {
+        setCreateFileError("File upload is not allowed at this path.");
+      } else if (caught instanceof ApiError && caught.status === 400) {
+        setCreateFileError(
+          caught.payload?.error === "invalid_filename"
+            ? "File name is invalid. Ensure it does not use protected template or schema names."
+            : "Invalid file upload request.",
+        );
+      } else {
+        setCreateFileError("The file could not be uploaded. Try again.");
+      }
+    } finally {
+      setCreatingFile(false);
+    }
+  }
+
   async function handleFixTemplateIssues(): Promise<void> {
     if (!file || fixingTemplate) return;
     setFixingTemplate(true);
@@ -3279,6 +3343,7 @@ export function App({
         <CreateFileDialog
           api={api}
           availableDomains={creatableDomains}
+          directories={directories}
           error={createFileError}
           existingPaths={existingPaths}
           initialDomain={pendingCreateFile.domain}
@@ -3290,6 +3355,9 @@ export function App({
           }}
           onCreate={(domain, name, options) =>
             void handleCreateFile(domain, name, options)
+          }
+          onUpload={(destPath, uploadedFile) =>
+            void handleUploadWorkspaceFile(destPath, uploadedFile)
           }
         />
       )}

@@ -567,6 +567,72 @@ describe("CreateFileDialog", () => {
     );
   });
 
+  test("switches to Upload File tab, auto-populates filename, supports any folder, and submits", () => {
+    const handleCreate = vi.fn();
+    const handleUpload = vi.fn();
+
+    render(
+      <CreateFileDialog
+        availableDomains={domains}
+        directories={["inbox", "archive/2025", "tasks"]}
+        existingPaths={new Set(["inbox/existing.pdf"])}
+        isCreating={false}
+        isOpen={true}
+        onCancel={() => {}}
+        onCreate={handleCreate}
+        onUpload={handleUpload}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Upload File" }));
+
+    const fileInput = screen.getByLabelText("File");
+    const sampleFile = new File(["%PDF-1.4 mock"], "statement.pdf", {
+      type: "application/pdf",
+    });
+    fireEvent.change(fileInput, { target: { files: [sampleFile] } });
+
+    const nameInput = screen.getByRole("textbox", { name: "File Name" });
+    expect(nameInput).toHaveValue("statement.pdf");
+    expect(screen.getAllByText("statement.pdf")).toHaveLength(2);
+
+    // Select a non-domain folder ("inbox")
+    const folderSelect = screen.getByRole("combobox", {
+      name: "Destination Folder",
+    });
+    fireEvent.change(folderSelect, { target: { value: "inbox" } });
+    expect(screen.getByText("inbox/statement.pdf")).toBeInTheDocument();
+
+    // Existing path validation
+    fireEvent.change(nameInput, { target: { value: "existing.pdf" } });
+    fireEvent.click(screen.getByRole("button", { name: "Upload File" }));
+    expect(
+      screen.getByText('File "inbox/existing.pdf" already exists in workspace'),
+    ).toBeInTheDocument();
+    expect(handleUpload).not.toHaveBeenCalled();
+
+    // Custom folder path and valid upload
+    fireEvent.click(
+      screen.getByRole("button", { name: "Enter new folder path" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Destination Folder" }),
+      {
+        target: { value: "assets/diagrams" },
+      },
+    );
+    fireEvent.change(nameInput, { target: { value: "architecture.pdf" } });
+    expect(
+      screen.getByText("assets/diagrams/architecture.pdf"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload File" }));
+    expect(handleUpload).toHaveBeenCalledWith(
+      "assets/diagrams/architecture.pdf",
+      sampleFile,
+    );
+  });
+
   test("DocumentPane renders clean Preview and Edit views without structured Fields form", () => {
     const handleDraftChange = vi.fn();
     const decisionContent = `---
