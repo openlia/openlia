@@ -31,6 +31,43 @@ import {
 } from "./template-compatibility";
 import { WorkspaceError } from "./workspace";
 
+function listDirectoryFilesRelative(dir: string, base = dir): string[] {
+  const result: string[] = [];
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) {
+        result.push(...listDirectoryFilesRelative(full, base));
+      } else if (entry.isFile()) {
+        result.push(relative(base, full).replaceAll("\\", "/"));
+      }
+    }
+  } catch {}
+  result.sort();
+  return result;
+}
+
+function isSkillDirectoryEqual(srcDir: string, dstDir: string): boolean {
+  if (!existsSync(srcDir) || !existsSync(dstDir)) return false;
+  try {
+    const srcFiles = listDirectoryFilesRelative(srcDir);
+    const dstFiles = listDirectoryFilesRelative(dstDir);
+    if (srcFiles.length !== dstFiles.length) return false;
+    const dstSet = new Set(dstFiles);
+    for (const rel of srcFiles) {
+      if (!dstSet.has(rel)) return false;
+      const srcBuf = readFileSync(join(srcDir, rel));
+      const dstBuf = readFileSync(join(dstDir, rel));
+      if (!srcBuf.equals(dstBuf)) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface FeatureServiceOptions {
   workspaceRoot: string;
   skillsRoot: string;
@@ -480,6 +517,7 @@ export class FeatureService {
           );
         }
         plannedSkills.add(skill.id);
+        const srcSkillDir = join(entry.dir, skill.path);
         for (const destination of [
           join(this.skillsRoot, skill.id),
           join(this.skillsRoot, ".openlia-disabled", skill.id),
@@ -495,6 +533,16 @@ export class FeatureService {
             )
               continue;
             throw error;
+          }
+          // If the destination exists and is identical to the catalog skill,
+          // it was cleanly provisioned (e.g. during profile init) and has
+          // no local customizations to preserve.
+          if (
+            destination === join(this.skillsRoot, skill.id) &&
+            existsSync(srcSkillDir) &&
+            isSkillDirectoryEqual(srcSkillDir, destination)
+          ) {
+            continue;
           }
           throw new WorkspaceError(
             `skill ${skill.id} already exists (active or disabled); use the managed CLI to preserve customizations and lineage`,
@@ -588,6 +636,13 @@ export class FeatureService {
       const srcSkillDir = join(dir, sk.path);
       if (existsSync(srcSkillDir)) {
         const dstSkillDir = join(this.skillsRoot, sk.id);
+        if (
+          existsSync(dstSkillDir) &&
+          isSkillDirectoryEqual(srcSkillDir, dstSkillDir)
+        ) {
+          installedSkills.push(sk.id);
+          continue;
+        }
         mkdirSync(dirname(dstSkillDir), { recursive: true, mode: 0o700 });
         // Reserve a new destination exclusively; never merge into an existing
         // active tree, even if another process created it after preflight.

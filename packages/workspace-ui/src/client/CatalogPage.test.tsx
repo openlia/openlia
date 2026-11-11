@@ -118,7 +118,7 @@ test("explains CLI conflict errors and dependency failures clearly without overw
     "Existing Skill Conflict — Managed CLI Required",
   );
   expect(errorAlert).toHaveTextContent(
-    "openlia feature install personal-finance",
+    "openlia features install personal-finance",
   );
 
   fireEvent.click(screen.getByTestId("catalog-install-personal-finance"));

@@ -32,7 +32,7 @@ function formatInstallError(
         detail:
           backendMessage ||
           `A skill bundled with '${featureId}' already exists (active or disabled). Browser installation will not overwrite local skill customizations or lineage.`,
-        cliCommand: `openlia feature install ${featureId}`,
+        cliCommand: `openlia features install ${featureId}`,
       };
     }
 

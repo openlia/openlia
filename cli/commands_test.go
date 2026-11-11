@@ -520,6 +520,9 @@ skills:
 	if code := Run([]string{"--json", "features", "status", "tasks"}, nil); code != ExitOK {
 		t.Fatalf("features status tasks exited with %d", code)
 	}
+	if code := Run([]string{"--json", "feature", "status", "tasks"}, nil); code != ExitOK {
+		t.Fatalf("feature status tasks (singular alias) exited with %d", code)
+	}
 	if code := Run([]string{"--json", "skills", "install", "weekly-review"}, nil); code != ExitOK {
 		t.Fatalf("skills install weekly-review exited with %d", code)
 	}

@@ -333,4 +333,121 @@ describe("browser feature installs", () => {
     expect(domainPaths).toContain("health");
     expect(domainPaths).toContain("health/profiles");
   });
+
+  test("installs cleanly when bundled skill already exists with identical contents", async () => {
+    put(
+      "catalog/personal-health/feature.yaml",
+      [
+        "schema: 1",
+        "id: personal-health",
+        "name: Personal Health",
+        "version: 0.1.0",
+        "requires: {openlia: '>=0.1.0'}",
+        "domains:",
+        "  - path: health",
+        "    label: Health",
+        "skills:",
+        "  - id: personal-health",
+        "    path: skills/personal-health",
+      ].join("\n"),
+    );
+    put(
+      "catalog/personal-health/workspace/health/overview.md",
+      "# Health Overview\n",
+    );
+    put(
+      "catalog/personal-health/skills/personal-health/SKILL.md",
+      "---\nname: personal-health\ndescription: Health skill\n---\n# Health\n",
+    );
+
+    // Pre-populate skills/personal-health with identical content (e.g. from init)
+    put(
+      "skills/personal-health/SKILL.md",
+      "---\nname: personal-health\ndescription: Health skill\n---\n# Health\n",
+    );
+
+    mkdirSync(join(root, "workspace"), { recursive: true });
+    const handler = createWorkspaceHandler({
+      authRequired: false,
+      featuresRoot: join(root, "catalog"),
+      runtimeReleasePath: join(root, "runtime-release.json"),
+      sharesDatabasePath: join(root, "shares.sqlite"),
+      skillsRoot: join(root, "skills"),
+      workspaceRoot: join(root, "workspace"),
+    });
+
+    const res = await handler(
+      new Request("http://localhost/api/features/install", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({ id: "personal-health" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ok: boolean;
+      installed_domains: string[];
+    };
+    expect(body.ok).toBe(true);
+    expect(body.installed_domains).toContain("health");
+    expect(existsSync(join(root, "workspace", "health", "overview.md"))).toBe(
+      true,
+    );
+  });
+
+  test("rejects install with 409 skill_install_requires_cli when existing skill has local customizations", async () => {
+    put(
+      "catalog/personal-health/feature.yaml",
+      [
+        "schema: 1",
+        "id: personal-health",
+        "name: Personal Health",
+        "version: 0.1.0",
+        "requires: {openlia: '>=0.1.0'}",
+        "domains:",
+        "  - path: health",
+        "    label: Health",
+        "skills:",
+        "  - id: personal-health",
+        "    path: skills/personal-health",
+      ].join("\n"),
+    );
+    put(
+      "catalog/personal-health/skills/personal-health/SKILL.md",
+      "---\nname: personal-health\ndescription: Health skill\n---\n# Health\n",
+    );
+
+    // Pre-populate skills/personal-health with user customizations
+    put(
+      "skills/personal-health/SKILL.md",
+      "---\nname: personal-health\ndescription: Health skill\n---\n# Health\nCustomized by user\n",
+    );
+
+    mkdirSync(join(root, "workspace"), { recursive: true });
+    const handler = createWorkspaceHandler({
+      authRequired: false,
+      featuresRoot: join(root, "catalog"),
+      runtimeReleasePath: join(root, "runtime-release.json"),
+      sharesDatabasePath: join(root, "shares.sqlite"),
+      skillsRoot: join(root, "skills"),
+      workspaceRoot: join(root, "workspace"),
+    });
+
+    const res = await handler(
+      new Request("http://localhost/api/features/install", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({ id: "personal-health" }),
+      }),
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("skill_install_requires_cli");
+  });
 });

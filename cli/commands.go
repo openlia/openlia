@@ -55,7 +55,7 @@ func Run(args []string, assets fs.FS) int {
 		return commandUpdate(options, remaining[1:], assets)
 	case "skills":
 		return commandSkills(options, remaining[1:], assets)
-	case "features":
+	case "features", "feature":
 		return commandFeatures(options, remaining[1:], assets)
 	case "auth":
 		return commandAuth(options, remaining[1:])

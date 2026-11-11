@@ -365,7 +365,7 @@ func operatorArguments(operation string, args []string) ([]string, bool) {
 		command = "workspace-export"
 	case "instructions":
 		command = "instructions"
-	case "features":
+	case "features", "feature":
 		command = "features"
 	case "ops/bootstrap.sh":
 		command = "bootstrap"

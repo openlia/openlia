@@ -485,6 +485,17 @@ func RegisteredDomainPaths(workspaceDir string) (map[string]bool, error) {
 					relSlash = "sources"
 				}
 				out[relSlash] = true
+				cur := relSlash
+				for {
+					parent := filepath.ToSlash(filepath.Dir(cur))
+					if parent == "." || parent == "" || parent == cur {
+						break
+					}
+					if st, err := os.Stat(filepath.Join(workspaceDir, filepath.FromSlash(parent))); err == nil && st.IsDir() {
+						out[parent] = true
+					}
+					cur = parent
+				}
 			}
 		}
 		return nil

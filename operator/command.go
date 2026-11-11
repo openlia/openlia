@@ -109,7 +109,7 @@ func RunContext(ctx context.Context, args []string, input io.Reader, output, err
 		return runWorkspaceExport(ctx, config, args, output, errorOutput, jsonOutput)
 	case "instructions":
 		return runInstructions(config, args, input, output, errorOutput, jsonOutput, now)
-	case "features":
+	case "features", "feature":
 		return runFeatures(config, args, output, errorOutput, jsonOutput, now)
 	case "uninstall":
 		if len(args) != 0 {
