@@ -1,7 +1,6 @@
 import type {
   AuthLoginResponse,
   AuthSessionResponse,
-  ConsequentialPermissionsResponse,
   DocumentPasswordProfile,
   DocumentPasswordSuggestResponse,
   FeatureInstallRequest,
@@ -2474,40 +2473,6 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         summary: "Append missing section '## Notes'",
         finding: null,
         file_findings: [],
-      };
-    },
-    async loadPermissions(): Promise<ConsequentialPermissionsResponse> {
-      requireAuthentication();
-      return {
-        schema: 1,
-        version: 1,
-        permissions: {
-          destructive: {
-            delete_records: "ask",
-            overwrite_records: "ask",
-          },
-          external: {
-            send_messages: "ask",
-            make_purchases: "deny",
-            modify_external_accounts: "deny",
-            ingest_external_content: "allow",
-          },
-          scheduled_work: {
-            run_briefings: "allow",
-            run_audits: "allow",
-            run_monitors: "allow",
-          },
-        },
-      };
-    },
-    async updatePermissions(
-      permissions: ConsequentialPermissionsResponse["permissions"],
-    ): Promise<ConsequentialPermissionsResponse> {
-      requireAuthentication();
-      return {
-        schema: 1,
-        version: 1,
-        permissions,
       };
     },
     async listFeatures(): Promise<FeaturesListResponse> {

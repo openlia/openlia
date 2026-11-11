@@ -58,47 +58,10 @@ def _core_schema_errors() -> list[str]:
     return errors
 
 
-def _policy_errors() -> list[str]:
-    errors: list[str] = []
-    try:
-        registry = validator.load_registry(BUNDLE_ROOT, required=True)
-        policy = validator.load_policy(BUNDLE_ROOT, registry=registry, required=False)
-        if not validator.policy_allows(
-            policy,
-            "generate_reports",
-            "inbox/daily-briefing/2026-10-08.md",
-            scheduled=True,
-        ):
-            errors.append("permissions rejected its configured scheduled report path")
-        if not validator.policy_allows(
-            policy,
-            "create_records",
-            "tasks/2026-10-08-review.md",
-        ):
-            errors.append("permissions rejected tasks record writes")
-        if not validator.policy_allows(
-            policy,
-            "create_records",
-            "family-menu/2026-10-08.md",
-        ):
-            errors.append("permissions rejected custom collection record writes")
-        if validator.policy_allows(
-            policy,
-            "generate_reports",
-            "inbox/other/2026-10-08.md",
-            scheduled=True,
-        ):
-            errors.append("permissions allowed a scheduled report outside its destination")
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        errors.append(f"permissions.yaml: {exc}")
-    return errors
-
-
 def validate_bundle() -> list[str]:
     errors = validator.validate_workspace(BUNDLE_ROOT)
     if SKILLS_ROOT.is_dir():
         errors.extend(validator.validate_skill_templates(SKILLS_ROOT))
-    errors.extend(_policy_errors())
     try:
         registry = validator.load_registry(BUNDLE_ROOT, required=True)
         expected = {

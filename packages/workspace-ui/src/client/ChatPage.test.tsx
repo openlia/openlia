@@ -374,6 +374,51 @@ describe("Workspace chat", () => {
       }),
     );
   });
+  it("normalizes session_authority pending_controls and approval.settled SSE events", async () => {
+    const api = createChatMock();
+    const run: ChatRun = {
+      run_id: "authority-run",
+      status: "waiting_for_approval",
+      session_id: "demo-chat",
+      execution_generation: 2,
+      pending_controls: [
+        {
+          kind: "approval",
+          prompt_id: "prompt-999",
+          execution_generation: 2,
+          command: "<write to AGENTS.md>",
+          description:
+            "Write to protected agent-instruction file(s): AGENTS.md.",
+          choices: ["once", "deny"],
+        },
+      ],
+    };
+    api.activeRun = async () => ({ run });
+    api.run = async () => run;
+    let receive!: (event: ChatEvent) => void;
+    api.events = async (_id, _seq, _signal, onEvent) => {
+      receive = onEvent;
+    };
+    const control = vi.spyOn(api, "control").mockResolvedValue({});
+    await open(api);
+    fireEvent.click(await screen.findByRole("button", { name: "Allow once" }));
+    await waitFor(() =>
+      expect(control).toHaveBeenCalledWith("authority-run", "approval", {
+        choice: "once",
+        request_id: "prompt-999",
+      }),
+    );
+    act(() => {
+      receive({
+        event: "approval.settled",
+        seq: 1,
+        prompt_id: "prompt-999",
+      });
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("Approval requested")).toBeNull(),
+    );
+  });
   it("restores pending approval on reopen and resumes the same run without resending", async () => {
     const api = createChatMock();
     let run: ChatRun = {

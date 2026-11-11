@@ -112,8 +112,8 @@ target.mkdir(parents=True, exist_ok=True)
 for name in ("openlia_link_rewriter.py", "openlia_usage.py", "openlia_link_rewriter.pth"):
     shutil.copy2(pathlib.Path("/tmp") / name, target / name)
 PY
-# OpenLia's policy plugin is bundled with the image and enabled by profile/config.yaml.
-COPY profile/plugins/openlia-policy /opt/hermes/plugins/openlia-policy
+# OpenLia's maintainer & OpenUI authoring plugin is bundled with the image and enabled by profile/config.yaml.
+COPY profile/plugins/openlia-maintainer /opt/hermes/plugins/openlia-maintainer
 COPY --chmod=0644 packages/workspace-ui/dist/openui-authoring.js /usr/local/lib/openlia/openui-authoring.js
 
 ARG OPENLIA_PROJECT_NAME="openlia"
@@ -129,7 +129,7 @@ COPY profile/plugins/openlia-ingestion /opt/hermes/plugins/openlia-ingestion
 COPY profile/plugins/openlia-workspace-git /opt/hermes/plugins/openlia-workspace-git
 # Release archives protect source files with mode 0600; supervised Hermes runs
 # as an unprivileged user and must be able to read the bundled plugins.
-RUN chmod -R a+rX /opt/hermes/plugins/openlia-policy /opt/hermes/plugins/openlia-ingestion /opt/hermes/plugins/openlia-usage /opt/hermes/plugins/openlia-workspace-git \
+RUN chmod -R a+rX /opt/hermes/plugins/openlia-maintainer /opt/hermes/plugins/openlia-ingestion /opt/hermes/plugins/openlia-usage /opt/hermes/plugins/openlia-workspace-git \
     && /opt/hermes/.venv/bin/python -c "import pathlib, site; pathlib.Path(site.getsitepackages()[0], 'openlia_usage.py').chmod(0o644)"
 LABEL org.openlia.project="${OPENLIA_PROJECT_NAME}" org.openlia.ingestion="required" org.openlia.debian-snapshot="${DEBIAN_SNAPSHOT}"
 

@@ -46,9 +46,9 @@ skills:
   project_discovery: false
 
 plugins:
-  # The policy plugin is bundled by the OpenLia image and is enabled by default.
+  # Bundled OpenLia plugins enabled by default.
   enabled:
-    - openlia-policy
+    - openlia-maintainer
     - openlia-ingestion
     - openlia-usage
     - openlia-workspace-git
@@ -75,6 +75,11 @@ unauthorized_dm_behavior: ignore
 security:
   allow_private_urls: false
   protected_instruction_files: true
+  protected_instruction_extra_patterns:
+    - "IDENTITY.md"
+    - "DREAMS.md"
+    - "README.md"
+    - "document-passwords.toml"
 
 secrets:
   command:

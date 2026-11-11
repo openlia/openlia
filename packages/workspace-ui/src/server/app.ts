@@ -33,13 +33,7 @@ import { exportArchive } from "./export";
 import { FeatureService } from "./features";
 import { FinanceService } from "./finance";
 import { IngestionService } from "./ingestion";
-import {
-  applyDeterministicFix,
-  loadConsequentialPermissions,
-  previewFix,
-  saveConsequentialPermissions,
-  validatePermissionsInput,
-} from "./maintainer";
+import { applyDeterministicFix, previewFix } from "./maintainer";
 import { MemoryFileService } from "./memory";
 import { MigrationService } from "./migration";
 import { ShareService } from "./shares";
@@ -54,7 +48,6 @@ export interface WorkspaceHandlerOptions {
   ingestionRoot?: string;
   migrationsRoot?: string;
   maintainerDatabasePath?: string;
-  permissionsFilePath?: string;
   usageRoot?: string;
   skillsRoot?: string;
   featuresRoot?: string;
@@ -366,7 +359,6 @@ export function createWorkspaceHandler(
   const cronService = new CronService({
     cronRoot,
     workspaceRoot: options.workspaceRoot,
-    permissionsFilePath: options.permissionsFilePath,
     backupSchedule:
       options.backupSchedule ?? process.env.OPENLIA_BACKUP_SCHEDULE,
     backupScheduleEnabled:
@@ -580,7 +572,6 @@ export function createWorkspaceHandler(
           url.pathname.startsWith("/api/shares/") ||
           url.pathname.startsWith("/api/cron/") ||
           url.pathname.startsWith("/api/maintainer/") ||
-          url.pathname === "/api/permissions" ||
           url.pathname.startsWith("/api/system/")) &&
         !authenticator.isAuthenticated(request)
       ) {
@@ -2104,38 +2095,6 @@ export function createWorkspaceHandler(
           actor: "user",
         });
         return json(result);
-      }
-      if (request.method === "GET" && url.pathname === "/api/permissions") {
-        const loaded = loadConsequentialPermissions(
-          service.workspaceRoot,
-          options.permissionsFilePath,
-        );
-        return json({
-          schema: 1,
-          ...loaded,
-        });
-      }
-      if (request.method === "PUT" && url.pathname === "/api/permissions") {
-        if (!sameOrigin(request, url, publicOrigin))
-          return json(
-            { schema: 1, ok: false, error: "origin_not_allowed" },
-            403,
-          );
-        const bodyResult = await readJson(request, 16384);
-        if (bodyResult.tooLarge)
-          return json(
-            { schema: 1, ok: false, error: "request_too_large" },
-            413,
-          );
-        const saved = saveConsequentialPermissions(
-          service.workspaceRoot,
-          bodyResult.value,
-          options.permissionsFilePath,
-        );
-        return json({
-          schema: 1,
-          ...saved,
-        });
       }
       if (
         request.method === "GET" &&

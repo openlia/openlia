@@ -1,6 +1,6 @@
-name: openlia-policy
-version: "2.2"
-description: Enforce OpenLia consequential permissions and provide Workspace Maintainer and inline OpenUI authoring tools.
+name: openlia-maintainer
+version: "2.3"
+description: Provide Workspace Maintainer and inline OpenUI authoring tools with post-mutation structural feedback.
 manifest_version: 2
 api_version: 1
 provides_tools:

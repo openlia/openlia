@@ -502,32 +502,9 @@ def load_permissions(
     *,
     required: bool = False,
 ) -> dict[str, Any]:
-    """Load and validate consequential permissions from /opt/data/permissions.yaml."""
-    candidate: Path
-    if workspace_or_file is not None:
-        given = Path(workspace_or_file).expanduser()
-        if given.suffix in {".yaml", ".yml"}:
-            candidate = given
-        else:
-            candidate = permissions_path(given)
-    else:
-        candidate = permissions_path(None)
-
-    if not candidate.exists():
-        if required:
-            raise ValueError(f"permissions file is missing: {candidate}")
-        return _validate_and_normalize_permissions(DEFAULT_PERMISSIONS)
-
-    if candidate.is_symlink() or not candidate.is_file():
-        raise ValueError(f"permissions file is not a regular file: {candidate}")
-
-    try:
-        data = yaml.load(candidate.read_text(encoding="utf-8"), Loader=UniqueKeySafeLoader)
-        normalized = _normalize(data)
-    except (OSError, UnicodeError, yaml.YAMLError, ValueError, RecursionError) as exc:
-        raise ValueError(f"invalid permissions file: {exc}") from exc
-
-    return _validate_and_normalize_permissions(normalized)
+    """Return default workspace policy dictionary (runtime approvals are managed natively by Hermes)."""
+    del workspace_or_file, required
+    return _validate_and_normalize_permissions(DEFAULT_PERMISSIONS)
 
 
 def load_policy(

@@ -34,8 +34,88 @@ export interface ChatRun {
   session_id?: string;
   output?: string;
   error?: string;
+  execution_generation?: number;
+  pending_controls?: Record<string, unknown>[];
   approval?: Record<string, unknown>;
   runtime?: { provider?: string; model?: string };
+}
+
+export function normalizeChatApproval(
+  raw: unknown,
+  fallbackGeneration?: number,
+): Record<string, unknown> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const obj = raw as Record<string, unknown>;
+  const requestId =
+    typeof obj.request_id === "string" && obj.request_id
+      ? obj.request_id
+      : typeof obj.prompt_id === "string" && obj.prompt_id
+        ? obj.prompt_id
+        : undefined;
+  const executionGeneration =
+    typeof obj.execution_generation === "number" &&
+    Number.isInteger(obj.execution_generation)
+      ? obj.execution_generation
+      : typeof fallbackGeneration === "number" &&
+          Number.isInteger(fallbackGeneration)
+        ? fallbackGeneration
+        : undefined;
+  return {
+    ...obj,
+    ...(requestId ? { request_id: requestId } : {}),
+    ...(executionGeneration !== undefined
+      ? { execution_generation: executionGeneration }
+      : {}),
+  };
+}
+
+export function normalizeChatRun(run: ChatRun): ChatRun {
+  const fallbackGen =
+    typeof run.execution_generation === "number"
+      ? run.execution_generation
+      : undefined;
+  let approval = normalizeChatApproval(run.approval, fallbackGen);
+  if (!approval && Array.isArray(run.pending_controls)) {
+    const pending = run.pending_controls.find(
+      (item): item is Record<string, unknown> =>
+        Boolean(item && typeof item === "object" && !Array.isArray(item)) &&
+        (item.kind === "approval" ||
+          (!item.kind &&
+            (typeof item.prompt_id === "string" ||
+              typeof item.request_id === "string"))),
+    );
+    if (pending) {
+      approval = normalizeChatApproval(pending, fallbackGen);
+    }
+  }
+  if (!approval) return run;
+  return {
+    ...run,
+    status:
+      run.status === "running" || run.status === "queued"
+        ? "waiting_for_approval"
+        : run.status,
+    approval,
+  };
+}
+
+export function normalizeChatEvent(event: ChatEvent): ChatEvent {
+  if (
+    event.event === "approval.request" ||
+    event.event === "approval.settled" ||
+    event.event === "approval.responded"
+  ) {
+    const requestId =
+      typeof event.request_id === "string" && event.request_id
+        ? event.request_id
+        : typeof event.prompt_id === "string" && event.prompt_id
+          ? event.prompt_id
+          : undefined;
+    if (requestId && event.request_id !== requestId) {
+      return { ...event, request_id: requestId };
+    }
+  }
+  return event;
 }
 
 export function chatApprovalChoices(
