@@ -311,6 +311,11 @@ func commandInit(options Options, args []string, assets fs.FS) int {
 	if _, err := deployment.operation(ctx, "attachments", nil, "generate", "--json"); err != nil {
 		return fail(options, ExitFailure, "attachment Compose generation failed: "+err.Error(), nil)
 	}
+	// Synchronize the templates catalog before deployment so Workspace UI mounts
+	// a populated /templates-cache from its first start.
+	if _, err := deployment.operation(ctx, "features", nil, "sync", "--json"); err != nil {
+		return fail(options, ExitFailure, "templates catalog sync failed: "+err.Error(), nil)
+	}
 	if _, err := deployment.deploy(ctx, "deploy", true, "all"); err != nil {
 		return fail(options, ExitFailure, err.Error(), nil)
 	}
