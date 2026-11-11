@@ -272,4 +272,42 @@ describe("HTTP workspace API", () => {
       }),
     );
   });
+
+  test("uploads workspace file directly via FormData", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            editable: false,
+            modified_at: "2026-09-28T00:00:00.000Z",
+            ok: true,
+            path: "inbox/diagram.png",
+            revision: "sha256:png-rev",
+            schema: 1,
+            size: 128,
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const formData = new FormData();
+    formData.set("path", "inbox/diagram.png");
+    formData.set(
+      "file",
+      new File([new Uint8Array([137, 80, 78, 71])], "diagram.png", {
+        type: "image/png",
+      }),
+    );
+
+    const uploaded = await httpWorkspaceApi.uploadWorkspaceFile(formData);
+    expect(uploaded.path).toBe("inbox/diagram.png");
+    expect(uploaded.editable).toBe(false);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/workspace/upload-file",
+      expect.objectContaining({
+        method: "POST",
+        body: formData,
+      }),
+    );
+  });
 });

@@ -2258,6 +2258,41 @@ export function createWorkspaceHandler(
       }
       if (
         request.method === "POST" &&
+        url.pathname === "/api/workspace/upload-file"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const contentType = request.headers.get("content-type") ?? "";
+        if (!contentType.includes("multipart/form-data")) {
+          return json(
+            { schema: 1, ok: false, error: "multipart_form_data_required" },
+            400,
+          );
+        }
+        const formData = await request.formData();
+        const rawPath = formData.get("path");
+        const rawFile = formData.get("file");
+        if (
+          typeof rawFile !== "object" ||
+          rawFile === null ||
+          !("arrayBuffer" in rawFile)
+        ) {
+          return json({ schema: 1, ok: false, error: "no_file_uploaded" }, 400);
+        }
+        const fileBlob = rawFile as Blob & { name?: string };
+        const targetPath =
+          typeof rawPath === "string" && rawPath.trim()
+            ? rawPath.trim().replace(/^\/+/, "")
+            : fileBlob.name || "";
+        const bytes = new Uint8Array(await fileBlob.arrayBuffer());
+        const uploaded = service.uploadFile(targetPath, bytes);
+        return json(uploaded, 201);
+      }
+      if (
+        request.method === "POST" &&
         url.pathname === "/api/workspace/fix-template-issues"
       ) {
         if (!sameOrigin(request, url, publicOrigin))

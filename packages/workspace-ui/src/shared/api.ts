@@ -874,6 +874,13 @@ export interface WorkspaceCreateFileRequest {
   content?: string | undefined;
 }
 
+export interface WorkspaceUploadFileResponse extends WorkspaceFileMetadata {
+  schema: 1;
+  ok: true;
+  revision: string;
+  validation?: WorkspaceFileValidation | undefined;
+}
+
 export interface WorkspaceFixTemplateRequest {
   path: string;
   content?: string | undefined;

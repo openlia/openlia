@@ -61,6 +61,7 @@ import type {
   WorkspaceSystemInfo,
   WorkspaceTreeEntry,
   WorkspaceTreeResponse,
+  WorkspaceUploadFileResponse,
   WorkspaceWriteResponse,
 } from "../shared/api";
 import {
@@ -163,6 +164,7 @@ export interface WorkspaceApi {
     name: string,
     options?: Omit<WorkspaceCreateFileRequest, "domain" | "name">,
   ): Promise<WorkspaceFile>;
+  uploadWorkspaceFile(formData: FormData): Promise<WorkspaceUploadFileResponse>;
   fixTemplateIssues(
     path: string,
     content?: string,
@@ -1004,6 +1006,15 @@ export const httpWorkspaceApi: WorkspaceApi = {
       headers: { "Content-Type": "application/json" },
       method: "POST",
     }),
+  uploadWorkspaceFile: (formData) =>
+    requestJson<WorkspaceUploadFileResponse>(
+      "/api/workspace/upload-file",
+      isWorkspaceWriteResponse,
+      {
+        body: formData,
+        method: "POST",
+      },
+    ),
   fixTemplateIssues: (path, content) =>
     requestJson<WorkspaceFixTemplateResponse>(
       "/api/workspace/fix-template-issues",
