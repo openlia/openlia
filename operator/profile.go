@@ -537,6 +537,8 @@ func (p *ProfileOperator) syncHermesConfig(source, destination, marker string, m
 		if err := writeMarker(marker, sourceHash); err != nil {
 			return err
 		}
+	} else {
+		destinationData = []byte(strings.ReplaceAll(string(destinationData), "- openlia-policy", "- openlia-maintainer"))
 	}
 	updated, err := renderFallbackBlock(destinationData, p.Config.FallbackProviders)
 	if err != nil {

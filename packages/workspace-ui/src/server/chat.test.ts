@@ -108,13 +108,20 @@ beforeEach(() => {
           );
         if (runMatch[2] === "stop") run.status = "stopping";
         if (runMatch[2] === "approval") {
+          const matchesLegacy = run.approval?.request_id === body.request_id;
+          const matchesAuthority = run.pending_controls?.some(
+            (c) =>
+              c.prompt_id === body.request_id &&
+              c.execution_generation === body.execution_generation,
+          );
           if (
-            run.approval?.request_id !== body.request_id ||
+            (!matchesLegacy && !matchesAuthority) ||
             run.status !== "waiting_for_approval"
           )
             return Response.json({}, { status: 409 });
           run.status = "running";
           delete run.approval;
+          delete run.pending_controls;
         }
         return Response.json(run);
       }
@@ -512,6 +519,46 @@ describe("Hermes chat boundary", () => {
         )
       ).status,
     ).toBe(400);
+  });
+  test("normalizes session_authority pending_controls and forwards execution_generation", async () => {
+    const id = await create();
+    const run = (await (await send(id)).json()) as ChatRun;
+    Object.assign(runs.get(run.run_id)!, {
+      status: "waiting_for_approval",
+      execution_generation: 3,
+      pending_controls: [
+        {
+          kind: "approval",
+          prompt_id: "prompt-abc123",
+          execution_generation: 3,
+          command: "<write to AGENTS.md>",
+          description:
+            "Write to protected agent-instruction file(s): AGENTS.md.",
+          choices: ["once", "deny"],
+        },
+      ],
+    });
+    const statusRes = await service.handle(request(`/runs/${run.run_id}`));
+    expect(statusRes.status).toBe(200);
+    const projected = (await statusRes.json()) as ChatRun;
+    expect(projected.approval).toMatchObject({
+      request_id: "prompt-abc123",
+      prompt_id: "prompt-abc123",
+      execution_generation: 3,
+      choices: ["once", "deny"],
+    });
+    const approvalRes = await service.handle(
+      request(`/runs/${run.run_id}/approval`, "POST", {
+        choice: "once",
+        request_id: "prompt-abc123",
+      }),
+    );
+    expect(approvalRes.status).toBe(200);
+    expect(calls.at(-1)?.body).toEqual({
+      choice: "once",
+      request_id: "prompt-abc123",
+      execution_generation: 3,
+    });
   });
   test("rejects stale, missing, unsupported, and unadvertised approval responses", async () => {
     const id = await create();

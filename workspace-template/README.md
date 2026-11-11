@@ -11,10 +11,8 @@ folders, local `*-template.md` templates, referenced `*.schema.json` schemas,
 and Markdown records. Structural findings are advisory and
 never block saving content.
 
-Consequential runtime permissions live in `/opt/data/permissions.yaml` and
-control destructive actions (`delete_records`, `overwrite_records`), external
-side effects (`send_messages`, `modify_external_calendar`, `purchases`,
-`financial_transactions`), and scheduled work (`scheduled_work`).
+Runtime approvals and security guards are handled natively by **Hermes Agent**
+(`/opt/data/config.yaml`).
 
 ## Minimal Core Directories
 

@@ -11,18 +11,16 @@ import { join } from "node:path";
 import { createWorkspaceHandler } from "./app";
 import { MaintainerService } from "./maintainer/engine";
 
-describe("Workspace Maintainer & Consequential Permissions", () => {
+describe("Workspace Maintainer", () => {
   let root: string;
   let workspaceRoot: string;
   let maintainerDbPath: string;
-  let permissionsPath: string;
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "openlia-maintainer-test-"));
     workspaceRoot = join(root, "workspace");
     mkdirSync(workspaceRoot, { recursive: true });
     maintainerDbPath = join(root, "maintainer", "maintainer.sqlite");
-    permissionsPath = join(root, "permissions.yaml");
   });
 
   afterEach(() => {
@@ -87,7 +85,6 @@ describe("Workspace Maintainer & Consequential Permissions", () => {
     const handler = createWorkspaceHandler({
       workspaceRoot,
       maintainerDatabasePath: maintainerDbPath,
-      permissionsFilePath: permissionsPath,
     });
 
     // Ensure neither workspace.yaml nor assistant-policy.yaml exists
@@ -181,7 +178,6 @@ describe("Workspace Maintainer & Consequential Permissions", () => {
     const handler = createWorkspaceHandler({
       workspaceRoot,
       maintainerDatabasePath: maintainerDbPath,
-      permissionsFilePath: permissionsPath,
     });
 
     mkdirSync(join(workspaceRoot, "family-menu"), { recursive: true });
@@ -321,7 +317,6 @@ describe("Workspace Maintainer & Consequential Permissions", () => {
     const handler = createWorkspaceHandler({
       workspaceRoot,
       maintainerDatabasePath: maintainerDbPath,
-      permissionsFilePath: permissionsPath,
     });
 
     mkdirSync(join(workspaceRoot, "notes"), { recursive: true });
@@ -405,7 +400,6 @@ describe("Workspace Maintainer & Consequential Permissions", () => {
     const handler = createWorkspaceHandler({
       workspaceRoot,
       maintainerDatabasePath: maintainerDbPath,
-      permissionsFilePath: permissionsPath,
     });
 
     mkdirSync(join(workspaceRoot, "broken-app"), { recursive: true });
@@ -427,78 +421,10 @@ describe("Workspace Maintainer & Consequential Permissions", () => {
     expect(file.validation.warnings.join(" ")).toContain("openui_syntax_error");
   });
 
-  test("11. Consequential permissions persist in permissions.yaml and govern cron policy", async () => {
-    const handler = createWorkspaceHandler({
-      workspaceRoot,
-      maintainerDatabasePath: maintainerDbPath,
-      permissionsFilePath: permissionsPath,
-      cronRoot: join(root, "cron"),
-    });
-
-    const getRes = await handler(
-      new Request("http://localhost/api/permissions"),
-    );
-    expect(getRes.status).toBe(200);
-    const initial = (await getRes.json()) as {
-      permissions: {
-        scheduled_work: {
-          run_briefings: string;
-          run_audits: string;
-          run_monitors: string;
-        };
-      };
-    };
-    expect(initial.permissions.scheduled_work.run_audits).toBe("allow");
-
-    // Update permissions to deny scheduled_work
-    const putRes = await handler(
-      new Request("http://localhost/api/permissions", {
-        method: "PUT",
-        headers: {
-          Origin: "http://localhost",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          permissions: {
-            destructive: {
-              delete_records: "ask",
-              overwrite_records: "ask",
-            },
-            external: {
-              send_messages: "ask",
-              make_purchases: "deny",
-              modify_external_accounts: "deny",
-              ingest_external_content: "allow",
-            },
-            scheduled_work: {
-              run_briefings: "deny",
-              run_audits: "deny",
-              run_monitors: "deny",
-            },
-          },
-        }),
-      }),
-    );
-    expect(putRes.status).toBe(200);
-    expect(existsSync(permissionsPath)).toBe(true);
-
-    // Verify cron overview reflects updated permissions.yaml
-    const cronRes = await handler(
-      new Request("http://localhost/api/cron/jobs"),
-    );
-    expect(cronRes.status).toBe(200);
-    const cronData = (await cronRes.json()) as {
-      policy: { enabled: boolean; allowed_actions: string[] };
-    };
-    expect(cronData.policy.enabled).toBe(false);
-    expect(cronData.policy.allowed_actions).toEqual([]);
-  });
-
   test("12 & 13. Editing a template revalidates dependent records; changing a contract rule invalidates stale ignores for that rule", async () => {
     const handler = createWorkspaceHandler({
       workspaceRoot,
       maintainerDatabasePath: maintainerDbPath,
-      permissionsFilePath: permissionsPath,
     });
 
     mkdirSync(join(workspaceRoot, "recipes"), { recursive: true });

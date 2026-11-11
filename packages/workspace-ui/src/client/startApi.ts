@@ -112,13 +112,6 @@ export const startWorkspaceApi: WorkspaceApi = {
       method: "POST",
       body: { issue_id: issueId, expected_revision: expectedRevision },
     }),
-  loadPermissions: () => request({ path: "/api/permissions" }),
-  updatePermissions: (permissions) =>
-    request({
-      path: "/api/permissions",
-      method: "PUT",
-      body: { permissions },
-    }),
   loadUsage: (reference) =>
     request<import("../shared/usage").UsageResponse>({
       path: `/api/workspace/usage${reference ? `?reference=${encodeURIComponent(reference)}` : ""}`,

@@ -114,30 +114,6 @@ export interface MaintainerFixApplyResponse {
   file_findings: MaintainerFinding[];
 }
 
-export type PermissionMode = "allow" | "ask" | "deny";
-
-export interface ConsequentialPermissionsResponse {
-  schema: 1;
-  version: 1;
-  permissions: {
-    destructive: {
-      delete_records: PermissionMode;
-      overwrite_records: PermissionMode;
-    };
-    external: {
-      send_messages: PermissionMode;
-      make_purchases: PermissionMode;
-      modify_external_accounts: PermissionMode;
-      ingest_external_content: PermissionMode;
-    };
-    scheduled_work: {
-      run_briefings: PermissionMode;
-      run_audits: PermissionMode;
-      run_monitors: PermissionMode;
-    };
-  };
-}
-
 export interface WorkspaceFileValidation {
   valid: boolean;
   warnings?: string[] | undefined;

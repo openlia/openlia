@@ -144,9 +144,6 @@ func GenerateAttachmentsContext(ctx context.Context, config Config, composers ..
 			return err
 		}
 	}
-	if err := EnsureDefaultPermissionsFile(config.DataRoot, config.RuntimeUID, config.RuntimeGID); err != nil {
-		return err
-	}
 	if err := EnsureDir(ingestionDir, 0o700); err != nil {
 		return err
 	}
@@ -354,7 +351,6 @@ func generateAttachmentsFile(config Config) error {
 		migrations, _ := json.Marshal(filepath.Join(config.DataRoot, ".openlia", "workspace-migrations"))
 		cronDir, _ := json.Marshal(filepath.Join(config.DataRoot, "cron"))
 		maintainerDir, _ := json.Marshal(filepath.Join(config.DataRoot, "maintainer"))
-		permissionsFile, _ := json.Marshal(filepath.Join(config.DataRoot, "permissions.yaml"))
 		templatesCacheDir, _ := json.Marshal(filepath.Join(config.MetaRoot, "templates-cache"))
 		sessionDir, _ := json.Marshal(filepath.Join(config.RuntimeRoot, "workspace-ui"))
 		passwordHashFile, _ := json.Marshal(config.WorkspaceUIPasswordHashFile)
@@ -371,7 +367,6 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("      OPENLIA_USAGE_ROOT: /usage\n")
 		builder.WriteString("      OPENLIA_CRON_ROOT: /cron\n")
 		builder.WriteString("      OPENLIA_MAINTAINER_ROOT: /maintainer\n")
-		builder.WriteString("      OPENLIA_PERMISSIONS_FILE: /permissions.yaml\n")
 		builder.WriteString("      OPENLIA_TEMPLATES_ROOT: /templates-cache\n")
 		if config.BackupSchedule != "" {
 			builder.WriteString(fmt.Sprintf("      OPENLIA_BACKUP_SCHEDULE: %q\n", config.BackupSchedule))
@@ -433,9 +428,6 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("\n      - type: bind\n        source: ")
 		builder.Write(maintainerDir)
 		builder.WriteString("\n        target: /maintainer")
-		builder.WriteString("\n      - type: bind\n        source: ")
-		builder.Write(permissionsFile)
-		builder.WriteString("\n        target: /permissions.yaml")
 		builder.WriteString("\n      - type: bind\n        source: ")
 		builder.Write(templatesCacheDir)
 		builder.WriteString("\n        target: /templates-cache\n        read_only: true")

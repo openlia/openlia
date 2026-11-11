@@ -10,6 +10,9 @@ import "./chat.css";
 import {
   terminalChatStatuses,
   chatApprovalChoices,
+  normalizeChatApproval,
+  normalizeChatEvent,
+  normalizeChatRun,
   type ChatApi,
   type ChatCapabilities,
   type ChatEvent,
@@ -332,8 +335,9 @@ export function ChatPage({
     let lastSeq = -1;
     let settled = false;
     let polling = false;
-    const receive = (event: ChatEvent) => {
+    const receive = (rawEvent: ChatEvent) => {
       if (controller.signal.aborted) return;
+      const event = normalizeChatEvent(rawEvent);
       if (event.seq !== undefined) {
         if (event.seq <= lastSeq) return;
         lastSeq = event.seq;
@@ -341,17 +345,31 @@ export function ChatPage({
       if (event.event === "message.delta")
         setStream((text) => text + (event.delta ?? ""));
       else if (event.event === "approval.request")
-        setRun(
-          (current) =>
-            current && {
-              ...current,
-              status: "waiting_for_approval",
-              approval: event,
-            },
-        );
-      else if (event.event === "approval.responded")
         setRun((current) => {
-          if (!current || current.approval?.request_id !== event.request_id)
+          if (!current) return current;
+          const approval = normalizeChatApproval(
+            event,
+            typeof current.execution_generation === "number"
+              ? current.execution_generation
+              : undefined,
+          );
+          return {
+            ...current,
+            status: "waiting_for_approval",
+            ...(approval ? { approval } : {}),
+          };
+        });
+      else if (
+        event.event === "approval.responded" ||
+        event.event === "approval.settled"
+      )
+        setRun((current) => {
+          if (
+            !current ||
+            (event.request_id &&
+              current.approval?.request_id &&
+              current.approval.request_id !== event.request_id)
+          )
             return current;
           const next = { ...current, status: "running" };
           delete next.approval;
@@ -379,7 +397,7 @@ export function ChatPage({
       if (polling || settled || controller.signal.aborted) return;
       polling = true;
       try {
-        const status = await api.run(id);
+        const status = normalizeChatRun(await api.run(id));
         if (controller.signal.aborted) return;
         if (terminalChatStatuses.has(status.status)) {
           const history = await api.messages(sessionId, 0);
@@ -397,7 +415,18 @@ export function ChatPage({
                 ? "Stopped. Any changes already made by tools are not undone."
                 : `Run ${status.status}. Check the saved conversation before retrying.`,
             );
-        } else setRun(status);
+        } else {
+          setRun((current) => {
+            if (
+              status.status === "waiting_for_approval" &&
+              !status.approval &&
+              current?.approval
+            ) {
+              return { ...status, approval: current.approval };
+            }
+            return status;
+          });
+        }
       } catch (err) {
         if (!controller.signal.aborted) setError(errorText(err));
       } finally {
@@ -496,7 +525,7 @@ export function ChatPage({
       const version = generation.current;
       try {
         await api.control(run.run_id, action, body);
-        const status = await api.run(run.run_id);
+        const status = normalizeChatRun(await api.run(run.run_id));
         if (version !== generation.current) return;
         setRun(status);
         if (action === "steer") {

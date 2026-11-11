@@ -139,7 +139,7 @@ See [Generative UI with Moi](generative-ui-moi.md) for installation and workflow
 
 ## 4. Trust, Safety, and Approvals
 
-OpenLia is designed around **useful autonomy with a clear human approval boundary**. Consequential runtime permissions (`/opt/data/permissions.yaml`, configurable in Workspace UI under **Configuration**) govern destructive actions (`delete_records`, `overwrite_records`), external side effects (`send_messages`, `modify_external_calendar`, `purchases`, `financial_transactions`), and scheduled work (`scheduled_work`):
+OpenLia is designed around **useful autonomy with a clear human approval boundary** powered by Hermes's native approval and security engine (`/opt/data/config.yaml`):
 
 | Action Category | Default Authority | Behavior |
 | :--- | :--- | :--- |

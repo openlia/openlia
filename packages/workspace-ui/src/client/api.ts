@@ -1,7 +1,6 @@
 import type {
   AuthLoginResponse,
   AuthSessionResponse,
-  ConsequentialPermissionsResponse,
   DocumentPasswordDeleteResponse,
   DocumentPasswordListResponse,
   DocumentPasswordProfile,
@@ -356,10 +355,6 @@ export interface WorkspaceApi {
     issueId: string,
     expectedRevision: string,
   ): Promise<MaintainerFixApplyResponse>;
-  loadPermissions(): Promise<ConsequentialPermissionsResponse>;
-  updatePermissions(
-    permissions: ConsequentialPermissionsResponse["permissions"],
-  ): Promise<ConsequentialPermissionsResponse>;
 }
 
 type ResponseValidator<T> = (value: unknown) => value is T;
@@ -1675,23 +1670,6 @@ export const httpWorkspaceApi: WorkspaceApi = {
     notifyWorkspaceFileChange(res.path);
     return res;
   },
-  loadPermissions: () =>
-    requestJson<ConsequentialPermissionsResponse>(
-      "/api/permissions",
-      (v): v is ConsequentialPermissionsResponse =>
-        isObject(v) && v.schema === 1 && isObject(v.permissions),
-    ),
-  updatePermissions: (permissions) =>
-    requestJson<ConsequentialPermissionsResponse>(
-      "/api/permissions",
-      (v): v is ConsequentialPermissionsResponse =>
-        isObject(v) && v.schema === 1 && isObject(v.permissions),
-      {
-        body: JSON.stringify({ version: 1, permissions }),
-        headers: { "Content-Type": "application/json" },
-        method: "PUT",
-      },
-    ),
   listFeatures: () =>
     requestJson<FeaturesListResponse>("/api/features", isFeaturesListResponse),
   installFeature: async (request) => {

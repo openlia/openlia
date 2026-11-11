@@ -18,12 +18,10 @@ import type {
   UpdateCronJobInput,
 } from "../shared/cron";
 import { validateCronExpression } from "../shared/cron";
-import { loadConsequentialPermissions } from "./maintainer/permissions";
 
 export interface CronServiceOptions {
   cronRoot: string;
   workspaceRoot: string;
-  permissionsFilePath?: string | undefined;
   backupSchedule?: string | undefined;
   backupScheduleEnabled?: boolean | undefined;
   workspaceGitSchedule?: string | undefined;
@@ -50,7 +48,6 @@ interface JobsContainer {
 export class CronService {
   readonly cronRoot: string;
   readonly workspaceRoot: string;
-  readonly permissionsFilePath?: string | undefined;
   readonly backupSchedule: string;
   readonly backupScheduleEnabled: boolean;
   readonly workspaceGitSchedule: string;
@@ -59,7 +56,6 @@ export class CronService {
   constructor(options: CronServiceOptions) {
     this.cronRoot = resolve(options.cronRoot);
     this.workspaceRoot = resolve(options.workspaceRoot);
-    this.permissionsFilePath = options.permissionsFilePath;
     this.backupSchedule = options.backupSchedule || "20 4 * * *";
     this.backupScheduleEnabled = options.backupScheduleEnabled ?? true;
     this.workspaceGitSchedule = options.workspaceGitSchedule || "0 4 * * *";
@@ -374,30 +370,14 @@ export class CronService {
           }
         }
       } catch {
-        // Fall through to consequential permissions
+        // Fall through to default policy overview
       }
     }
 
-    try {
-      const { permissions } = loadConsequentialPermissions(
-        this.workspaceRoot,
-        this.permissionsFilePath,
-      );
-      const sw = permissions.scheduled_work;
-      const allowed: string[] = [];
-      if (sw.run_briefings === "allow") allowed.push("run_briefings");
-      if (sw.run_audits === "allow") allowed.push("run_audits");
-      if (sw.run_monitors === "allow") allowed.push("run_monitors");
-      return {
-        enabled: allowed.length > 0,
-        allowed_actions: allowed,
-      };
-    } catch {
-      return {
-        enabled: false,
-        allowed_actions: [],
-      };
-    }
+    return {
+      enabled: true,
+      allowed_actions: ["run_briefings", "run_audits", "run_monitors"],
+    };
   }
 
   getSystemSchedules(jobs: HermesCronJob[]): SystemSchedules {

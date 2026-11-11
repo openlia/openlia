@@ -84,7 +84,7 @@ test: versions-check
 	$(MAKE) bun-install bun-check bun-build
 	$(MAKE) test-go
 	$(PYTHON) -m py_compile tests/smoke.py
-	$(PYTHON) -m unittest tests.test_openlia_policy_plugin
+	$(PYTHON) -m unittest tests.test_openlia_maintainer_plugin
 	$(PYTHON) -m unittest tests.test_openlia_ingestion
 	$(PYTHON) tests/verify_skills.py --offline
 

@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import {
   terminalChatStatuses,
   chatApprovalChoices,
+  normalizeChatRun,
   type ChatCapabilities,
   type ChatRun,
   type ChatSession,
@@ -174,7 +175,9 @@ export class ChatService {
     this.requireOwned(row.session_id);
     let run: ChatRun;
     try {
-      run = await this.get<ChatRun>(`/v1/runs/${encodeURIComponent(runId)}`);
+      run = normalizeChatRun(
+        await this.get<ChatRun>(`/v1/runs/${encodeURIComponent(runId)}`),
+      );
     } catch (error) {
       if (!(error instanceof ChatError) || error.status !== 404) throw error;
       // Hermes eventually expires run records. Never let that erase readable history
@@ -428,15 +431,17 @@ export class ChatService {
           })();
           let run: ChatRun;
           try {
-            run = await this.get<ChatRun>("/v1/runs", {
-              method: "POST",
-              headers: { "Idempotency-Key": `workspace-ui-${key}` },
-              body: JSON.stringify({
-                session_id: id,
-                input,
-                ...(model ? { model } : {}),
+            run = normalizeChatRun(
+              await this.get<ChatRun>("/v1/runs", {
+                method: "POST",
+                headers: { "Idempotency-Key": `workspace-ui-${key}` },
+                body: JSON.stringify({
+                  session_id: id,
+                  input,
+                  ...(model ? { model } : {}),
+                }),
               }),
-            });
+            );
           } catch (error) {
             // A definitive validation/auth refusal did not admit a run. Network failures
             // and 5xx remain uncertain and must reuse the original identity.
@@ -524,9 +529,18 @@ export class ChatService {
               !chatApprovalChoices(run.approval).includes(String(body.choice))
             )
               throw new ChatError(409, "chat_approval_stale");
+            const executionGeneration =
+              typeof run.approval?.execution_generation === "number"
+                ? run.approval.execution_generation
+                : typeof run.execution_generation === "number"
+                  ? run.execution_generation
+                  : undefined;
             value = {
               choice: body.choice,
               ...(body.request_id ? { request_id: body.request_id } : {}),
+              ...(executionGeneration !== undefined
+                ? { execution_generation: executionGeneration }
+                : {}),
             };
           }
           return json(

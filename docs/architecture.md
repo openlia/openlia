@@ -168,7 +168,7 @@ Located under `profile/plugins/` and enabled in `profile/config.yaml`:
 | Plugin | Purpose |
 | :--- | :--- |
 | **`openlia-ingestion`** | Durable background ingestion queue (`SQLite`) supporting text, PDF, images (vision LLM), Excel, CSV, and YouTube transcripts. Writes immutable artifacts to `sources/` and intake notes to `inbox/ingestion/`. |
-| **`openlia-policy`** | Enforces `/opt/data/permissions.yaml` and `assistant-policy.yaml` approval gates, and bridges structural checks with Workspace Maintainer. |
+| **`openlia-maintainer`** | Provides Workspace Maintainer inspection/triage tools (`maintainer_*`), inline OpenUI authoring tools (`openui_describe`, `openui_validate`), and non-blocking post-mutation structural feedback. |
 | **`openlia-usage`** | Polls Hermes session/task usage, imports ingestion and migration usage handoffs into `/opt/data/usage/usage.sqlite`, and resolves model pricing. See [LLM Usage Monitoring](usage-monitoring.md). |
 | **`openlia-workspace-git`** | Captures frozen workspace diff snapshots under `.git/openlia-checkpoints` and generates grouped commit proposals for user review in Workspace UI. |
 
