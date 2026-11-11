@@ -80,10 +80,10 @@ test.describe("feature catalog and installation", () => {
 
     await expect(
       page.getByTestId("catalog-package-kind-personal-finance"),
-    ).toHaveText("Workspace Domains & Skills Package");
+    ).toHaveText("Domains & Skills Package");
     await expect(
       page.getByTestId("catalog-package-kind-personal-health"),
-    ).toHaveText("Workspace Domains & Skills Package");
+    ).toHaveText("Domains & Skills Package");
 
     // Verify declared hledger requirement on personal-finance
     await expect(
