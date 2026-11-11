@@ -11,6 +11,9 @@
 *.pfx
 auth.json
 */auth.json
+service-account.json
+*/service-account.json
+google-docs/*.json
 sessions/
 logs/
 cache/
