@@ -61,12 +61,15 @@ user-owned delegation policy authorizes the scoped update.
 - Prefer a dated or versioned note when replacing an existing record could lose
   useful history.
 - Keep generated reports separate from source notes and label their source.
-- Never place credentials, OAuth files, private keys, or raw service exports here.
+- Never place raw personal passwords, OAuth browser tokens, or unauthorized private keys here.
+- Permitted local credential exceptions in the workspace are:
+  1. `sources/document-passwords.toml` for user-provided document-unlock passwords.
+  2. Local integration credential files explicitly declared by installed features or skills
+     (such as `google-docs/service-account.json`), which are kept out of Git history via `.gitignore`.
+     The agent is authorized to use these local credential files with their corresponding skill helper scripts.
 - Retained ingestion originals belong under the `sources/` library.
-  The only plaintext secret exception is the dedicated
-  `sources/document-passwords.toml` file for user-provided document-unlock
-  passwords. It is included in local Git history and backup; never print its
-  contents or put service credentials there.
+  The dedicated `sources/document-passwords.toml` file is included in local Git history
+  and backup; never print its contents or put service credentials there.
 
 ## Workspace Extensions & Maintainer
 

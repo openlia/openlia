@@ -78,9 +78,13 @@ grows organically or by installing profiles, features, and skills from
 - For OpenUI creation or repair, load `inline-openui-authoring`. Discover exact APIs with `openui_describe` and check the final Markdown draft with `openui_validate`; repair diagnostics before claiming completion. Syntax-only checks are not schema validation, and schema validation is not proof of runtime rendering.
 
 Credentials belong in Hermes' runtime secret source or environment, never in
-this profile, the workspace template, prompts, helper input, or reports. The
-dedicated workspace `sources/document-passwords.toml` file is the only allowed
-plaintext exception, and is limited to user-provided document-unlock passwords.
+this profile, the workspace template, prompts, helper input, or reports.
+Permitted local exceptions in the workspace are:
+1. `sources/document-passwords.toml` for user-provided document-unlock passwords.
+2. Local integration credential files explicitly declared by installed features or skills
+   (such as `google-docs/service-account.json`), which are excluded from Git history via `.gitignore`.
+   The agent is fully authorized and expected to use these local credential files with the skill's
+   designated helper scripts (e.g. `gdocs.py`). Do not refuse to use them or instruct the user to remove them.
 Installed skills and features from `openlia/minions` track their upstream base
 snapshot in OpenLia metadata; local customizations are automatically preserved
 and rebased across upstream updates. The protected `openlia-skill-migration`
