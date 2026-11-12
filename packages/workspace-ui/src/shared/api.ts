@@ -956,10 +956,22 @@ export interface FeatureSummary {
   author?: string | undefined;
   license?: string | undefined;
   source: "builtin" | "imported" | "custom";
-  state: "installed" | "partial" | "available";
+  state: "installed" | "partial" | "available" | "disabled" | "unlinked";
   domains: string[];
   domain_details?: FeatureDomainSummary[] | undefined;
   skills: string[];
+}
+
+export interface FeatureLifecycleRequest {
+  id: string;
+}
+
+export interface FeatureLifecycleResponse {
+  schema: 1;
+  ok: true;
+  feature_id: string;
+  action: "install" | "deactivate" | "activate" | "unlink" | "relink";
+  state: FeatureSummary["state"];
 }
 
 export interface FeaturesListResponse {

@@ -441,3 +441,116 @@ func TestMigrationAutoInstallsFeaturesAndSkipsBoilerplate(t *testing.T) {
 		t.Errorf("expected starter template travel/trip-template.md in live workspace after feature auto-install: %v", err)
 	}
 }
+
+func TestFeatureLifecycleDeactivateActivateUnlink(t *testing.T) {
+	cfg, wsDir := setupLeanWorkspaceForTest(t)
+	now := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)
+
+	// 1. Install travel feature
+	insRes, err := FeatureInstall(cfg, "travel", false, now)
+	if err != nil {
+		t.Fatalf("FeatureInstall travel: %v", err)
+	}
+	if !insRes.OK {
+		t.Fatalf("FeatureInstall travel not OK")
+	}
+
+	metaRecordPath := filepath.Join(cfg.MetaRoot, "managed", "features", "travel.json")
+	if _, err := os.Stat(metaRecordPath); err != nil {
+		t.Fatalf("expected managed feature record at %s: %v", metaRecordPath, err)
+	}
+
+	// Create user note in travel domain
+	userNotePath := filepath.Join(wsDir, "travel", "my-kyoto-trip.md")
+	if err := os.WriteFile(userNotePath, []byte("# Kyoto 2026\n"), 0o600); err != nil {
+		t.Fatalf("write user note: %v", err)
+	}
+
+	showRes, err := FeatureShow(cfg, "travel")
+	if err != nil {
+		t.Fatalf("FeatureShow: %v", err)
+	}
+	if showRes.Status.State != "installed" {
+		t.Fatalf("expected state installed, got %s", showRes.Status.State)
+	}
+
+	// 2. Deactivate travel feature
+	deactRes, err := FeatureDeactivate(cfg, "travel", now)
+	if err != nil {
+		t.Fatalf("FeatureDeactivate: %v", err)
+	}
+	if !deactRes.OK {
+		t.Fatalf("FeatureDeactivate not OK")
+	}
+
+	// Zero data loss: user note and tracking record must be preserved
+	if _, err := os.Stat(userNotePath); err != nil {
+		t.Fatalf("user note was deleted during deactivate: %v", err)
+	}
+	if _, err := os.Stat(metaRecordPath); err != nil {
+		t.Fatalf("managed record was removed during deactivate: %v", err)
+	}
+
+	// 3. Activate travel feature
+	actRes, err := FeatureActivate(cfg, "travel", now)
+	if err != nil {
+		t.Fatalf("FeatureActivate: %v", err)
+	}
+	if !actRes.OK {
+		t.Fatalf("FeatureActivate not OK")
+	}
+
+	showRes, err = FeatureShow(cfg, "travel")
+	if err != nil {
+		t.Fatalf("FeatureShow: %v", err)
+	}
+	if showRes.Status.State != "installed" {
+		t.Fatalf("expected state installed after activate, got %s", showRes.Status.State)
+	}
+
+	// 4. Unlink travel feature
+	unlinkRes, err := FeatureUnlink(cfg, "travel", now)
+	if err != nil {
+		t.Fatalf("FeatureUnlink: %v", err)
+	}
+	if !unlinkRes.OK {
+		t.Fatalf("FeatureUnlink not OK")
+	}
+
+	// Tracking record removed
+	if _, err := os.Stat(metaRecordPath); !os.IsNotExist(err) {
+		t.Fatalf("expected managed record to be removed after unlink")
+	}
+	// User note remains intact
+	if _, err := os.Stat(userNotePath); err != nil {
+		t.Fatalf("user note was deleted during unlink: %v", err)
+	}
+
+	// State is now unlinked
+	showRes, err = FeatureShow(cfg, "travel")
+	if err != nil {
+		t.Fatalf("FeatureShow: %v", err)
+	}
+	if showRes.Status.State != "unlinked" {
+		t.Fatalf("expected state unlinked, got %s", showRes.Status.State)
+	}
+
+	// 5. Re-link (re-install) restores tracking record
+	relinkRes, err := FeatureInstall(cfg, "travel", false, now)
+	if err != nil {
+		t.Fatalf("FeatureInstall (re-link): %v", err)
+	}
+	if !relinkRes.OK {
+		t.Fatalf("FeatureInstall (re-link) not OK")
+	}
+	if _, err := os.Stat(metaRecordPath); err != nil {
+		t.Fatalf("expected managed record to be restored after re-link: %v", err)
+	}
+	showRes, err = FeatureShow(cfg, "travel")
+	if err != nil {
+		t.Fatalf("FeatureShow: %v", err)
+	}
+	if showRes.Status.State != "installed" {
+		t.Fatalf("expected state installed after re-link, got %s", showRes.Status.State)
+	}
+}

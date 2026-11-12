@@ -12,6 +12,21 @@ function getWorkspaceDomains(feature: FeatureSummary): string[] {
   return feature.domains;
 }
 
+function getFeatureBadge(state: FeatureSummary["state"]) {
+  switch (state) {
+    case "installed":
+      return { label: "Installed", className: "badge-success" };
+    case "disabled":
+      return { label: "Disabled (Data Preserved)", className: "badge-neutral" };
+    case "unlinked":
+      return { label: "Self-Managed (Unlinked)", className: "badge-info" };
+    case "partial":
+      return { label: "Partially Installed", className: "badge-warning" };
+    default:
+      return { label: "Available", className: "badge-ghost" };
+  }
+}
+
 function formatInstallError(
   featureId: string,
   caught: unknown,
@@ -134,6 +149,10 @@ export function CatalogPage({
     cliCommand?: string | undefined;
   } | null>(null);
 
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [unlinkConfirmFeature, setUnlinkConfirmFeature] =
+    useState<FeatureSummary | null>(null);
+
   const loadCatalog = useCallback(async () => {
     setLoading(true);
     setLoadError("");
@@ -167,10 +186,20 @@ export function CatalogPage({
     return features.filter((feature) => {
       const workspaceDomains = getWorkspaceDomains(feature);
 
-      if (filterKind === "available" && feature.state === "installed") {
+      if (
+        filterKind === "available" &&
+        (feature.state === "installed" ||
+          feature.state === "disabled" ||
+          feature.state === "unlinked")
+      ) {
         return false;
       }
-      if (filterKind === "installed" && feature.state !== "installed") {
+      if (
+        filterKind === "installed" &&
+        feature.state !== "installed" &&
+        feature.state !== "disabled" &&
+        feature.state !== "unlinked"
+      ) {
         return false;
       }
       if (
@@ -203,7 +232,7 @@ export function CatalogPage({
   );
 
   async function handleInstallFeature(featureId: string) {
-    if (installingId) return;
+    if (installingId || actionLoadingId) return;
     setInstallingId(featureId);
     setInstallError(null);
     try {
@@ -225,6 +254,75 @@ export function CatalogPage({
       });
     } finally {
       setInstallingId(null);
+    }
+  }
+
+  async function handleDeactivateFeature(featureId: string) {
+    if (actionLoadingId || installingId) return;
+    setActionLoadingId(featureId);
+    setInstallError(null);
+    try {
+      await api.deactivateFeature(featureId);
+      await loadCatalog();
+    } catch (caught) {
+      setInstallError({
+        featureId,
+        ...formatInstallError(featureId, caught),
+      });
+    } finally {
+      setActionLoadingId(null);
+    }
+  }
+
+  async function handleActivateFeature(featureId: string) {
+    if (actionLoadingId || installingId) return;
+    setActionLoadingId(featureId);
+    setInstallError(null);
+    try {
+      await api.activateFeature(featureId);
+      await loadCatalog();
+    } catch (caught) {
+      setInstallError({
+        featureId,
+        ...formatInstallError(featureId, caught),
+      });
+    } finally {
+      setActionLoadingId(null);
+    }
+  }
+
+  async function handleUnlinkFeature(featureId: string) {
+    if (actionLoadingId || installingId) return;
+    setActionLoadingId(featureId);
+    setInstallError(null);
+    try {
+      await api.unlinkFeature(featureId);
+      setUnlinkConfirmFeature(null);
+      await loadCatalog();
+    } catch (caught) {
+      setInstallError({
+        featureId,
+        ...formatInstallError(featureId, caught),
+      });
+    } finally {
+      setActionLoadingId(null);
+    }
+  }
+
+  async function handleRelinkFeature(featureId: string) {
+    if (actionLoadingId || installingId) return;
+    setActionLoadingId(featureId);
+    setInstallError(null);
+    try {
+      await api.relinkFeature(featureId);
+      await loadCatalog();
+    } catch (caught) {
+      setInstallError({
+        featureId,
+        ...formatInstallError(featureId, caught),
+      });
+    } finally {
+      setActionLoadingId(null);
     }
   }
 
@@ -544,45 +642,116 @@ export function CatalogPage({
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
-                        <span
-                          className={`badge badge-sm ${
-                            feature.state === "installed"
-                              ? "badge-success"
-                              : feature.state === "partial"
-                                ? "badge-warning"
-                                : "badge-ghost"
-                          }`}
-                          data-testid={`catalog-feature-status-${feature.id}`}
-                        >
-                          {feature.state === "installed"
-                            ? "Installed"
-                            : feature.state === "partial"
-                              ? "Partially Installed"
-                              : "Available"}
-                        </span>
+                        {(() => {
+                          const badge = getFeatureBadge(feature.state);
+                          return (
+                            <span
+                              className={`badge badge-sm ${badge.className}`}
+                              data-testid={`catalog-feature-status-${feature.id}`}
+                            >
+                              {badge.label}
+                            </span>
+                          );
+                        })()}
 
-                        <button
-                          className={`btn btn-sm ${
-                            feature.state === "installed"
-                              ? "btn-outline btn-success"
-                              : "btn-primary"
-                          }`}
-                          data-testid={`catalog-install-${feature.id}`}
-                          disabled={
-                            Boolean(installingId) ||
-                            feature.state === "installed"
-                          }
-                          onClick={() => void handleInstallFeature(feature.id)}
-                          type="button"
-                        >
-                          {isInstalling
-                            ? "Installing..."
-                            : feature.state === "installed"
-                              ? "Installed"
+                        {feature.state === "installed" && (
+                          <>
+                            <button
+                              className="btn btn-sm btn-outline btn-warning"
+                              data-testid={`catalog-deactivate-${feature.id}`}
+                              disabled={Boolean(
+                                actionLoadingId || installingId,
+                              )}
+                              onClick={() =>
+                                void handleDeactivateFeature(feature.id)
+                              }
+                              type="button"
+                            >
+                              {actionLoadingId === feature.id
+                                ? "Deactivating..."
+                                : "Deactivate"}
+                            </button>
+                            <button
+                              className="btn btn-sm btn-ghost text-xs text-base-content/60 hover:text-error"
+                              data-testid={`catalog-unlink-${feature.id}`}
+                              disabled={Boolean(
+                                actionLoadingId || installingId,
+                              )}
+                              onClick={() => setUnlinkConfirmFeature(feature)}
+                              type="button"
+                            >
+                              Unlink
+                            </button>
+                          </>
+                        )}
+
+                        {feature.state === "disabled" && (
+                          <>
+                            <button
+                              className="btn btn-sm btn-primary"
+                              data-testid={`catalog-activate-${feature.id}`}
+                              disabled={Boolean(
+                                actionLoadingId || installingId,
+                              )}
+                              onClick={() =>
+                                void handleActivateFeature(feature.id)
+                              }
+                              type="button"
+                            >
+                              {actionLoadingId === feature.id
+                                ? "Activating..."
+                                : "Activate"}
+                            </button>
+                            <button
+                              className="btn btn-sm btn-ghost text-xs text-base-content/60 hover:text-error"
+                              data-testid={`catalog-unlink-${feature.id}`}
+                              disabled={Boolean(
+                                actionLoadingId || installingId,
+                              )}
+                              onClick={() => setUnlinkConfirmFeature(feature)}
+                              type="button"
+                            >
+                              Unlink
+                            </button>
+                          </>
+                        )}
+
+                        {feature.state === "unlinked" && (
+                          <button
+                            className="btn btn-sm btn-outline btn-info"
+                            data-testid={`catalog-relink-${feature.id}`}
+                            disabled={Boolean(actionLoadingId || installingId)}
+                            onClick={() => void handleRelinkFeature(feature.id)}
+                            type="button"
+                          >
+                            {actionLoadingId === feature.id
+                              ? "Re-linking..."
+                              : "Re-link to Catalog"}
+                          </button>
+                        )}
+
+                        {(feature.state === "available" ||
+                          feature.state === "partial") && (
+                          <button
+                            className={`btn btn-sm ${
+                              feature.state === "partial"
+                                ? "btn-warning"
+                                : "btn-primary"
+                            }`}
+                            data-testid={`catalog-install-${feature.id}`}
+                            disabled={Boolean(installingId || actionLoadingId)}
+                            onClick={() =>
+                              void handleInstallFeature(feature.id)
+                            }
+                            type="button"
+                          >
+                            {isInstalling
+                              ? "Installing..."
                               : feature.state === "partial"
                                 ? "Complete Install"
                                 : "Install"}
-                        </button>
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -915,40 +1084,129 @@ export function CatalogPage({
                         )}
                       </div>
 
-                      {/* Install Action Footer */}
+                      {/* Install & Lifecycle Action Footer */}
                       <div className="pt-2 border-t border-base-content/10 flex flex-col gap-2">
-                        <button
-                          className={`btn btn-sm w-full ${
-                            selectedFeature.state === "installed"
-                              ? "btn-outline btn-success"
-                              : "btn-primary"
-                          }`}
-                          data-testid="catalog-detail-install-button"
-                          disabled={
-                            Boolean(installingId) ||
-                            selectedFeature.state === "installed"
-                          }
-                          onClick={() =>
-                            void handleInstallFeature(selectedFeature.id)
-                          }
-                          type="button"
-                        >
-                          {isInstalling
-                            ? `Installing ${selectedFeature.name}...`
-                            : selectedFeature.state === "installed"
-                              ? `${selectedFeature.name} is Installed`
-                              : `Install ${selectedFeature.name}`}
-                        </button>
                         {selectedFeature.state === "installed" && (
-                          <p className="text-[11px] text-base-content/60 text-center">
-                            Already installed in this workspace. To sync or
-                            rebase upstream template updates without losing
-                            local edits, run{" "}
-                            <code className="font-mono">
-                              openlia feature install {selectedFeature.id}
-                            </code>{" "}
-                            in the CLI.
-                          </p>
+                          <>
+                            <button
+                              className="btn btn-sm btn-outline btn-warning w-full"
+                              data-testid="catalog-detail-deactivate-button"
+                              disabled={Boolean(
+                                actionLoadingId || installingId,
+                              )}
+                              onClick={() =>
+                                void handleDeactivateFeature(selectedFeature.id)
+                              }
+                              type="button"
+                            >
+                              {actionLoadingId === selectedFeature.id
+                                ? "Deactivating..."
+                                : "Deactivate Feature"}
+                            </button>
+                            <button
+                              className="btn btn-sm btn-ghost text-xs w-full text-base-content/60 hover:text-error"
+                              data-testid="catalog-detail-unlink-button"
+                              disabled={Boolean(
+                                actionLoadingId || installingId,
+                              )}
+                              onClick={() =>
+                                setUnlinkConfirmFeature(selectedFeature)
+                              }
+                              type="button"
+                            >
+                              Unlink from Catalog
+                            </button>
+                            <p className="text-[11px] text-base-content/60 text-center">
+                              Active in workspace. Deactivating stops Hermes
+                              tool execution while preserving 100% of your
+                              notes, keys, and configurations.
+                            </p>
+                          </>
+                        )}
+
+                        {selectedFeature.state === "disabled" && (
+                          <>
+                            <button
+                              className="btn btn-sm btn-primary w-full"
+                              data-testid="catalog-detail-activate-button"
+                              disabled={Boolean(
+                                actionLoadingId || installingId,
+                              )}
+                              onClick={() =>
+                                void handleActivateFeature(selectedFeature.id)
+                              }
+                              type="button"
+                            >
+                              {actionLoadingId === selectedFeature.id
+                                ? "Activating..."
+                                : "Activate Feature"}
+                            </button>
+                            <button
+                              className="btn btn-sm btn-ghost text-xs w-full text-base-content/60 hover:text-error"
+                              data-testid="catalog-detail-unlink-button"
+                              disabled={Boolean(
+                                actionLoadingId || installingId,
+                              )}
+                              onClick={() =>
+                                setUnlinkConfirmFeature(selectedFeature)
+                              }
+                              type="button"
+                            >
+                              Unlink from Catalog
+                            </button>
+                            <p className="text-[11px] text-base-content/60 text-center">
+                              Currently disabled. Hermes cannot execute this
+                              skill. All workspace records and configuration
+                              remain intact.
+                            </p>
+                          </>
+                        )}
+
+                        {selectedFeature.state === "unlinked" && (
+                          <>
+                            <button
+                              className="btn btn-sm btn-outline btn-info w-full"
+                              data-testid="catalog-detail-relink-button"
+                              disabled={Boolean(
+                                actionLoadingId || installingId,
+                              )}
+                              onClick={() =>
+                                void handleRelinkFeature(selectedFeature.id)
+                              }
+                              type="button"
+                            >
+                              {actionLoadingId === selectedFeature.id
+                                ? "Re-linking..."
+                                : `Re-link ${selectedFeature.name} to Catalog`}
+                            </button>
+                            <p className="text-[11px] text-base-content/60 text-center">
+                              Self-managed feature running locally. Click
+                              Re-link to reconnect with upstream updates.
+                            </p>
+                          </>
+                        )}
+
+                        {(selectedFeature.state === "available" ||
+                          selectedFeature.state === "partial") && (
+                          <button
+                            className={`btn btn-sm w-full ${
+                              selectedFeature.state === "partial"
+                                ? "btn-warning"
+                                : "btn-primary"
+                            }`}
+                            data-testid="catalog-detail-install-button"
+                            disabled={Boolean(installingId || actionLoadingId)}
+                            onClick={() =>
+                              void handleInstallFeature(selectedFeature.id)
+                            }
+                            type="button"
+                          >
+                            {isInstalling
+                              ? `Installing ${selectedFeature.name}...`
+                              : selectedFeature.state === "partial"
+                                ? `Complete Install for ${selectedFeature.name}`
+                                : `Install ${selectedFeature.name}`}
+                          </button>
                         )}
                       </div>
                     </>
@@ -959,6 +1217,49 @@ export function CatalogPage({
           </div>
         )}
       </div>
+
+      {unlinkConfirmFeature && (
+        <div className="modal modal-open" data-testid="catalog-unlink-modal">
+          <div className="modal-box max-w-md">
+            <h3 className="font-bold text-lg text-error">
+              Unlink from Catalog?
+            </h3>
+            <p className="py-3 text-sm text-base-content/80">
+              Unlinking <strong>{unlinkConfirmFeature.name}</strong> will detach
+              it from upstream catalog tracking (<code>openlia/minions</code>).
+            </p>
+            <div className="alert alert-info text-xs my-2">
+              <span>
+                <strong>Zero Data Loss Guarantee:</strong> All your existing
+                files, notes, configurations, and skills will remain 100% intact
+                as permanent, self-managed workspace assets.
+              </span>
+            </div>
+            <div className="modal-action flex justify-end gap-2">
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={() => setUnlinkConfirmFeature(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-sm btn-error"
+                data-testid="catalog-confirm-unlink-button"
+                onClick={() =>
+                  void handleUnlinkFeature(unlinkConfirmFeature.id)
+                }
+                type="button"
+                disabled={Boolean(actionLoadingId)}
+              >
+                {actionLoadingId === unlinkConfirmFeature.id
+                  ? "Unlinking..."
+                  : "Confirm Unlink"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

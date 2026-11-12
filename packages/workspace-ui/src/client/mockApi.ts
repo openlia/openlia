@@ -5,6 +5,7 @@ import type {
   DocumentPasswordSuggestResponse,
   FeatureInstallRequest,
   FeatureInstallResponse,
+  FeatureLifecycleResponse,
   FeatureSummary,
   FeaturesListResponse,
   IngestionDetailResponse,
@@ -641,6 +642,7 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
   const mockShares: MockStoredShare[] = [];
   let mockShareSeq = 0;
   const mockInstalledFeatureIds = new Set<string>();
+  const mockFeatureStates = new Map<string, FeatureSummary["state"]>();
   const useBrowserSessionPersistence =
     typeof window !== "undefined" &&
     !("happyDOM" in window) &&
@@ -706,6 +708,7 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
 
   function applyInstalledMockFeature(found: FeatureSummary): void {
     mockInstalledFeatureIds.add(found.id);
+    mockFeatureStates.set(found.id, "installed");
     for (const domainPath of found.domains) {
       if (
         !entries.some((e) => e.kind === "directory" && e.path === domainPath)
@@ -2599,7 +2602,9 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         ok: true,
         features: mockCatalogFeatures.map((f) => ({
           ...f,
-          state: mockInstalledFeatureIds.has(f.id) ? "installed" : f.state,
+          state:
+            mockFeatureStates.get(f.id) ??
+            (mockInstalledFeatureIds.has(f.id) ? "installed" : f.state),
         })),
         catalog: {
           schema: 1,
@@ -2637,6 +2642,62 @@ REM 2026-10-31 TAG social MSG Halloween Celebration
         installed_skills: found.skills,
         policy_updated: false,
         catalog,
+      };
+    },
+    async deactivateFeature(id: string): Promise<FeatureLifecycleResponse> {
+      requireAuthentication();
+      const { features } = await this.listFeatures();
+      const found = features.find((f) => f.id === id);
+      if (!found) throw error(404, "feature_not_found");
+      mockFeatureStates.set(id, "disabled");
+      return {
+        schema: 1,
+        ok: true,
+        feature_id: found.id,
+        action: "deactivate",
+        state: "disabled",
+      };
+    },
+    async activateFeature(id: string): Promise<FeatureLifecycleResponse> {
+      requireAuthentication();
+      const { features } = await this.listFeatures();
+      const found = features.find((f) => f.id === id);
+      if (!found) throw error(404, "feature_not_found");
+      mockFeatureStates.set(id, "installed");
+      return {
+        schema: 1,
+        ok: true,
+        feature_id: found.id,
+        action: "activate",
+        state: "installed",
+      };
+    },
+    async unlinkFeature(id: string): Promise<FeatureLifecycleResponse> {
+      requireAuthentication();
+      const { features } = await this.listFeatures();
+      const found = features.find((f) => f.id === id);
+      if (!found) throw error(404, "feature_not_found");
+      mockFeatureStates.set(id, "unlinked");
+      return {
+        schema: 1,
+        ok: true,
+        feature_id: found.id,
+        action: "unlink",
+        state: "unlinked",
+      };
+    },
+    async relinkFeature(id: string): Promise<FeatureLifecycleResponse> {
+      requireAuthentication();
+      const { features } = await this.listFeatures();
+      const found = features.find((f) => f.id === id);
+      if (!found) throw error(404, "feature_not_found");
+      mockFeatureStates.set(id, "installed");
+      return {
+        schema: 1,
+        ok: true,
+        feature_id: found.id,
+        action: "relink",
+        state: "installed",
       };
     },
   };

@@ -149,6 +149,26 @@ type FeatureRemoveResult struct {
 	DisabledSkills []string `json:"disabled_skills"`
 }
 
+type FeatureDeactivateResult struct {
+	OK             bool     `json:"ok"`
+	Action         string   `json:"action"`
+	FeatureID      string   `json:"feature_id"`
+	DisabledSkills []string `json:"disabled_skills"`
+}
+
+type FeatureActivateResult struct {
+	OK              bool     `json:"ok"`
+	Action          string   `json:"action"`
+	FeatureID       string   `json:"feature_id"`
+	ActivatedSkills []string `json:"activated_skills"`
+}
+
+type FeatureUnlinkResult struct {
+	OK        bool   `json:"ok"`
+	Action    string `json:"action"`
+	FeatureID string `json:"feature_id"`
+}
+
 type FeaturePackageOptions struct {
 	FeatureID      string
 	Name           string
@@ -577,27 +597,44 @@ func loadInstalledFeatureRecords(metaRoot string) (map[string]InstalledFeatureRe
 func computeFeatureStatus(config Config, m FeatureManifest, source string, installedRec *InstalledFeatureRecord, registered map[string]bool) FeatureStatus {
 	var domainPaths []string
 	matchedDomains := 0
+	workspaceDir := featureWorkspaceDir(config)
 	for _, d := range m.Domains {
 		domainPaths = append(domainPaths, d.Path)
 		if registered != nil && registered[d.Path] {
 			matchedDomains++
+		} else if info, err := os.Stat(filepath.Join(workspaceDir, filepath.FromSlash(d.Path))); err == nil && info.IsDir() {
+			matchedDomains++
 		}
 	}
 	var skillIDs []string
-	matchedSkills := 0
+	activeSkills := 0
+	disabledSkills := 0
 	for _, s := range m.Skills {
 		skillIDs = append(skillIDs, s.ID)
 		skillDir := filepath.Join(config.DataRoot, "skills", s.ID)
+		disabledDir := filepath.Join(config.DataRoot, "skills", ".openlia-disabled", s.ID)
 		if info, err := os.Stat(skillDir); err == nil && info.IsDir() {
-			matchedSkills++
+			activeSkills++
+		} else if info, err := os.Stat(disabledDir); err == nil && info.IsDir() {
+			disabledSkills++
 		}
 	}
 
 	totalItems := len(domainPaths) + len(skillIDs)
-	matchedItems := matchedDomains + matchedSkills
+	matchedItems := matchedDomains + activeSkills + disabledSkills
 	state := "available"
 	if totalItems > 0 && matchedItems == totalItems {
-		state = "installed"
+		if len(skillIDs) > 0 && disabledSkills == len(skillIDs) {
+			if installedRec != nil {
+				state = "disabled"
+			} else {
+				state = "unlinked"
+			}
+		} else if installedRec == nil {
+			state = "unlinked"
+		} else {
+			state = "installed"
+		}
 	} else if matchedItems > 0 {
 		state = "partial"
 	}
@@ -1317,6 +1354,112 @@ func FeaturePackage(config Config, opts FeaturePackageOptions) (FeaturePackageRe
 		Domains:    domainNames,
 		Skills:     finalSkillIDs,
 		FilesCount: filesCount,
+	}, nil
+}
+
+// FeatureDeactivate disables an installed feature's skills by moving them to .openlia-disabled,
+// preserving 100% of workspace files, keys, and tracking metadata.
+func FeatureDeactivate(config Config, featureID string, now time.Time) (FeatureDeactivateResult, error) {
+	if err := normalizeAndValidateFeatureConfig(&config); err != nil {
+		return FeatureDeactivateResult{}, err
+	}
+	if err := ValidateFeatureID(featureID); err != nil {
+		return FeatureDeactivateResult{}, err
+	}
+	manifest, _, _, _, err := resolveFeatureManifest(config, featureID)
+	if err != nil {
+		return FeatureDeactivateResult{}, err
+	}
+
+	var disabledSkills []string
+	skillsRoot := filepath.Join(config.DataRoot, "skills")
+	skillsToDisable := manifest.Skills
+	if len(skillsToDisable) == 0 {
+		skillsToDisable = []FeatureSkillSpec{{ID: featureID}}
+	}
+	for _, sk := range skillsToDisable {
+		src := filepath.Join(skillsRoot, sk.ID)
+		dst := filepath.Join(skillsRoot, ".openlia-disabled", sk.ID)
+		if info, err := os.Lstat(src); err == nil && info.IsDir() {
+			_ = EnsureDir(filepath.Dir(dst), 0o700)
+			_ = os.RemoveAll(dst)
+			if err := os.Rename(src, dst); err == nil {
+				disabledSkills = append(disabledSkills, sk.ID)
+			}
+		}
+	}
+
+	_ = RecordChange(config, "feature-deactivate", "ok", featureID, fmt.Sprintf("deactivated feature %s", featureID), now)
+
+	return FeatureDeactivateResult{
+		OK:             true,
+		Action:         "feature-deactivate",
+		FeatureID:      featureID,
+		DisabledSkills: disabledSkills,
+	}, nil
+}
+
+// FeatureActivate restores disabled skills from .openlia-disabled back into active execution.
+func FeatureActivate(config Config, featureID string, now time.Time) (FeatureActivateResult, error) {
+	if err := normalizeAndValidateFeatureConfig(&config); err != nil {
+		return FeatureActivateResult{}, err
+	}
+	if err := ValidateFeatureID(featureID); err != nil {
+		return FeatureActivateResult{}, err
+	}
+	manifest, _, _, _, err := resolveFeatureManifest(config, featureID)
+	if err != nil {
+		return FeatureActivateResult{}, err
+	}
+
+	var activatedSkills []string
+	skillsRoot := filepath.Join(config.DataRoot, "skills")
+	skillsToActivate := manifest.Skills
+	if len(skillsToActivate) == 0 {
+		skillsToActivate = []FeatureSkillSpec{{ID: featureID}}
+	}
+	for _, sk := range skillsToActivate {
+		src := filepath.Join(skillsRoot, ".openlia-disabled", sk.ID)
+		dst := filepath.Join(skillsRoot, sk.ID)
+		if info, err := os.Lstat(src); err == nil && info.IsDir() {
+			_ = EnsureDir(filepath.Dir(dst), 0o700)
+			_ = os.RemoveAll(dst)
+			if err := os.Rename(src, dst); err == nil {
+				activatedSkills = append(activatedSkills, sk.ID)
+			}
+		}
+	}
+
+	_ = RecordChange(config, "feature-activate", "ok", featureID, fmt.Sprintf("activated feature %s", featureID), now)
+
+	return FeatureActivateResult{
+		OK:              true,
+		Action:          "feature-activate",
+		FeatureID:       featureID,
+		ActivatedSkills: activatedSkills,
+	}, nil
+}
+
+// FeatureUnlink detaches a feature from upstream tracking by deleting its tracking record under <MetaRoot>/managed/features/<id>.json,
+// converting it into a self-managed workspace feature with 100% of files, notes, and skills preserved.
+func FeatureUnlink(config Config, featureID string, now time.Time) (FeatureUnlinkResult, error) {
+	if err := normalizeAndValidateFeatureConfig(&config); err != nil {
+		return FeatureUnlinkResult{}, err
+	}
+	if err := ValidateFeatureID(featureID); err != nil {
+		return FeatureUnlinkResult{}, err
+	}
+
+	featuresMetaDir := filepath.Join(config.MetaRoot, "managed", "features")
+	_ = os.Remove(filepath.Join(featuresMetaDir, featureID+".json"))
+	_ = os.RemoveAll(filepath.Join(featuresMetaDir, featureID))
+
+	_ = RecordChange(config, "feature-unlink", "ok", featureID, fmt.Sprintf("unlinked feature %s", featureID), now)
+
+	return FeatureUnlinkResult{
+		OK:        true,
+		Action:    "feature-unlink",
+		FeatureID: featureID,
 	}, nil
 }
 

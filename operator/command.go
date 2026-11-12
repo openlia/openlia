@@ -1076,6 +1076,36 @@ func runFeatures(config Config, args []string, output, errorOutput io.Writer, js
 		}
 		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: packaged %s -> %s", res.FeatureID, res.OutputPath))
 
+	case "deactivate", "disable":
+		if len(args) != 1 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features %s requires FEATURE_ID", action))
+		}
+		res, err := FeatureDeactivate(config, args[0], now)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: deactivated %s", res.FeatureID))
+
+	case "activate", "enable":
+		if len(args) != 1 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features %s requires FEATURE_ID", action))
+		}
+		res, err := FeatureActivate(config, args[0], now)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: activated %s", res.FeatureID))
+
+	case "unlink":
+		if len(args) != 1 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features unlink requires FEATURE_ID"))
+		}
+		res, err := FeatureUnlink(config, args[0], now)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: unlinked %s", res.FeatureID))
+
 	case "remove":
 		if len(args) != 1 {
 			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features remove requires FEATURE_ID"))

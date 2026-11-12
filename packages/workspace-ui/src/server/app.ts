@@ -51,6 +51,7 @@ export interface WorkspaceHandlerOptions {
   usageRoot?: string;
   skillsRoot?: string;
   featuresRoot?: string;
+  metaRoot?: string;
   runtimeReleasePath?: string;
   cronRoot?: string;
   backupSchedule?: string;
@@ -338,6 +339,7 @@ export function createWorkspaceHandler(
   });
   const featureService = new FeatureService({
     featuresRoot: options.featuresRoot,
+    metaRoot: options.metaRoot,
     runtimeReleasePath: options.runtimeReleasePath,
     skillsRoot,
     workspaceRoot: options.workspaceRoot,
@@ -2470,6 +2472,62 @@ export function createWorkspaceHandler(
           }
           throw error;
         }
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/features/deactivate"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 8192);
+        if (!isObject(bodyResult.value))
+          return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
+        return json(featureService.deactivate(bodyResult.value.id), 200);
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/features/activate"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 8192);
+        if (!isObject(bodyResult.value))
+          return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
+        return json(featureService.activate(bodyResult.value.id), 200);
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/features/unlink"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 8192);
+        if (!isObject(bodyResult.value))
+          return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
+        return json(featureService.unlink(bodyResult.value.id), 200);
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/features/relink"
+      ) {
+        if (!sameOrigin(request, url, publicOrigin))
+          return json(
+            { schema: 1, ok: false, error: "origin_not_allowed" },
+            403,
+          );
+        const bodyResult = await readJson(request, 8192);
+        if (!isObject(bodyResult.value))
+          return json({ schema: 1, ok: false, error: "invalid_request" }, 400);
+        return json(featureService.relink(bodyResult.value.id), 200);
       }
       if (
         request.method === "POST" &&

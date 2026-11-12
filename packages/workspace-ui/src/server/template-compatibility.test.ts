@@ -450,4 +450,220 @@ describe("browser feature installs", () => {
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("skill_install_requires_cli");
   });
+
+  test("lifecycle refactor: deactivate, activate, unlink, and relink preserve files and report accurate states", async () => {
+    put(
+      "catalog/lifecycle-demo/feature.yaml",
+      [
+        "schema: 1",
+        "id: lifecycle-demo",
+        "name: Lifecycle Demo",
+        "version: 0.1.0",
+        "requires: {openlia: '>=0.1.0'}",
+        "domains:",
+        "  - path: demo",
+        "    label: Demo Domain",
+        "skills:",
+        "  - id: lifecycle-demo",
+        "    path: skills/lifecycle-demo",
+      ].join("\n"),
+    );
+    put(
+      "catalog/lifecycle-demo/workspace/demo/template.md",
+      "# Starter Template\n",
+    );
+    put(
+      "catalog/lifecycle-demo/skills/lifecycle-demo/SKILL.md",
+      "---\nname: lifecycle-demo\ndescription: Demo skill\n---\n# Demo\n",
+    );
+
+    mkdirSync(join(root, "workspace"), { recursive: true });
+    mkdirSync(join(root, "skills"), { recursive: true });
+    const metaRoot = join(root, "meta");
+    mkdirSync(metaRoot, { recursive: true });
+
+    const handler = createWorkspaceHandler({
+      authRequired: false,
+      featuresRoot: join(root, "catalog"),
+      metaRoot,
+      runtimeReleasePath: join(root, "runtime-release.json"),
+      sharesDatabasePath: join(root, "shares.sqlite"),
+      skillsRoot: join(root, "skills"),
+      workspaceRoot: join(root, "workspace"),
+    });
+
+    // 1. Initial State: available
+    let listRes = await handler(new Request("http://localhost/api/features"));
+    let listData = (await listRes.json()) as {
+      features: Array<{ id: string; state: string }>;
+    };
+    let demo = listData.features.find((f) => f.id === "lifecycle-demo");
+    expect(demo?.state).toBe("available");
+
+    // 2. Install
+    const installRes = await handler(
+      new Request("http://localhost/api/features/install", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({ id: "lifecycle-demo" }),
+      }),
+    );
+    expect(installRes.status).toBe(200);
+
+    // Verify files & managed tracking
+    expect(existsSync(join(root, "workspace/demo/template.md"))).toBe(true);
+    expect(existsSync(join(root, "skills/lifecycle-demo/SKILL.md"))).toBe(true);
+    expect(
+      existsSync(join(metaRoot, "managed/features/lifecycle-demo.json")),
+    ).toBe(true);
+
+    // Simulate user data creation in the domain
+    put("workspace/demo/user-note.txt", "my important note");
+
+    listRes = await handler(new Request("http://localhost/api/features"));
+    listData = (await listRes.json()) as {
+      features: Array<{ id: string; state: string }>;
+    };
+    demo = listData.features.find((f) => f.id === "lifecycle-demo");
+    expect(demo?.state).toBe("installed");
+
+    // 3. Deactivate
+    const deactivateRes = await handler(
+      new Request("http://localhost/api/features/deactivate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({ id: "lifecycle-demo" }),
+      }),
+    );
+    expect(deactivateRes.status).toBe(200);
+    const deactBody = (await deactivateRes.json()) as {
+      ok: boolean;
+      state: string;
+      action: string;
+    };
+    expect(deactBody.ok).toBe(true);
+    expect(deactBody.action).toBe("deactivate");
+    expect(deactBody.state).toBe("disabled");
+
+    // Skill moved to .openlia-disabled, user data 100% untouched
+    expect(existsSync(join(root, "skills/lifecycle-demo/SKILL.md"))).toBe(
+      false,
+    );
+    expect(
+      existsSync(
+        join(root, "skills/.openlia-disabled/lifecycle-demo/SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(existsSync(join(root, "workspace/demo/user-note.txt"))).toBe(true);
+    expect(
+      readFileSync(join(root, "workspace/demo/user-note.txt"), "utf8"),
+    ).toBe("my important note");
+
+    listRes = await handler(new Request("http://localhost/api/features"));
+    listData = (await listRes.json()) as {
+      features: Array<{ id: string; state: string }>;
+    };
+    demo = listData.features.find((f) => f.id === "lifecycle-demo");
+    expect(demo?.state).toBe("disabled");
+
+    // 4. Activate
+    const activateRes = await handler(
+      new Request("http://localhost/api/features/activate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({ id: "lifecycle-demo" }),
+      }),
+    );
+    expect(activateRes.status).toBe(200);
+    const actBody = (await activateRes.json()) as {
+      ok: boolean;
+      state: string;
+      action: string;
+    };
+    expect(actBody.ok).toBe(true);
+    expect(actBody.state).toBe("installed");
+
+    // Skill restored to active skills directory
+    expect(existsSync(join(root, "skills/lifecycle-demo/SKILL.md"))).toBe(true);
+    expect(
+      existsSync(
+        join(root, "skills/.openlia-disabled/lifecycle-demo/SKILL.md"),
+      ),
+    ).toBe(false);
+
+    // 5. Unlink
+    const unlinkRes = await handler(
+      new Request("http://localhost/api/features/unlink", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({ id: "lifecycle-demo" }),
+      }),
+    );
+    expect(unlinkRes.status).toBe(200);
+    const unlinkBody = (await unlinkRes.json()) as {
+      ok: boolean;
+      state: string;
+      action: string;
+    };
+    expect(unlinkBody.ok).toBe(true);
+    expect(unlinkBody.state).toBe("unlinked");
+
+    // Tracking record removed, but skill and user files remain 100% intact
+    expect(
+      existsSync(join(metaRoot, "managed/features/lifecycle-demo.json")),
+    ).toBe(false);
+    expect(existsSync(join(root, "skills/lifecycle-demo/SKILL.md"))).toBe(true);
+    expect(existsSync(join(root, "workspace/demo/user-note.txt"))).toBe(true);
+
+    listRes = await handler(new Request("http://localhost/api/features"));
+    listData = (await listRes.json()) as {
+      features: Array<{ id: string; state: string }>;
+    };
+    demo = listData.features.find((f) => f.id === "lifecycle-demo");
+    expect(demo?.state).toBe("unlinked");
+
+    // 6. Relink
+    const relinkRes = await handler(
+      new Request("http://localhost/api/features/relink", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost",
+        },
+        body: JSON.stringify({ id: "lifecycle-demo" }),
+      }),
+    );
+    expect(relinkRes.status).toBe(200);
+    const relinkBody = (await relinkRes.json()) as {
+      ok: boolean;
+      state: string;
+      action: string;
+    };
+    expect(relinkBody.ok).toBe(true);
+    expect(relinkBody.state).toBe("installed");
+
+    // Managed record restored!
+    expect(
+      existsSync(join(metaRoot, "managed/features/lifecycle-demo.json")),
+    ).toBe(true);
+
+    listRes = await handler(new Request("http://localhost/api/features"));
+    listData = (await listRes.json()) as {
+      features: Array<{ id: string; state: string }>;
+    };
+    demo = listData.features.find((f) => f.id === "lifecycle-demo");
+    expect(demo?.state).toBe("installed");
+  });
 });
