@@ -17,6 +17,7 @@ import YAML from "yaml";
 import type {
   FeatureDomainSummary,
   FeatureInstallResponse,
+  FeatureLifecycleResponse,
   FeaturePackageRequest,
   FeatureRequirements,
   FeatureSummary,
@@ -73,6 +74,7 @@ export interface FeatureServiceOptions {
   skillsRoot: string;
   featuresRoot?: string | undefined;
   runtimeReleasePath?: string | undefined;
+  metaRoot?: string | undefined;
 }
 
 interface RawFeatureDomain {
@@ -173,6 +175,7 @@ export class FeatureService {
   readonly workspaceRoot: string;
   readonly skillsRoot: string;
   readonly featuresRoot: string;
+  readonly metaRoot: string | undefined;
   private readonly runtimeReleasePath: string | undefined;
 
   constructor(options: FeatureServiceOptions) {
@@ -182,6 +185,69 @@ export class FeatureService {
     this.featuresRoot = options.featuresRoot
       ? resolve(options.featuresRoot)
       : resolveDefaultFeaturesRoot();
+    this.metaRoot = options.metaRoot
+      ? resolve(options.metaRoot)
+      : process.env.OPENLIA_META_ROOT
+        ? resolve(process.env.OPENLIA_META_ROOT)
+        : existsSync(join(this.workspaceRoot, "..", ".openlia"))
+          ? resolve(join(this.workspaceRoot, "..", ".openlia"))
+          : undefined;
+  }
+
+  private hasManagedFeatureRecord(featureId: string): boolean {
+    if (!this.metaRoot) return true;
+    const recordPath = join(
+      this.metaRoot,
+      "managed",
+      "features",
+      `${featureId}.json`,
+    );
+    return existsSync(recordPath);
+  }
+
+  private writeManagedFeatureRecord(
+    manifest: RawFeatureManifest,
+    installedDomains: string[],
+    installedSkills: string[],
+  ): void {
+    if (!this.metaRoot) return;
+    try {
+      const dir = join(this.metaRoot, "managed", "features");
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const recordPath = join(dir, `${manifest.id}.json`);
+      const record = {
+        schema: 1,
+        id: manifest.id,
+        source: "builtin",
+        installed_at: new Date().toISOString(),
+        domains: installedDomains,
+        skills: installedSkills,
+        catalog: this.catalogProvenance(),
+        manifest,
+      };
+      writeFileSync(recordPath, JSON.stringify(record, null, 2) + "\n", {
+        mode: 0o600,
+      });
+    } catch {}
+  }
+
+  private removeManagedFeatureRecord(featureId: string): void {
+    if (!this.metaRoot) return;
+    try {
+      const recordPath = join(
+        this.metaRoot,
+        "managed",
+        "features",
+        `${featureId}.json`,
+      );
+      if (existsSync(recordPath)) {
+        rmSync(recordPath, { force: true });
+      }
+      const snapDir = join(this.metaRoot, "managed", "features", featureId);
+      if (existsSync(snapDir)) {
+        rmSync(snapDir, { recursive: true, force: true });
+      }
+    } catch {}
   }
 
   private catalogProvenance(): TemplatesCatalogProvenance | undefined {
@@ -351,25 +417,39 @@ export class FeatureService {
           : {}),
       }));
       const skills = (manifest.skills ?? []).map((s) => s.id);
-      let matched = 0;
+      let matchedDomains = 0;
       for (const dp of domains) {
-        if (registered.has(dp)) matched++;
+        if (registered.has(dp)) matchedDomains++;
       }
+      let activeSkills = 0;
+      let disabledSkills = 0;
       for (const sk of skills) {
-        if (
-          existsSync(join(this.skillsRoot, sk, "SKILL.md")) ||
+        if (existsSync(join(this.skillsRoot, sk, "SKILL.md"))) {
+          activeSkills++;
+        } else if (
           existsSync(join(this.skillsRoot, ".openlia-disabled", sk, "SKILL.md"))
         ) {
-          matched++;
+          disabledSkills++;
         }
       }
+      const matched = matchedDomains + activeSkills + disabledSkills;
       const total = domains.length + skills.length;
-      const state: FeatureSummary["state"] =
-        total > 0 && matched === total
-          ? "installed"
-          : matched > 0
-            ? "partial"
-            : "available";
+      const isManaged = this.hasManagedFeatureRecord(id);
+
+      let state: FeatureSummary["state"] = "available";
+      if (total > 0 && matched === total) {
+        if (skills.length > 0 && disabledSkills === skills.length) {
+          state = isManaged ? "disabled" : "unlinked";
+        } else if (!isManaged) {
+          state = "unlinked";
+        } else {
+          state = "installed";
+        }
+      } else if (matched > 0) {
+        state = "partial";
+      } else {
+        state = "available";
+      }
       const rawReq = manifest.requires;
       const requires: FeatureRequirements | undefined =
         rawReq && typeof rawReq === "object"
@@ -538,7 +618,9 @@ export class FeatureService {
           // it was cleanly provisioned (e.g. during profile init) and has
           // no local customizations to preserve.
           if (
-            destination === join(this.skillsRoot, skill.id) &&
+            (destination === join(this.skillsRoot, skill.id) ||
+              destination ===
+                join(this.skillsRoot, ".openlia-disabled", skill.id)) &&
             existsSync(srcSkillDir) &&
             isSkillDirectoryEqual(srcSkillDir, destination)
           ) {
@@ -636,10 +718,25 @@ export class FeatureService {
       const srcSkillDir = join(dir, sk.path);
       if (existsSync(srcSkillDir)) {
         const dstSkillDir = join(this.skillsRoot, sk.id);
+        const disabledSkillDir = join(
+          this.skillsRoot,
+          ".openlia-disabled",
+          sk.id,
+        );
         if (
           existsSync(dstSkillDir) &&
           isSkillDirectoryEqual(srcSkillDir, dstSkillDir)
         ) {
+          installedSkills.push(sk.id);
+          continue;
+        }
+        if (
+          !existsSync(dstSkillDir) &&
+          existsSync(disabledSkillDir) &&
+          isSkillDirectoryEqual(srcSkillDir, disabledSkillDir)
+        ) {
+          mkdirSync(dirname(dstSkillDir), { recursive: true, mode: 0o700 });
+          renameSync(disabledSkillDir, dstSkillDir);
           installedSkills.push(sk.id);
           continue;
         }
@@ -656,6 +753,8 @@ export class FeatureService {
       }
     }
 
+    this.writeManagedFeatureRecord(manifest, installedDomains, installedSkills);
+
     return {
       schema: 1,
       ok: true,
@@ -667,57 +766,23 @@ export class FeatureService {
     };
   }
 
-  remove(rawId: unknown): { schema: 1; ok: true; feature_id: string } {
+  deactivate(rawId: unknown): FeatureLifecycleResponse {
     const featureId = validateFeatureId(rawId);
     const catalog = this.loadCatalogManifests();
     const entry = catalog.get(featureId);
-    const removePaths = new Set<string>(
-      (entry?.manifest.domains ?? []).map((d) => d.path),
-    );
 
-    // Clean up legacy workspace.yaml if present, and remove empty starter domain directories
-    const wsYamlPath = join(this.workspaceRoot, "workspace.yaml");
-    if (existsSync(wsYamlPath)) {
-      try {
-        const parsed = YAML.parse(readFileSync(wsYamlPath, "utf8")) ?? {};
-        if (Array.isArray(parsed.domains)) {
-          parsed.domains = parsed.domains.filter(
-            (d: RawFeatureDomain) =>
-              d && !removePaths.has(d.path) && d.feature !== featureId,
-          );
-          writeFileSync(wsYamlPath, YAML.stringify(parsed), {
-            encoding: "utf8",
-            mode: 0o600,
-          });
-        }
-      } catch {}
-    }
-
-    for (const dp of removePaths) {
-      const domDir = join(this.workspaceRoot, dp);
-      if (!existsSync(domDir)) continue;
-      try {
-        const entries = readdirSync(domDir, { withFileTypes: true });
-        const hasUserRecords = entries.some(
-          (e) =>
-            e.isDirectory() ||
-            (!e.name.startsWith(".") &&
-              !e.name.endsWith("-template.md") &&
-              !e.name.endsWith(".schema.json")),
-        );
-        if (!hasUserRecords) {
-          rmSync(domDir, { recursive: true, force: true });
-        }
-      } catch {}
-    }
-
-    for (const sk of entry?.manifest.skills ?? []) {
+    // Disable skills by quarantining them to .openlia-disabled.
+    // Workspace notes, keys, and configurations are preserved 100%.
+    const disabledSkills: string[] = [];
+    const skills = entry?.manifest.skills ?? [{ id: featureId, path: "" }];
+    for (const sk of skills) {
       const activeDir = join(this.skillsRoot, sk.id);
       const disabledDir = join(this.skillsRoot, ".openlia-disabled", sk.id);
       if (existsSync(activeDir)) {
         mkdirSync(dirname(disabledDir), { recursive: true, mode: 0o700 });
         rmSync(disabledDir, { recursive: true, force: true });
         renameSync(activeDir, disabledDir);
+        disabledSkills.push(sk.id);
       }
     }
 
@@ -725,7 +790,68 @@ export class FeatureService {
       schema: 1,
       ok: true,
       feature_id: featureId,
+      action: "deactivate",
+      state: "disabled",
     };
+  }
+
+  activate(rawId: unknown): FeatureLifecycleResponse {
+    const featureId = validateFeatureId(rawId);
+    const catalog = this.loadCatalogManifests();
+    const entry = catalog.get(featureId);
+
+    const activatedSkills: string[] = [];
+    const skills = entry?.manifest.skills ?? [{ id: featureId, path: "" }];
+    for (const sk of skills) {
+      const activeDir = join(this.skillsRoot, sk.id);
+      const disabledDir = join(this.skillsRoot, ".openlia-disabled", sk.id);
+      if (existsSync(disabledDir)) {
+        mkdirSync(dirname(activeDir), { recursive: true, mode: 0o700 });
+        rmSync(activeDir, { recursive: true, force: true });
+        renameSync(disabledDir, activeDir);
+        activatedSkills.push(sk.id);
+      }
+    }
+
+    return {
+      schema: 1,
+      ok: true,
+      feature_id: featureId,
+      action: "activate",
+      state: "installed",
+    };
+  }
+
+  unlink(rawId: unknown): FeatureLifecycleResponse {
+    const featureId = validateFeatureId(rawId);
+    // Remove upstream tracking metadata; leave all workspace files and skills intact
+    this.removeManagedFeatureRecord(featureId);
+
+    return {
+      schema: 1,
+      ok: true,
+      feature_id: featureId,
+      action: "unlink",
+      state: "unlinked",
+    };
+  }
+
+  relink(rawId: unknown): FeatureLifecycleResponse {
+    const featureId = validateFeatureId(rawId);
+    this.activate(featureId);
+    this.install(featureId);
+
+    return {
+      schema: 1,
+      ok: true,
+      feature_id: featureId,
+      action: "relink",
+      state: "installed",
+    };
+  }
+
+  remove(rawId: unknown): FeatureLifecycleResponse {
+    return this.deactivate(rawId);
   }
 
   captureFeatureFiles(

@@ -7,6 +7,7 @@ import type {
   DocumentPasswordSuggestResponse,
   FeatureInstallRequest,
   FeatureInstallResponse,
+  FeatureLifecycleResponse,
   FeaturesListResponse,
   IngestionDetailResponse,
   IngestionOverviewResponse,
@@ -299,6 +300,10 @@ export interface WorkspaceApi {
   installFeature(
     request: FeatureInstallRequest,
   ): Promise<FeatureInstallResponse>;
+  deactivateFeature(id: string): Promise<FeatureLifecycleResponse>;
+  activateFeature(id: string): Promise<FeatureLifecycleResponse>;
+  unlinkFeature(id: string): Promise<FeatureLifecycleResponse>;
+  relinkFeature(id: string): Promise<FeatureLifecycleResponse>;
 
   loadCronJobs(): Promise<CronOverviewResponse>;
   createCronJob(
@@ -777,6 +782,19 @@ function isFeatureInstallResponse(
     typeof value.feature_id === "string" &&
     Array.isArray(value.installed_domains) &&
     Array.isArray(value.installed_skills)
+  );
+}
+
+function isFeatureLifecycleResponse(
+  value: unknown,
+): value is FeatureLifecycleResponse {
+  return (
+    isObject(value) &&
+    value.schema === 1 &&
+    value.ok === true &&
+    typeof value.feature_id === "string" &&
+    typeof value.action === "string" &&
+    typeof value.state === "string"
   );
 }
 
@@ -1698,6 +1716,46 @@ export const httpWorkspaceApi: WorkspaceApi = {
     }
     return res;
   },
+  deactivateFeature: (id: string) =>
+    requestJson<FeatureLifecycleResponse>(
+      "/api/features/deactivate",
+      isFeatureLifecycleResponse,
+      {
+        body: JSON.stringify({ id }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  activateFeature: (id: string) =>
+    requestJson<FeatureLifecycleResponse>(
+      "/api/features/activate",
+      isFeatureLifecycleResponse,
+      {
+        body: JSON.stringify({ id }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  unlinkFeature: (id: string) =>
+    requestJson<FeatureLifecycleResponse>(
+      "/api/features/unlink",
+      isFeatureLifecycleResponse,
+      {
+        body: JSON.stringify({ id }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
+  relinkFeature: (id: string) =>
+    requestJson<FeatureLifecycleResponse>(
+      "/api/features/relink",
+      isFeatureLifecycleResponse,
+      {
+        body: JSON.stringify({ id }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+    ),
 };
 
 export const api = httpWorkspaceApi;

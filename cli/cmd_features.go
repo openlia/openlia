@@ -13,7 +13,7 @@ import (
 
 func commandFeatures(options Options, args []string, _ fs.FS) int {
 	if len(args) == 0 {
-		return fail(options, ExitUsage, "features requires list, show, status, sync, install, update, import, package, or remove", nil)
+		return fail(options, ExitUsage, "features requires list, show, status, sync, install, update, import, package, deactivate, activate, unlink, or remove", nil)
 	}
 	action := args[0]
 	rest := append([]string(nil), args[1:]...)
@@ -76,15 +76,35 @@ func commandFeatures(options Options, args []string, _ fs.FS) int {
 		return fail(options, ExitFailure, err.Error(), nil)
 	}
 
-	if action == "install" || action == "import" {
+	if action == "install" || action == "import" || action == "activate" || action == "enable" {
 		var parsed struct {
 			InstalledSkills []string `json:"installed_skills"`
+			ActivatedSkills []string `json:"activated_skills"`
 		}
-		if json.Unmarshal(raw, &parsed) == nil && len(parsed.InstalledSkills) > 0 {
+		if json.Unmarshal(raw, &parsed) == nil {
+			var skills []string
+			skills = append(skills, parsed.InstalledSkills...)
+			skills = append(skills, parsed.ActivatedSkills...)
 			changed := false
-			for _, sk := range parsed.InstalledSkills {
+			for _, sk := range skills {
 				if !contains(config.EnabledSkills, sk) {
 					config.EnabledSkills = setSkill(config.EnabledSkills, sk, true)
+					changed = true
+				}
+			}
+			if changed {
+				_ = saveConfig(config)
+			}
+		}
+	} else if action == "deactivate" || action == "disable" {
+		var parsed struct {
+			DisabledSkills []string `json:"disabled_skills"`
+		}
+		if json.Unmarshal(raw, &parsed) == nil && len(parsed.DisabledSkills) > 0 {
+			changed := false
+			for _, sk := range parsed.DisabledSkills {
+				if contains(config.EnabledSkills, sk) {
+					config.EnabledSkills = setSkill(config.EnabledSkills, sk, false)
 					changed = true
 				}
 			}

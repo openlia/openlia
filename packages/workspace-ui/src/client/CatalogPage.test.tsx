@@ -131,3 +131,85 @@ test("explains CLI conflict errors and dependency failures clearly without overw
     "personal-finance requires unsupported runtime tool: hledger",
   );
 });
+
+test("supports full feature lifecycle: deactivate, activate, unlink modal, and relink", async () => {
+  const api = createMockWorkspaceApi();
+  const deactivateSpy = vi.spyOn(api, "deactivateFeature");
+  const activateSpy = vi.spyOn(api, "activateFeature");
+  const unlinkSpy = vi.spyOn(api, "unlinkFeature");
+  const relinkSpy = vi.spyOn(api, "relinkFeature");
+
+  render(
+    <CatalogPage api={api} onOpenDomain={vi.fn()} onOpenSkill={vi.fn()} />,
+  );
+
+  // 1. Install personal-health
+  const installBtn = await screen.findByTestId(
+    "catalog-install-personal-health",
+  );
+  fireEvent.click(installBtn);
+
+  await waitFor(() => {
+    expect(
+      screen.getByTestId("catalog-feature-status-personal-health"),
+    ).toHaveTextContent("Installed");
+  });
+
+  // 2. Deactivate
+  const deactivateBtn = await screen.findByTestId(
+    "catalog-deactivate-personal-health",
+  );
+  fireEvent.click(deactivateBtn);
+
+  await waitFor(() => {
+    expect(deactivateSpy).toHaveBeenCalledWith("personal-health");
+    expect(
+      screen.getByTestId("catalog-feature-status-personal-health"),
+    ).toHaveTextContent("Disabled (Data Preserved)");
+  });
+
+  // Verify Activate button is now shown
+  const activateBtn = await screen.findByTestId(
+    "catalog-activate-personal-health",
+  );
+  expect(activateBtn).toBeDefined();
+
+  // 3. Activate
+  fireEvent.click(activateBtn);
+
+  await waitFor(() => {
+    expect(activateSpy).toHaveBeenCalledWith("personal-health");
+    expect(
+      screen.getByTestId("catalog-feature-status-personal-health"),
+    ).toHaveTextContent("Installed");
+  });
+
+  // 4. Unlink Modal
+  const unlinkBtn = await screen.findByTestId("catalog-unlink-personal-health");
+  fireEvent.click(unlinkBtn);
+
+  const modal = await screen.findByTestId("catalog-unlink-modal");
+  expect(modal).toHaveTextContent("Unlink from Catalog?");
+  expect(modal).toHaveTextContent("Zero Data Loss Guarantee");
+
+  // Confirm Unlink
+  fireEvent.click(screen.getByTestId("catalog-confirm-unlink-button"));
+
+  await waitFor(() => {
+    expect(unlinkSpy).toHaveBeenCalledWith("personal-health");
+    expect(
+      screen.getByTestId("catalog-feature-status-personal-health"),
+    ).toHaveTextContent("Self-Managed (Unlinked)");
+  });
+
+  // 5. Re-link to Catalog
+  const relinkBtn = await screen.findByTestId("catalog-relink-personal-health");
+  fireEvent.click(relinkBtn);
+
+  await waitFor(() => {
+    expect(relinkSpy).toHaveBeenCalledWith("personal-health");
+    expect(
+      screen.getByTestId("catalog-feature-status-personal-health"),
+    ).toHaveTextContent("Installed");
+  });
+});
