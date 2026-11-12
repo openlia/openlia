@@ -304,14 +304,19 @@
 }
 .chat-live-activity,
 .chat-run-status {
+  width: 100%;
   max-width: 48rem;
   margin-left: auto;
   margin-right: auto;
 }
-.chat-run-status {
-  font-size: 0.78rem;
-  opacity: 0.65;
-  margin-bottom: 0.75rem;
+.chat-execution {
+  margin-bottom: 1.25rem;
+}
+.chat-execution-history summary::-webkit-details-marker {
+  display: none;
+}
+.chat-execution-history[open] .chat-execution-chevron {
+  transform: rotate(90deg);
 }
 .chat-jump {
   position: absolute;

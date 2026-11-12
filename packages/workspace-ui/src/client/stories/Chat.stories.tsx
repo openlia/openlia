@@ -154,36 +154,100 @@ const recordedFailure = {
   submitted_at: Date.parse("2026-10-27T09:00:00Z"),
   status_observed_at: Date.parse("2026-10-27T09:01:00Z"),
 };
-export const FailedExecution: Story = {
+
+const completedRun = {
+  run_id: "run_bd130d362d24404cb122991f0d8582a3",
+  status: "completed",
+  request_id: "request-completed",
+  status_source: "hermes" as const,
+  submitted_at: Date.parse("2026-11-12T16:45:16Z"),
+  status_observed_at: Date.parse("2026-11-12T17:35:34Z"),
+};
+
+export const CompletedExecution: Story = {
   render: () => (
-    <ChatExecution
-      run={recordedFailure}
-      history={[recordedFailure]}
-      hasMore={false}
-      busy={false}
-      historyError=""
-      onRefresh={action("refreshExecution")}
-      onRefreshRun={action("refreshRun")}
-      onMore={action("earlierExecutions")}
-    />
+    <div className="p-4 bg-base-100">
+      <ChatExecution
+        run={completedRun}
+        history={[
+          completedRun,
+          {
+            ...completedRun,
+            run_id: "run_prev_01",
+            submitted_at: Date.parse("2026-11-12T14:10:00Z"),
+            status_observed_at: Date.parse("2026-11-12T14:15:20Z"),
+          },
+          recordedFailure,
+        ]}
+        hasMore={false}
+        busy={false}
+        historyError=""
+        onRefresh={action("refreshExecution")}
+        onRefreshRun={action("refreshRun")}
+        onMore={action("earlierExecutions")}
+      />
+    </div>
   ),
 };
+
+export const RunningExecution: Story = {
+  render: () => (
+    <div className="p-4 bg-base-100">
+      <ChatExecution
+        run={{
+          run_id: "run_running_live",
+          status: "running",
+          request_id: "request-running",
+          status_source: "hermes",
+          submitted_at: Date.now() - 42000,
+        }}
+        history={[completedRun]}
+        hasMore={false}
+        busy={false}
+        historyError=""
+        onRefresh={action("refreshExecution")}
+        onRefreshRun={action("refreshRun")}
+        onMore={action("earlierExecutions")}
+      />
+    </div>
+  ),
+};
+
+export const FailedExecution: Story = {
+  render: () => (
+    <div className="p-4 bg-base-100">
+      <ChatExecution
+        run={recordedFailure}
+        history={[recordedFailure]}
+        hasMore={false}
+        busy={false}
+        historyError=""
+        onRefresh={action("refreshExecution")}
+        onRefreshRun={action("refreshRun")}
+        onMore={action("earlierExecutions")}
+      />
+    </div>
+  ),
+};
+
 export const UnknownExecution: Story = {
   render: () => (
-    <ChatExecution
-      run={{
-        run_id: "",
-        status: "unknown",
-        status_source: "unconfirmed",
-        request_id: "request-2",
-      }}
-      history={[recordedFailure]}
-      hasMore
-      busy={false}
-      historyError=""
-      onRefresh={action("refreshExecution")}
-      onRefreshRun={action("refreshRun")}
-      onMore={action("earlierExecutions")}
-    />
+    <div className="p-4 bg-base-100">
+      <ChatExecution
+        run={{
+          run_id: "",
+          status: "unknown",
+          status_source: "unconfirmed",
+          request_id: "request-2",
+        }}
+        history={[recordedFailure]}
+        hasMore
+        busy={false}
+        historyError=""
+        onRefresh={action("refreshExecution")}
+        onRefreshRun={action("refreshRun")}
+        onMore={action("earlierExecutions")}
+      />
+    </div>
   ),
 };

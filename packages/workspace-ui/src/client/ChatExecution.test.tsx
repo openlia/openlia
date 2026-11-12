@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ChatExecution } from "./ChatExecution";
+import { ChatExecution, formatDuration } from "./ChatExecution";
 import type { ChatRun } from "../shared/chat";
 
 afterEach(cleanup);
@@ -79,5 +79,59 @@ describe("Chat execution recovery", () => {
     expect(screen.getByText(/empty run ID is not proof/)).toBeVisible();
     expect(screen.queryByText("Execution failed")).toBeNull();
     expect(screen.queryByText(/No records changed/)).toBeNull();
+  });
+
+  it("calculates and displays execution duration and formatted timing chips", () => {
+    const runWithDuration: ChatRun = {
+      run_id: "run-timed",
+      status: "completed",
+      status_source: "hermes",
+      submitted_at: 1000000,
+      status_observed_at: 1000000 + (50 * 60 + 18) * 1000, // 50m 18s
+    };
+    render(
+      <ChatExecution
+        {...props}
+        run={runWithDuration}
+        history={[runWithDuration]}
+      />,
+    );
+    expect(screen.getAllByText("Duration: 50m 18s").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Submitted:/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Status observed:/).length).toBeGreaterThan(0);
+  });
+
+  it("applies centered 48rem column layout class and provides copy Run ID action", async () => {
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: writeTextMock },
+      configurable: true,
+      writable: true,
+    });
+
+    const runToCopy: ChatRun = {
+      run_id: "run-copy-test",
+      status: "completed",
+      status_source: "hermes",
+    };
+    render(<ChatExecution {...props} run={runToCopy} history={[runToCopy]} />);
+
+    const region = screen.getByRole("region", { name: "Chat execution" });
+    expect(region.className).toContain("chat-run-status");
+    expect(region.className).toContain("max-w-[48rem]");
+    expect(region.className).toContain("mx-auto");
+
+    const copyBtn = screen.getByRole("button", { name: "Copy Run ID" });
+    fireEvent.click(copyBtn);
+    expect(writeTextMock).toHaveBeenCalledWith("run-copy-test");
+  });
+
+  it("formats durations accurately across units", () => {
+    expect(formatDuration(100, 500)).toBe("400ms");
+    expect(formatDuration(1000, 5200)).toBe("4s");
+    expect(formatDuration(1000, 75000)).toBe("1m 14s");
+    expect(formatDuration(1000, 3662000)).toBe("1h 1m 1s");
+    expect(formatDuration(undefined, 1000)).toBeNull();
+    expect(formatDuration(2000, 1000)).toBeNull();
   });
 });
