@@ -134,4 +134,23 @@ describe("Chat execution recovery", () => {
     expect(formatDuration(undefined, 1000)).toBeNull();
     expect(formatDuration(2000, 1000)).toBeNull();
   });
+
+  it("tucks completed execution into a discreet micro-pill by default and expands on click", () => {
+    const completed: ChatRun = {
+      run_id: "run-quiet",
+      status: "completed",
+      status_source: "hermes",
+    };
+    render(<ChatExecution {...props} run={completed} history={[completed]} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Execution completed");
+    expect(screen.getByText(/Run details/)).toBeVisible();
+
+    const summary = screen.getByText(/Run details/).closest("summary");
+    expect(summary).not.toBeNull();
+    if (summary) fireEvent.click(summary);
+    expect(
+      screen.getByRole("button", { name: "Refresh execution status" }),
+    ).toBeVisible();
+    expect(screen.getAllByText("run-quiet").length).toBeGreaterThan(0);
+  });
 });

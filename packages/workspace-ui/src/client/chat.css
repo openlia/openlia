@@ -312,8 +312,13 @@
 .chat-execution {
   margin-bottom: 1.25rem;
 }
+.chat-execution-details summary::-webkit-details-marker,
 .chat-execution-history summary::-webkit-details-marker {
   display: none;
+}
+.chat-execution-pill {
+  box-shadow: 0 1px 2px
+    color-mix(in oklab, var(--color-base-content) 6%, transparent);
 }
 .chat-execution-history[open] .chat-execution-chevron {
   transform: rotate(90deg);

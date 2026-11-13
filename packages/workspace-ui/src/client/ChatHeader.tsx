@@ -7,12 +7,14 @@ export function ChatHeader({
   active,
   onOpenConversations,
   onAction,
+  onShowExecution,
 }: {
   session: ChatSession | null;
   busy: boolean;
   active: boolean;
   onOpenConversations: () => void;
   onAction: (action: "rename" | "pin" | "archive" | "delete") => void;
+  onShowExecution?: () => void;
 }) {
   const menu = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
@@ -111,6 +113,18 @@ export function ChatHeader({
                   Delete
                 </button>
               </>
+            )}
+            {session.writable && onShowExecution && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  if (menu.current) menu.current.open = false;
+                  onShowExecution();
+                }}
+              >
+                Execution details
+              </button>
             )}
             <a href="/usage">View usage</a>
             <p className="chat-usage-note">

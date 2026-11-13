@@ -321,6 +321,7 @@ export function ChatExecution({
   hasMore,
   busy,
   historyError,
+  defaultOpen,
   onRefresh,
   onRefreshRun,
   onMore,
@@ -330,12 +331,22 @@ export function ChatExecution({
   hasMore: boolean;
   busy: boolean;
   historyError: string;
+  defaultOpen?: boolean;
   onRefresh: () => void;
   onRefreshRun: (id: string) => void;
   onMore: () => void;
 }) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [userToggledOpen, setUserToggledOpen] = useState<boolean | null>(null);
+
+  const isCompleted = run?.status === "completed";
+  const open =
+    userToggledOpen !== null
+      ? userToggledOpen
+      : defaultOpen !== undefined
+        ? defaultOpen
+        : !isCompleted;
 
   const copyRunId = (id: string) => {
     if (typeof navigator === "undefined" || !navigator.clipboard) return;
@@ -364,48 +375,141 @@ export function ChatExecution({
   const theme = run
     ? statusThemeConfig(run.status)
     : statusThemeConfig("unknown");
+  const duration = run
+    ? formatDuration(run.submitted_at, run.status_observed_at)
+    : null;
 
   return (
     <section
+      id="chat-execution"
       aria-label="Chat execution"
-      className={`chat-run-status chat-execution w-full max-w-[48rem] mx-auto my-3 rounded-xl border p-3.5 sm:p-4 text-sm transition-colors ${theme.container}`}
+      className="chat-run-status chat-execution w-full max-w-[48rem] mx-auto my-2 text-sm"
     >
-      {run && (
-        <div className="space-y-2.5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                role="status"
-                className={`badge badge-sm font-semibold gap-1.5 ${theme.badge}`}
-              >
-                {theme.icon}
-                {label(run.status)}
-              </span>
-              {run.run_id ? (
-                <div className="inline-flex items-center gap-1.5 rounded-md border border-base-300/80 bg-base-200/60 px-2 py-0.5 text-xs font-mono">
-                  <span className="opacity-70">Run ID:</span>
-                  <code className="select-all font-semibold">{run.run_id}</code>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5"
-                    title={copiedId === run.run_id ? "Copied!" : "Copy Run ID"}
-                    aria-label={
-                      copiedId === run.run_id ? "Copied" : "Copy Run ID"
-                    }
-                    onClick={() => copyRunId(run.run_id)}
+      <details
+        className="chat-execution-details group"
+        open={open}
+        onToggle={(event) => setUserToggledOpen(event.currentTarget.open)}
+      >
+        <summary className="chat-execution-pill inline-flex cursor-pointer select-none items-center gap-2 rounded-full border border-base-300/80 bg-base-200/50 px-3 py-1 text-xs text-base-content/75 transition-all hover:bg-base-200 hover:text-base-content">
+          <ChevronIcon className="h-3 w-3 transition-transform duration-200 group-open:rotate-90" />
+          <span
+            role="status"
+            className={`font-semibold inline-flex items-center gap-1.5 ${
+              isCompleted
+                ? "text-success"
+                : theme.isAlert
+                  ? "text-error"
+                  : "text-base-content"
+            }`}
+          >
+            {theme.icon}
+            {run ? label(run.status) : "Execution status"}
+          </span>
+          {duration ? <span className="opacity-60">• {duration}</span> : null}
+          <span className="text-[11px] opacity-50 group-open:hidden">
+            • Run details
+          </span>
+          <span className="text-[11px] opacity-50 hidden group-open:inline">
+            • Hide details
+          </span>
+        </summary>
+
+        <div
+          className={`chat-execution-card mt-2 rounded-xl border p-3.5 sm:p-4 transition-colors ${theme.container}`}
+        >
+          {run && (
+            <div className="space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`badge badge-sm font-semibold gap-1.5 ${theme.badge}`}
                   >
-                    {copiedId === run.run_id ? (
-                      <CheckIcon className="h-3.5 w-3.5 text-success" />
-                    ) : (
-                      <CopyIcon className="h-3.5 w-3.5 opacity-70 hover:opacity-100" />
-                    )}
-                  </button>
+                    {theme.icon}
+                    {label(run.status)}
+                  </span>
+                  {run.run_id ? (
+                    <div className="inline-flex items-center gap-1.5 rounded-md border border-base-300/80 bg-base-200/60 px-2 py-0.5 text-xs font-mono">
+                      <span className="opacity-70">Run ID:</span>
+                      <code className="select-all font-semibold">
+                        {run.run_id}
+                      </code>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-xs btn-square h-5 min-h-0 w-5"
+                        title={
+                          copiedId === run.run_id ? "Copied!" : "Copy Run ID"
+                        }
+                        aria-label={
+                          copiedId === run.run_id ? "Copied" : "Copy Run ID"
+                        }
+                        onClick={() => copyRunId(run.run_id)}
+                      >
+                        {copiedId === run.run_id ? (
+                          <CheckIcon className="h-3.5 w-3.5 text-success" />
+                        ) : (
+                          <CopyIcon className="h-3.5 w-3.5 opacity-70 hover:opacity-100" />
+                        )}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs gap-1.5 text-base-content/80 hover:text-base-content"
+                  disabled={busy}
+                  onClick={onRefresh}
+                >
+                  <RefreshIcon
+                    className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`}
+                  />
+                  <span>Refresh execution status</span>
+                </button>
+              </div>
+
+              {theme.isAlert ? (
+                <div className="rounded-lg border border-warning/30 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-content">
+                  <p className="font-medium">{explanation(run.status)}</p>
+                  {run.status_source === "recorded" && (
+                    <p className="mt-1 opacity-90">
+                      Last recorded status. Live Hermes run metadata is no
+                      longer available.
+                    </p>
+                  )}
+                  {run.status_source === "unconfirmed" && (
+                    <p className="mt-1 opacity-90">
+                      No run acceptance was confirmed; an empty run ID is not
+                      proof that nothing executed.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="text-xs text-base-content/80 leading-relaxed">
+                  <p>{explanation(run.status)}</p>
+                  {run.status_source === "recorded" && (
+                    <p className="mt-1 opacity-75">
+                      Last recorded status. Live Hermes run metadata is no
+                      longer available.
+                    </p>
+                  )}
+                  {run.status_source === "unconfirmed" && (
+                    <p className="mt-1 opacity-75">
+                      No run acceptance was confirmed; an empty run ID is not
+                      proof that nothing executed.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs opacity-75 pt-0.5">
+                {times(run)}
+              </div>
             </div>
+          )}
+
+          {!run && (
             <button
               type="button"
-              className="btn btn-ghost btn-xs gap-1.5 text-base-content/80 hover:text-base-content"
+              className="btn btn-ghost btn-xs gap-1.5"
               disabled={busy}
               onClick={onRefresh}
             >
@@ -414,174 +518,124 @@ export function ChatExecution({
               />
               <span>Refresh execution status</span>
             </button>
-          </div>
-
-          {theme.isAlert ? (
-            <div className="rounded-lg border border-warning/30 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-content">
-              <p className="font-medium">{explanation(run.status)}</p>
-              {run.status_source === "recorded" && (
-                <p className="mt-1 opacity-90">
-                  Last recorded status. Live Hermes run metadata is no longer
-                  available.
-                </p>
-              )}
-              {run.status_source === "unconfirmed" && (
-                <p className="mt-1 opacity-90">
-                  No run acceptance was confirmed; an empty run ID is not proof
-                  that nothing executed.
-                </p>
-              )}
-            </div>
-          ) : (
-            <div className="text-xs text-base-content/80 leading-relaxed">
-              <p>{explanation(run.status)}</p>
-              {run.status_source === "recorded" && (
-                <p className="mt-1 opacity-75">
-                  Last recorded status. Live Hermes run metadata is no longer
-                  available.
-                </p>
-              )}
-              {run.status_source === "unconfirmed" && (
-                <p className="mt-1 opacity-75">
-                  No run acceptance was confirmed; an empty run ID is not proof
-                  that nothing executed.
-                </p>
-              )}
-            </div>
           )}
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs opacity-75 pt-0.5">
-            {times(run)}
-          </div>
-        </div>
-      )}
-
-      {!run && (
-        <button
-          type="button"
-          className="btn btn-ghost btn-xs gap-1.5"
-          disabled={busy}
-          onClick={onRefresh}
-        >
-          <RefreshIcon
-            className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`}
-          />
-          <span>Refresh execution status</span>
-        </button>
-      )}
-
-      {historyError && (
-        <p role="alert" className="mt-2 text-xs text-error">
-          Execution history could not be loaded: {historyError}. Refresh to
-          inspect it; no request was resent.
-        </p>
-      )}
-
-      {entries.length > 0 && (
-        <details className="chat-execution-history group mt-3 rounded-lg border border-base-300/70 bg-base-100/40 text-xs">
-          <summary className="cursor-pointer select-none px-3.5 py-2 font-medium hover:bg-base-200/50">
-            <span className="inline-flex items-center gap-1.5 mr-2">
-              <ChevronIcon className="chat-execution-chevron h-3.5 w-3.5 transition-transform duration-200" />
-            </span>
-            Execution history ({entries.length}
-            {hasMore ? "+" : ""})
-          </summary>
-          <div className="border-t border-base-300/60 p-3">
-            <p className="opacity-70 text-[11px] leading-relaxed">
-              Newest submissions first. Recorded statuses are observations, not
-              proof that no workspace changes occurred. Older non-terminal
-              observations must be refreshed before relying on them.
+          {historyError && (
+            <p role="alert" className="mt-2 text-xs text-error">
+              Execution history could not be loaded: {historyError}. Refresh to
+              inspect it; no request was resent.
             </p>
-            <ol className="mt-2.5 space-y-2">
-              {entries.map((entry, index) => {
-                const entryTheme = statusThemeConfig(entry.status);
-                const entryKey =
-                  entry.request_id ?? (entry.run_id || `unconfirmed-${index}`);
-                return (
-                  <li
-                    key={entryKey}
-                    className="rounded-md border border-base-300/60 bg-base-200/30 p-2.5 break-words"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <strong
-                          className={`badge badge-xs font-semibold ${entryTheme.badge}`}
-                        >
-                          {label(entry.status)}
-                        </strong>
-                        <span className="badge badge-xs badge-ghost opacity-70">
-                          {entry.status_source === "hermes"
-                            ? "Reported by Hermes"
-                            : entry.status_source === "unconfirmed"
-                              ? "Submission outcome unconfirmed"
-                              : "Last recorded observation"}
-                        </span>
-                      </div>
-                      {entry.run_id ? (
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-xs gap-1 h-6 min-h-0 text-[11px]"
-                          disabled={busy}
-                          onClick={() => onRefreshRun(entry.run_id)}
-                        >
-                          <RefreshIcon
-                            className={`h-3 w-3 ${busy ? "animate-spin" : ""}`}
-                          />
-                          <span>Refresh run {entry.run_id}</span>
-                        </button>
-                      ) : null}
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                      {entry.run_id ? (
-                        <div className="inline-flex items-center gap-1 font-mono text-[11px]">
-                          <span className="opacity-60">Run ID:</span>
-                          <code className="select-all font-semibold">
-                            {entry.run_id}
-                          </code>
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-xs btn-square h-4 min-h-0 w-4"
-                            title={
-                              copiedId === entry.run_id
-                                ? "Copied!"
-                                : "Copy Run ID"
-                            }
-                            aria-label={`Copy run ID ${entry.run_id}`}
-                            onClick={() => copyRunId(entry.run_id)}
-                          >
-                            {copiedId === entry.run_id ? (
-                              <CheckIcon className="h-3 w-3 text-success" />
-                            ) : (
-                              <CopyIcon className="h-3 w-3 opacity-60" />
-                            )}
-                          </button>
+          )}
+
+          {entries.length > 0 && (
+            <details className="chat-execution-history group mt-3 rounded-lg border border-base-300/70 bg-base-100/40 text-xs">
+              <summary className="cursor-pointer select-none px-3.5 py-2 font-medium hover:bg-base-200/50">
+                <span className="inline-flex items-center gap-1.5 mr-2">
+                  <ChevronIcon className="chat-execution-chevron h-3.5 w-3.5 transition-transform duration-200" />
+                </span>
+                Execution history ({entries.length}
+                {hasMore ? "+" : ""})
+              </summary>
+              <div className="border-t border-base-300/60 p-3">
+                <p className="opacity-70 text-[11px] leading-relaxed">
+                  Newest submissions first. Recorded statuses are observations,
+                  not proof that no workspace changes occurred. Older
+                  non-terminal observations must be refreshed before relying on
+                  them.
+                </p>
+                <ol className="mt-2.5 space-y-2">
+                  {entries.map((entry, index) => {
+                    const entryTheme = statusThemeConfig(entry.status);
+                    const entryKey =
+                      entry.request_id ??
+                      (entry.run_id || `unconfirmed-${index}`);
+                    return (
+                      <li
+                        key={entryKey}
+                        className="rounded-md border border-base-300/60 bg-base-200/30 p-2.5 break-words"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <strong
+                              className={`badge badge-xs font-semibold ${entryTheme.badge}`}
+                            >
+                              {label(entry.status)}
+                            </strong>
+                            <span className="badge badge-xs badge-ghost opacity-70">
+                              {entry.status_source === "hermes"
+                                ? "Reported by Hermes"
+                                : entry.status_source === "unconfirmed"
+                                  ? "Submission outcome unconfirmed"
+                                  : "Last recorded observation"}
+                            </span>
+                          </div>
+                          {entry.run_id ? (
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-xs gap-1 h-6 min-h-0 text-[11px]"
+                              disabled={busy}
+                              onClick={() => onRefreshRun(entry.run_id)}
+                            >
+                              <RefreshIcon
+                                className={`h-3 w-3 ${busy ? "animate-spin" : ""}`}
+                              />
+                              <span>Refresh run {entry.run_id}</span>
+                            </button>
+                          ) : null}
                         </div>
-                      ) : (
-                        <span className="text-[11px] opacity-60">
-                          No confirmed run ID
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] opacity-70">
-                      {times(entry)}
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-            {hasMore && (
-              <button
-                type="button"
-                className="btn btn-ghost btn-xs mt-2.5 w-full border border-base-300/80"
-                disabled={busy}
-                onClick={onMore}
-              >
-                Load earlier executions
-              </button>
-            )}
-          </div>
-        </details>
-      )}
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          {entry.run_id ? (
+                            <div className="inline-flex items-center gap-1 font-mono text-[11px]">
+                              <span className="opacity-60">Run ID:</span>
+                              <code className="select-all font-semibold">
+                                {entry.run_id}
+                              </code>
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-xs btn-square h-4 min-h-0 w-4"
+                                title={
+                                  copiedId === entry.run_id
+                                    ? "Copied!"
+                                    : "Copy Run ID"
+                                }
+                                aria-label={`Copy run ID ${entry.run_id}`}
+                                onClick={() => copyRunId(entry.run_id)}
+                              >
+                                {copiedId === entry.run_id ? (
+                                  <CheckIcon className="h-3 w-3 text-success" />
+                                ) : (
+                                  <CopyIcon className="h-3 w-3 opacity-60" />
+                                )}
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-[11px] opacity-60">
+                              No confirmed run ID
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] opacity-70">
+                          {times(entry)}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+                {hasMore && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-xs mt-2.5 w-full border border-base-300/80"
+                    disabled={busy}
+                    onClick={onMore}
+                  >
+                    Load earlier executions
+                  </button>
+                )}
+              </div>
+            </details>
+          )}
+        </div>
+      </details>
     </section>
   );
 }
