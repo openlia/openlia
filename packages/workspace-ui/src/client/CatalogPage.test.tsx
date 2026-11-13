@@ -35,6 +35,27 @@ test("lists catalog packages and shows requirements including hledger", async ()
   const detailPanel = screen.getByTestId("catalog-detail-panel");
   expect(detailPanel).toHaveTextContent("finance");
   expect(detailPanel).toHaveTextContent("hledger");
+
+  // Verify that installed feature cards do NOT show duplicate Deactivate or Unlink buttons
+  expect(within(financeCard).queryByText("Deactivate")).toBeNull();
+  expect(within(financeCard).queryByText("Unlink")).toBeNull();
+});
+
+test("selecting card body updates the detail panel and provides mobile navigation", async () => {
+  const api = createMockWorkspaceApi();
+  render(
+    <CatalogPage api={api} onOpenDomain={vi.fn()} onOpenSkill={vi.fn()} />,
+  );
+
+  const healthCard = await screen.findByTestId(
+    "catalog-feature-card-personal-health",
+  );
+  // Clicking the card body itself selects the feature
+  fireEvent.click(healthCard);
+
+  const detailPanel = screen.getByTestId("catalog-detail-panel");
+  expect(detailPanel).toHaveTextContent("Personal Health");
+  expect(screen.getByText("↑ Back to package list")).toBeDefined();
 });
 
 test("installs features, displays installation results, and navigates to installed artifacts", async () => {
@@ -155,9 +176,9 @@ test("supports full feature lifecycle: deactivate, activate, unlink modal, and r
     ).toHaveTextContent("Installed");
   });
 
-  // 2. Deactivate
+  // 2. Deactivate via Detail Panel
   const deactivateBtn = await screen.findByTestId(
-    "catalog-deactivate-personal-health",
+    "catalog-detail-deactivate-button",
   );
   fireEvent.click(deactivateBtn);
 
@@ -168,13 +189,13 @@ test("supports full feature lifecycle: deactivate, activate, unlink modal, and r
     ).toHaveTextContent("Disabled (Data Preserved)");
   });
 
-  // Verify Activate button is now shown
+  // Verify Activate button is now shown in Detail Panel
   const activateBtn = await screen.findByTestId(
-    "catalog-activate-personal-health",
+    "catalog-detail-activate-button",
   );
   expect(activateBtn).toBeDefined();
 
-  // 3. Activate
+  // 3. Activate via Detail Panel
   fireEvent.click(activateBtn);
 
   await waitFor(() => {
@@ -184,8 +205,8 @@ test("supports full feature lifecycle: deactivate, activate, unlink modal, and r
     ).toHaveTextContent("Installed");
   });
 
-  // 4. Unlink Modal
-  const unlinkBtn = await screen.findByTestId("catalog-unlink-personal-health");
+  // 4. Unlink Modal via Detail Panel
+  const unlinkBtn = await screen.findByTestId("catalog-detail-unlink-button");
   fireEvent.click(unlinkBtn);
 
   const modal = await screen.findByTestId("catalog-unlink-modal");
@@ -202,8 +223,8 @@ test("supports full feature lifecycle: deactivate, activate, unlink modal, and r
     ).toHaveTextContent("Self-Managed (Unlinked)");
   });
 
-  // 5. Re-link to Catalog
-  const relinkBtn = await screen.findByTestId("catalog-relink-personal-health");
+  // 5. Re-link to Catalog via Detail Panel
+  const relinkBtn = await screen.findByTestId("catalog-detail-relink-button");
   fireEvent.click(relinkBtn);
 
   await waitFor(() => {

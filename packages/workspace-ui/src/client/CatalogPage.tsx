@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   FeatureInstallResponse,
   FeatureSummary,
@@ -136,7 +136,7 @@ export function CatalogPage({
     null,
   );
   const [installingId, setInstallingId] = useState<string | null>(null);
-  const [installResults, setInstallResults] = useState<
+  const [_installResults, setInstallResults] = useState<
     Record<string, FeatureInstallResponse>
   >({});
   const [latestInstallResult, setLatestInstallResult] =
@@ -331,8 +331,22 @@ export function CatalogPage({
     [features],
   );
 
+  const detailPanelRef = useRef<HTMLElement | null>(null);
+  const catalogContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const handleSelectFeature = useCallback((featureId: string) => {
+    setSelectedFeatureId(featureId);
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      detailPanelRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }
+  }, []);
+
   return (
     <div
+      ref={catalogContainerRef}
       className="flex-1 min-h-0 overflow-y-auto bg-base-100 p-4 sm:p-6"
       data-testid="catalog-page"
     >
@@ -603,14 +617,16 @@ export function CatalogPage({
                     : "Workspace Domains Package";
 
                 return (
+                  // biome-ignore lint/a11y/useKeyWithClickEvents: card click selects feature
                   <article
                     key={feature.id}
-                    className={`rounded-xl border p-4 transition-colors ${
+                    className={`rounded-xl border p-4 transition-all cursor-pointer ${
                       isSelected
-                        ? "border-primary bg-primary/5 shadow-sm"
+                        ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20"
                         : "border-base-content/10 bg-base-100 hover:border-base-content/25"
                     }`}
                     data-testid={`catalog-feature-card-${feature.id}`}
+                    onClick={() => handleSelectFeature(feature.id)}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="space-y-1 min-w-0 flex-1">
@@ -618,7 +634,10 @@ export function CatalogPage({
                           <button
                             className="text-left font-bold text-base hover:underline focus:outline-none"
                             data-testid={`catalog-select-${feature.id}`}
-                            onClick={() => setSelectedFeatureId(feature.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectFeature(feature.id);
+                            }}
                             type="button"
                           >
                             {feature.name}
@@ -654,82 +673,6 @@ export function CatalogPage({
                           );
                         })()}
 
-                        {feature.state === "installed" && (
-                          <>
-                            <button
-                              className="btn btn-sm btn-outline btn-warning"
-                              data-testid={`catalog-deactivate-${feature.id}`}
-                              disabled={Boolean(
-                                actionLoadingId || installingId,
-                              )}
-                              onClick={() =>
-                                void handleDeactivateFeature(feature.id)
-                              }
-                              type="button"
-                            >
-                              {actionLoadingId === feature.id
-                                ? "Deactivating..."
-                                : "Deactivate"}
-                            </button>
-                            <button
-                              className="btn btn-sm btn-ghost text-xs text-base-content/60 hover:text-error"
-                              data-testid={`catalog-unlink-${feature.id}`}
-                              disabled={Boolean(
-                                actionLoadingId || installingId,
-                              )}
-                              onClick={() => setUnlinkConfirmFeature(feature)}
-                              type="button"
-                            >
-                              Unlink
-                            </button>
-                          </>
-                        )}
-
-                        {feature.state === "disabled" && (
-                          <>
-                            <button
-                              className="btn btn-sm btn-primary"
-                              data-testid={`catalog-activate-${feature.id}`}
-                              disabled={Boolean(
-                                actionLoadingId || installingId,
-                              )}
-                              onClick={() =>
-                                void handleActivateFeature(feature.id)
-                              }
-                              type="button"
-                            >
-                              {actionLoadingId === feature.id
-                                ? "Activating..."
-                                : "Activate"}
-                            </button>
-                            <button
-                              className="btn btn-sm btn-ghost text-xs text-base-content/60 hover:text-error"
-                              data-testid={`catalog-unlink-${feature.id}`}
-                              disabled={Boolean(
-                                actionLoadingId || installingId,
-                              )}
-                              onClick={() => setUnlinkConfirmFeature(feature)}
-                              type="button"
-                            >
-                              Unlink
-                            </button>
-                          </>
-                        )}
-
-                        {feature.state === "unlinked" && (
-                          <button
-                            className="btn btn-sm btn-outline btn-info"
-                            data-testid={`catalog-relink-${feature.id}`}
-                            disabled={Boolean(actionLoadingId || installingId)}
-                            onClick={() => void handleRelinkFeature(feature.id)}
-                            type="button"
-                          >
-                            {actionLoadingId === feature.id
-                              ? "Re-linking..."
-                              : "Re-link to Catalog"}
-                          </button>
-                        )}
-
                         {(feature.state === "available" ||
                           feature.state === "partial") && (
                           <button
@@ -740,9 +683,10 @@ export function CatalogPage({
                             }`}
                             data-testid={`catalog-install-${feature.id}`}
                             disabled={Boolean(installingId || actionLoadingId)}
-                            onClick={() =>
-                              void handleInstallFeature(feature.id)
-                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleInstallFeature(feature.id);
+                            }}
                             type="button"
                           >
                             {isInstalling
@@ -752,6 +696,17 @@ export function CatalogPage({
                                 : "Install"}
                           </button>
                         )}
+
+                        <span
+                          className={`text-xs transition-transform ${
+                            isSelected
+                              ? "text-primary font-bold translate-x-0.5"
+                              : "text-base-content/20"
+                          }`}
+                          aria-hidden="true"
+                        >
+                          →
+                        </span>
                       </div>
                     </div>
 
@@ -807,7 +762,10 @@ export function CatalogPage({
                               key={domainPath}
                               className="btn btn-xs btn-ghost font-mono"
                               data-testid={`catalog-card-open-domain-${domainPath}`}
-                              onClick={() => onOpenDomain(domainPath)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenDomain(domainPath);
+                              }}
                               type="button"
                             >
                               {domainPath}
@@ -827,7 +785,10 @@ export function CatalogPage({
                               key={skillId}
                               className="btn btn-xs btn-outline font-mono"
                               data-testid={`catalog-card-open-skill-${skillId}`}
-                              onClick={() => onOpenSkill(skillId)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenSkill(skillId);
+                              }}
                               type="button"
                             >
                               Skill: {skillId}
@@ -851,6 +812,7 @@ export function CatalogPage({
             {/* Right Column: Selected Package Review & Details */}
             {selectedFeature && (
               <aside
+                ref={detailPanelRef}
                 aria-label="Selected package details"
                 className="rounded-xl border border-base-content/15 bg-base-200/30 p-5 space-y-5 sticky top-4"
                 data-testid="catalog-detail-panel"
@@ -870,6 +832,21 @@ export function CatalogPage({
                   return (
                     <>
                       <div className="space-y-2 border-b border-base-content/10 pb-4">
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-ghost gap-1 mb-2 lg:hidden text-base-content/70 hover:text-base-content -ml-1"
+                          onClick={() => {
+                            catalogContainerRef.current?.scrollTo({
+                              top: 0,
+                              behavior: "smooth",
+                            });
+                            if (typeof window !== "undefined") {
+                              window.scrollTo({ top: 0, behavior: "smooth" });
+                            }
+                          }}
+                        >
+                          ↑ Back to package list
+                        </button>
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <h2
