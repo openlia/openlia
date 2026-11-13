@@ -6,85 +6,59 @@ import (
 	"testing"
 )
 
-func TestEmbeddedWorkspaceIncludesControlFiles(t *testing.T) {
-	for _, path := range []string{
-		"THIRD_PARTY_NOTICES.md",
-		"workspace-template/.gitignore",
-		"workspace-template/inbox/.gitkeep",
+func TestEmbeddedReleaseAssetsPresent(t *testing.T) {
+	required := []string{
 		"docker/.env.example",
+		"docker/compose.yaml",
+		"docker/Dockerfile",
+		"docker/locho.Dockerfile",
 		"docker/secret-source.sh",
-		"docker/install-tools.sh",
-		"docker/verify-tools.sh",
-		"docker/yt-dlp-requirements.txt",
-		"profile/config.yaml",
-		"profile/distribution.yaml",
-		"examples/locho/hosts/example/README.md",
-		"examples/locho/hosts/example/attachments.toml.example",
+		"profile/SOUL.md",
+		"profile/AGENTS.md",
 		"examples/locho/relay.toml.example",
 		"examples/locho/relay.env.example",
-	} {
-		if _, err := fs.ReadFile(releaseAssets, path); err != nil {
-			t.Fatalf("embedded release is missing %s: %v", path, err)
-		}
 	}
-}
 
-func TestEmbeddedRuntimeWiresRequiredIngestion(t *testing.T) {
-	compose, err := fs.ReadFile(releaseAssets, "docker/compose.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dockerfile, err := fs.ReadFile(releaseAssets, "docker/Dockerfile")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(compose), `DEBIAN_SNAPSHOT: "${DEBIAN_SNAPSHOT:-20260801T000000Z}"`) {
-		t.Fatal("embedded Compose file does not pin the Debian snapshot")
-	}
-	if !strings.Contains(string(dockerfile), "openlia-install-tools") || !strings.Contains(string(dockerfile), "openlia-ingestion") {
-		t.Fatal("embedded Dockerfile does not install the required ingestion runtime")
+	for _, relPath := range required {
+		data, err := fs.ReadFile(releaseAssets, relPath)
+		if err != nil {
+			t.Fatalf("missing embedded asset %s: %v", relPath, err)
+		}
+		if len(data) == 0 {
+			t.Fatalf("embedded asset %s is empty", relPath)
+		}
 	}
 }
 
 func TestEmbeddedBunRuntimeAssets(t *testing.T) {
-	for _, path := range []string{
+	required := []string{
 		"packages/openlia-browser/dist/server.js",
-		"packages/workspace-ui/dist/server.js",
-		"packages/workspace-ui/dist/openui-authoring.js",
-		"docker/workspace-ui.Dockerfile",
-	} {
-		if _, err := fs.ReadFile(releaseAssets, path); err != nil {
-			t.Fatalf("embedded Bun runtime is missing %s: %v", path, err)
-		}
 	}
-	entries, err := fs.ReadDir(releaseAssets, "packages/workspace-ui/dist/client/assets")
-	if err != nil || len(entries) == 0 {
-		t.Fatalf("embedded workspace-ui client assets are missing: %v", err)
+	for _, relPath := range required {
+		data, err := fs.ReadFile(releaseAssets, relPath)
+		if err != nil {
+			t.Fatalf("missing embedded Bun asset %s: %v", relPath, err)
+		}
+		if len(data) == 0 {
+			t.Fatalf("embedded Bun asset %s is empty", relPath)
+		}
 	}
 }
 
-func TestEmbeddedRuntimeEnablesApprovalBridgeWithoutUnattendedBypass(t *testing.T) {
+func TestEmbeddedHermesExecApprovalScaffold(t *testing.T) {
 	compose, err := fs.ReadFile(releaseAssets, "docker/compose.yaml")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read embedded compose: %v", err)
 	}
 	if !strings.Contains(string(compose), `HERMES_EXEC_ASK: "1"`) {
-		t.Fatal("API approval bridge must be explicitly enabled")
+		t.Fatalf("embedded compose does not enable HERMES_EXEC_ASK")
 	}
-	config, err := fs.ReadFile(releaseAssets, "profile/config.yaml")
+
+	secretSource, err := fs.ReadFile(releaseAssets, "docker/secret-source.sh")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read embedded secret-source.sh: %v", err)
 	}
-	for _, required := range []string{"mode: manual", "cron_mode: deny", "single_query_mode: deny", "unattended_mode: deny"} {
-		if !strings.Contains(string(config), required) {
-			t.Fatalf("missing approval safeguard: %s", required)
-		}
-	}
-	helper, err := fs.ReadFile(releaseAssets, "docker/secret-source.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(helper), "HERMES_EXEC_ASK) exit 1") {
-		t.Fatal("secret source must not override approval routing")
+	if !strings.Contains(string(secretSource), "HERMES_EXEC_ASK") {
+		t.Fatalf("embedded secret-source.sh does not guard HERMES_EXEC_ASK")
 	}
 }

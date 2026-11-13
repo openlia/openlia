@@ -96,11 +96,18 @@ func appendDurableTree(archive *tar.Writer, label, root string, include func(str
 	})
 }
 
-func durableHermesPath(relative string, entry fs.DirEntry, bundledGroups map[string]bool) bool {
-	if excludedBackupPath(relative) {
-		return false
+func isGeneratedArtifactPath(relative string) bool {
+	for _, part := range strings.Split(relative, "/") {
+		switch part {
+		case ".curator_backups", "__pycache__", ".venv", "node_modules", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache":
+			return true
+		}
 	}
-	if isGeneratedArtifactPath(relative) {
+	return false
+}
+
+func durableHermesPath(relative string, entry fs.DirEntry, bundledGroups map[string]bool) bool {
+	if excludedBackupPath(relative) || isGeneratedArtifactPath(relative) {
 		return false
 	}
 	parts := strings.Split(relative, "/")
@@ -144,10 +151,7 @@ func durableHermesPath(relative string, entry fs.DirEntry, bundledGroups map[str
 }
 
 func durableMetaPath(relative string, entry fs.DirEntry) bool {
-	if excludedBackupPath(relative) {
-		return false
-	}
-	if isGeneratedArtifactPath(relative) {
+	if excludedBackupPath(relative) || isGeneratedArtifactPath(relative) {
 		return false
 	}
 	if portableMetaGeneratedPath(relative, entry) {

@@ -1,57 +1,70 @@
-// Package releaseinfo exposes the component pins shipped by OpenLia.
-//
-// The canonical values live in release/manifest.json. generated.go is produced
-// from that manifest by cmd/release-manifest and must not be edited manually.
-//
-//go:generate go run ../../cmd/release-manifest --root ../..
 package releaseinfo
 
-import "strings"
+import (
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"sync"
+)
+
+type Manifest struct {
+	Schema  int      `json:"schema"`
+	OpenLia string   `json:"openlia"`
+	Hermes  ImagePin `json:"hermes"`
+	Locho   LochoPin `json:"locho"`
+	Bun     BunPin   `json:"bun"`
+}
 
 type ImagePin struct {
-	Image   string
-	Channel string
-	Tag     string
-	Digest  string
-}
-
-func (pin ImagePin) TagRef() string {
-	return pin.Image + ":" + pin.Tag
-}
-
-func (pin ImagePin) Ref() string {
-	if pin.Digest == "" {
-		return pin.TagRef()
-	}
-	return pin.TagRef() + "@" + pin.Digest
+	Image   string `json:"image"`
+	Channel string `json:"channel"`
+	Tag     string `json:"tag"`
+	Digest  string `json:"digest"`
 }
 
 type LochoPin struct {
-	Version       string
-	LinuxX8664SHA string
-	LinuxARM64SHA string
+	Version       string `json:"version"`
+	LinuxX8664SHA string `json:"linux_x86_64_sha256"`
+	LinuxARM64SHA string `json:"linux_aarch64_sha256"`
 }
 
-type Manifest struct {
-	Schema    int
-	OpenLia   string
-	Hermes    ImagePin
-	Locho     LochoPin
-	Templates TemplatesPin
-	Remind    SourcePin
+type BunPin struct {
+	Version       string `json:"version"`
+	LinuxX64SHA   string `json:"linux_x64_sha256"`
+	LinuxARM64SHA string `json:"linux_aarch64_sha256"`
 }
 
-type SourcePin struct {
-	Version      string
-	SourceURL    string
-	SourceSHA256 string
+var (
+	manifestOnce sync.Once
+	manifestData Manifest
+	manifestErr  error
+)
+
+func SetEmbeddedAssets(assets fs.FS) {
+	manifestOnce.Do(func() {
+		raw, err := fs.ReadFile(assets, "release/manifest.json")
+		if err != nil {
+			manifestErr = fmt.Errorf("read embedded release/manifest.json: %w", err)
+			return
+		}
+		if err := json.Unmarshal(raw, &manifestData); err != nil {
+			manifestErr = fmt.Errorf("parse embedded release/manifest.json: %w", err)
+			return
+		}
+		Default = manifestData
+	})
 }
 
-type TemplatesPin struct {
-	Repository string
-	Revision   string
+func Pinned() Manifest {
+	if manifestErr != nil {
+		panic(manifestErr)
+	}
+	if manifestData.OpenLia == "" {
+		return Default
+	}
+	return manifestData
 }
 
 func InternalImage(name, version string) string {
-	return name + ":v" + strings.TrimPrefix(version, "v")
+	return name + ":" + version
 }

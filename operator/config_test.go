@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"openlia/internal/releaseinfo"
-	"openlia/internal/toolcatalog"
 )
 
 func testConfig(repo, runtime string) Config {
@@ -22,7 +21,6 @@ func testConfig(repo, runtime string) Config {
 		ComposeProjectDir: filepath.Join(repo, "docker"),
 		GeneratedCompose:  filepath.Join(repo, "docker", "compose.generated.yaml"),
 		DataRoot:          filepath.Join(runtime, "hermes"),
-		SystemSkillsRoot:  filepath.Join(runtime, "system-skills"),
 		LochoRoot:         filepath.Join(runtime, "locho"),
 		LochoVersion:      releaseinfo.Default.Locho.Version,
 		LochoX8664SHA256:  releaseinfo.Default.Locho.LinuxX8664SHA,
@@ -34,8 +32,6 @@ func testConfig(repo, runtime string) Config {
 		StateFile:         filepath.Join(runtime, "meta", "stack-state"),
 		APIHost:           "127.0.0.1",
 		OutputLanguage:    "en",
-		WorkspaceUIHost:   "",
-		WorkspaceUIPort:   8089,
 		RuntimeUID:        os.Getuid(),
 		RuntimeGID:        os.Getgid(),
 	}
@@ -109,49 +105,29 @@ func TestLoadConfigFromEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	config, err := LoadConfigFromEnv(map[string]string{
-		"OPENLIA_REPO_ROOT":                     repo,
-		"OPENLIA_RUNTIME_ROOT":                  runtime,
-		"OPENLIA_PROJECT_NAME":                  "example",
-		"OPENLIA_PROVIDER":                      "copilot",
-		"OPENLIA_OUTPUT_LANGUAGE":               "vi",
-		"OPENLIA_FALLBACK_PROVIDERS":            `[{"provider":"custom","model":"gateway-model","base_url":"https://gateway.example.test/v1","key_env":"OPENAI_GATEWAY_API_KEY"},{"provider":"openai-api","model":"official-model"}]`,
-		"OPENLIA_LOCAL_MODE":                    "true",
-		"OPENLIA_ENABLED_SKILLS":                "daily-briefing,workspace-git",
-		"OPENLIA_INGESTION_MAX_CONCURRENT_JOBS": "2",
-		"OPENLIA_BACKUP_RETENTION":              "4",
-		"OPENLIA_BACKUP_MAX_BYTES":              "123456789",
-		"OPENLIA_BACKUP_REMOTE_RETENTION_DAYS":  "17",
-		"OPENLIA_SKILLS_CONFIGURED":             "true",
-		"OPENLIA_WORKSPACE_UI_HOST":             "0.0.0.0",
-		"OPENLIA_WORKSPACE_UI_PORT":             "8090",
-		"OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN":    "https://workspace.example.test",
-		"OPENLIA_WORKSPACE_UI_AUTH_REQUIRED":    "true",
-		"OPENLIA_LOCHO_VERSION":                 releaseinfo.Default.Locho.Version,
-		"OPENLIA_LOCHO_X86_64_SHA256":           "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		"OPENLIA_LOCHO_ARM64_SHA256":            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"OPENLIA_REPO_ROOT":                    repo,
+		"OPENLIA_RUNTIME_ROOT":                 runtime,
+		"OPENLIA_PROJECT_NAME":                 "example",
+		"OPENLIA_PROVIDER":                     "copilot",
+		"OPENLIA_OUTPUT_LANGUAGE":              "vi",
+		"OPENLIA_FALLBACK_PROVIDERS":           `[{"provider":"custom","model":"gateway-model","base_url":"https://gateway.example.test/v1","key_env":"OPENAI_GATEWAY_API_KEY"},{"provider":"openai-api","model":"official-model"}]`,
+		"OPENLIA_LOCAL_MODE":                   "true",
+		"OPENLIA_BACKUP_RETENTION":             "4",
+		"OPENLIA_BACKUP_MAX_BYTES":             "123456789",
+		"OPENLIA_BACKUP_REMOTE_RETENTION_DAYS": "17",
+		"OPENLIA_LOCHO_VERSION":                releaseinfo.Default.Locho.Version,
+		"OPENLIA_LOCHO_X86_64_SHA256":          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"OPENLIA_LOCHO_ARM64_SHA256":           "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !config.LocalMode || !config.SkillsConfigured || config.OutputLanguage != "vi" || config.WorkspaceUIHost != "0.0.0.0" || config.WorkspaceUIPort != 8090 || config.WorkspaceUIPublicOrigin != "https://workspace.example.test" || config.OpenLiaReleaseSHA256 != releaseDigest || config.LochoX8664SHA256 != strings.Repeat("a", 64) || config.LochoARM64SHA256 != strings.Repeat("b", 64) || len(config.EnabledSkills) != 2 || config.IngestionMaxConcurrentJobs != 2 || config.BackupRetention != 4 || config.BackupMaxBytes != 123456789 || config.BackupRemoteRetentionDays != 17 || config.NetworkName != "example-private" || config.Provider != "copilot" || len(config.FallbackProviders) != 2 || config.FallbackProviders[0].BaseURL != "https://gateway.example.test/v1" || config.FallbackProviders[1].Model != "official-model" {
+	if !config.LocalMode || config.OutputLanguage != "vi" || config.OpenLiaReleaseSHA256 != releaseDigest || config.LochoX8664SHA256 != strings.Repeat("a", 64) || config.LochoARM64SHA256 != strings.Repeat("b", 64) || config.BackupRetention != 4 || config.BackupMaxBytes != 123456789 || config.BackupRemoteRetentionDays != 17 || config.NetworkName != "example-private" || config.Provider != "copilot" || len(config.FallbackProviders) != 2 || config.FallbackProviders[0].BaseURL != "https://gateway.example.test/v1" || config.FallbackProviders[1].Model != "official-model" {
 		t.Fatalf("unexpected typed config: %+v", config)
 	}
-	wantImage := toolcatalog.ManagedHermesImage("example", releaseinfo.Default.Hermes.Tag, releaseinfo.Default.Hermes.Digest, toolcatalog.DefaultDebianSnapshot)
+	wantImage := releaseinfo.InternalImage("openlia-hermes", releaseinfo.Default.Hermes.Tag)
 	if config.HermesImage != wantImage {
 		t.Fatalf("managed Hermes image = %q, want %q", config.HermesImage, wantImage)
-	}
-}
-
-func TestLoadConfigFromEnvRejectsInvalidIngestionConcurrency(t *testing.T) {
-	for _, value := range []string{"0", "invalid"} {
-		_, err := LoadConfigFromEnv(map[string]string{
-			"OPENLIA_REPO_ROOT":                     t.TempDir(),
-			"OPENLIA_RUNTIME_ROOT":                  filepath.Join(t.TempDir(), "runtime"),
-			"OPENLIA_INGESTION_MAX_CONCURRENT_JOBS": value,
-		})
-		if err == nil || !strings.Contains(err.Error(), "OPENLIA_INGESTION_MAX_CONCURRENT_JOBS") {
-			t.Fatalf("invalid ingestion concurrency %q error = %v", value, err)
-		}
 	}
 }
 
@@ -203,12 +179,10 @@ func TestLoadConfigFromEnvConfiguresLochoHostState(t *testing.T) {
 	repo := t.TempDir()
 	runtime := filepath.Join(t.TempDir(), "runtime")
 	config, err := LoadConfigFromEnv(map[string]string{
-		"OPENLIA_REPO_ROOT":                  repo,
-		"OPENLIA_RUNTIME_ROOT":               runtime,
-		"OPENLIA_LOCAL_MODE":                 "true",
-		"OPENLIA_WORKSPACE_UI_HOST":          "127.0.0.1",
-		"OPENLIA_WORKSPACE_UI_AUTH_REQUIRED": "true",
-		"OPENLIA_LOCHO_HOST_ENABLED":         "true",
+		"OPENLIA_REPO_ROOT":          repo,
+		"OPENLIA_RUNTIME_ROOT":       runtime,
+		"OPENLIA_LOCAL_MODE":         "true",
+		"OPENLIA_LOCHO_HOST_ENABLED": "true",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -240,52 +214,5 @@ func TestLoadConfigFromEnvRejectsInvalidOutputLanguage(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "OPENLIA_OUTPUT_LANGUAGE") {
 		t.Fatalf("invalid output language error = %v", err)
-	}
-}
-
-func TestWorkspaceUIHostValidation(t *testing.T) {
-	for _, host := range []string{"localhost", "192.168.1.10", "127.0.0.2"} {
-		config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
-		config.WorkspaceUIHost = host
-		if err := config.ValidatePaths(); err == nil {
-			t.Fatalf("workspace UI host %q was accepted", host)
-		}
-	}
-	for _, port := range []int{0, 65536} {
-		config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
-		config.WorkspaceUIHost = "127.0.0.1"
-		config.WorkspaceUIPort = port
-		if err := config.ValidatePaths(); err == nil {
-			t.Fatalf("workspace UI port %d was accepted", port)
-		}
-	}
-}
-
-func TestWorkspaceUIFirebaseAuthValidation(t *testing.T) {
-	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
-	config.WorkspaceUIHost = "0.0.0.0"
-	config.WorkspaceUIAllowedEmails = []string{"alice@example.com", "bob@example.com"}
-	config.WorkspaceUIFirebaseProjectID = "demo-project"
-	config.WorkspaceUIFirebaseAPIKey = "AIzaSyFakeKey123"
-	config.WorkspaceUIFirebaseAuthDomain = "demo-project.firebaseapp.com"
-	config.WorkspaceUIFirebaseAppID = "1:12345:web:67890"
-
-	if err := config.ValidatePaths(); err != nil {
-		t.Fatalf("valid Firebase config was rejected: %v", err)
-	}
-
-	invalidConfigs := []func(*Config){
-		func(c *Config) { c.WorkspaceUIAllowedEmails = []string{"invalid-email"} },
-		func(c *Config) { c.WorkspaceUIAllowedEmails = []string{} },
-		func(c *Config) { c.WorkspaceUIFirebaseProjectID = "" },
-		func(c *Config) { c.WorkspaceUIFirebaseAPIKey = "" },
-		func(c *Config) { c.WorkspaceUIFirebaseAuthDomain = "" },
-	}
-	for i, modify := range invalidConfigs {
-		bad := config
-		modify(&bad)
-		if err := bad.ValidatePaths(); err == nil {
-			t.Fatalf("invalid Firebase config case %d was unexpectedly accepted", i)
-		}
 	}
 }

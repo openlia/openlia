@@ -5,17 +5,9 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
       args:
-        HERMES_BASE_IMAGE: "${HERMES_BASE_IMAGE:?HERMES_BASE_IMAGE is required}"
-        HERMES_BASE_TAG: "${HERMES_BASE_TAG:?HERMES_BASE_TAG is required}"
-        HERMES_BASE_DIGEST: "${HERMES_BASE_DIGEST:?HERMES_BASE_DIGEST is required}"
-        BUN_VERSION: "${BUN_VERSION:-1.2.22}"
-        BUN_X86_64_SHA256: "${BUN_X86_64_SHA256:-4c446af1a01d7b40e1e11baebc352f9b2bfd12887e51b97dd3b59879cee2743a}"
-        BUN_AARCH64_SHA256: "${BUN_AARCH64_SHA256:-a97c687fb5e54de4e2fb0869a7ac9a2d9c3af75ac182e2b68138c1dd8f98131b}"
-        UV_VERSION: "${UV_VERSION:-0.8.14}"
-        UV_X86_64_SHA256: "${UV_X86_64_SHA256:-954add045f29f93191523175e4aea066996840e86c1b6339dee25f48b15b5ddb}"
-        UV_AARCH64_SHA256: "${UV_AARCH64_SHA256:-69616218470b2ad053617efb9e7027b1518ea38918d933c2791e113d99cec507}"
-        DEBIAN_SNAPSHOT: "${DEBIAN_SNAPSHOT:-20260801T000000Z}"
-        OPENLIA_PROJECT_NAME: "${OPENLIA_PROJECT_NAME:-openlia}"
+        HERMES_IMAGE: "${HERMES_BASE_IMAGE:-nousresearch/hermes-agent}"
+        HERMES_TAG: "${HERMES_BASE_TAG:-${OPENLIA_HERMES_TAG:-v2026.9.14}}"
+        HERMES_DIGEST: "${HERMES_BASE_DIGEST:-${OPENLIA_HERMES_DIGEST:-sha256:99641e57ec762c59e54cb44aa6746b7fc68c18b3c5ddb088af54234c613d9294}}"
     command: ["gateway", "run"]
     restart: unless-stopped
     read_only: true
@@ -30,26 +22,9 @@ services:
         source: "${OPENLIA_DATA_ROOT:?OPENLIA_DATA_ROOT is required}"
         target: /opt/data
       - type: bind
-        source: "${OPENLIA_DATA_ROOT}/bin/moi"
-        target: /usr/local/bin/moi
-      - type: bind
-        source: "${OPENLIA_SYSTEM_SKILLS_ROOT:?OPENLIA_SYSTEM_SKILLS_ROOT is required}/openlia-skill-migration"
-        target: /opt/data/skills/openlia-skill-migration
-        read_only: true
-      - type: bind
-        source: "${OPENLIA_SYSTEM_SKILLS_ROOT:?OPENLIA_SYSTEM_SKILLS_ROOT is required}/workspace-template-customization"
-        target: /opt/data/skills/workspace-template-customization
-        read_only: true
-      - type: bind
-        source: "${OPENLIA_SYSTEM_SKILLS_ROOT:?OPENLIA_SYSTEM_SKILLS_ROOT is required}/inline-openui-authoring"
-        target: /opt/data/skills/inline-openui-authoring
-        read_only: true
-      - type: bind
         source: "${OPENLIA_SECRET_DIR:?OPENLIA_SECRET_DIR is required}"
         target: /run/openlia-secrets
         read_only: true
-    # bootstrap creates /opt/data/config.yaml with Hermes secrets.command
-    # enabled; this read-only runtime directory is its only credential input.
     environment:
       HERMES_HOME: /opt/data
       NPM_CONFIG_CACHE: /opt/openlia/npm-cache
@@ -62,8 +37,6 @@ services:
       GIT_TERMINAL_PROMPT: "0"
       GIT_EDITOR: "true"
       HERMES_WRITE_SAFE_ROOT: /opt/data
-      # API runs register an approval notifier. Ask mode lets the shared gate
-      # reach it; API calls without a notifier and cron still fail closed.
       HERMES_EXEC_ASK: "1"
       OPENLIA_WORKSPACE_ROOT: /opt/data/workspace
       HERMES_CONTAINER: "1"

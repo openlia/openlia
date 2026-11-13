@@ -33,14 +33,13 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
-func TestReleaseArchiveContainsWorkspaceMarkers(t *testing.T) {
+func TestReleaseArchiveContainsProfileAssets(t *testing.T) {
 	assets := fstest.MapFS{
-		"workspace-template/inbox/.gitkeep":                  &fstest.MapFile{Data: []byte{}},
-		"workspace-template/goals/goal-template.schema.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
-		"profile/SOUL.md": &fstest.MapFile{Data: []byte("safe")},
-		"profile/system-skills/openlia-skill-migration/SKILL.md":                               &fstest.MapFile{Data: []byte("protected")},
-		"profile/system-skills/workspace-template-customization/SKILL.md":                      &fstest.MapFile{Data: []byte("protected")},
-		"profile/system-skills/workspace-template-customization/scripts/validate_workspace.py": &fstest.MapFile{Data: []byte("validator")},
+		"profile/SOUL.md":         &fstest.MapFile{Data: []byte("safe")},
+		"profile/AGENTS.md":       &fstest.MapFile{Data: []byte("agents")},
+		"docker/compose.yaml":     &fstest.MapFile{Data: []byte("services: {}")},
+		"docker/Dockerfile":       &fstest.MapFile{Data: []byte("FROM scratch")},
+		"docker/locho.Dockerfile": &fstest.MapFile{Data: []byte("FROM scratch")},
 	}
 	archive, digest, err := releaseArchive(assets)
 	if err != nil {
@@ -65,30 +64,10 @@ func TestReleaseArchiveContainsWorkspaceMarkers(t *testing.T) {
 		}
 		seen[header.Name] = true
 	}
-	if !seen["workspace-template/inbox/.gitkeep"] {
-		t.Fatal("workspace marker was omitted from embedded release")
+	if !seen["profile/SOUL.md"] || !seen["profile/AGENTS.md"] {
+		t.Fatal("profile documents were omitted from embedded release")
 	}
-	if !seen["workspace-template/goals/goal-template.schema.json"] {
-		t.Fatal("workspace schema was omitted from embedded release")
-	}
-	if !seen["profile/system-skills/openlia-skill-migration/SKILL.md"] {
-		t.Fatal("protected migration skill was omitted from release")
-	}
-	if !seen["profile/system-skills/workspace-template-customization/SKILL.md"] {
-		t.Fatal("protected workspace template skill was omitted from release")
-	}
-	if !seen["profile/system-skills/workspace-template-customization/scripts/validate_workspace.py"] {
-		t.Fatal("workspace validator was omitted from release")
-	}
-}
-
-func TestSetSkill(t *testing.T) {
-	got := setSkill([]string{"a", "b"}, "a", false)
-	if contains(got, "a") || !contains(got, "b") {
-		t.Fatalf("disable result = %#v", got)
-	}
-	got = setSkill(got, "a", true)
-	if !contains(got, "a") || len(got) != 2 {
-		t.Fatalf("enable result = %#v", got)
+	if !seen["docker/compose.yaml"] {
+		t.Fatal("compose file was omitted from embedded release")
 	}
 }

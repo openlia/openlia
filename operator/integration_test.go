@@ -12,15 +12,10 @@ func TestFilesystemOperatorWorkflow(t *testing.T) {
 	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
 	config := testConfig(repo, runtimeRoot)
 	for path, contents := range map[string]string{
-		filepath.Join(repo, "profile", "SOUL.md"):                                       "soul\n",
-		filepath.Join(repo, "profile", "AGENTS.md"):                                     "agents\n",
-		filepath.Join(repo, "profile", "config.yaml"):                                   "secrets: {}\n",
-		filepath.Join(repo, "profile", "skills", "example", "SKILL.md"):                 "skill\n",
-		filepath.Join(repo, "release", "manifest.json"):                                 `{"openlia":"test"}`,
-		filepath.Join(repo, "workspace-template", "inbox", ".gitkeep"):                  "",
-		filepath.Join(repo, "workspace-template", "goals", "goal-template.md"):          "default goal template\n",
-		filepath.Join(repo, "workspace-template", "goals", "goal-template.schema.json"): `{"type":"object"}`,
-		filepath.Join(repo, "docker", ".gitkeep"):                                       "",
+		filepath.Join(repo, "profile", "SOUL.md"):       "soul\n",
+		filepath.Join(repo, "profile", "AGENTS.md"):     "agents\n",
+		filepath.Join(repo, "release", "manifest.json"): `{"openlia":"test"}`,
+		filepath.Join(repo, "docker", ".gitkeep"):       "",
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -33,14 +28,6 @@ func TestFilesystemOperatorWorkflow(t *testing.T) {
 	now := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
 	if result, err := Bootstrap(config, false, now); err != nil || !result.OK {
 		t.Fatalf("Bootstrap() = %+v, %v", result, err)
-	}
-	for _, relative := range []string{
-		"workspace/goals/goal-template.md",
-		"workspace/goals/goal-template.schema.json",
-	} {
-		if _, err := os.Stat(filepath.Join(config.DataRoot, relative)); err != nil {
-			t.Fatalf("workspace starter asset %s was not initialized: %v", relative, err)
-		}
 	}
 	if info, err := os.Stat(config.SecretDir); err != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("secret directory permissions = %v, want 0700", err)
@@ -63,16 +50,16 @@ func TestFilesystemOperatorWorkflow(t *testing.T) {
 	if _, err := NewProfileOperator(config).Sync(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(config.DataRoot, "workspace", "inbox")); err != nil {
-		t.Fatalf("workspace template was not initialized: %v", err)
-	}
 
 	metadataSentinel := filepath.Join(config.MetaRoot, "managed", "restore-sentinel")
 	if err := os.WriteFile(metadataSentinel, []byte("archived metadata\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(config.DataRoot, "workspace"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	backup, identity := createTestEncryptedBackup(t, &config, "test", now)
-	sentinel := filepath.Join(config.DataRoot, "workspace", "inbox", "sentinel.md")
+	sentinel := filepath.Join(config.DataRoot, "workspace", "sentinel.md")
 	if err := os.WriteFile(sentinel, []byte("preserve me\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

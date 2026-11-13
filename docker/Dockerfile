@@ -1,28 +1,21 @@
 # syntax=docker/dockerfile:1.7
 
-# Keep the upstream release tag visible while requiring an immutable digest.
-ARG HERMES_BASE_IMAGE
-ARG HERMES_BASE_TAG
-ARG HERMES_BASE_DIGEST
-FROM ${HERMES_BASE_IMAGE}:${HERMES_BASE_TAG}@${HERMES_BASE_DIGEST} AS remind-builder
-USER root
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates gcc libc6-dev make python3 \
-    && rm -rf /var/lib/apt/lists/*
-COPY release/manifest.json /build/release/manifest.json
-COPY docker/install-remind.py /build/docker/install-remind.py
-RUN version="$(python3 -c 'import json; print(json.load(open("/build/release/manifest.json"))["remind"]["version"])')" \
-    && python3 /build/docker/install-remind.py --prefix "/usr/local/lib/openlia/remind/${version}" \
-    && ln -s "${version}" /usr/local/lib/openlia/remind/current
+ARG HERMES_IMAGE=nousresearch/hermes-agent
+ARG HERMES_TAG=v2026.9.14
+ARG HERMES_DIGEST=sha256:99641e57ec762c59e54cb44aa6746b7fc68c18b3c5ddb088af54234c613d9294
+ARG BUN_VERSION=1.2.22
+ARG BUN_LINUX_X64_SHA256=4c446af1a01d7b40e1e11baebc352f9b2bfd12887e51b97dd3b59879cee2743a
+ARG BUN_LINUX_ARM64_SHA256=a97c687fb5e54de4e2fb0869a7ac9a2d9c3af75ac182e2b68138c1dd8f98131b
 
-FROM ${HERMES_BASE_IMAGE}:${HERMES_BASE_TAG}@${HERMES_BASE_DIGEST}
+FROM ${HERMES_IMAGE}:${HERMES_TAG}@${HERMES_DIGEST}
 
 ARG TARGETARCH
-ARG BUN_VERSION=1.2.22
-ARG BUN_X86_64_SHA256=4c446af1a01d7b40e1e11baebc352f9b2bfd12887e51b97dd3b59879cee2743a
-ARG BUN_AARCH64_SHA256=a97c687fb5e54de4e2fb0869a7ac9a2d9c3af75ac182e2b68138c1dd8f98131b
+ARG BUN_VERSION
+ARG BUN_LINUX_X64_SHA256
+ARG BUN_LINUX_ARM64_SHA256
 ARG UV_VERSION=0.8.14
-ARG UV_X86_64_SHA256=954add045f29f93191523175e4aea066996840e86c1b6339dee25f48b15b5ddb
-ARG UV_AARCH64_SHA256=69616218470b2ad053617efb9e7027b1518ea38918d933c2791e113d99cec507
+ARG UV_ARM64_SHA256=69616218470b2ad053617efb9e7027b1518ea38918d933c2791e113d99cec507
+ARG UV_AMD64_SHA256=954add045f29f93191523175e4aea066996840e86c1b6339dee25f48b15b5ddb
 ARG DEBIAN_SNAPSHOT=20260801T000000Z
 
 USER root
@@ -55,15 +48,15 @@ RUN sed -i \
     case "${TARGETARCH:-amd64}" in \
         amd64) \
             bun_arch='x64'; \
-            bun_sha="${BUN_X86_64_SHA256}"; \
+            bun_sha="${BUN_LINUX_X64_SHA256}"; \
             uv_target='x86_64-unknown-linux-gnu'; \
-            uv_sha="${UV_X86_64_SHA256}"; \
+            uv_sha="${UV_AMD64_SHA256}"; \
             ;; \
         arm64) \
             bun_arch='aarch64'; \
-            bun_sha="${BUN_AARCH64_SHA256}"; \
+            bun_sha="${BUN_LINUX_ARM64_SHA256}"; \
             uv_target='aarch64-unknown-linux-gnu'; \
-            uv_sha="${UV_AARCH64_SHA256}"; \
+            uv_sha="${UV_ARM64_SHA256}"; \
             ;; \
         *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
@@ -87,54 +80,13 @@ RUN sed -i \
     install -m 0755 "/tmp/uv/uv-${uv_target}/uvx" /usr/local/bin/uvx; \
     rm -rf /tmp/bun /tmp/uv "${bun_archive}" "${uv_archive}"
 
-COPY --from=remind-builder /usr/local/lib/openlia/remind/ /usr/local/lib/openlia/remind/
-COPY --chmod=0644 docker/Dockerfile /usr/local/share/openlia/build-recipes/hermes.Dockerfile
-COPY --chmod=0644 THIRD_PARTY_NOTICES.md /usr/local/share/openlia/THIRD_PARTY_NOTICES.md
-RUN ln -sf /usr/local/lib/openlia/remind/current/bin/remind /usr/local/bin/remind
-COPY profile/system-skills/workspace-template-customization/requirements.txt /tmp/workspace-template-req.txt
-RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache \
-	--requirement /tmp/workspace-template-req.txt \
-	&& uv pip install --python /opt/hermes/.venv/bin/python --no-cache pip-audit==2.9.0 \
-	&& rm -f /tmp/workspace-template-req.txt
-
 COPY --chmod=0755 docker/secret-source.sh /usr/local/bin/openlia-secret-source
-COPY docker/openlia_link_rewriter.py /tmp/openlia_link_rewriter.py
-COPY docker/openlia_usage.py /tmp/openlia_usage.py
-COPY profile/plugins/openlia-usage /opt/hermes/plugins/openlia-usage
-COPY docker/openlia_link_rewriter.pth /tmp/openlia_link_rewriter.pth
-RUN /opt/hermes/.venv/bin/python - <<'PY'
-import pathlib
-import shutil
-import site
-
-target = pathlib.Path(site.getsitepackages()[0])
-target.mkdir(parents=True, exist_ok=True)
-for name in ("openlia_link_rewriter.py", "openlia_usage.py", "openlia_link_rewriter.pth"):
-    shutil.copy2(pathlib.Path("/tmp") / name, target / name)
-PY
-# OpenLia's maintainer & OpenUI authoring plugin is bundled with the image and enabled by profile/config.yaml.
-COPY profile/plugins/openlia-maintainer /opt/hermes/plugins/openlia-maintainer
-COPY --chmod=0644 packages/workspace-ui/dist/openui-authoring.js /usr/local/lib/openlia/openui-authoring.js
-
-ARG OPENLIA_PROJECT_NAME="openlia"
-COPY docker/yt-dlp-requirements.txt /usr/local/share/openlia/yt-dlp-requirements.txt
-COPY --chmod=0755 docker/install-tools.sh /usr/local/bin/openlia-install-tools
-COPY profile/plugins/openlia-ingestion/requirements.txt /tmp/openlia-ingestion-requirements.txt
-RUN /usr/local/bin/openlia-install-tools \
-    && uv pip install --python /opt/hermes/.venv/bin/python --no-cache \
-        --requirement /tmp/openlia-ingestion-requirements.txt \
-    && rm -f /tmp/openlia-ingestion-requirements.txt \
-    && /opt/hermes/.venv/bin/python -c "import jsonschema, msoffcrypto, openpyxl, PIL, pypdfium2, xlrd"
-COPY profile/plugins/openlia-ingestion /opt/hermes/plugins/openlia-ingestion
-COPY profile/plugins/openlia-workspace-git /opt/hermes/plugins/openlia-workspace-git
-# Release archives protect source files with mode 0600; supervised Hermes runs
-# as an unprivileged user and must be able to read the bundled plugins.
-RUN chmod -R a+rX /opt/hermes/plugins/openlia-maintainer /opt/hermes/plugins/openlia-ingestion /opt/hermes/plugins/openlia-usage /opt/hermes/plugins/openlia-workspace-git \
-    && /opt/hermes/.venv/bin/python -c "import pathlib, site; pathlib.Path(site.getsitepackages()[0], 'openlia_usage.py').chmod(0o644)"
-LABEL org.openlia.project="${OPENLIA_PROJECT_NAME}" org.openlia.ingestion="required" org.openlia.debian-snapshot="${DEBIAN_SNAPSHOT}"
 
 # Keep the upstream default USER and ENTRYPOINT unchanged. s6 must start as
 # root so the upstream volume setup can drop supervised processes to hermes.
-ENV HERMES_TIMEZONE="Asia/Ho_Chi_Minh"
-ENV TZ="Asia/Ho_Chi_Minh"
-ENV PATH="/usr/local/bin:/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:${PATH}"
+ENV HERMES_HOME=/opt/data \
+    OPENLIA_DATA_ROOT=/opt/data \
+    OPENLIA_WORKSPACE_ROOT=/opt/data/workspace \
+    HERMES_TIMEZONE="Asia/Ho_Chi_Minh" \
+    TZ="Asia/Ho_Chi_Minh" \
+    PATH="/usr/local/bin:/opt/hermes/bin:/opt/hermes/.venv/bin:${PATH}"

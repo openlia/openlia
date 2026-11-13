@@ -96,6 +96,11 @@ func RotateAuth(config Config, source string, now time.Time, composers ...Compos
 	if err := ensureRuntimeOwner(config.SecretFile, config.RuntimeUID, config.RuntimeGID, 0o600); err != nil {
 		return err
 	}
+	if config.APIEnabled || config.LochoHostEnabled {
+		if err := ensureAPIServerEnv(config, config.SecretDir+"/api-server.env"); err != nil {
+			return err
+		}
+	}
 	return RecordChange(config, "auth-rotate", "ok", secretBackup, "provider credentials replaced atomically", now)
 }
 
@@ -166,6 +171,15 @@ func rotateAuthWithCompose(ctx context.Context, config Config, compose Compose, 
 			_ = ensureRuntimeOwner(config.SecretFile, config.RuntimeUID, config.RuntimeGID, 0o600)
 		} else if !secretPresent {
 			_ = os.Remove(config.SecretFile)
+		}
+	}
+	if config.APIEnabled || config.LochoHostEnabled {
+		if err := ensureAPIServerEnv(config, config.SecretDir+"/api-server.env"); err != nil {
+			restoreSecret()
+			if previousState == stateRunning {
+				_, _ = compose.Run(ctx, "up", "-d", "--no-deps", "hermes")
+			}
+			return err
 		}
 	}
 	if previousState == stateRunning {

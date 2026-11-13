@@ -267,7 +267,6 @@ func scheduleRuntimeConfig(config Config) Config {
 	config.ComposeProjectDir = "/opt/openlia/current/docker"
 	config.GeneratedCompose = "/opt/openlia/current/docker/compose.generated.yaml"
 	config.DataRoot = "/runtime/hermes"
-	config.SystemSkillsRoot = "/runtime/system-skills"
 	config.LochoRoot = "/runtime/locho"
 	if config.LochoRelayConfig != "" {
 		config.LochoRelayConfig = "/runtime/locho/relay.toml"
@@ -283,7 +282,6 @@ func scheduleRuntimeConfig(config Config) Config {
 	config.LochoHostRoot = "/runtime/locho-host"
 	config.LochoHostConfig = "/runtime/locho-host/locho.toml"
 	config.LochoHostStateRoot = "/runtime/locho-host/state"
-	config.WorkspaceUIPasswordHashFile = "/runtime/secrets/workspace-ui-password.hash"
 	config.OperatorConfigFile = "/etc/openlia/backup-schedule-config.json"
 	for index := range config.BackupDestinations {
 		if config.BackupDestinations[index].IdentityFile != "" {

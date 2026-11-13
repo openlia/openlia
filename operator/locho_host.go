@@ -9,6 +9,13 @@ import (
 	"strings"
 )
 
+const (
+	LochoHostServiceAPI       = "hermes-api"
+	LochoHostServiceDashboard = "hermes-dashboard"
+	HermesAPIPort             = 8642
+	HermesDashboardPort       = 9119
+)
+
 type LochoHostShareResult struct {
 	HostID           string
 	AttachmentConfig string
@@ -63,26 +70,45 @@ func ShareLochoHost(ctx context.Context, config Config, compose Compose) (LochoH
 		return LochoHostShareResult{}, fmt.Errorf("locho-host is not running; deploy the stack first")
 	}
 
-	args := []string{"exec", "-T", "locho-host", "locho", "share", "workspace-ui", "--config", "/var/lib/openlia-locho-host/locho.toml"}
-	if config.LochoRelayConfig != "" {
-		args = append(args, "--relay-config", "/etc/locho/relay.toml")
-	}
-	result, err := compose.Run(ctx, args...)
-	if err != nil {
-		return LochoHostShareResult{}, fmt.Errorf("share workspace-ui capability: %w", err)
-	}
-	hostID, capability, err := parseLochoShareOutput(string(result.Stdout), "workspace-ui")
-	if err != nil {
-		return LochoHostShareResult{}, err
+	hostedServices := []struct {
+		name string
+		port int
+	}{
+		{name: LochoHostServiceAPI, port: HermesAPIPort},
+		{name: LochoHostServiceDashboard, port: HermesDashboardPort},
 	}
 
+	var hostID string
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "host_id = %s\nlisten_host = \"127.0.0.1\"\n\n", strconv.Quote(hostID))
-	fmt.Fprintf(&builder, "[[services]]\ncapability = %s\nlisten_port = %d\n\n", strconv.Quote(capability), config.WorkspaceUIPort)
+	serviceNames := make([]string, 0, len(hostedServices))
+
+	for idx, svc := range hostedServices {
+		args := []string{"exec", "-T", "locho-host", "locho", "share", svc.name, "--config", "/var/lib/openlia-locho-host/locho.toml"}
+		if config.LochoRelayConfig != "" {
+			args = append(args, "--relay-config", "/etc/locho/relay.toml")
+		}
+		result, err := compose.Run(ctx, args...)
+		if err != nil {
+			return LochoHostShareResult{}, fmt.Errorf("share %s capability: %w", svc.name, err)
+		}
+		parsedHostID, capability, err := parseLochoShareOutput(string(result.Stdout), svc.name)
+		if err != nil {
+			return LochoHostShareResult{}, err
+		}
+		if idx == 0 {
+			hostID = parsedHostID
+			fmt.Fprintf(&builder, "host_id = %s\nlisten_host = \"127.0.0.1\"\n\n", strconv.Quote(hostID))
+		} else if parsedHostID != hostID {
+			return LochoHostShareResult{}, fmt.Errorf("Locho returned mismatched host_id for %s", svc.name)
+		}
+		fmt.Fprintf(&builder, "[[services]]\ncapability = %s\nlisten_port = %d\n\n", strconv.Quote(capability), svc.port)
+		serviceNames = append(serviceNames, svc.name)
+	}
+
 	return LochoHostShareResult{
 		HostID:           hostID,
 		AttachmentConfig: builder.String(),
-		Services:         []string{"workspace-ui"},
+		Services:         serviceNames,
 	}, nil
 }
 

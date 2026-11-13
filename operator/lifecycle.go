@@ -45,8 +45,8 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 	if options.Action != "deploy" && options.Action != "start" && options.Action != "stop" && options.Action != "restart" {
 		return DeployResult{}, fmt.Errorf("unknown deploy action %s", options.Action)
 	}
-	if options.Component != "all" && options.Component != "hermes" && options.Component != "locho" && options.Component != "workspace-ui" {
-		return DeployResult{}, fmt.Errorf("component must be all, hermes, locho, or workspace-ui")
+	if options.Component != "all" && options.Component != "hermes" && options.Component != "locho" {
+		return DeployResult{}, fmt.Errorf("component must be all, hermes, or locho")
 	}
 	if info, err := os.Stat(config.ComposeFile); err != nil || !info.Mode().IsRegular() {
 		return DeployResult{}, fmt.Errorf("base Compose file is missing")
@@ -81,8 +81,8 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 		return DeployResult{}, fmt.Errorf("Compose configuration validation failed")
 	}
 	if options.Action == "deploy" {
-		if options.Component == "locho" && config.LochoHostEnabled && !compose.ServiceRunning(ctx, "workspace-ui") {
-			return DeployResult{}, fmt.Errorf("locho-host requires running workspace-ui; run openlia deploy first")
+		if options.Component == "locho" && config.LochoHostEnabled && !compose.ServiceRunning(ctx, "hermes") {
+			return DeployResult{}, fmt.Errorf("locho-host requires running hermes; run openlia deploy first")
 		}
 		if options.Component == "all" || options.Component == "hermes" {
 			if _, err := compose.Run(ctx, "build", "hermes"); err != nil {
@@ -106,49 +106,15 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 				}
 			}
 		}
-		if options.Component == "all" && config.WorkspaceUIHost != "" {
-			if _, err := compose.Run(ctx, "build", "workspace-ui"); err != nil {
-				_ = RecordChange(config, options.Action, "failed", backup, "workspace UI image build failed", now)
-				return DeployResult{}, fmt.Errorf("workspace UI image build failed")
-			}
-		}
-		if options.Component == "workspace-ui" {
-			if config.WorkspaceUIHost == "" {
-				return DeployResult{}, fmt.Errorf("workspace UI is disabled")
-			}
-			if _, err := compose.Run(ctx, "build", "workspace-ui"); err != nil {
-				_ = RecordChange(config, options.Action, "failed", backup, "workspace UI image build failed", now)
-				return DeployResult{}, fmt.Errorf("workspace UI image build failed")
-			}
-		}
 	}
 	if options.Action == "start" || options.Action == "restart" {
 		options.ForceStart = true
 	}
 	shouldStart := options.ForceStart || (options.Action == "deploy" && previous != stateStopped)
 	if shouldStart {
-		normalizeWorkspace := func() error {
-			ownership := strconv.Itoa(config.RuntimeUID) + ":" + strconv.Itoa(config.RuntimeGID)
-			_, err := compose.Run(ctx, "exec", "-T", "-u", "root", "hermes", "sh", "-c", "chown -R "+ownership+" /opt/data/workspace && chmod 700 /opt/data/workspace")
-			return err
-		}
-		workspaceUIStartedAfterHermes := false
-		if options.Component == "all" && config.WorkspaceUIHost != "" && options.Action != "restart" {
-			if _, err := compose.Run(ctx, "up", "-d", "--no-deps", "hermes"); err != nil {
-				_ = RecordChange(config, options.Action, "failed", backup, "Hermes could not be started before Workspace UI", now)
-				return DeployResult{}, fmt.Errorf("Hermes could not be started before Workspace UI: %w", err)
-			}
-			if err := normalizeWorkspace(); err != nil {
-				_ = RecordChange(config, options.Action, "failed", backup, "workspace permissions could not be normalized", now)
-				return DeployResult{}, fmt.Errorf("workspace permissions could not be normalized: %w", err)
-			}
-			workspaceUIStartedAfterHermes = true
-		}
 		var args []string
 		switch {
 		case options.Action == "restart" && options.Component == "all":
-			// Compose restart does not refresh changed environment values. Recreate
-			// the stack so configuration changes reach every service.
 			args = []string{"up", "-d", "--force-recreate"}
 		case options.Component == "all":
 			args = []string{"up", "-d", "--remove-orphans"}
@@ -157,8 +123,6 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 			}
 		case options.Component == "hermes":
 			args = []string{"up", "-d", "--no-deps", "hermes"}
-		case options.Component == "workspace-ui":
-			args = []string{"up", "-d", "--no-deps", "--force-recreate", "workspace-ui"}
 		default:
 			services := composeServices(ctx, compose)
 			if len(services) == 0 {
@@ -171,10 +135,10 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 			args = append(args, append([]string{"--no-deps"}, services...)...)
 		}
 		lochoHostWasRunning := false
-		workspaceUIBefore := ""
+		hermesBefore := ""
 		if config.LochoHostEnabled {
 			lochoHostWasRunning = compose.ServiceRunning(ctx, "locho-host")
-			workspaceUIBefore = composeContainerID(ctx, compose, "workspace-ui")
+			hermesBefore = composeContainerID(ctx, compose, "hermes")
 		}
 		if res, err := compose.Run(ctx, args...); err != nil {
 			msg := strings.TrimSpace(string(res.Stderr))
@@ -184,9 +148,9 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 			_ = RecordChange(config, options.Action, "failed", backup, "Compose start failed: "+msg, now)
 			return DeployResult{}, fmt.Errorf("Compose start failed (%s): %w", msg, err)
 		}
-		reconcileLochoHost := config.LochoHostEnabled && options.Component == "workspace-ui"
+		reconcileLochoHost := config.LochoHostEnabled && options.Component == "hermes"
 		if config.LochoHostEnabled && options.Component == "all" && lochoHostWasRunning && options.Action != "restart" {
-			reconcileLochoHost = workspaceUIBefore != composeContainerID(ctx, compose, "workspace-ui")
+			reconcileLochoHost = hermesBefore != composeContainerID(ctx, compose, "hermes")
 		}
 		if reconcileLochoHost {
 			if res, err := compose.Run(ctx, "up", "-d", "--no-deps", "--force-recreate", "locho-host"); err != nil {
@@ -198,9 +162,7 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 				return DeployResult{}, fmt.Errorf("Locho host reconciliation failed (%s): %w", msg, err)
 			}
 		}
-		if (options.Component == "all" || options.Component == "hermes") && !workspaceUIStartedAfterHermes {
-			// Normalize the bind-mounted workspace through the container user, not a
-			// host-side chown that may not exist on Docker Desktop.
+		if options.Component == "all" || options.Component == "hermes" {
 			ownership := strconv.Itoa(config.RuntimeUID) + ":" + strconv.Itoa(config.RuntimeGID)
 			_, _ = compose.Run(ctx, "exec", "-T", "-u", "root", "hermes", "sh", "-c", "chown -R "+ownership+" /opt/data/workspace && chmod 700 /opt/data/workspace")
 		}
@@ -233,7 +195,7 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 				}
 			}
 		}
-		if healthy && options.Component != "workspace-ui" {
+		if healthy {
 			health, healthErr := Healthcheck(ctx, config, compose, false, false)
 			healthy = healthErr == nil && health.OK
 		}
@@ -263,8 +225,6 @@ func composeContainerID(ctx context.Context, compose Compose, service string) st
 	return strings.TrimSpace(string(result.Stdout))
 }
 
-// deploymentReady avoids running the full diagnostic health check on every
-// two-second poll. The full check still runs once after the services are up.
 func deploymentReady(ctx context.Context, config Config, compose Compose, component string) bool {
 	result, err := compose.Run(ctx, "ps", "--services", "--filter", "status=running")
 	if err != nil {
@@ -282,8 +242,6 @@ func deploymentReady(ctx context.Context, config Config, compose Compose, compon
 		required = []string{"hermes"}
 	case "locho":
 		required = append(required, composeServices(ctx, compose)...)
-	case "workspace-ui":
-		required = []string{"workspace-ui"}
 	default:
 		configured, configErr := compose.Run(ctx, "config", "--services")
 		if configErr != nil {
@@ -300,18 +258,13 @@ func deploymentReady(ctx context.Context, config Config, compose Compose, compon
 			return false
 		}
 	}
-	if component == "workspace-ui" || (component == "all" && config.WorkspaceUIHost != "") {
-		if !workspaceUIHealthy(ctx, config, compose) {
-			return false
-		}
-	}
 	if component == "all" || component == "hermes" || component == "locho" {
-		command := "command -v hermes >/dev/null && hermes config check && command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null && command -v pdfinfo >/dev/null && command -v pdftoppm >/dev/null && command -v pdftotext >/dev/null && command -v yt-dlp >/dev/null && /opt/hermes/.venv/bin/python -c 'import PIL, openpyxl, xlrd, pypdfium2, jsonschema, msoffcrypto'"
+		command := "command -v hermes >/dev/null && hermes config check"
 		if _, err := compose.Run(ctx, "exec", "-T", "hermes", "sh", "-c", command); err != nil {
 			return false
 		}
 	}
-	if config.LochoHostEnabled && (component == "all" || component == "locho" || component == "workspace-ui") && !lochoHostHealthy(ctx, config, compose) {
+	if config.LochoHostEnabled && (component == "all" || component == "locho" || component == "hermes") && !lochoHostHealthy(ctx, config, compose) {
 		return false
 	}
 	return true
@@ -321,24 +274,8 @@ func lochoHostHealthy(ctx context.Context, config Config, compose Compose) bool 
 	if !config.LochoHostEnabled || !compose.ServiceRunning(ctx, "locho-host") {
 		return false
 	}
-	command := fmt.Sprintf("set -eu; set -- $(getent ahostsv4 workspace-ui); workspace_ip=\"$1\"; grep -F \"endpoint = \\\"$workspace_ip:%d\\\"\" /var/lib/openlia-locho-host/locho.toml >/dev/null; curl --fail --silent --show-error --max-time 5 http://workspace-ui:%d/health >/dev/null", config.WorkspaceUIPort, config.WorkspaceUIPort)
+	command := fmt.Sprintf("set -eu; set -- $(getent ahostsv4 hermes); hermes_ip=\"$1\"; grep -F \"endpoint = \\\"$hermes_ip:%d\\\"\" /var/lib/openlia-locho-host/locho.toml >/dev/null; grep -F \"endpoint = \\\"$hermes_ip:%d\\\"\" /var/lib/openlia-locho-host/locho.toml >/dev/null", HermesAPIPort, HermesDashboardPort)
 	_, err := compose.Run(ctx, "exec", "-T", "locho-host", "sh", "-c", command)
-	return err == nil
-}
-
-func workspaceUIHealthy(ctx context.Context, config Config, compose Compose) bool {
-	if config.WorkspaceUIHost == "" || !compose.ServiceRunning(ctx, "workspace-ui") {
-		return false
-	}
-	result, err := compose.Run(ctx, "port", "workspace-ui", strconv.Itoa(config.WorkspaceUIPort))
-	if err != nil {
-		return false
-	}
-	binding := strings.TrimSpace(string(result.Stdout))
-	if !strings.Contains(binding, fmt.Sprintf("%s:%d", config.WorkspaceUIHost, config.WorkspaceUIPort)) {
-		return false
-	}
-	_, err = compose.Run(ctx, "exec", "-T", "workspace-ui", "bun", "-e", fmt.Sprintf("fetch('http://127.0.0.1:%d/health').then(r => { if (!r.ok) process.exit(1) })", config.WorkspaceUIPort))
 	return err == nil
 }
 
@@ -437,23 +374,6 @@ func Healthcheck(ctx context.Context, config Config, compose Compose, allowStopp
 					} else {
 						add("listener:"+service, false, "published")
 					}
-				} else if service == "workspace-ui" {
-					expectedHost, expectedPort := config.WorkspaceUIHost, config.WorkspaceUIPort
-					endpointErr := validateWorkspaceUI(expectedHost, expectedPort, config.WorkspaceUIAuthRequired, config.WorkspaceUIPasswordHashFile, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIAllowedEmails, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain)
-					published, portErr := compose.Run(ctx, "port", service, strconv.Itoa(expectedPort))
-					binding := strings.TrimSpace(string(published.Stdout))
-					expectedBinding := fmt.Sprintf("%s:%d", expectedHost, expectedPort)
-					if endpointErr != nil || portErr != nil || binding == "" {
-						add("listener:workspace-ui", false, "missing_configured_port")
-					} else if strings.Contains(binding, expectedBinding) {
-						if _, probeErr := compose.Run(ctx, "exec", "-T", "workspace-ui", "bun", "-e", fmt.Sprintf("fetch('http://127.0.0.1:%d/health').then(r => { if (!r.ok) process.exit(1) })", expectedPort)); probeErr != nil {
-							add("listener:workspace-ui", false, "health_endpoint_unavailable")
-						} else {
-							add("listener:workspace-ui", true, "configured_endpoint")
-						}
-					} else {
-						add("listener:workspace-ui", false, "unexpected_endpoint")
-					}
 				}
 			} else if state == stateStopped && allowStopped {
 				add("service:"+service, true, "stopped")
@@ -466,7 +386,7 @@ func Healthcheck(ctx context.Context, config Config, compose Compose, allowStopp
 		if state == stateStopped && allowStopped {
 			add("locho_host_upstreams", true, "stopped")
 		} else if lochoHostHealthy(ctx, config, compose) {
-			add("locho_host_upstreams", true, "workspace-ui_reachable")
+			add("locho_host_upstreams", true, "hermes_reachable")
 		} else {
 			add("locho_host_upstreams", false, "unreachable_or_stale")
 		}
@@ -477,11 +397,6 @@ func Healthcheck(ctx context.Context, config Config, compose Compose, allowStopp
 			add("hermes_runtimes", false, "hermes_bun_uv_git_missing")
 		} else {
 			add("hermes_runtimes", true, "hermes_bun_uv_git_available")
-		}
-		if _, err := compose.Run(ctx, "exec", "-T", "hermes", "sh", "-c", "command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null && command -v pdfinfo >/dev/null && command -v pdftoppm >/dev/null && command -v pdftotext >/dev/null && command -v yt-dlp >/dev/null && /opt/hermes/.venv/bin/python -c 'import PIL, openpyxl, xlrd, pypdfium2, jsonschema, msoffcrypto'"); err != nil {
-			add("hermes_ingestion", false, "required_dependency_missing")
-		} else {
-			add("hermes_ingestion", true, "required_dependencies_available")
 		}
 		if _, err := compose.Run(ctx, "exec", "-T", "hermes", "hermes", "config", "check"); err != nil {
 			add("hermes_config", false, "invalid")
@@ -510,7 +425,7 @@ func Healthcheck(ctx context.Context, config Config, compose Compose, allowStopp
 			add("hermes_doctor", true, "not_requested")
 			add("provider_request", true, "not_requested")
 		}
-		if _, err := compose.Run(ctx, "exec", "-T", "hermes", "sh", "-c", "test -d /opt/data/workspace && test -f /opt/data/workspace/AGENTS.md"); err != nil {
+		if _, err := compose.Run(ctx, "exec", "-T", "hermes", "sh", "-c", "test -d /opt/data/workspace"); err != nil {
 			add("workspace", false, "missing_or_uninitialized")
 		} else {
 			add("workspace", true, "initialized")
@@ -520,11 +435,7 @@ func Healthcheck(ctx context.Context, config Config, compose Compose, allowStopp
 		add("hermes_config", true, "stopped")
 		add("hermes_doctor", true, "not_requested")
 		add("provider_request", true, "not_requested")
-		if _, err := compose.Run(ctx, "exec", "-T", "hermes", "sh", "-c", "test -d /opt/data/workspace && test -f /opt/data/workspace/AGENTS.md"); err != nil {
-			add("workspace", true, "stopped")
-		} else {
-			add("workspace", true, "initialized")
-		}
+		add("workspace", true, "stopped")
 	} else {
 		add("hermes_runtimes", false, "hermes_not_running")
 		add("hermes_config", false, "hermes_not_running")

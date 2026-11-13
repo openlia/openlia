@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -45,13 +44,11 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 	}{
 		{config.RuntimeRoot, 0o700},
 		{config.DataRoot, 0o700},
-		{config.SystemSkillsRoot, 0o700},
 		{config.LochoRoot, 0o700},
 		{config.SecretDir, 0o700},
 		{config.BackupRoot, 0o700},
 		{config.MetaRoot, 0o700},
 		{filepath.Join(config.MetaRoot, "locks"), 0o700},
-		{filepath.Join(config.MetaRoot, "templates-cache"), 0o755},
 	} {
 		if err := EnsureDir(item.path, item.mode); err != nil {
 			return BootstrapResult{}, err
@@ -70,45 +67,6 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 	if err := ensureSecretDirectory(config); err != nil {
 		return BootstrapResult{}, err
 	}
-	if err := EnsureDir(filepath.Join(config.DataRoot, "ingestion"), 0o700); err != nil {
-		return BootstrapResult{}, err
-	}
-	if err := ensureRuntimeOwner(filepath.Join(config.DataRoot, "ingestion"), config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
-		return BootstrapResult{}, err
-	}
-	isFirebase := config.WorkspaceUIFirebaseProjectID != ""
-	for _, path := range []string{
-		filepath.Join(config.DataRoot, "usage"),
-		filepath.Join(config.DataRoot, "usage", "reports"),
-		filepath.Join(config.DataRoot, "maintainer"),
-		filepath.Join(config.DataRoot, ".openlia"),
-		filepath.Join(config.DataRoot, ".openlia", "workspace-migrations"),
-	} {
-		if err := EnsureDir(path, 0o700); err != nil {
-			return BootstrapResult{}, err
-		}
-		if err := ensureRuntimeOwner(path, config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
-			return BootstrapResult{}, err
-		}
-	}
-	if err := EnsureLocalToolDirs(config.DataRoot, config.RuntimeUID, config.RuntimeGID); err != nil {
-		return BootstrapResult{}, err
-	}
-	if config.WorkspaceUIHost != "" || isFirebase || config.WorkspaceUIAuthRequired {
-		sessionDir := filepath.Join(config.RuntimeRoot, "workspace-ui")
-		if err := EnsureDir(sessionDir, 0o700); err != nil {
-			return BootstrapResult{}, err
-		}
-		if err := ensureRuntimeOwner(sessionDir, config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
-			return BootstrapResult{}, err
-		}
-		if !isFirebase && config.WorkspaceUIAuthRequired {
-			info, err := os.Stat(config.WorkspaceUIPasswordHashFile)
-			if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o444 {
-				return BootstrapResult{}, fmt.Errorf("workspace-ui password verifier must be a regular mode-0444 file")
-			}
-		}
-	}
 	if _, err := os.Lstat(config.SecretFile); errors.Is(err, os.ErrNotExist) {
 		if err := AtomicWriteFile(config.SecretFile, []byte("# Add KEY=VALUE lines through the operator's secret rotation workflow.\n"), 0o600); err != nil {
 			return BootstrapResult{}, err
@@ -124,67 +82,23 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 		return BootstrapResult{}, err
 	}
 
-	profileRoot := filepath.Join(config.RepositoryRoot, "profile")
-	if err := copyOnce(filepath.Join(profileRoot, "config.yaml"), filepath.Join(config.DataRoot, "config.yaml"), 0o600); err != nil {
-		return BootstrapResult{}, err
-	}
-	for _, name := range []string{"SOUL.md", "AGENTS.md"} {
-		destination := filepath.Join(config.DataRoot, name)
-		if err := copyOnce(filepath.Join(profileRoot, name), destination, 0o600); err != nil {
+	for _, dir := range []string{
+		filepath.Join(config.DataRoot, "memories"),
+		filepath.Join(config.DataRoot, "workspace"),
+		filepath.Join(config.DataRoot, "skills"),
+	} {
+		if err := EnsureDir(dir, 0o700); err != nil {
 			return BootstrapResult{}, err
 		}
-		if _, err := os.Stat(destination); err == nil {
-			if err := ensureRuntimeOwner(destination, config.RuntimeUID, config.RuntimeGID, 0o600); err != nil {
-				return BootstrapResult{}, err
-			}
-		} else if !errors.Is(err, os.ErrNotExist) {
+		if err := ensureRuntimeOwner(dir, config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
 			return BootstrapResult{}, err
 		}
 	}
-	memoriesDir := filepath.Join(config.DataRoot, "memories")
-	if err := EnsureDir(memoriesDir, 0o700); err != nil {
+
+	if _, err := NewProfileOperator(config).Sync(); err != nil {
 		return BootstrapResult{}, err
 	}
-	if err := ensureRuntimeOwner(memoriesDir, config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
-		return BootstrapResult{}, err
-	}
-	workspace := filepath.Join(config.DataRoot, "workspace")
-	if err := EnsureDir(workspace, 0o700); err != nil {
-		return BootstrapResult{}, err
-	}
-	empty, err := directoryEmpty(workspace)
-	if err != nil {
-		return BootstrapResult{}, err
-	}
-	template := filepath.Join(config.RepositoryRoot, "workspace-template")
-	templateExists := false
-	if info, statErr := os.Stat(template); statErr == nil && info.IsDir() {
-		templateExists = true
-	}
-	if empty && templateExists {
-		if err := copyDirContents(template, workspace); err != nil {
-			return BootstrapResult{}, fmt.Errorf("copy workspace template: %w", err)
-		}
-	} else if templateExists {
-		if err := seedMissingWorkspaceTemplates(template, workspace); err != nil {
-			return BootstrapResult{}, fmt.Errorf("seed missing workspace templates: %w", err)
-		}
-	}
-	if err := copyOnce(filepath.Join(config.RepositoryRoot, "workspace-template", ".gitignore"), filepath.Join(workspace, ".gitignore"), 0o600); err != nil {
-		return BootstrapResult{}, err
-	}
-	for _, category := range LeanBaseAllDirs {
-		if err := EnsureDir(filepath.Join(workspace, category), 0o700); err != nil {
-			return BootstrapResult{}, err
-		}
-	}
-	if registered, err := RegisteredDomainPaths(workspace); err == nil && len(registered) > 0 {
-		for domainPath := range registered {
-			if err := EnsureDir(filepath.Join(workspace, filepath.FromSlash(domainPath)), 0o700); err != nil {
-				return BootstrapResult{}, err
-			}
-		}
-	}
+
 	if _, err := os.Stat(config.StateFile); errors.Is(err, os.ErrNotExist) {
 		if err := WriteState(config, stateNeverStarted); err != nil {
 			return BootstrapResult{}, err
@@ -195,15 +109,7 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 	if err := WriteRuntimeMetadata(config, now); err != nil {
 		return BootstrapResult{}, err
 	}
-	if _, err := os.Stat(filepath.Join(profileRoot, "skills")); err == nil {
-		if len(composers) > 0 {
-			if _, err := syncProfileAndRefresh(ctx, config, composers[0]); err != nil {
-				return BootstrapResult{}, err
-			}
-		} else if _, err := NewProfileOperator(config).Sync(); err != nil {
-			return BootstrapResult{}, err
-		}
-	}
+
 	var attachmentErr error
 	if len(composers) > 0 {
 		attachmentErr = GenerateAttachmentsContext(ctx, config, composers[0])
@@ -238,65 +144,4 @@ func copyOnce(source, destination string, mode fs.FileMode) error {
 		return err
 	}
 	return AtomicCopyFile(source, destination, mode)
-}
-
-func directoryEmpty(path string) (bool, error) {
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return false, err
-	}
-	return len(entries) == 0, nil
-}
-
-// seedMissingWorkspaceTemplates walks templateDir and non-destructively copies any
-// starter template files that do not yet exist in workspaceDir. Existing user files
-// and customizations are strictly preserved.
-func seedMissingWorkspaceTemplates(templateDir, workspaceDir string) error {
-	return seedMissingWorkspaceTemplatesFiltered(templateDir, workspaceDir, false)
-}
-
-func seedMissingFeatureWorkspaceTemplates(templateDir, workspaceDir string) error {
-	return seedMissingWorkspaceTemplatesFiltered(templateDir, workspaceDir, true)
-}
-
-func seedMissingWorkspaceTemplatesFiltered(templateDir, workspaceDir string, requireRegistered bool) error {
-	var registered map[string]bool
-	if requireRegistered {
-		registered, _ = RegisteredDomainPaths(workspaceDir)
-	}
-	return filepath.Walk(templateDir, func(path string, info fs.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(templateDir, path)
-		if err != nil {
-			return err
-		}
-		// AGENTS.md is managed by instructions diff/merge workflow.
-		// .gitkeep files are empty directory markers.
-		if rel == "AGENTS.md" || filepath.Base(rel) == ".gitkeep" {
-			return nil
-		}
-		relSlash := filepath.ToSlash(rel)
-		if requireRegistered && strings.Contains(relSlash, "/") {
-			dirSlash := filepath.ToSlash(filepath.Dir(rel))
-			rootDomain := strings.Split(relSlash, "/")[0]
-			if !registered[dirSlash] && !registered[rootDomain] {
-				return nil
-			}
-		}
-		dest := filepath.Join(workspaceDir, rel)
-		if _, statErr := os.Lstat(dest); statErr == nil {
-			return nil
-		} else if !errors.Is(statErr, os.ErrNotExist) {
-			return statErr
-		}
-		if err := EnsureDir(filepath.Dir(dest), 0o700); err != nil {
-			return err
-		}
-		return copyOnce(path, dest, 0o600)
-	})
 }

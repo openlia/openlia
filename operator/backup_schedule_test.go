@@ -46,17 +46,14 @@ func TestScheduleRuntimeConfigUsesContainerPaths(t *testing.T) {
 
 func TestScheduleRuntimeConfigProjectsOptionalRuntimePaths(t *testing.T) {
 	runtimeConfig := scheduleRuntimeConfig(testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime")))
-	runtimeConfig.WorkspaceUIHost = "127.0.0.1"
-	runtimeConfig.WorkspaceUIAuthRequired = true
 	runtimeConfig.LochoHostEnabled = true
 	if err := runtimeConfig.ValidatePaths(); err != nil {
 		t.Fatalf("projected scheduler config is invalid: %v", err)
 	}
 	for name, path := range map[string]string{
-		"Locho root":            runtimeConfig.LochoHostRoot,
-		"Locho config":          runtimeConfig.LochoHostConfig,
-		"Locho state":           runtimeConfig.LochoHostStateRoot,
-		"Workspace UI password": runtimeConfig.WorkspaceUIPasswordHashFile,
+		"Locho root":   runtimeConfig.LochoHostRoot,
+		"Locho config": runtimeConfig.LochoHostConfig,
+		"Locho state":  runtimeConfig.LochoHostStateRoot,
 	} {
 		if !within(path, "/runtime") {
 			t.Errorf("%s path = %q, want path below /runtime", name, path)

@@ -2,127 +2,94 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: ["**"]
   pull_request:
 
 permissions:
   contents: read
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
-      - name: Check out source
+      - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.2.22
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+      - name: Verify release manifest sync
+        run: go run ./cmd/release-manifest check
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Install Bun dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Install Python validation dependencies
-        run: python -m pip install -r requirements-dev.txt
-
-      - name: Install pinned upstream Remind
-        run: |
-          version="$(python3 -c 'import json; print(json.load(open("release/manifest.json"))["remind"]["version"])')"
-          prefix="${RUNNER_TEMP}/openlia-remind/${version}"
-          python3 docker/install-remind.py --prefix "$prefix"
-          echo "$prefix/bin" >> "$GITHUB_PATH"
-          echo "OPENLIA_REMIND_BINARY=$prefix/bin/remind" >> "$GITHUB_ENV"
-
-      - name: Test source installer safeguards
-        run: python -m unittest discover -s tests -p test_install_remind.py
-
-      - name: Install locked JavaScript dependencies
-        run: bun install --frozen-lockfile --ignore-scripts
-
-      - name: Check JavaScript source
+      - name: Lint and typecheck Bun packages
         run: bun run check
 
-      - name: Test JavaScript packages
+      - name: Run Bun tests
         run: bun run test
 
-      - name: Build and verify generated release inputs
+      - name: Build and verify embedded Bun bundles
         run: bun run verify-dist
 
-      - name: Reject tracked generated distributions
-        run: test -z "$(git ls-files -- 'packages/*/dist/**')"
-
-      - name: Test and vet Go source
+      - name: Check Go formatting
         run: |
-          go test ./...
+          unformatted="$(gofmt -l main.go main_test.go cli cmd internal operator)"
+          if [ -n "$unformatted" ]; then
+            printf 'Unformatted Go files:\n%s\n' "$unformatted" >&2
+            exit 1
+          fi
+
+      - name: Run Go vet and tests
+        run: |
+          make build-operator
           go vet ./...
+          go test ./...
 
-      - name: Validate workspace templates
-        run: make workspace-templates-test
+      - name: Run ShellCheck on operational scripts
+        run: shellcheck docker/secret-source.sh
 
-      - name: Build release binaries
+      - name: Build release artifacts
         run: make build
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          buildkitd-config-inline: |
-            [worker.oci]
-              max-parallelism = 1
+      - name: Run CLI smoke harness
+        run: python3 tests/smoke.py --mode cli --openlia-bin ./openlia
 
-      - name: Build Workspace UI image
-        run: >-
-          docker buildx build
-          --cache-from type=gha,scope=workspace-ui
-          --cache-to type=gha,mode=max,scope=workspace-ui
-          --file docker/workspace-ui.Dockerfile
-          --tag openlia-workspace-ui:ci
-          --load
-          .
-
-      - name: Verify pinned Remind in Workspace UI image
-        run: python tests/check_remind_image.py openlia-workspace-ui:ci
-
-      - name: Build Hermes ingestion image
+      - name: Build and verify OpenLia Hermes container image
         run: |
-          set -a
-          . docker/.env.example
-          set +a
-          docker buildx build \
-            --build-arg HERMES_BASE_IMAGE="$HERMES_BASE_IMAGE" \
-            --build-arg HERMES_BASE_TAG="$HERMES_BASE_TAG" \
-            --build-arg HERMES_BASE_DIGEST="$HERMES_BASE_DIGEST" \
-            --build-arg OPENLIA_PROJECT_NAME=ci \
-            --cache-from type=gha,scope=hermes-ingestion \
-            --cache-to type=gha,mode=max,scope=hermes-ingestion \
-            --file docker/Dockerfile \
-            --tag openlia-hermes:ci \
-            --load \
+          eval "$(python3 - <<'PY'
+          import json, shlex
+          with open("release/manifest.json", "r", encoding="utf-8") as fh:
+              data = json.load(fh)
+          hermes = data["components"]["hermes"]
+          values = {
+              "HERMES_BASE_IMAGE": hermes["image"],
+              "HERMES_BASE_TAG": hermes["tag"],
+              "HERMES_BASE_DIGEST": hermes["digest"],
+          }
+          for key, value in values.items():
+              print(f"export {key}={shlex.quote(str(value))}")
+          PY
+          )"
+          docker build \
+            --build-arg "HERMES_BASE_IMAGE=${HERMES_BASE_IMAGE}" \
+            --build-arg "HERMES_BASE_TAG=${HERMES_BASE_TAG}" \
+            --build-arg "HERMES_BASE_DIGEST=${HERMES_BASE_DIGEST}" \
+            -f docker/Dockerfile \
+            -t openlia-hermes:ci \
             .
-
-      - name: Verify Hermes ingestion dependencies
-        run: >-
-          docker run --rm --entrypoint sh
-          --volume "$PWD/docker/verify-tools.sh:/tmp/verify-tools.sh:ro"
-          openlia-hermes:ci /tmp/verify-tools.sh
-
-      - name: Verify pinned Remind in Hermes image
-        run: python tests/check_remind_image.py openlia-hermes:ci
-
-      - name: Verify Hermes workspace validator dependency
-        run: >-
-          docker run --rm --entrypoint /opt/hermes/.venv/bin/python
-          openlia-hermes:ci -c "import jsonschema; print(jsonschema.__name__)"
-
-      - name: Verify bundled offline OpenUI authoring
-        run: |
-          printf '%s' '{"action":"validate","format":"openui","content":"CardHeader(title: \"Hello\")"}' | docker run --rm -i --entrypoint /usr/local/bin/bun openlia-hermes:ci /usr/local/lib/openlia/openui-authoring.js | python -c 'import json,sys; r=json.load(sys.stdin); assert r["status"] == "ok" and r["valid"] and r["blockCount"] == 1 and r["validationLevel"] == "schema"'
+          docker run --rm --entrypoint /bin/sh openlia-hermes:ci -lc 'test -x /usr/local/bin/openlia-secret-source'

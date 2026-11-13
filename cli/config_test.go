@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"filippo.io/age"
 )
@@ -16,9 +17,6 @@ func TestConfigRoundTrip(t *testing.T) {
 	t.Setenv("OPENLIA_CONFIG", path)
 	want := defaultConfig()
 	want.Target = "operator@example.test"
-	want.WorkspaceUIHost = "127.0.0.1"
-	want.WorkspaceUIPort = 8089
-	want.WorkspaceUIPublicOrigin = "https://workspace.example.test"
 	want.LochoRelayConfigSource = filepath.Join(temporary, "relay.toml")
 	want.LochoRelaySecretsSource = filepath.Join(temporary, "relay.env")
 	want.Model = "test-model"
@@ -45,8 +43,6 @@ func TestConfigRoundTrip(t *testing.T) {
 		{Name: "nas", Type: "rsync", RsyncTarget: "backup@nas.example.test:/srv/backups/openlia", IdentityFile: "/srv/openlia/backup-ssh-key", OperatorIdentityFile: filepath.Join(temporary, "rsync-key")},
 	}
 	want.SecretSource = filepath.Join(temporary, "hermes.env")
-	want.EnabledSkills = []string{"daily-briefing", "deep-research"}
-	want.IngestionMaxConcurrentJobs = 2
 	want.OpenLiaBrowser = OpenLiaBrowserConfig{
 		Configured:         true,
 		Mode:               "ssh",
@@ -55,8 +51,6 @@ func TestConfigRoundTrip(t *testing.T) {
 		Root:               "/home/browser/services/openlia-browser",
 		ExtensionTokenFile: "/home/browser/services/playwright-server-token.txt",
 	}
-	want.WorkspaceGitSchedule = "30 2 * * *"
-	want.WorkspaceGitEnabled = true
 	if err := saveConfig(want); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +58,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Target != want.Target || got.Model != want.Model || got.OutputLanguage != want.OutputLanguage || got.WorkspaceUIHost != want.WorkspaceUIHost || got.WorkspaceUIPort != want.WorkspaceUIPort || got.WorkspaceUIPublicOrigin != want.WorkspaceUIPublicOrigin || got.LochoRelayConfigSource != want.LochoRelayConfigSource || got.LochoRelaySecretsSource != want.LochoRelaySecretsSource || len(got.FallbackProviders) != 2 || got.FallbackProviders[0] != want.FallbackProviders[0] || got.FallbackProviders[1] != want.FallbackProviders[1] || got.Timezone != want.Timezone || got.SecretSource != want.SecretSource || len(got.EnabledSkills) != 2 || got.IngestionMaxConcurrentJobs != want.IngestionMaxConcurrentJobs || got.BackupIdentityFile != want.BackupIdentityFile || got.BackupKnownHosts != want.BackupKnownHosts || got.BackupRecipient != want.BackupRecipient || got.BackupSchedule != want.BackupSchedule || got.BackupScheduleEnabled != want.BackupScheduleEnabled || len(got.BackupDestinations) != len(want.BackupDestinations) || got.BackupDestinations[0] != want.BackupDestinations[0] || got.BackupDestinations[1] != want.BackupDestinations[1] || got.WorkspaceGitSchedule != want.WorkspaceGitSchedule || got.WorkspaceGitEnabled != want.WorkspaceGitEnabled || got.OpenLiaBrowser != want.OpenLiaBrowser {
+	if got.Target != want.Target || got.Model != want.Model || got.OutputLanguage != want.OutputLanguage || got.LochoRelayConfigSource != want.LochoRelayConfigSource || got.LochoRelaySecretsSource != want.LochoRelaySecretsSource || len(got.FallbackProviders) != 2 || got.FallbackProviders[0] != want.FallbackProviders[0] || got.FallbackProviders[1] != want.FallbackProviders[1] || got.Timezone != want.Timezone || got.SecretSource != want.SecretSource || got.BackupIdentityFile != want.BackupIdentityFile || got.BackupKnownHosts != want.BackupKnownHosts || got.BackupRecipient != want.BackupRecipient || got.BackupSchedule != want.BackupSchedule || got.BackupScheduleEnabled != want.BackupScheduleEnabled || len(got.BackupDestinations) != len(want.BackupDestinations) || got.BackupDestinations[0] != want.BackupDestinations[0] || got.BackupDestinations[1] != want.BackupDestinations[1] || got.OpenLiaBrowser != want.OpenLiaBrowser {
 		t.Fatalf("round trip mismatch: got %#v want %#v", got, want)
 	}
 	if got.BackupLocalRetention != want.BackupLocalRetention || got.BackupLocalMaxBytes != want.BackupLocalMaxBytes || got.BackupRemoteRetentionDays != want.BackupRemoteRetentionDays {
@@ -120,14 +114,6 @@ func TestBackupRemoteRetentionRejectsDurationOverflow(t *testing.T) {
 	config.BackupRemoteRetentionDays = int(maxBackupRemoteRetentionDays + 1)
 	if err := validateConfig(config); err == nil || !strings.Contains(err.Error(), "remote_retention_days") {
 		t.Fatalf("overflowing remote retention error = %v", err)
-	}
-}
-
-func TestIngestionConcurrencyMustBePositive(t *testing.T) {
-	config := defaultConfig()
-	config.IngestionMaxConcurrentJobs = 0
-	if err := validateConfig(config); err == nil {
-		t.Fatal("invalid ingestion concurrency accepted")
 	}
 }
 
@@ -212,9 +198,6 @@ func TestConfigDefaultsTimezoneForMinimalConfig(t *testing.T) {
 	if got.OutputLanguage != defaultOutputLanguage {
 		t.Fatalf("output language = %q, want %q", got.OutputLanguage, defaultOutputLanguage)
 	}
-	if got.WorkspaceUIHost != "" || got.WorkspaceUIPort != defaultWorkspaceUIPort {
-		t.Fatalf("workspace UI = %q:%d, want disabled with default port", got.WorkspaceUIHost, got.WorkspaceUIPort)
-	}
 }
 
 func TestConfigRejectsInvalidOutputLanguage(t *testing.T) {
@@ -234,134 +217,9 @@ func TestConfigRejectsInvalidOutputLanguage(t *testing.T) {
 	}
 }
 
-func TestConfigRejectsLegacyWorkspaceUI(t *testing.T) {
-	for _, data := range []string{
-		"[openlia]\nschema = 2\nworkspace-ui = true\n",
-		"[openlia]\nschema = 2\nworkspace-ui-host = \"127.0.0.1:8089\"\n",
-	} {
-		if _, err := parseConfig(data); err == nil {
-			t.Fatalf("legacy Workspace UI setting was accepted: %s", data)
-		}
-	}
-}
-
-func TestConfigRejectsInvalidWorkspaceUIHost(t *testing.T) {
-	for _, host := range []string{"localhost", "192.168.1.10", "127.0.0.2"} {
-		config := defaultConfig()
-		config.WorkspaceUIHost = host
-		if err := validateConfig(config); err == nil {
-			t.Fatalf("workspace UI host %q was accepted", host)
-		}
-	}
-	for _, port := range []int{0, 65536} {
-		config := defaultConfig()
-		config.WorkspaceUIHost = "127.0.0.1"
-		config.WorkspaceUIPort = port
-		if err := validateConfig(config); err == nil {
-			t.Fatalf("workspace UI port %d was accepted", port)
-		}
-	}
-}
-
-func TestConfigRejectsInvalidWorkspaceUIPublicOrigin(t *testing.T) {
-	for _, origin := range []string{
-		"workspace.example.test",
-		"ftp://workspace.example.test",
-		"https://user:pass@workspace.example.test",
-		"https://workspace.example.test/path",
-		"https://workspace.example.test?token=secret",
-	} {
-		config := defaultConfig()
-		config.WorkspaceUIPublicOrigin = origin
-		if err := validateConfig(config); err == nil {
-			t.Fatalf("workspace UI public origin %q was accepted", origin)
-		}
-	}
-}
-
-func TestPublicWorkspaceUIRequiresSupportedPasswordHash(t *testing.T) {
-	config := defaultConfig()
-	config.WorkspaceUIHost = "0.0.0.0"
-	if err := validateConfig(config); err == nil {
-		t.Fatal("public workspace UI without a password hash was accepted")
-	}
-	hash, err := hashWorkspaceUIPassword("correct horse battery staple")
-	if err != nil {
-		t.Fatal(err)
-	}
-	config.WorkspaceUIPasswordHash = hash
-	if err := validateConfig(config); err != nil {
-		t.Fatalf("generated password hash was rejected: %v", err)
-	}
-	parsed, err := parseConfig(renderConfig(config))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if parsed.WorkspaceUIPasswordHash != hash {
-		t.Fatalf("password hash did not round trip")
-	}
-	for _, invalid := range []string{"plain", "$argon2id$v=19$m=1024,t=1,p=1$YWJj$YWJj"} {
-		config.WorkspaceUIPasswordHash = invalid
-		if err := validateConfig(config); err == nil {
-			t.Fatalf("invalid password hash %q was accepted", invalid)
-		}
-	}
-}
-
-func TestPublicWorkspaceUISupportsFirebaseAuth(t *testing.T) {
-	config := defaultConfig()
-	config.WorkspaceUIHost = "0.0.0.0"
-	config.WorkspaceUIAllowedEmails = []string{"alice@example.com", "bob@example.com"}
-	config.WorkspaceUIFirebaseProjectID = "demo-project"
-	config.WorkspaceUIFirebaseAPIKey = "AIzaSyFakeKey123"
-	config.WorkspaceUIFirebaseAuthDomain = "demo-project.firebaseapp.com"
-	config.WorkspaceUIFirebaseAppID = "1:12345:web:67890"
-
-	if err := validateConfig(config); err != nil {
-		t.Fatalf("valid Firebase config was rejected: %v", err)
-	}
-
-	rendered := renderConfig(config)
-	parsed, err := parseConfig(rendered)
-	if err != nil {
-		t.Fatalf("parse rendered config failed: %v", err)
-	}
-	if len(parsed.WorkspaceUIAllowedEmails) != 2 ||
-		parsed.WorkspaceUIAllowedEmails[0] != "alice@example.com" ||
-		parsed.WorkspaceUIAllowedEmails[1] != "bob@example.com" ||
-		parsed.WorkspaceUIFirebaseProjectID != "demo-project" ||
-		parsed.WorkspaceUIFirebaseAPIKey != "AIzaSyFakeKey123" ||
-		parsed.WorkspaceUIFirebaseAuthDomain != "demo-project.firebaseapp.com" ||
-		parsed.WorkspaceUIFirebaseAppID != "1:12345:web:67890" {
-		t.Fatalf("Firebase config did not round trip properly: %+v", parsed)
-	}
-
-	// Missing required fields
-	invalidConfigs := []func(*Config){
-		func(c *Config) { c.WorkspaceUIAllowedEmails = []string{"invalid-email"} },
-		func(c *Config) { c.WorkspaceUIAllowedEmails = []string{} },
-		func(c *Config) { c.WorkspaceUIFirebaseProjectID = "" },
-		func(c *Config) { c.WorkspaceUIFirebaseAPIKey = "" },
-		func(c *Config) { c.WorkspaceUIFirebaseAuthDomain = "" },
-	}
-	for i, modify := range invalidConfigs {
-		bad := config
-		modify(&bad)
-		if err := validateConfig(bad); err == nil {
-			t.Fatalf("invalid Firebase config case %d was unexpectedly accepted", i)
-		}
-	}
-}
-
-func TestLochoHostConfigRoundTripRequiresProtectedLocalUIs(t *testing.T) {
+func TestLochoHostConfigRoundTrip(t *testing.T) {
 	config := defaultConfig()
 	config.LochoHostEnabled = true
-	config.WorkspaceUIHost = "127.0.0.1"
-	hash, err := hashWorkspaceUIPassword("correct horse battery staple")
-	if err != nil {
-		t.Fatal(err)
-	}
-	config.WorkspaceUIPasswordHash = hash
 	if err := validateConfig(config); err != nil {
 		t.Fatalf("valid Locho host config was rejected: %v", err)
 	}
@@ -369,19 +227,8 @@ func TestLochoHostConfigRoundTripRequiresProtectedLocalUIs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !parsed.LochoHostEnabled || parsed.WorkspaceUIHost != "127.0.0.1" || parsed.WorkspaceUIPasswordHash != hash || parsed.LochoX8664SHA256 != config.LochoX8664SHA256 || parsed.LochoARM64SHA256 != config.LochoARM64SHA256 {
+	if !parsed.LochoHostEnabled || parsed.LochoX8664SHA256 != config.LochoX8664SHA256 || parsed.LochoARM64SHA256 != config.LochoARM64SHA256 {
 		t.Fatalf("Locho host config did not round trip: %#v", parsed)
-	}
-
-	for _, edit := range []func(*Config){
-		func(candidate *Config) { candidate.WorkspaceUIHost = "0.0.0.0" },
-		func(candidate *Config) { candidate.WorkspaceUIPasswordHash = "" },
-	} {
-		candidate := config
-		edit(&candidate)
-		if err := validateConfig(candidate); err == nil {
-			t.Fatal("invalid Locho host config was accepted")
-		}
 	}
 }
 
@@ -437,32 +284,8 @@ func TestMissingConfigReturnsDefaultAndSentinel(t *testing.T) {
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("error = %v, want not-exist", err)
 	}
-	if got.Version != defaultVersion || len(got.EnabledSkills) != len(defaultSkills) {
+	if got.Version != defaultVersion {
 		t.Fatalf("unexpected default config: %#v", got)
-	}
-}
-
-func TestDefaultSkillsAreInheritedWhenNotConfigured(t *testing.T) {
-	config, err := parseConfig("[openlia]\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if config.SkillsConfigured {
-		t.Fatal("skills should be inherited when skills.enabled is absent")
-	}
-	if !contains(config.EnabledSkills, "document-intelligence") {
-		t.Fatal("document-intelligence is missing from default skills")
-	}
-	if rendered := renderConfig(config); strings.Contains(rendered, "[skills]") {
-		t.Fatalf("inherited skills should not be serialized: %s", rendered)
-	}
-}
-
-func TestDefaultSkillsExcludeRetiredBrowserAutomation(t *testing.T) {
-	for _, name := range []string{"browser-pilot", "chatgpt-chat", "gemini-chat"} {
-		if contains(defaultSkills, name) {
-			t.Fatalf("retired skill %q remains in default skills", name)
-		}
 	}
 }
 
@@ -496,20 +319,15 @@ func TestConfigRejectsRelativeSecretSource(t *testing.T) {
 	}
 }
 
-func TestWorkspaceGitAcceptsLocalHistoryWithoutRemote(t *testing.T) {
-	config := defaultConfig()
-	if err := validateConfig(config); err != nil {
-		t.Fatalf("local workspace Git config was rejected: %v", err)
-	}
-}
-
-func TestConfigRejectsRetiredRemoteGitSettings(t *testing.T) {
+func TestConfigRejectsRetiredSettings(t *testing.T) {
 	for _, text := range []string{
-		"[openlia]\nschema = 2\n\n[workspace_git]\nremote = \"https://github.com/example/workspace.git\"\n",
-		"[openlia]\nschema = 2\n\n[[skill_sources]]\nname = \"team\"\nrepository = \"https://github.com/example/skills\"\nbranch = \"main\"\n",
+		"[openlia]\nschema = 2\n\n[workspace-ui]\nhost = \"127.0.0.1\"\n",
+		"[openlia]\nschema = 2\n\n[workspace_git]\nenabled = true\n",
+		"[openlia]\nschema = 2\n\n[templates]\nrepo = \"openlia/minions\"\n",
+		"[openlia]\nschema = 2\n\n[skills]\nenabled = [\"calendar\"]\n",
 	} {
 		if _, err := parseConfig(text); err == nil {
-			t.Fatalf("retired remote Git config was accepted:\n%s", text)
+			t.Fatalf("retired config was accepted:\n%s", text)
 		}
 	}
 }
@@ -664,40 +482,11 @@ func TestDevelopmentOverridesAllowExperimentalComponentPins(t *testing.T) {
 	}
 }
 
-func TestWorkspaceGitConfigValidation(t *testing.T) {
-	config := defaultConfig()
-	config.WorkspaceGitSchedule = "invalid-cron"
-	if err := validateConfig(config); err == nil {
-		t.Fatal("expected error on invalid workspace_git.schedule, got nil")
-	}
-
-	config.WorkspaceGitSchedule = "30 4 * * *"
-	if err := validateConfig(config); err != nil {
-		t.Fatalf("valid workspace_git.schedule rejected: %v", err)
-	}
-}
-
-func TestWorkspaceGitConfigDefaults(t *testing.T) {
-	config := defaultConfig()
-	if config.WorkspaceGitSchedule != "0 4 * * *" {
-		t.Fatalf("default schedule = %q, want '0 4 * * *'", config.WorkspaceGitSchedule)
-	}
-	if !config.WorkspaceGitEnabled {
-		t.Fatal("default enabled should be true")
-	}
-	rendered := renderConfig(config)
-	if !strings.Contains(rendered, "[workspace_git]\nenabled = true\nschedule = \"0 4 * * *\"\n") {
-		t.Fatalf("rendered config missing [workspace_git]:\n%s", rendered)
-	}
-}
-
 func TestLochoHostStateDirConfigRoundTripAndValidation(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "locho-host")
 	config := defaultConfig()
 	config.LochoHostEnabled = true
 	config.LochoHostStateDir = stateDir
-	config.WorkspaceUIHost = "127.0.0.1"
-	config.WorkspaceUIPasswordHash = "$argon2id$v=19$m=65536,t=3,p=1$eIwxVdNwGiP5tSdLEaAU3g$KeDL6pxY8F3jC/rifCbGti4bQDFzPjE6lI0uHhKQ6e8"
 
 	rendered := renderConfig(config)
 	if !strings.Contains(rendered, "state_dir = ") {
@@ -714,5 +503,46 @@ func TestLochoHostStateDirConfigRoundTripAndValidation(t *testing.T) {
 	config.LochoHostStateDir = "relative/path"
 	if err := validateConfig(config); err == nil {
 		t.Fatal("expected error for relative locho-host.state_dir")
+	}
+}
+
+func TestCustomInitConfigParsesAndRendersDocs(t *testing.T) {
+	dir := t.TempDir()
+	agentsFile := filepath.Join(dir, "custom-agents.md")
+	if err := os.WriteFile(agentsFile, []byte("# Custom Agents\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	initTOML := `
+[soul.md]
+append = """
+## Custom Tone
+Always reply concisely.
+"""
+
+[agents.md]
+file = "custom-agents.md"
+append = "Follow repo rules."
+`
+	cfg, err := parseCustomInitConfig(initTOML, dir)
+	if err != nil {
+		t.Fatalf("parseCustomInitConfig failed: %v", err)
+	}
+	assets := fstest.MapFS{
+		"profile/SOUL.md":   &fstest.MapFile{Data: []byte("# Base Soul\n")},
+		"profile/AGENTS.md": &fstest.MapFile{Data: []byte("# Base Agents\n")},
+	}
+	soulBytes, ok, err := renderCustomDoc(assets, "profile/SOUL.md", cfg.SoulMD)
+	if err != nil || !ok {
+		t.Fatalf("renderCustomDoc SOUL.md failed: ok=%v err=%v", ok, err)
+	}
+	if !strings.Contains(string(soulBytes), "# Base Soul") || !strings.Contains(string(soulBytes), "Always reply concisely.") {
+		t.Fatalf("rendered SOUL.md = %q", soulBytes)
+	}
+	agentsBytes, ok, err := renderCustomDoc(assets, "profile/AGENTS.md", cfg.AgentsMD)
+	if err != nil || !ok {
+		t.Fatalf("renderCustomDoc AGENTS.md failed: ok=%v err=%v", ok, err)
+	}
+	if !strings.Contains(string(agentsBytes), "# Custom Agents") || !strings.Contains(string(agentsBytes), "Follow repo rules.") {
+		t.Fatalf("rendered AGENTS.md = %q", agentsBytes)
 	}
 }

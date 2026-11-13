@@ -10,53 +10,54 @@ import (
 )
 
 type lochoShareRunner struct {
-	calls         []string
-	workspaceHost string
+	calls  []string
+	hostID string
 }
 
 func (r *lochoShareRunner) Run(_ context.Context, name string, args ...string) (CommandResult, error) {
 	call := strings.Join(append([]string{name}, args...), " ")
 	r.calls = append(r.calls, call)
-	workspaceHost := r.workspaceHost
-	if workspaceHost == "" {
-		workspaceHost = "test-host"
+	hostID := r.hostID
+	if hostID == "" {
+		hostID = "test-host"
 	}
 	switch {
 	case strings.Contains(call, "config --services"):
 		return CommandResult{Stdout: []byte("locho-host\n")}, nil
 	case strings.Contains(call, "ps --services --filter status=running"):
 		return CommandResult{Stdout: []byte("locho-host\n")}, nil
-	case strings.Contains(call, "share workspace-ui"):
-		return CommandResult{Stdout: []byte("locho attach " + workspaceHost + " workspace-ui:tcp:workspace-secret\n")}, nil
+	case strings.Contains(call, "share hermes-api"):
+		return CommandResult{Stdout: []byte("locho attach " + hostID + " hermes-api:tcp:api-secret\n")}, nil
+	case strings.Contains(call, "share hermes-dashboard"):
+		return CommandResult{Stdout: []byte("locho attach " + hostID + " hermes-dashboard:tcp:dashboard-secret\n")}, nil
 	default:
 		return CommandResult{}, nil
 	}
 }
 
-func TestShareLochoHostBuildsWorkspaceUIAttachmentConfig(t *testing.T) {
+func TestShareLochoHostBuildsHermesAttachmentConfig(t *testing.T) {
 	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
 	config.LochoHostEnabled = true
 	config.LochoHostRoot = filepath.Join(config.RuntimeRoot, "locho-host")
 	config.LochoHostConfig = filepath.Join(config.LochoHostRoot, "locho.toml")
 	config.LochoHostStateRoot = filepath.Join(config.LochoHostRoot, "state")
 	config.LochoRelayConfig = filepath.Join(config.RuntimeRoot, "locho", "relay.toml")
-	config.WorkspaceUIHost = "127.0.0.1"
-	config.WorkspaceUIAuthRequired = true
-	config.WorkspaceUIPasswordHashFile = filepath.Join(config.RuntimeRoot, "secrets", "workspace-ui-password.hash")
 
 	runner := &lochoShareRunner{}
 	result, err := ShareLochoHost(context.Background(), config, NewCompose(config, runner))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.HostID != "test-host" || len(result.Services) != 1 || result.Services[0] != "workspace-ui" {
+	if result.HostID != "test-host" || len(result.Services) != 2 || result.Services[0] != "hermes-api" || result.Services[1] != "hermes-dashboard" {
 		t.Fatalf("unexpected share result: %+v", result)
 	}
 	for _, expected := range []string{
 		"host_id = \"test-host\"",
 		"listen_host = \"127.0.0.1\"",
-		"capability = \"workspace-ui:tcp:workspace-secret\"",
-		"listen_port = 8089",
+		"capability = \"hermes-api:tcp:api-secret\"",
+		"listen_port = 8642",
+		"capability = \"hermes-dashboard:tcp:dashboard-secret\"",
+		"listen_port = 9119",
 	} {
 		if !strings.Contains(result.AttachmentConfig, expected) {
 			t.Fatalf("attachment config missing %q:\n%s", expected, result.AttachmentConfig)
@@ -71,7 +72,7 @@ func TestShareLochoHostBuildsWorkspaceUIAttachmentConfig(t *testing.T) {
 }
 
 func TestParseLochoShareOutputRejectsWrongService(t *testing.T) {
-	if _, _, err := parseLochoShareOutput("locho attach host other-service:tcp:secret", "workspace-ui"); err == nil {
+	if _, _, err := parseLochoShareOutput("locho attach host other-service:tcp:secret", "hermes-api"); err == nil {
 		t.Fatal("wrong service capability was accepted")
 	}
 }
@@ -113,5 +114,46 @@ func TestEnsureLochoHostStateFilesSecuresPermissionsAndRejectsSymlinks(t *testin
 	}
 	if err := ensureLochoHostStateFiles(stateRoot, os.Getuid(), os.Getgid()); err == nil {
 		t.Fatal("expected symlink host.key to be rejected")
+	}
+}
+
+func TestEnsureAPIServerEnvForwardsOIDCWithoutFallbackBasicAuth(t *testing.T) {
+	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
+	config.LochoHostEnabled = true
+	if err := os.MkdirAll(config.SecretDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	secretContent := strings.Join([]string{
+		"API_SERVER_KEY=sk-openlia-0123456789abcdef0123456789abcdef",
+		"HERMES_DASHBOARD_OIDC_ISSUER=https://accounts.google.com",
+		"HERMES_DASHBOARD_OIDC_CLIENT_ID=12345-abc.apps.googleusercontent.com",
+		"HERMES_DASHBOARD_OIDC_CLIENT_SECRET=GOCSPX-secretvalue",
+		"HERMES_DASHBOARD_PUBLIC_URL=http://127.0.0.1:9119",
+	}, "\n") + "\n"
+	if err := os.WriteFile(config.SecretFile, []byte(secretContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	apiEnvPath := filepath.Join(config.SecretDir, "api-server.env")
+	if err := ensureAPIServerEnv(config, apiEnvPath); err != nil {
+		t.Fatalf("ensureAPIServerEnv failed: %v", err)
+	}
+	raw, err := os.ReadFile(apiEnvPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, want := range []string{
+		"API_SERVER_KEY=sk-openlia-0123456789abcdef0123456789abcdef",
+		"HERMES_DASHBOARD_OIDC_ISSUER=https://accounts.google.com",
+		"HERMES_DASHBOARD_OIDC_CLIENT_ID=12345-abc.apps.googleusercontent.com",
+		"HERMES_DASHBOARD_OIDC_CLIENT_SECRET=GOCSPX-secretvalue",
+		"HERMES_DASHBOARD_PUBLIC_URL=http://127.0.0.1:9119",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("api-server.env missing %q, got:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "HERMES_DASHBOARD_BASIC_AUTH_") {
+		t.Fatalf("expected no fallback BASIC_AUTH when OIDC is configured, got:\n%s", text)
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/term"
 	"openlia/operator"
 )
 
@@ -21,6 +22,17 @@ func Run(args []string, assets fs.FS) int {
 	options, remaining, err := splitCommonFlags(args)
 	if err != nil {
 		return fail(options, ExitUsage, err.Error(), nil)
+	}
+	if options.ConfigPath != "" {
+		prevConfig, hadPrev := os.LookupEnv("OPENLIA_CONFIG")
+		_ = os.Setenv("OPENLIA_CONFIG", expandTilde(options.ConfigPath))
+		defer func() {
+			if hadPrev {
+				_ = os.Setenv("OPENLIA_CONFIG", prevConfig)
+			} else {
+				_ = os.Unsetenv("OPENLIA_CONFIG")
+			}
+		}()
 	}
 	if len(remaining) == 0 {
 		usage(os.Stdout)
@@ -39,42 +51,24 @@ func Run(args []string, assets fs.FS) int {
 	}
 
 	switch remaining[0] {
-	case "init":
-		return commandInit(options, remaining[1:], assets)
+	case "auth":
+		return commandAuth(options, remaining[1:])
 	case "status":
 		return commandHealth(options, remaining[1:], false)
-	case "doctor":
-		return commandHealth(options, remaining[1:], true)
 	case "deploy", "start", "stop", "restart":
 		return commandLifecycle(options, remaining[0], remaining[1:], assets)
 	case "uninstall":
 		return commandUninstall(options, remaining[1:])
 	case "logs":
 		return commandLogs(options, remaining[1:])
-	case "update":
-		return commandUpdate(options, remaining[1:], assets)
-	case "skills":
-		return commandSkills(options, remaining[1:], assets)
-	case "features", "feature":
-		return commandFeatures(options, remaining[1:], assets)
-	case "auth":
-		return commandAuth(options, remaining[1:])
 	case "attachments":
 		return commandAttachments(options, remaining[1:])
 	case "backup":
 		return commandBackup(options, remaining[1:])
-	case "workspace":
-		return commandWorkspace(options, remaining[1:], assets)
-	case "instructions":
-		return commandInstructions(options, remaining[1:])
-	case "workspace-ui":
-		return commandWorkspaceUI(options, remaining[1:])
 	case "locho-host":
 		return commandLochoHost(options, remaining[1:])
 	case "browser":
 		return commandOpenLiaBrowser(options, remaining[1:], assets)
-	case "telegram":
-		return commandTelegram(options, remaining[1:])
 	default:
 		return fail(options, ExitUsage, fmt.Sprintf("unknown command %q", remaining[0]), map[string]any{"hint": "run openlia --help"})
 	}
@@ -83,19 +77,32 @@ func Run(args []string, assets fs.FS) int {
 func splitCommonFlags(args []string) (Options, []string, error) {
 	options := Options{}
 	remaining := make([]string, 0, len(args))
-	for _, arg := range args {
-		switch arg {
-		case "--json":
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--json":
 			options.JSON = true
-		case "--non-interactive":
+		case arg == "--non-interactive":
 			options.NonInteractive = true
-		case "--release":
+		case arg == "--release":
 			options.Release = true
-		case "--follow":
+		case arg == "--follow":
 			options.Follow = true
-		case "--check-providers":
+		case arg == "--check-providers":
 			options.ProviderCheck = true
-		case "--help", "-h":
+		case arg == "--config" || arg == "-config":
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
+				return options, nil, errors.New("missing value for --config")
+			}
+			i++
+			options.ConfigPath = strings.TrimSpace(args[i])
+		case strings.HasPrefix(arg, "--config="):
+			val := strings.TrimSpace(strings.TrimPrefix(arg, "--config="))
+			if val == "" {
+				return options, nil, errors.New("missing value for --config")
+			}
+			options.ConfigPath = val
+		case arg == "--help" || arg == "-h":
 			if len(remaining) == 0 {
 				remaining = append(remaining, "help")
 			} else {
@@ -129,225 +136,9 @@ func configOrError(options Options) (Config, int) {
 		return config, ExitOK
 	}
 	if errors.Is(err, os.ErrNotExist) {
-		return Config{}, fail(options, ExitPrereq, "OpenLia is not initialized; run `openlia init --local` or `openlia init --target user@host`", map[string]any{"config": configPath()})
+		return Config{}, fail(options, ExitPrereq, fmt.Sprintf("OpenLia configuration not found at %s; create config.toml or specify path with --config", configPath()), map[string]any{"config": configPath()})
 	}
 	return Config{}, fail(options, ExitFailure, err.Error(), nil)
-}
-
-func commandInit(options Options, args []string, assets fs.FS) int {
-	set := newFlagSet("init")
-	local := set.Bool("local", false, "run Hermes Agent on this machine")
-	target := set.String("target", "", "install and control Hermes Agent on this SSH target")
-	root := set.String("root", "", "OpenLia installation root on the selected agent machine")
-	project := set.String("project", "", "Compose project name")
-	timezone := set.String("timezone", "", "IANA timezone for the Hermes agent")
-	model := set.String("model", "", "Hermes model identifier")
-	provider := set.String("provider", "", "Hermes provider identifier")
-	externalNetwork := set.String("external-network", "", "Existing Docker network for internal services")
-	apiEnabled := set.Bool("api", false, "enable the private API listener")
-	apiHost := set.String("api-host", "", "API bind address when --api is enabled")
-	lochoHost := set.Bool("locho-host", false, "enable a Locho host for Workspace UI Chat and Editor")
-	if err := set.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return ExitOK
-		}
-		return ExitUsage
-	}
-	if set.NArg() != 0 {
-		return fail(options, ExitUsage, "init does not accept positional arguments", nil)
-	}
-	config := defaultConfig()
-	previousMode := config.Mode
-	if existing, err := loadConfig(); err == nil {
-		config = existing
-		previousMode = existing.Mode
-	}
-	if *local && *target != "" {
-		return fail(options, ExitUsage, "--local and --target are mutually exclusive", nil)
-	}
-	if *local {
-		config.Mode = "local"
-		config.Target = ""
-	} else if *target != "" {
-		config.Mode = "ssh"
-		config.Target = *target
-	}
-	if config.Target == "" && config.Mode != "local" {
-		return fail(options, ExitUsage, "--local or --target is required on first initialization", nil)
-	}
-	if *root != "" {
-		config.InstallRoot = *root
-	} else if config.Mode != previousMode {
-		if config.Mode == "local" {
-			config.InstallRoot = defaultLocalInstallRoot()
-		} else {
-			config.InstallRoot = defaultRemoteRoot
-		}
-	}
-	if *project != "" {
-		config.Project = *project
-	}
-	if *timezone != "" {
-		config.Timezone = *timezone
-	}
-	if *model != "" {
-		config.Model = *model
-	}
-	if *provider != "" {
-		config.Provider = *provider
-	}
-	if *externalNetwork != "" {
-		config.ExternalNetwork = *externalNetwork
-	}
-	if hasArgument(args, "--api") {
-		config.APIEnabled = *apiEnabled
-	}
-	if *apiHost != "" {
-		config.APIHost = *apiHost
-	}
-	if hasArgument(args, "--locho-host") {
-		config.LochoHostEnabled = *lochoHost
-		if *lochoHost {
-			config.WorkspaceUIHost = "127.0.0.1"
-		}
-	}
-	sourcePath := config.SecretSource
-	if sourcePath != "" {
-		if err := validateProtectedSourcePath(sourcePath, "secret source"); err != nil {
-			return fail(options, ExitUsage, err.Error(), nil)
-		}
-	}
-	for path, label := range map[string]string{
-		config.LochoRelayConfigSource:  "Locho relay configuration",
-		config.LochoRelaySecretsSource: "Locho relay secrets",
-	} {
-		if path != "" {
-			if err := validateProtectedSourcePath(path, label); err != nil {
-				return fail(options, ExitUsage, err.Error(), nil)
-			}
-		}
-	}
-	if config.LochoHostEnabled && config.WorkspaceUIPasswordHash == "" && config.WorkspaceUIFirebaseProjectID == "" {
-		if options.NonInteractive {
-			return fail(options, ExitUsage, "--locho-host requires an interactive Workspace UI password setup", nil)
-		}
-		first, err := readWorkspaceUIPassword("New workspace-ui password: ")
-		if err != nil {
-			return fail(options, ExitUsage, err.Error(), nil)
-		}
-		second, err := readWorkspaceUIPassword("Repeat workspace-ui password: ")
-		if err != nil {
-			return fail(options, ExitUsage, err.Error(), nil)
-		}
-		if first != second {
-			return fail(options, ExitUsage, "workspace-ui passwords do not match", nil)
-		}
-		config.WorkspaceUIPasswordHash, err = hashWorkspaceUIPassword(first)
-		if err != nil {
-			return fail(options, ExitUsage, err.Error(), nil)
-		}
-	}
-	if err := validateConfig(config); err != nil {
-		return fail(options, ExitUsage, err.Error(), nil)
-	}
-	if !targetOperatorAssetsAvailable() {
-		return fail(options, ExitPrereq, "deployment requires Linux operator artifacts for the backup scheduler; run `make build` first", nil)
-	}
-	if err := ensureBackupIdentity(&config); err != nil {
-		return fail(options, ExitFailure, "backup encryption key setup failed: "+err.Error(), nil)
-	}
-	if err := validateConfig(config); err != nil {
-		return fail(options, ExitUsage, err.Error(), nil)
-	}
-
-	archive, digest, err := releaseArchive(assets)
-	if err != nil {
-		return fail(options, ExitInternal, err.Error(), nil)
-	}
-	deployment := newDeployment(config)
-	ctx, cancel := remoteContext()
-	defer cancel()
-	if workspaceUIPasswordRequired(config) {
-		if err := provisionWorkspaceUIPassword(ctx, deployment, config); err != nil {
-			return fail(options, ExitFailure, "workspace-ui password provisioning failed: "+err.Error(), nil)
-		}
-	}
-	if sourcePath != "" {
-		if err := deployment.uploadFile(ctx, sourcePath, deployment.rootPath("runtime", "secrets", "hermes.env"), 0o600); err != nil {
-			return fail(options, ExitFailure, "could not stage secret source: "+err.Error(), nil)
-		}
-	}
-	if err := ensureLochoHostState(ctx, deployment, &config); err != nil {
-		return fail(options, ExitFailure, "locho-host state setup failed: "+err.Error(), nil)
-	}
-	if err := syncLochoSources(ctx, deployment, config); err != nil {
-		return fail(options, ExitFailure, "could not stage Locho relay configuration: "+err.Error(), nil)
-	}
-	for _, host := range config.Services {
-		if host.Source != "" && host.Name != "" {
-			if err := validateProtectedSourcePath(host.Source, "attachment source"); err != nil {
-				return fail(options, ExitUsage, err.Error(), nil)
-			}
-			target := deployment.rootPath("runtime", "locho", host.Name, "attachments.toml")
-			if err := deployment.uploadFile(ctx, host.Source, target, 0o600); err != nil {
-				return fail(options, ExitFailure, "could not stage attachment source: "+err.Error(), nil)
-			}
-		}
-	}
-	if err := deployment.uploadRelease(ctx, archive, digest); err != nil {
-		return fail(options, ExitPrereq, err.Error(), nil)
-	}
-	if err := deployment.activateRelease(ctx); err != nil {
-		return fail(options, ExitFailure, err.Error(), nil)
-	}
-	if _, err := deployment.bootstrap(ctx); err != nil {
-		return fail(options, ExitFailure, err.Error(), nil)
-	}
-	if err := syncBackupWriterCredentials(ctx, deployment, config); err != nil {
-		return fail(options, ExitFailure, "could not stage backup writer credentials: "+err.Error(), nil)
-	}
-	// Generate the Compose sidecar file before the full deploy so Hermes starts
-	// with the correct Locho gateway endpoint.
-	if _, err := deployment.operation(ctx, "attachments", nil, "generate", "--json"); err != nil {
-		return fail(options, ExitFailure, "attachment Compose generation failed: "+err.Error(), nil)
-	}
-	// Synchronize the templates catalog before deployment so Workspace UI mounts
-	// a populated /templates-cache from its first start.
-	if _, err := deployment.operation(ctx, "features", nil, "sync", "--json"); err != nil {
-		return fail(options, ExitFailure, "templates catalog sync failed: "+err.Error(), nil)
-	}
-	if _, err := deployment.deploy(ctx, "deploy", true, "all"); err != nil {
-		return fail(options, ExitFailure, err.Error(), nil)
-	}
-
-	if _, err := deployment.workspaceGit(ctx, "setup"); err != nil {
-		return fail(options, ExitFailure, "workspace Git setup failed: "+err.Error(), nil)
-	}
-	if err := saveConfig(config); err != nil {
-		return fail(options, ExitInternal, "deployment succeeded but operator config could not be saved: "+err.Error(), nil)
-	}
-	scheduleAction := "schedule-install"
-	if !config.BackupScheduleEnabled {
-		scheduleAction = "schedule-remove"
-	}
-	if _, err := deployment.operation(ctx, "backup", nil, scheduleAction, "--json"); err != nil {
-		return fail(options, ExitFailure, "deployment succeeded but backup schedule setup failed: "+err.Error(), map[string]any{"root": config.InstallRoot, "schedule": config.BackupSchedule})
-	}
-	return writeResult(options, map[string]any{
-		"schema":               1,
-		"ok":                   true,
-		"action":               "init",
-		"mode":                 config.Mode,
-		"target":               config.Target,
-		"root":                 config.InstallRoot,
-		"release":              config.Version,
-		"release_sha256":       digest,
-		"workspace":            "initialized_only_when_empty",
-		"workspace_git":        true,
-		"backup_identity_file": config.BackupIdentityFile,
-		"backup_recipient":     config.BackupRecipient,
-		"backup_schedule":      config.BackupSchedule,
-	}, fmt.Sprintf("openlia init: deployed %s in %s mode at %s; encrypted backups enabled; schedule enabled=%t cron=%q timezone=%s; workspace preserved when non-empty", config.Version, config.Mode, config.InstallRoot, config.BackupScheduleEnabled, config.BackupSchedule, config.Timezone))
 }
 
 func commandHealth(options Options, args []string, strict bool) int {
@@ -441,11 +232,51 @@ func commandLifecycle(options Options, action string, args []string, assets fs.F
 	if code != ExitOK {
 		return code
 	}
+	if action == "deploy" {
+		if config.SecretSource != "" {
+			if err := validateProtectedSourcePath(config.SecretSource, "secret source"); err != nil {
+				return fail(options, ExitUsage, err.Error(), nil)
+			}
+		}
+		for path, label := range map[string]string{
+			config.LochoRelayConfigSource:  "Locho relay configuration",
+			config.LochoRelaySecretsSource: "Locho relay secrets",
+		} {
+			if path != "" {
+				if err := validateProtectedSourcePath(path, label); err != nil {
+					return fail(options, ExitUsage, err.Error(), nil)
+				}
+			}
+		}
+		for _, host := range config.Services {
+			if host.Source != "" && host.Name != "" {
+				if err := validateProtectedSourcePath(host.Source, "attachment source"); err != nil {
+					return fail(options, ExitUsage, err.Error(), nil)
+				}
+			}
+		}
+		origRecipient := config.BackupRecipient
+		origIdentityFile := config.BackupIdentityFile
+		if err := ensureBackupIdentity(&config); err != nil {
+			return fail(options, ExitFailure, "backup encryption key setup failed: "+err.Error(), nil)
+		}
+		if config.BackupRecipient != origRecipient || config.BackupIdentityFile != origIdentityFile {
+			if err := saveConfig(config); err != nil {
+				return fail(options, ExitInternal, "could not save operator config: "+err.Error(), nil)
+			}
+		}
+		if err := validateConfig(config); err != nil {
+			return fail(options, ExitUsage, err.Error(), nil)
+		}
+	}
+
 	ctx, cancel := remoteContext()
 	defer cancel()
 	deployment := newDeployment(config)
 	var bundled releaseIdentity
 	var installedBefore string
+	var shouldPublish bool
+
 	if action == "deploy" {
 		if assets == nil {
 			return fail(options, ExitInternal, "deploy requires bundled release assets", nil)
@@ -456,38 +287,34 @@ func commandLifecycle(options Options, action string, args []string, assets fs.F
 		}
 		bundled = identity
 		installedBefore, _ = deployment.releaseDigest(ctx)
-		if !options.Release && installedBefore != "" && installedBefore != bundled.SHA256 {
+		isInitialBootstrap := installedBefore == ""
+		shouldPublish = options.Release || isInitialBootstrap
+
+		if !shouldPublish && installedBefore != "" && installedBefore != bundled.SHA256 {
 			fmt.Fprintf(os.Stderr, "openlia deploy: local release %s differs from installed release %s; applying configuration only. Use openlia deploy --release to publish it.\n", bundled.SHA256, installedBefore)
 		}
-	}
-	if options.Release {
-		if !targetOperatorAssetsAvailable() {
-			return fail(options, ExitPrereq, "OpenLia release deployment requires Linux operator artifacts; run `make build` first", nil)
+
+		if shouldPublish {
+			if !targetOperatorAssetsAvailable() {
+				return fail(options, ExitPrereq, "OpenLia release deployment requires Linux operator artifacts; run `make build` first", nil)
+			}
+			if _, err := publishOpenLiaRelease(ctx, deployment, assets); err != nil {
+				return fail(options, ExitFailure, "release publication failed: "+err.Error(), nil)
+			}
 		}
-		if _, err := publishOpenLiaRelease(ctx, deployment, assets); err != nil {
-			return fail(options, ExitFailure, "release publication failed: "+err.Error(), nil)
+
+		origLochoStateDir := config.LochoHostStateDir
+		if err := ensureLochoHostState(ctx, deployment, &config); err != nil {
+			return fail(options, ExitFailure, "locho-host state setup failed: "+err.Error(), nil)
 		}
-		if err := syncLochoSources(ctx, deployment, config); err != nil {
-			return fail(options, ExitFailure, "could not stage Locho relay configuration: "+err.Error(), nil)
+		if config.LochoHostStateDir != origLochoStateDir {
+			_ = saveConfig(config)
 		}
-		if _, err := deployment.operation(ctx, "attachments", nil, "generate", "--json"); err != nil {
-			return fail(options, ExitFailure, "attachment Compose generation failed: "+err.Error(), nil)
+		if config.SecretSource != "" {
+			if err := syncSecretSource(ctx, deployment, config.SecretSource); err != nil {
+				return fail(options, ExitFailure, "could not stage secret source: "+err.Error(), nil)
+			}
 		}
-		if _, err := deployment.operation(ctx, "deploy", nil, "profile", "--json"); err != nil {
-			return fail(options, ExitFailure, "profile deployment failed: "+err.Error(), nil)
-		}
-	}
-	if action == "deploy" || action == "start" || action == "restart" {
-		if err := syncBackupWriterCredentials(ctx, deployment, config); err != nil {
-			return fail(options, ExitFailure, "could not stage backup writer credentials: "+err.Error(), nil)
-		}
-	}
-	if workspaceUIPasswordRequired(config) {
-		if err := provisionWorkspaceUIPassword(ctx, deployment, config); err != nil {
-			return fail(options, ExitFailure, "workspace-ui password provisioning failed: "+err.Error(), nil)
-		}
-	}
-	if action == "deploy" {
 		if err := syncLochoSources(ctx, deployment, config); err != nil {
 			return fail(options, ExitFailure, "could not stage Locho relay configuration: "+err.Error(), nil)
 		}
@@ -498,6 +325,28 @@ func commandLifecycle(options Options, action string, args []string, assets fs.F
 				}
 			}
 		}
+		if err := syncBackupWriterCredentials(ctx, deployment, config); err != nil {
+			return fail(options, ExitFailure, "could not stage backup writer credentials: "+err.Error(), nil)
+		}
+		if shouldPublish {
+			if _, err := deployment.bootstrap(ctx); err != nil {
+				return fail(options, ExitFailure, "runtime bootstrap failed: "+err.Error(), nil)
+			}
+			if _, err := deployment.operation(ctx, "deploy", nil, "profile", "--json"); err != nil {
+				return fail(options, ExitFailure, "profile deployment failed: "+err.Error(), nil)
+			}
+		}
+		if _, err := deployment.operation(ctx, "attachments", nil, "generate", "--json"); err != nil {
+			return fail(options, ExitFailure, "attachment Compose generation failed: "+err.Error(), nil)
+		}
+	}
+	if action == "start" || action == "restart" {
+		if err := syncBackupWriterCredentials(ctx, deployment, config); err != nil {
+			return fail(options, ExitFailure, "could not stage backup writer credentials: "+err.Error(), nil)
+		}
+		if err := syncLochoSources(ctx, deployment, config); err != nil {
+			return fail(options, ExitFailure, "could not stage Locho relay configuration: "+err.Error(), nil)
+		}
 		if _, err := deployment.operation(ctx, "attachments", nil, "generate", "--json"); err != nil {
 			return fail(options, ExitFailure, "attachment Compose generation failed: "+err.Error(), nil)
 		}
@@ -505,14 +354,6 @@ func commandLifecycle(options Options, action string, args []string, assets fs.F
 	if action == "restart" {
 		if _, err := deployment.operation(ctx, "profile", nil, "sync", "--json"); err != nil {
 			return fail(options, ExitFailure, "profile synchronization failed: "+err.Error(), map[string]any{"action": action})
-		}
-	}
-	if action == "start" || action == "restart" {
-		if err := syncLochoSources(ctx, deployment, config); err != nil {
-			return fail(options, ExitFailure, "could not stage Locho relay configuration: "+err.Error(), nil)
-		}
-		if _, err := deployment.operation(ctx, "attachments", nil, "generate", "--json"); err != nil {
-			return fail(options, ExitFailure, "attachment Compose generation failed: "+err.Error(), nil)
 		}
 	}
 	start := action == "start" || action == "restart"
@@ -529,27 +370,20 @@ func commandLifecycle(options Options, action string, args []string, assets fs.F
 	}
 	if action == "deploy" {
 		if _, err := deployment.operation(ctx, "profile", nil, "sync", "--json"); err != nil {
-			return fail(options, ExitFailure, "workspace Git profile synchronization failed: "+err.Error(), map[string]any{"action": action})
-		}
-	}
-	if (action == "deploy" || start) && deploymentResultIsRunning(raw) {
-		if _, err := deployment.workspaceGit(ctx, "ensure"); err != nil {
-			return fail(options, ExitFailure, "workspace Git reconciliation failed: "+err.Error(), map[string]any{"action": action})
+			return fail(options, ExitFailure, "profile synchronization failed: "+err.Error(), map[string]any{"action": action})
 		}
 	}
 	if action != "deploy" {
 		return renderRemote(options, raw, "openlia "+action+": "+redact(string(raw)))
 	}
 
-	releaseReport, verifyErr := collectDeploymentReleaseReport(ctx, deployment, config, bundled.SHA256, installedBefore, options.Release)
+	releaseReport, verifyErr := collectDeploymentReleaseReport(ctx, deployment, config, bundled.SHA256, installedBefore, shouldPublish)
 	if verifyErr != nil {
 		return fail(options, ExitFailure, "deployment completed but release verification failed: "+verifyErr.Error(), releaseReport.fields())
 	}
 	human := "openlia deploy: release=" + releaseReport.InstalledAfter
-	if !options.Release && !releaseReport.BundledActive {
+	if !shouldPublish && !releaseReport.BundledActive {
 		human += "; local bundled release is not active, use `openlia deploy --release` to publish it"
-	} else if releaseReport.UIError != nil {
-		human += "; Workspace UI build identity unavailable: " + releaseReport.UIError.Error()
 	} else {
 		human += "; release verified"
 	}
@@ -576,27 +410,16 @@ type deploymentReleaseReport struct {
 	InstalledAfter string
 	Published      bool
 	BundledActive  bool
-	WorkspaceUI    string
-	UIVerified     bool
-	UIError        error
 }
 
 func (report deploymentReleaseReport) fields() map[string]any {
-	fields := map[string]any{
+	return map[string]any{
 		"bundled_release_sha256":  report.BundledSHA256,
 		"installed_before_sha256": report.BeforeSHA256,
 		"installed_after_sha256":  report.InstalledAfter,
 		"release_published":       report.Published,
 		"bundled_release_active":  report.BundledActive,
 	}
-	if report.WorkspaceUI != "" || report.UIError != nil {
-		fields["workspace_ui_sha256"] = report.WorkspaceUI
-		fields["workspace_ui_verified"] = report.UIVerified
-	}
-	if report.UIError != nil {
-		fields["workspace_ui_verification_error"] = report.UIError.Error()
-	}
-	return fields
 }
 
 func collectDeploymentReleaseReport(ctx context.Context, deployment deployment, config Config, bundledDigest, beforeDigest string, published bool) (deploymentReleaseReport, error) {
@@ -611,20 +434,8 @@ func collectDeploymentReleaseReport(ctx context.Context, deployment deployment, 
 	}
 	report.InstalledAfter = installedAfter
 	report.BundledActive = installedAfter == bundledDigest
-	if config.WorkspaceUIHost != "" {
-		report.WorkspaceUI, report.UIError = deployment.workspaceUIReleaseDigest(ctx)
-		report.UIVerified = report.UIError == nil && report.WorkspaceUI == installedAfter
-	}
 	if published && !report.BundledActive {
 		return report, fmt.Errorf("active release %s does not match bundled release %s", installedAfter, bundledDigest)
-	}
-	if published && config.WorkspaceUIHost != "" {
-		if report.UIError != nil {
-			return report, fmt.Errorf("Workspace UI build identity unavailable: %w", report.UIError)
-		}
-		if !report.UIVerified {
-			return report, fmt.Errorf("Workspace UI release %s does not match active release %s", report.WorkspaceUI, installedAfter)
-		}
 	}
 	return report, nil
 }
@@ -639,107 +450,6 @@ func renderLifecycleResult(options Options, raw []byte, report map[string]any, h
 	}
 	payload["release"] = report
 	return writeResult(options, payload, human)
-}
-
-type instructionStatusEnvelope struct {
-	Schema            int  `json:"schema"`
-	OK                bool `json:"ok"`
-	AttentionRequired bool `json:"attention_required"`
-	Instructions      []struct {
-		Name            string `json:"name"`
-		State           string `json:"state"`
-		CurrentHash     string `json:"current_hash"`
-		AvailableHash   string `json:"available_hash"`
-		UpdateAvailable bool   `json:"update_available"`
-	} `json:"instructions"`
-}
-
-func commandInstructions(options Options, args []string) int {
-	if len(args) == 0 {
-		return fail(options, ExitUsage, "instructions requires status, diff, merge, keep, or reset", nil)
-	}
-	action := args[0]
-	args = args[1:]
-	if action != "status" && action != "diff" && action != "merge" && action != "keep" && action != "reset" {
-		return fail(options, ExitUsage, "instructions requires status, diff, merge, keep, or reset", nil)
-	}
-	if action == "status" {
-		if len(args) > 1 {
-			return fail(options, ExitUsage, "instructions status accepts at most one name", nil)
-		}
-	} else if len(args) != 1 {
-		return fail(options, ExitUsage, "instructions "+action+" requires NAME", nil)
-	}
-	config, code := configOrError(options)
-	if code != ExitOK {
-		return code
-	}
-	ctx, cancel := remoteContext()
-	defer cancel()
-	deployment := newDeployment(config)
-	if action == "status" || action == "diff" {
-		opArgs := []string{action}
-		opArgs = append(opArgs, args...)
-		if options.JSON || action == "status" {
-			opArgs = append(opArgs, "--json")
-		}
-		raw, err := deployment.operation(ctx, "instructions", nil, opArgs...)
-		if err != nil {
-			return fail(options, ExitFailure, err.Error(), nil)
-		}
-		if action == "status" && !options.JSON {
-			var status instructionStatusEnvelope
-			if json.Unmarshal(raw, &status) != nil {
-				return fail(options, ExitFailure, "could not parse instruction status", nil)
-			}
-			for _, item := range status.Instructions {
-				fmt.Fprintf(os.Stdout, "%s: %s\n", item.Name, item.State)
-			}
-			return ExitOK
-		}
-		return renderRemote(options, raw, "")
-	}
-	if options.NonInteractive {
-		return fail(options, ExitUsage, "instruction mutations require interactive confirmation", nil)
-	}
-	name := args[0]
-	statusRaw, err := deployment.operation(ctx, "instructions", nil, "status", name, "--json")
-	if err != nil {
-		return fail(options, ExitFailure, err.Error(), nil)
-	}
-	var status instructionStatusEnvelope
-	if json.Unmarshal(statusRaw, &status) != nil || len(status.Instructions) != 1 {
-		return fail(options, ExitFailure, "could not parse instruction status", nil)
-	}
-	item := status.Instructions[0]
-	expected := action + " instructions " + name
-	if !confirmExact(options, fmt.Sprintf("%s %s?", titleWord(action), name), expected) {
-		return fail(options, approvalExitCode(options), "instruction mutation cancelled", nil)
-	}
-	request, err := json.Marshal(map[string]any{"schema": 1, "expected_current_hash": item.CurrentHash, "expected_available_hash": item.AvailableHash})
-	if err != nil {
-		return fail(options, ExitInternal, err.Error(), nil)
-	}
-	raw, err := deployment.operation(ctx, "instructions", request, action, name, "--approve", "--json")
-	if err != nil {
-		return fail(options, ExitFailure, err.Error(), nil)
-	}
-	return renderRemote(options, raw, "openlia instructions "+action+": "+name)
-}
-
-func deploymentResultIsRunning(raw []byte) bool {
-	state, ok := deploymentResultState(raw)
-	return ok && state == "running"
-}
-
-func deploymentResultState(raw []byte) (string, bool) {
-	var result struct {
-		State string `json:"state"`
-	}
-	if json.Unmarshal(raw, &result) != nil || result.State == "" {
-		return "", false
-	}
-	return result.State, true
 }
 
 func commandUninstall(options Options, args []string) int {
@@ -869,232 +579,6 @@ func commandLogs(options Options, args []string) int {
 	}
 	fmt.Fprint(os.Stdout, redact(string(raw)))
 	return ExitOK
-}
-
-func commandUpdate(options Options, args []string, assets fs.FS) int {
-	component := ""
-	if len(args) > 1 {
-		return fail(options, ExitUsage, "update accepts at most one component", nil)
-	}
-	if len(args) == 1 {
-		component = args[0]
-	}
-	if component == "" {
-		return writeResult(options, map[string]any{
-			"schema":    1,
-			"ok":        true,
-			"read_only": true,
-			"updates":   []any{},
-			"message":   "No release index is configured; choose an explicit component after changing its pinned desired version.",
-			"current":   map[string]string{"openlia": defaultVersion, "hermes": defaultHermesTag, "locho": defaultLochoVersion},
-		}, "No release index configured. No component was changed.")
-	}
-	if component != "openlia" && component != "hermes" && component != "locho" {
-		return fail(options, ExitUsage, "component must be openlia, hermes, or locho", nil)
-	}
-	config, code := configOrError(options)
-	if code != ExitOK {
-		return code
-	}
-	ctx, cancel := remoteContext()
-	defer cancel()
-	deployment := newDeployment(config)
-	if err := syncBackupWriterCredentials(ctx, deployment, config); err != nil {
-		return fail(options, ExitFailure, "could not stage backup writer credentials: "+err.Error(), nil)
-	}
-	if workspaceUIPasswordRequired(config) {
-		if err := provisionWorkspaceUIPassword(ctx, deployment, config); err != nil {
-			return fail(options, ExitFailure, "workspace-ui password provisioning failed: "+err.Error(), nil)
-		}
-	}
-	if component == "openlia" {
-		if !targetOperatorAssetsAvailable() {
-			return fail(options, ExitPrereq, "OpenLia updates require Linux operator artifacts; run `make build` first", nil)
-		}
-		installedBefore, _ := deployment.releaseDigest(ctx)
-		release, err := publishOpenLiaRelease(ctx, deployment, assets)
-		if err != nil {
-			return fail(options, ExitFailure, err.Error(), nil)
-		}
-		digest := release.SHA256
-		// A version-isolated release does not inherit generated Compose state.
-		// Generate it before profile backup so running optional services can be
-		// stopped consistently against the newly activated release.
-		if err := syncLochoSources(ctx, deployment, config); err != nil {
-			return fail(options, ExitFailure, "could not stage Locho relay configuration: "+err.Error(), nil)
-		}
-		if config.WorkspaceUIHost != "" || len(config.Services) > 0 {
-			if _, err := deployment.operation(ctx, "attachments", nil, "generate", "--json"); err != nil {
-				return fail(options, ExitFailure, "optional runtime Compose generation failed: "+err.Error(), nil)
-			}
-		}
-		profileArgs := []string{"profile", "--json"}
-		profileRaw, err := deployment.operation(ctx, "deploy", nil, profileArgs...)
-		if err != nil {
-			return fail(options, ExitFailure, err.Error(), nil)
-		}
-		if config.WorkspaceUIHost != "" || len(config.Services) > 0 {
-			_, err = deployment.deploy(ctx, "deploy", false, "all")
-			if err != nil {
-				return fail(options, ExitFailure, "optional runtime reconciliation failed: "+err.Error(), nil)
-			}
-		}
-		scheduleAction := "schedule-install"
-		if !config.BackupScheduleEnabled {
-			scheduleAction = "schedule-remove"
-		}
-		if _, err := deployment.operation(ctx, "backup", nil, scheduleAction, "--json"); err != nil {
-			return fail(options, ExitFailure, "backup scheduler reconciliation failed: "+err.Error(), nil)
-		}
-		healthRaw, healthErr := deployment.health(ctx, true, false)
-		state, stateOK := deploymentResultState(healthRaw)
-		if !stateOK {
-			if healthErr != nil {
-				return fail(options, ExitFailure, "workspace Git reconciliation preflight failed: "+healthErr.Error(), nil)
-			}
-			return fail(options, ExitFailure, "workspace Git reconciliation preflight returned an invalid state", nil)
-		}
-		if state == "running" {
-			if _, err := deployment.workspaceGit(ctx, "ensure"); err != nil {
-				return fail(options, ExitFailure, "workspace Git reconciliation failed: "+err.Error(), nil)
-			}
-		}
-		releaseReport, verifyErr := collectDeploymentReleaseReport(ctx, deployment, config, digest, installedBefore, true)
-		if verifyErr != nil {
-			return fail(options, ExitFailure, "release update completed but verification failed: "+verifyErr.Error(), releaseReport.fields())
-		}
-		return renderOpenLiaUpdate(ctx, deployment, options, profileRaw, releaseReport.fields())
-	}
-	// Runtime image updates intentionally reuse the pinned Compose definition.
-	// The command does not silently change a tag or digest; operators update the
-	// desired pin in their operator config before invoking this boundary.
-	if component == "locho" {
-		if err := syncLochoSources(ctx, deployment, config); err != nil {
-			return fail(options, ExitFailure, "could not stage Locho relay configuration: "+err.Error(), nil)
-		}
-		if _, err := deployment.operation(ctx, "attachments", nil, "generate", "--json"); err != nil {
-			return fail(options, ExitFailure, "attachment Compose generation failed: "+err.Error(), nil)
-		}
-	}
-	raw, err := deployment.deploy(ctx, "deploy", true, component)
-	if err != nil {
-		return fail(options, ExitFailure, err.Error(), map[string]any{"component": component})
-	}
-	return renderRemote(options, raw, "openlia update "+component+": pinned runtime reconciled")
-}
-
-func renderOpenLiaUpdate(ctx context.Context, deployment deployment, options Options, raw []byte, releaseReport map[string]any) int {
-	if options.JSON {
-		return renderLifecycleResult(options, raw, releaseReport, "")
-	}
-	var envelope struct {
-		ProfileSync struct {
-			Instructions instructionStatusEnvelope `json:"instructions"`
-		} `json:"profile_sync"`
-	}
-	if json.Unmarshal(raw, &envelope) != nil {
-		return fail(options, ExitFailure, "could not parse OpenLia update result", nil)
-	}
-	fmt.Fprintf(os.Stdout, "openlia update openlia: profile assets synchronized; release=%v verified\n", releaseReport["installed_after_sha256"])
-	pending := make([]string, 0)
-	for _, item := range envelope.ProfileSync.Instructions.Instructions {
-		if item.UpdateAvailable {
-			pending = append(pending, item.Name)
-			fmt.Fprintf(os.Stdout, "Instruction update requires review: %s (%s)\n", item.Name, item.State)
-			fmt.Fprintf(os.Stdout, "Review with: openlia instructions diff %s\n", item.Name)
-		}
-	}
-	if len(pending) > 0 && !options.NonInteractive {
-		fmt.Fprint(os.Stderr, "Review instruction updates now? [y/N]: ")
-		answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-		if strings.EqualFold(strings.TrimSpace(answer), "y") || strings.EqualFold(strings.TrimSpace(answer), "yes") {
-			for _, name := range pending {
-				diff, err := deployment.operation(ctx, "instructions", nil, "diff", name)
-				if err != nil {
-					return fail(options, ExitFailure, "instruction review failed: "+err.Error(), nil)
-				}
-				fmt.Fprintf(os.Stdout, "\n%s\n%s", name, diff)
-			}
-		}
-	}
-	return ExitOK
-}
-
-func confirmExact(options Options, prompt, expected string) bool {
-	if options.NonInteractive {
-		return false
-	}
-	fmt.Fprintf(os.Stderr, "%s Type %q to continue: ", prompt, expected)
-	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	return err == nil && strings.TrimSpace(answer) == expected
-}
-
-func approvalExitCode(options Options) int {
-	if options.NonInteractive {
-		return ExitUsage
-	}
-	return ExitFailure
-}
-
-func titleWord(value string) string {
-	if value == "" {
-		return value
-	}
-	return strings.ToUpper(value[:1]) + value[1:]
-}
-
-func commandAuth(options Options, args []string) int {
-	if len(args) == 0 {
-		return fail(options, ExitUsage, "auth requires list, setup, or rotate", nil)
-	}
-	action := args[0]
-	args = args[1:]
-	if action == "list" {
-		if len(args) != 0 {
-			return fail(options, ExitUsage, "auth list takes no positional arguments", nil)
-		}
-		config, code := configOrError(options)
-		if code != ExitOK {
-			return code
-		}
-		ctx, cancel := remoteContext()
-		defer cancel()
-		raw, err := newDeployment(config).operation(ctx, "auth", nil, "list", "--json")
-		if err != nil {
-			return fail(options, ExitFailure, err.Error(), nil)
-		}
-		return renderRemote(options, raw, redact(string(raw)))
-	}
-	if action != "setup" && action != "rotate" {
-		return fail(options, ExitUsage, "unknown auth action "+action, nil)
-	}
-	if len(args) != 0 {
-		return fail(options, ExitUsage, "auth "+action+" does not accept arguments; configure [secrets].source instead", nil)
-	}
-	config, code := configOrError(options)
-	if code != ExitOK {
-		return code
-	}
-	source := config.SecretSource
-	if source == "" {
-		if action != "setup" || options.NonInteractive {
-			return fail(options, ExitUsage, "auth "+action+" requires [secrets].source; values are never command arguments", nil)
-		}
-		fmt.Fprint(os.Stderr, "Protected dotenv source path: ")
-		input, scanErr := bufio.NewReader(os.Stdin).ReadString('\n')
-		if scanErr != nil {
-			return fail(options, ExitUsage, "could not read a protected source path", nil)
-		}
-		source = strings.TrimSpace(input)
-		config.SecretSource = source
-		if err := validateProtectedSourcePath(source, "secret source"); err != nil {
-			return fail(options, ExitUsage, err.Error(), nil)
-		}
-		if err := saveConfig(config); err != nil {
-			return fail(options, ExitFailure, "could not save secret source configuration: "+err.Error(), nil)
-		}
-	}
-	return rotateRemoteFile(options, "auth", source)
 }
 
 func commandAttachments(options Options, args []string) int {
@@ -1264,7 +748,7 @@ func commandLochoHost(options Options, args []string) int {
 	}
 	attachmentConfig := string(raw)
 	hostID, err := attachmentHostID(attachmentConfig)
-	if err != nil || !strings.Contains(attachmentConfig, "capability = \"workspace-ui:tcp:") {
+	if err != nil || !strings.Contains(attachmentConfig, "capability = \"hermes-api:tcp:") || !strings.Contains(attachmentConfig, "capability = \"hermes-dashboard:tcp:") {
 		return fail(options, ExitFailure, "Locho returned an invalid attachment configuration", nil)
 	}
 	if err := writeExclusiveFile(*output, []byte(attachmentConfig), 0o600); err != nil {
@@ -1276,7 +760,7 @@ func commandLochoHost(options Options, args []string) int {
 		"action":   "locho-host-share",
 		"output":   *output,
 		"host_id":  hostID,
-		"services": []string{"workspace-ui"},
+		"services": []string{"hermes-api", "hermes-dashboard"},
 	}
 	command := fmt.Sprintf("locho attach --config %s", *output)
 	if config.LochoRelayConfigSource != "" {
@@ -1329,86 +813,17 @@ func writeExclusiveFile(path string, contents []byte, mode os.FileMode) error {
 	return nil
 }
 
-func commandWorkspace(options Options, args []string, assets fs.FS) int {
-	if len(args) == 0 {
-		return fail(options, ExitUsage, "workspace requires serve, export, git, or migrate subcommand", nil)
+func syncSecretSource(ctx context.Context, deployment deployment, source string) error {
+	if err := validateProtectedSourcePath(source, "secret source"); err != nil {
+		return err
 	}
-	switch args[0] {
-	case "serve":
-		return commandWorkspaceServe(options, args[1:], assets)
-	case "export":
-		return commandWorkspaceExport(options, args[1:])
-	case "git":
-		return commandWorkspaceGit(options, args[1:])
-	case "migrate":
-		return commandWorkspaceMigrate(options, args[1:])
-	default:
-		return fail(options, ExitUsage, "unknown workspace subcommand "+args[0], nil)
+	remotePath := deployment.rootPath("runtime", "meta", ".openlia-incoming")
+	if err := deployment.uploadFile(ctx, source, remotePath, 0o600); err != nil {
+		return err
 	}
-}
-
-func commandWorkspaceGit(options Options, args []string) int {
-	if len(args) == 0 {
-		return fail(options, ExitUsage, "workspace git requires setup or status", nil)
-	}
-	action := args[0]
-	args = args[1:]
-	config, code := configOrError(options)
-	if code != ExitOK {
-		return code
-	}
-
-	set := newFlagSet("workspace git " + action)
-	if err := set.Parse(args); err != nil {
-		return ExitUsage
-	}
-	if set.NArg() != 0 {
-		return fail(options, ExitUsage, "workspace git does not accept positional arguments", nil)
-	}
-
-	ctx, cancel := remoteContext()
-	defer cancel()
-	deployment := newDeployment(config)
-	switch action {
-	case "status":
-		if len(args) != 0 {
-			return fail(options, ExitUsage, "workspace git status does not accept options", nil)
-		}
-		raw, err := deployment.workspaceGit(ctx, "status")
-		if err != nil {
-			return fail(options, ExitFailure, err.Error(), nil)
-		}
-		return renderRemote(options, raw, redact(string(raw)))
-	case "setup":
-		if _, err := deployment.operation(ctx, "profile", nil, "sync", "--json"); err != nil {
-			return fail(options, ExitFailure, "profile synchronization failed: "+err.Error(), nil)
-		}
-		raw, err := deployment.workspaceGit(ctx, "setup")
-		if err != nil {
-			return fail(options, ExitFailure, err.Error(), nil)
-		}
-		return renderRemote(options, raw, "openlia workspace git: setup completed")
-	default:
-		return fail(options, ExitUsage, "unknown workspace git action "+action, nil)
-	}
-}
-
-func requiredPathFlag(args []string, name string) (string, error) {
-	for index, arg := range args {
-		if arg == name && index+1 < len(args) && args[index+1] != "" {
-			return args[index+1], nil
-		}
-	}
-	return "", errors.New("missing path")
-}
-
-func requiredValueFlag(args []string, name string) (string, error) {
-	for index, arg := range args {
-		if arg == name && index+1 < len(args) && args[index+1] != "" {
-			return args[index+1], nil
-		}
-	}
-	return "", fmt.Errorf("missing %s", name)
+	defer deployment.removeFile(context.Background(), remotePath)
+	_, err := deployment.operation(ctx, "auth", nil, "rotate", "--source", remotePath, "--json")
+	return err
 }
 
 func rotateRemoteFile(options Options, kind, source string) int {
@@ -1538,4 +953,362 @@ func extractFlag(args []string, name string) (string, []string, error) {
 		}
 	}
 	return "", args, nil
+}
+
+func commandAuth(options Options, args []string) int {
+	set := newFlagSet("auth")
+	oidcMode := set.Bool("oidc", false, "configure OpenID Connect (GCP OAuth / Auth0) instead of Basic Auth")
+	usernameFlag := set.String("username", "", "Hermes Dashboard Basic Auth username")
+	passwordStdin := set.Bool("password-stdin", false, "read Hermes Dashboard Basic Auth password from stdin")
+	issuerFlag := set.String("issuer", "", "OIDC issuer URL (e.g. https://accounts.google.com or https://tenant.us.auth0.com)")
+	clientIDFlag := set.String("client-id", "", "OIDC Client ID")
+	clientSecretStdin := set.Bool("client-secret-stdin", false, "read OIDC Client Secret from stdin")
+	scopesFlag := set.String("scopes", "", "OIDC scopes (default: openid profile email)")
+	publicURLFlag := set.String("public-url", "", "Hermes Dashboard external public URL (e.g. http://127.0.0.1:9119 or https://hermes.example.com)")
+	if err := set.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return ExitOK
+		}
+		return ExitUsage
+	}
+	if set.NArg() != 0 {
+		return fail(options, ExitUsage, "auth does not accept positional arguments", nil)
+	}
+	config, code := configOrError(options)
+	if code != ExitOK {
+		return code
+	}
+	secretPath := expandTilde(strings.TrimSpace(config.SecretSource))
+	if secretPath == "" {
+		return fail(options, ExitUsage, "secrets.source is not configured in config.toml", map[string]any{"config": configPath()})
+	}
+	if err := validateProtectedSourcePath(secretPath, "secret source"); err != nil {
+		return fail(options, ExitUsage, err.Error(), nil)
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	if *oidcMode {
+		return configureOIDCAuth(options, secretPath, reader, strings.TrimSpace(*issuerFlag), strings.TrimSpace(*clientIDFlag), *clientSecretStdin, strings.TrimSpace(*scopesFlag), strings.TrimSpace(*publicURLFlag))
+	}
+
+	defaultUser := readSecretEnvValue(secretPath, "HERMES_DASHBOARD_BASIC_AUTH_USERNAME")
+	if defaultUser == "" {
+		defaultUser = "admin"
+	}
+
+	username := strings.TrimSpace(*usernameFlag)
+	var password string
+
+	if *passwordStdin {
+		if username == "" {
+			username = defaultUser
+		}
+		line, err := reader.ReadString('\n')
+		if err != nil && len(line) == 0 {
+			return fail(options, ExitUsage, "could not read password from stdin", nil)
+		}
+		password = strings.TrimRight(line, "\r\n")
+	} else {
+		if options.NonInteractive {
+			return fail(options, ExitUsage, "non-interactive auth requires --username and --password-stdin", nil)
+		}
+		if username == "" {
+			fmt.Fprintf(os.Stderr, "Hermes Dashboard username [%s]: ", defaultUser)
+			line, err := reader.ReadString('\n')
+			if err != nil && len(line) == 0 {
+				return fail(options, ExitFailure, "could not read username", nil)
+			}
+			username = strings.TrimSpace(line)
+			if username == "" {
+				username = defaultUser
+			}
+		}
+		var err error
+		password, err = readConfirmedDashboardPassword(reader)
+		if err != nil {
+			return fail(options, ExitUsage, err.Error(), nil)
+		}
+	}
+
+	if err := validateDashboardCredentials(username, password); err != nil {
+		return fail(options, ExitUsage, err.Error(), nil)
+	}
+
+	if err := mutateSecretSourceVars(secretPath, []struct{ key, value string }{
+		{"HERMES_DASHBOARD_BASIC_AUTH_USERNAME", username},
+		{"HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", password},
+	}, []string{
+		"HERMES_DASHBOARD_OIDC_ISSUER",
+		"HERMES_DASHBOARD_OIDC_CLIENT_ID",
+		"HERMES_DASHBOARD_OIDC_CLIENT_SECRET",
+		"HERMES_DASHBOARD_OIDC_SCOPES",
+	}); err != nil {
+		return fail(options, ExitFailure, "could not update secret source: "+err.Error(), nil)
+	}
+
+	return writeResult(options, map[string]any{
+		"schema":        1,
+		"ok":            true,
+		"action":        "auth",
+		"mode":          "basic",
+		"secret_source": secretPath,
+		"username":      username,
+		"keys": []string{
+			"HERMES_DASHBOARD_BASIC_AUTH_USERNAME",
+			"HERMES_DASHBOARD_BASIC_AUTH_PASSWORD",
+		},
+	}, fmt.Sprintf("openlia auth: updated HERMES_DASHBOARD_BASIC_AUTH_USERNAME (%s) and HERMES_DASHBOARD_BASIC_AUTH_PASSWORD in %s", username, secretPath))
+}
+
+func configureOIDCAuth(options Options, secretPath string, reader *bufio.Reader, issuer, clientID string, secretStdin bool, scopes, publicURL string) int {
+	defaultIssuer := readSecretEnvValue(secretPath, "HERMES_DASHBOARD_OIDC_ISSUER")
+	if defaultIssuer == "" {
+		defaultIssuer = "https://accounts.google.com"
+	}
+	defaultClientID := readSecretEnvValue(secretPath, "HERMES_DASHBOARD_OIDC_CLIENT_ID")
+	defaultPublicURL := readSecretEnvValue(secretPath, "HERMES_DASHBOARD_PUBLIC_URL")
+	if defaultPublicURL == "" {
+		defaultPublicURL = "http://127.0.0.1:9119"
+	}
+
+	var clientSecret string
+	if secretStdin {
+		line, err := reader.ReadString('\n')
+		if err != nil && len(line) == 0 {
+			return fail(options, ExitUsage, "could not read client secret from stdin", nil)
+		}
+		clientSecret = strings.TrimRight(line, "\r\n")
+	} else if !options.NonInteractive {
+		if issuer == "" {
+			fmt.Fprintf(os.Stderr, "OIDC Issuer URL [%s]: ", defaultIssuer)
+			line, err := reader.ReadString('\n')
+			if err != nil && len(line) == 0 {
+				return fail(options, ExitFailure, "could not read OIDC issuer", nil)
+			}
+			issuer = strings.TrimSpace(line)
+			if issuer == "" {
+				issuer = defaultIssuer
+			}
+		}
+		if clientID == "" {
+			if defaultClientID != "" {
+				fmt.Fprintf(os.Stderr, "OIDC Client ID [%s]: ", defaultClientID)
+			} else {
+				fmt.Fprint(os.Stderr, "OIDC Client ID: ")
+			}
+			line, err := reader.ReadString('\n')
+			if err != nil && len(line) == 0 {
+				return fail(options, ExitFailure, "could not read OIDC client ID", nil)
+			}
+			clientID = strings.TrimSpace(line)
+			if clientID == "" {
+				clientID = defaultClientID
+			}
+		}
+		fd := int(os.Stdin.Fd())
+		fmt.Fprint(os.Stderr, "OIDC Client Secret (required for GCP OAuth; leave empty for public PKCE client): ")
+		if term.IsTerminal(fd) {
+			raw, err := term.ReadPassword(fd)
+			fmt.Fprintln(os.Stderr)
+			if err != nil {
+				return fail(options, ExitFailure, "could not read OIDC client secret", nil)
+			}
+			clientSecret = strings.TrimSpace(string(raw))
+		} else {
+			line, err := reader.ReadString('\n')
+			if err != nil && len(line) == 0 {
+				return fail(options, ExitFailure, "could not read OIDC client secret", nil)
+			}
+			clientSecret = strings.TrimRight(line, "\r\n")
+		}
+		if publicURL == "" {
+			fmt.Fprintf(os.Stderr, "Dashboard Public URL [%s]: ", defaultPublicURL)
+			line, err := reader.ReadString('\n')
+			if err != nil && len(line) == 0 {
+				return fail(options, ExitFailure, "could not read Dashboard public URL", nil)
+			}
+			publicURL = strings.TrimSpace(line)
+			if publicURL == "" {
+				publicURL = defaultPublicURL
+			}
+		}
+	}
+
+	issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
+	if issuer == "" || (!strings.HasPrefix(issuer, "https://") && !strings.HasPrefix(issuer, "http://127.0.0.1") && !strings.HasPrefix(issuer, "http://localhost")) {
+		return fail(options, ExitUsage, "OIDC issuer must be an https:// URL (or http://localhost for local testing)", nil)
+	}
+	if clientID == "" || strings.ContainsAny(clientID, " \t\r\n\x00") {
+		return fail(options, ExitUsage, "OIDC client_id is required and must not contain whitespace", nil)
+	}
+	if strings.ContainsAny(clientSecret, "\r\n\x00") {
+		return fail(options, ExitUsage, "OIDC client_secret must not contain newlines or null bytes", nil)
+	}
+	publicURL = strings.TrimRight(strings.TrimSpace(publicURL), "/")
+
+	updates := []struct{ key, value string }{
+		{"HERMES_DASHBOARD_OIDC_ISSUER", issuer},
+		{"HERMES_DASHBOARD_OIDC_CLIENT_ID", clientID},
+	}
+	keys := []string{"HERMES_DASHBOARD_OIDC_ISSUER", "HERMES_DASHBOARD_OIDC_CLIENT_ID"}
+	removals := []string{
+		"HERMES_DASHBOARD_BASIC_AUTH_USERNAME",
+		"HERMES_DASHBOARD_BASIC_AUTH_PASSWORD",
+	}
+	if clientSecret != "" {
+		updates = append(updates, struct{ key, value string }{"HERMES_DASHBOARD_OIDC_CLIENT_SECRET", clientSecret})
+		keys = append(keys, "HERMES_DASHBOARD_OIDC_CLIENT_SECRET")
+	} else {
+		removals = append(removals, "HERMES_DASHBOARD_OIDC_CLIENT_SECRET")
+	}
+	if scopes != "" {
+		updates = append(updates, struct{ key, value string }{"HERMES_DASHBOARD_OIDC_SCOPES", scopes})
+		keys = append(keys, "HERMES_DASHBOARD_OIDC_SCOPES")
+	} else {
+		removals = append(removals, "HERMES_DASHBOARD_OIDC_SCOPES")
+	}
+	if publicURL != "" {
+		updates = append(updates, struct{ key, value string }{"HERMES_DASHBOARD_PUBLIC_URL", publicURL})
+		keys = append(keys, "HERMES_DASHBOARD_PUBLIC_URL")
+	}
+
+	if err := mutateSecretSourceVars(secretPath, updates, removals); err != nil {
+		return fail(options, ExitFailure, "could not update secret source: "+err.Error(), nil)
+	}
+	callbackURL := "/auth/callback"
+	if publicURL != "" {
+		callbackURL = publicURL + "/auth/callback"
+	}
+	return writeResult(options, map[string]any{
+		"schema":        1,
+		"ok":            true,
+		"action":        "auth",
+		"mode":          "oidc",
+		"secret_source": secretPath,
+		"issuer":        issuer,
+		"client_id":     clientID,
+		"callback_url":  callbackURL,
+		"keys":          keys,
+	}, fmt.Sprintf("openlia auth: configured OIDC (issuer=%s, client_id=%s, callback=%s) in %s", issuer, clientID, callbackURL, secretPath))
+}
+
+func readConfirmedDashboardPassword(reader *bufio.Reader) (string, error) {
+	fd := int(os.Stdin.Fd())
+	isTTY := term.IsTerminal(fd)
+	readOne := func(prompt string) (string, error) {
+		fmt.Fprint(os.Stderr, prompt)
+		if isTTY {
+			raw, err := term.ReadPassword(fd)
+			fmt.Fprintln(os.Stderr)
+			if err != nil {
+				return "", fmt.Errorf("could not read password: %w", err)
+			}
+			return string(raw), nil
+		}
+		line, err := reader.ReadString('\n')
+		if err != nil && len(line) == 0 {
+			return "", errors.New("could not read password")
+		}
+		return strings.TrimRight(line, "\r\n"), nil
+	}
+	first, err := readOne("Hermes Dashboard password: ")
+	if err != nil {
+		return "", err
+	}
+	if first == "" {
+		return "", errors.New("password must not be empty")
+	}
+	second, err := readOne("Confirm Hermes Dashboard password: ")
+	if err != nil {
+		return "", err
+	}
+	if first != second {
+		return "", errors.New("passwords do not match")
+	}
+	return first, nil
+}
+
+func validateDashboardCredentials(username, password string) error {
+	if username == "" {
+		return errors.New("username must not be empty")
+	}
+	if strings.ContainsAny(username, " \t\r\n\x00=") {
+		return errors.New("username must not contain whitespace, '=', or control characters")
+	}
+	if password == "" {
+		return errors.New("password must not be empty")
+	}
+	if strings.ContainsAny(password, "\r\n\x00") {
+		return errors.New("password must not contain newlines or null bytes")
+	}
+	return nil
+}
+
+func readSecretEnvValue(path, key string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		line := strings.TrimSuffix(rawLine, "\r")
+		if line == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if ok && strings.TrimSpace(k) == key {
+			return v
+		}
+	}
+	return ""
+}
+
+func mutateSecretSourceVars(path string, updates []struct{ key, value string }, removals []string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	rawLines := strings.Split(string(data), "\n")
+	if len(rawLines) > 0 && rawLines[len(rawLines)-1] == "" {
+		rawLines = rawLines[:len(rawLines)-1]
+	}
+	seen := make(map[string]bool, len(updates))
+	updateMap := make(map[string]string, len(updates))
+	for _, item := range updates {
+		updateMap[item.key] = item.value
+	}
+	removeMap := make(map[string]bool, len(removals))
+	for _, key := range removals {
+		removeMap[key] = true
+	}
+	filtered := make([]string, 0, len(rawLines)+len(updates))
+	for _, rawLine := range rawLines {
+		line := strings.TrimSuffix(rawLine, "\r")
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			filtered = append(filtered, line)
+			continue
+		}
+		k, _, ok := strings.Cut(line, "=")
+		if !ok {
+			filtered = append(filtered, line)
+			continue
+		}
+		key := strings.TrimSpace(k)
+		if removeMap[key] {
+			continue
+		}
+		if newVal, exists := updateMap[key]; exists {
+			filtered = append(filtered, key+"="+newVal)
+			seen[key] = true
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	for _, item := range updates {
+		if !seen[item.key] {
+			filtered = append(filtered, item.key+"="+item.value)
+		}
+	}
+	content := strings.Join(filtered, "\n") + "\n"
+	return writePrivateFileAtomic(path, []byte(content))
 }

@@ -13,83 +13,64 @@ import (
 	"filippo.io/age"
 	"github.com/robfig/cron/v3"
 	"openlia/internal/releaseinfo"
-	"openlia/internal/toolcatalog"
 )
 
 // Config is the typed view of the OPENLIA_* settings consumed by the
 // operator. Secret values are deliberately not part of Config.
 type Config struct {
-	RepositoryRoot                string
-	RuntimeRoot                   string
-	InstallRoot                   string
-	ProjectName                   string
-	Timezone                      string
-	NetworkName                   string
-	ComposeFile                   string
-	ComposeProjectDir             string
-	GeneratedCompose              string
-	DataRoot                      string
-	SystemSkillsRoot              string
-	LochoRoot                     string
-	SecretDir                     string
-	SecretFile                    string
-	BackupRoot                    string
-	BackupRetention               int
-	BackupMaxBytes                int64
-	BackupRecipient               string
-	BackupSchedule                string
-	BackupScheduleEnabled         bool
-	WorkspaceGitSchedule          string
-	WorkspaceGitEnabled           bool
-	BackupDestinations            []BackupDestination
-	BackupNamespaceRoot           string
-	OperatorConfigFile            string
-	MetaRoot                      string
-	StateFile                     string
-	LocalMode                     bool
-	Provider                      string
-	Model                         string
-	OutputLanguage                string
-	OpenLiaVersion                string
-	OpenLiaRevision               string
-	OpenLiaReleaseSHA256          string
-	FallbackProviders             []FallbackProviderConfig
-	HermesImage                   string
-	HermesVersion                 string
-	HermesDigest                  string
-	LochoImage                    string
-	LochoVersion                  string
-	LochoX8664SHA256              string
-	LochoARM64SHA256              string
-	LochoRelayConfig              string
-	LochoRelaySecrets             string
-	EnabledSkills                 []string
-	IngestionMaxConcurrentJobs    int
-	SkillsConfigured              bool
-	ExternalNetwork               string
-	BackupRemoteRetentionDays     int
-	APIEnabled                    bool
-	APIHost                       string
-	WorkspaceUIHost               string
-	WorkspaceUIPort               int
-	WorkspaceUIPublicOrigin       string
-	WorkspaceUIAuthRequired       bool
-	WorkspaceUIPasswordHashFile   string
-	WorkspaceUIAllowedEmails      []string
-	WorkspaceUIFirebaseProjectID  string
-	WorkspaceUIFirebaseAPIKey     string
-	WorkspaceUIFirebaseAuthDomain string
-	WorkspaceUIFirebaseAppID      string
-	LochoHostEnabled              bool
-	LochoHostRoot                 string
-	LochoHostConfig               string
-	LochoHostStateRoot            string
-	RuntimeUID                    int
-	RuntimeGID                    int
-	ServiceRoles                  map[string]string
-	ConfiguredHosts               []string
-	TemplatesRepo                 string
-	TemplatesRef                  string
+	RepositoryRoot            string
+	RuntimeRoot               string
+	InstallRoot               string
+	ProjectName               string
+	Timezone                  string
+	NetworkName               string
+	ComposeFile               string
+	ComposeProjectDir         string
+	GeneratedCompose          string
+	DataRoot                  string
+	LochoRoot                 string
+	SecretDir                 string
+	SecretFile                string
+	BackupRoot                string
+	BackupRetention           int
+	BackupMaxBytes            int64
+	BackupRecipient           string
+	BackupSchedule            string
+	BackupScheduleEnabled     bool
+	BackupDestinations        []BackupDestination
+	BackupNamespaceRoot       string
+	OperatorConfigFile        string
+	MetaRoot                  string
+	StateFile                 string
+	LocalMode                 bool
+	Provider                  string
+	Model                     string
+	OutputLanguage            string
+	OpenLiaVersion            string
+	OpenLiaRevision           string
+	OpenLiaReleaseSHA256      string
+	FallbackProviders         []FallbackProviderConfig
+	HermesImage               string
+	HermesVersion             string
+	HermesDigest              string
+	LochoImage                string
+	LochoVersion              string
+	LochoX8664SHA256          string
+	LochoARM64SHA256          string
+	LochoRelayConfig          string
+	LochoRelaySecrets         string
+	ExternalNetwork           string
+	BackupRemoteRetentionDays int
+	APIEnabled                bool
+	APIHost                   string
+	LochoHostEnabled          bool
+	LochoHostRoot             string
+	LochoHostConfig           string
+	LochoHostStateRoot        string
+	RuntimeUID                int
+	RuntimeGID                int
+	ServiceRoles              map[string]string
+	ConfiguredHosts           []string
 }
 
 // BackupDestination describes a target-side remote backup store. Credentials
@@ -179,60 +160,53 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 			return Config{}, fmt.Errorf("OPENLIA_FALLBACK_PROVIDERS must be valid JSON: %w", err)
 		}
 	}
+	hermesVersion := getOr(values, "OPENLIA_HERMES_VERSION", getOr(values, "HERMES_BASE_TAG", releaseinfo.Default.Hermes.Tag))
 	config := Config{
-		RepositoryRoot:             repositoryRoot,
-		RuntimeRoot:                runtimeRoot,
-		InstallRoot:                installRoot,
-		ProjectName:                project,
-		Timezone:                   getOr(values, "HERMES_TIMEZONE", "Asia/Ho_Chi_Minh"),
-		NetworkName:                getOr(values, "OPENLIA_NETWORK_NAME", project+"-private"),
-		ComposeFile:                getOr(values, "OPENLIA_COMPOSE_FILE", filepath.Join(repositoryRoot, "docker", "compose.yaml")),
-		ComposeProjectDir:          getOr(values, "OPENLIA_COMPOSE_PROJECT_DIR", filepath.Join(repositoryRoot, "docker")),
-		GeneratedCompose:           getOr(values, "OPENLIA_GENERATED_COMPOSE", filepath.Join(repositoryRoot, "docker", "compose.generated.yaml")),
-		DataRoot:                   getOr(values, "OPENLIA_DATA_ROOT", filepath.Join(runtimeRoot, "hermes")),
-		SystemSkillsRoot:           getOr(values, "OPENLIA_SYSTEM_SKILLS_ROOT", filepath.Join(runtimeRoot, "system-skills")),
-		LochoRoot:                  getOr(values, "OPENLIA_LOCHO_ROOT", filepath.Join(runtimeRoot, "locho")),
-		SecretDir:                  getOr(values, "OPENLIA_SECRET_DIR", filepath.Join(runtimeRoot, "secrets")),
-		SecretFile:                 getOr(values, "OPENLIA_SECRET_FILE", filepath.Join(runtimeRoot, "secrets", "hermes.env")),
-		BackupRoot:                 getOr(values, "OPENLIA_BACKUP_ROOT", filepath.Join(runtimeRoot, "backups")),
-		BackupRetention:            5,
-		BackupMaxBytes:             10 << 30,
-		BackupRecipient:            values["OPENLIA_BACKUP_RECIPIENT"],
-		BackupSchedule:             getOr(values, "OPENLIA_BACKUP_SCHEDULE", "20 4 * * *"),
-		BackupScheduleEnabled:      true,
-		WorkspaceGitSchedule:       getOr(values, "OPENLIA_WORKSPACE_GIT_SCHEDULE", "0 4 * * *"),
-		WorkspaceGitEnabled:        true,
-		IngestionMaxConcurrentJobs: 1,
-		BackupRemoteRetentionDays:  30,
-		BackupDestinations:         []BackupDestination{},
-		OperatorConfigFile:         values["OPENLIA_CLI_CONFIG_FILE"],
-		MetaRoot:                   getOr(values, "OPENLIA_META_ROOT", filepath.Join(runtimeRoot, "meta")),
-		StateFile:                  getOr(values, "OPENLIA_STATE_FILE", filepath.Join(runtimeRoot, "meta", "stack-state")),
-		Provider:                   getOr(values, "OPENLIA_PROVIDER", "copilot"),
-		Model:                      getOr(values, "OPENLIA_MODEL", "gpt-5.6-luna"),
-		OutputLanguage:             getOr(values, "OPENLIA_OUTPUT_LANGUAGE", "en"),
-		OpenLiaVersion:             getOr(values, "OPENLIA_VERSION", releaseinfo.Default.OpenLia),
-		OpenLiaRevision:            values["OPENLIA_REVISION"],
-		OpenLiaReleaseSHA256:       values["OPENLIA_RELEASE_SHA256"],
-		FallbackProviders:          fallbackProviders,
-		HermesImage:                getOr(values, "OPENLIA_HERMES_IMAGE", releaseinfo.InternalImage("openlia-hermes", releaseinfo.Default.Hermes.Tag)),
-		HermesVersion:              getOr(values, "OPENLIA_HERMES_VERSION", getOr(values, "HERMES_BASE_TAG", releaseinfo.Default.Hermes.Tag)),
-		HermesDigest:               getOr(values, "HERMES_BASE_DIGEST", releaseinfo.Default.Hermes.Digest),
-		LochoImage:                 getOr(values, "OPENLIA_LOCHO_IMAGE", releaseinfo.InternalImage("openlia-locho", releaseinfo.Default.Locho.Version)),
-		LochoVersion:               getOr(values, "OPENLIA_LOCHO_VERSION", releaseinfo.Default.Locho.Version),
-		LochoX8664SHA256:           getOr(values, "OPENLIA_LOCHO_X86_64_SHA256", releaseinfo.Default.Locho.LinuxX8664SHA),
-		LochoARM64SHA256:           getOr(values, "OPENLIA_LOCHO_ARM64_SHA256", releaseinfo.Default.Locho.LinuxARM64SHA),
-		LochoRelayConfig:           values["OPENLIA_LOCHO_RELAY_CONFIG"],
-		LochoRelaySecrets:          values["OPENLIA_LOCHO_RELAY_SECRETS"],
-		ExternalNetwork:            values["OPENLIA_EXTERNAL_NETWORK"],
-		APIHost:                    getOr(values, "OPENLIA_API_HOST", "127.0.0.1"),
-		WorkspaceUIPort:            8089,
-		WorkspaceUIPublicOrigin:    values["OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN"],
-		RuntimeUID:                 runtimeUID,
-		RuntimeGID:                 runtimeGID,
-		LochoHostRoot:              filepath.Join(runtimeRoot, "locho-host"),
-		TemplatesRepo:              values["OPENLIA_TEMPLATES_REPO"],
-		TemplatesRef:               values["OPENLIA_TEMPLATES_REF"],
+		RepositoryRoot:            repositoryRoot,
+		RuntimeRoot:               runtimeRoot,
+		InstallRoot:               installRoot,
+		ProjectName:               project,
+		Timezone:                  getOr(values, "HERMES_TIMEZONE", "Asia/Ho_Chi_Minh"),
+		NetworkName:               getOr(values, "OPENLIA_NETWORK_NAME", project+"-private"),
+		ComposeFile:               getOr(values, "OPENLIA_COMPOSE_FILE", filepath.Join(repositoryRoot, "docker", "compose.yaml")),
+		ComposeProjectDir:         getOr(values, "OPENLIA_COMPOSE_PROJECT_DIR", filepath.Join(repositoryRoot, "docker")),
+		GeneratedCompose:          getOr(values, "OPENLIA_GENERATED_COMPOSE", filepath.Join(repositoryRoot, "docker", "compose.generated.yaml")),
+		DataRoot:                  getOr(values, "OPENLIA_DATA_ROOT", filepath.Join(runtimeRoot, "hermes")),
+		LochoRoot:                 getOr(values, "OPENLIA_LOCHO_ROOT", filepath.Join(runtimeRoot, "locho")),
+		SecretDir:                 getOr(values, "OPENLIA_SECRET_DIR", filepath.Join(runtimeRoot, "secrets")),
+		SecretFile:                getOr(values, "OPENLIA_SECRET_FILE", filepath.Join(runtimeRoot, "secrets", "hermes.env")),
+		BackupRoot:                getOr(values, "OPENLIA_BACKUP_ROOT", filepath.Join(runtimeRoot, "backups")),
+		BackupRetention:           5,
+		BackupMaxBytes:            10 << 30,
+		BackupRecipient:           values["OPENLIA_BACKUP_RECIPIENT"],
+		BackupSchedule:            getOr(values, "OPENLIA_BACKUP_SCHEDULE", "20 4 * * *"),
+		BackupScheduleEnabled:     true,
+		BackupRemoteRetentionDays: 30,
+		BackupDestinations:        []BackupDestination{},
+		OperatorConfigFile:        values["OPENLIA_CLI_CONFIG_FILE"],
+		MetaRoot:                  getOr(values, "OPENLIA_META_ROOT", filepath.Join(runtimeRoot, "meta")),
+		StateFile:                 getOr(values, "OPENLIA_STATE_FILE", filepath.Join(runtimeRoot, "meta", "stack-state")),
+		Provider:                  getOr(values, "OPENLIA_PROVIDER", "copilot"),
+		Model:                     getOr(values, "OPENLIA_MODEL", "gpt-5.6-luna"),
+		OutputLanguage:            getOr(values, "OPENLIA_OUTPUT_LANGUAGE", "en"),
+		OpenLiaVersion:            getOr(values, "OPENLIA_VERSION", releaseinfo.Default.OpenLia),
+		OpenLiaRevision:           values["OPENLIA_REVISION"],
+		OpenLiaReleaseSHA256:      values["OPENLIA_RELEASE_SHA256"],
+		FallbackProviders:         fallbackProviders,
+		HermesImage:               getOr(values, "OPENLIA_HERMES_IMAGE", releaseinfo.InternalImage("openlia-hermes", hermesVersion)),
+		HermesVersion:             hermesVersion,
+		HermesDigest:              getOr(values, "HERMES_BASE_DIGEST", releaseinfo.Default.Hermes.Digest),
+		LochoImage:                getOr(values, "OPENLIA_LOCHO_IMAGE", releaseinfo.InternalImage("openlia-locho", releaseinfo.Default.Locho.Version)),
+		LochoVersion:              getOr(values, "OPENLIA_LOCHO_VERSION", releaseinfo.Default.Locho.Version),
+		LochoX8664SHA256:          getOr(values, "OPENLIA_LOCHO_X86_64_SHA256", releaseinfo.Default.Locho.LinuxX8664SHA),
+		LochoARM64SHA256:          getOr(values, "OPENLIA_LOCHO_ARM64_SHA256", releaseinfo.Default.Locho.LinuxARM64SHA),
+		LochoRelayConfig:          values["OPENLIA_LOCHO_RELAY_CONFIG"],
+		LochoRelaySecrets:         values["OPENLIA_LOCHO_RELAY_SECRETS"],
+		ExternalNetwork:           values["OPENLIA_EXTERNAL_NETWORK"],
+		APIHost:                   getOr(values, "OPENLIA_API_HOST", "127.0.0.1"),
+		RuntimeUID:                runtimeUID,
+		RuntimeGID:                runtimeGID,
+		LochoHostRoot:             filepath.Join(runtimeRoot, "locho-host"),
 	}
 	if config.OpenLiaReleaseSHA256 == "" {
 		if data, readErr := os.ReadFile(filepath.Join(repositoryRoot, "release.sha256")); readErr == nil {
@@ -248,12 +222,6 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 		config.BackupScheduleEnabled, err = strconv.ParseBool(raw)
 		if err != nil {
 			return Config{}, fmt.Errorf("OPENLIA_BACKUP_SCHEDULE_ENABLED must be true or false")
-		}
-	}
-	if raw := values["OPENLIA_WORKSPACE_GIT_ENABLED"]; raw != "" {
-		config.WorkspaceGitEnabled, err = strconv.ParseBool(raw)
-		if err != nil {
-			return Config{}, fmt.Errorf("OPENLIA_WORKSPACE_GIT_ENABLED must be true or false")
 		}
 	}
 	if err := validateOutputLanguage(config.OutputLanguage); err != nil {
@@ -283,39 +251,7 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 	}
 
 	config.LocalMode = localMode
-	if config.SkillsConfigured, err = boolValue(values, "OPENLIA_SKILLS_CONFIGURED", false); err != nil {
-		return Config{}, err
-	}
 	if config.APIEnabled, err = boolValue(values, "OPENLIA_API_ENABLED", false); err != nil {
-		return Config{}, err
-	}
-	config.WorkspaceUIHost = values["OPENLIA_WORKSPACE_UI_HOST"]
-	if rawPort := values["OPENLIA_WORKSPACE_UI_PORT"]; rawPort != "" {
-		config.WorkspaceUIPort, err = strconv.Atoi(rawPort)
-		if err != nil {
-			return Config{}, fmt.Errorf("OPENLIA_WORKSPACE_UI_PORT must be an integer")
-		}
-	}
-	if config.WorkspaceUIAuthRequired, err = boolValue(values, "OPENLIA_WORKSPACE_UI_AUTH_REQUIRED", false); err != nil {
-		return Config{}, err
-	}
-	config.WorkspaceUIPasswordHashFile = getOr(values, "OPENLIA_WORKSPACE_UI_PASSWORD_HASH_FILE", filepath.Join(runtimeRoot, "secrets", "workspace-ui-password.hash"))
-	if rawAllowedEmails := values["OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS"]; rawAllowedEmails != "" {
-		for _, email := range strings.Split(rawAllowedEmails, ",") {
-			trimmed := strings.TrimSpace(email)
-			if trimmed != "" {
-				config.WorkspaceUIAllowedEmails = append(config.WorkspaceUIAllowedEmails, trimmed)
-			}
-		}
-	}
-	config.WorkspaceUIFirebaseProjectID = values["OPENLIA_WORKSPACE_UI_FIREBASE_PROJECT_ID"]
-	config.WorkspaceUIFirebaseAPIKey = values["OPENLIA_WORKSPACE_UI_FIREBASE_API_KEY"]
-	config.WorkspaceUIFirebaseAuthDomain = values["OPENLIA_WORKSPACE_UI_FIREBASE_AUTH_DOMAIN"]
-	config.WorkspaceUIFirebaseAppID = values["OPENLIA_WORKSPACE_UI_FIREBASE_APP_ID"]
-	if err := validateWorkspaceUIPublicOrigin(config.WorkspaceUIPublicOrigin); err != nil {
-		return Config{}, err
-	}
-	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIAuthRequired, config.WorkspaceUIPasswordHashFile, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIAllowedEmails, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain); err != nil {
 		return Config{}, err
 	}
 	if config.LochoHostEnabled, err = boolValue(values, "OPENLIA_LOCHO_HOST_ENABLED", false); err != nil {
@@ -323,29 +259,7 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 	}
 	config.LochoHostConfig = filepath.Join(config.LochoHostRoot, "locho.toml")
 	config.LochoHostStateRoot = filepath.Join(config.LochoHostRoot, "state")
-	if raw := values["OPENLIA_ENABLED_SKILLS"]; raw != "" {
-		for _, skill := range strings.Split(raw, ",") {
-			if skill == "" {
-				return Config{}, fmt.Errorf("OPENLIA_ENABLED_SKILLS contains an empty skill")
-			}
-			config.EnabledSkills = append(config.EnabledSkills, skill)
-		}
-	}
-	if raw := values["OPENLIA_INGESTION_MAX_CONCURRENT_JOBS"]; raw != "" {
-		parsed, parseErr := strconv.Atoi(raw)
-		if parseErr != nil || parsed <= 0 {
-			return Config{}, fmt.Errorf("OPENLIA_INGESTION_MAX_CONCURRENT_JOBS must be a positive integer")
-		}
-		config.IngestionMaxConcurrentJobs = parsed
-	}
-	if strings.TrimSpace(values["OPENLIA_HERMES_IMAGE"]) == "" {
-		config.HermesImage = toolcatalog.ManagedHermesImage(
-			config.ProjectName,
-			config.HermesVersion,
-			config.HermesDigest,
-			getOr(values, "DEBIAN_SNAPSHOT", toolcatalog.DefaultDebianSnapshot),
-		)
-	}
+
 	config.ServiceRoles = make(map[string]string)
 	if rawRoles := values["OPENLIA_SERVICE_ROLES"]; rawRoles != "" {
 		var roles map[string]string
@@ -383,56 +297,6 @@ func validateOutputLanguage(value string) error {
 				return fmt.Errorf("must be a BCP 47 language tag")
 			}
 		}
-	}
-	return nil
-}
-
-func validateWorkspaceUI(host string, port int, authRequired bool, passwordHashFile, firebaseProjectID string, allowedEmails []string, firebaseAPIKey, firebaseAuthDomain string) error {
-	if host != "" && host != "127.0.0.1" && host != "0.0.0.0" {
-		return fmt.Errorf("workspace-ui.host must be 127.0.0.1 or 0.0.0.0")
-	}
-	if port < 1 || port > 65535 {
-		return fmt.Errorf("workspace-ui.port must be between 1 and 65535")
-	}
-	isFirebase := firebaseProjectID != "" || len(allowedEmails) > 0
-	if isFirebase {
-		if len(allowedEmails) == 0 {
-			return fmt.Errorf("workspace-ui.allowed_emails must contain at least one email address")
-		}
-		for _, email := range allowedEmails {
-			if email == "" || !strings.Contains(email, "@") || strings.HasPrefix(email, "@") || strings.HasSuffix(email, "@") {
-				return fmt.Errorf("workspace-ui.allowed_emails must contain valid email addresses")
-			}
-		}
-		if firebaseProjectID == "" {
-			return fmt.Errorf("workspace-ui.firebase_project_id is required when Firebase Auth is configured")
-		}
-		if firebaseAPIKey == "" {
-			return fmt.Errorf("workspace-ui.firebase_api_key is required when Firebase Auth is configured")
-		}
-		if firebaseAuthDomain == "" {
-			return fmt.Errorf("workspace-ui.firebase_auth_domain is required when Firebase Auth is configured")
-		}
-		return nil
-	}
-	if host == "0.0.0.0" && !authRequired {
-		return fmt.Errorf("workspace-ui authentication is required when host is 0.0.0.0")
-	}
-	if authRequired {
-		if err := ValidateAbsolutePath(passwordHashFile, "workspace-ui-password-hash-file"); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func validateWorkspaceUIPublicOrigin(value string) error {
-	if value == "" {
-		return nil
-	}
-	origin, err := url.Parse(value)
-	if err != nil || (origin.Scheme != "http" && origin.Scheme != "https") || origin.Host == "" || origin.User != nil || origin.Opaque != "" || origin.RawQuery != "" || origin.Fragment != "" || origin.Path != "" && origin.Path != "/" {
-		return fmt.Errorf("workspace-ui.public_origin must be an absolute http(s) origin")
 	}
 	return nil
 }
@@ -513,11 +377,6 @@ func (c Config) ValidatePaths() error {
 			return fmt.Errorf("backup schedule must be a five-field cron expression: %w", err)
 		}
 	}
-	if c.WorkspaceGitEnabled || c.WorkspaceGitSchedule != "" {
-		if _, err := cron.ParseStandard(c.WorkspaceGitSchedule); err != nil {
-			return fmt.Errorf("workspace Git schedule must be a five-field cron expression: %w", err)
-		}
-	}
 	if err := validateBackupDestinations(c.BackupDestinations); err != nil {
 		return err
 	}
@@ -547,20 +406,6 @@ func (c Config) ValidatePaths() error {
 	}
 	if c.APIHost != "127.0.0.1" {
 		return fmt.Errorf("API host must remain 127.0.0.1")
-	}
-	if err := validateWorkspaceUIPublicOrigin(c.WorkspaceUIPublicOrigin); err != nil {
-		return err
-	}
-	if err := validateWorkspaceUI(c.WorkspaceUIHost, c.WorkspaceUIPort, c.WorkspaceUIAuthRequired, c.WorkspaceUIPasswordHashFile, c.WorkspaceUIFirebaseProjectID, c.WorkspaceUIAllowedEmails, c.WorkspaceUIFirebaseAPIKey, c.WorkspaceUIFirebaseAuthDomain); err != nil {
-		return err
-	}
-	if c.LochoHostEnabled {
-		if c.WorkspaceUIHost != "127.0.0.1" {
-			return fmt.Errorf("locho-host requires workspace-ui to bind to 127.0.0.1")
-		}
-		if !c.WorkspaceUIAuthRequired && c.WorkspaceUIFirebaseProjectID == "" {
-			return fmt.Errorf("locho-host requires Workspace UI authentication")
-		}
 	}
 	if c.LochoRelaySecrets != "" && c.LochoRelayConfig == "" {
 		return fmt.Errorf("Locho relay secrets require a relay configuration")
@@ -603,7 +448,6 @@ func (c Config) ValidatePaths() error {
 		path  string
 	}{
 		{"data-root", c.DataRoot},
-		{"system-skills-root", c.SystemSkillsRoot},
 		{"locho-root", c.LochoRoot},
 		{"secret-file", c.SecretFile},
 		{"backup-root", c.BackupRoot},
@@ -648,11 +492,6 @@ func (c Config) ValidatePaths() error {
 		}
 		if within(item.path, filepath.Join(repositoryRoot, "local")) {
 			return fmt.Errorf("runtime path must not touch local/")
-		}
-	}
-	for _, skill := range c.EnabledSkills {
-		if err := ValidateSafeComponent(skill, "skill"); err != nil {
-			return err
 		}
 	}
 	return nil

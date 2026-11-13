@@ -8,21 +8,17 @@ var Default = Manifest{
 	Hermes: ImagePin{
 		Image:   "nousresearch/hermes-agent",
 		Channel: "stable",
-		Tag:     "v0.22.5",
-		Digest:  "sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d",
+		Tag:     "v2026.9.14",
+		Digest:  "sha256:99641e57ec762c59e54cb44aa6746b7fc68c18b3c5ddb088af54234c613d9294",
 	},
 	Locho: LochoPin{
 		Version:       "1.3.0",
 		LinuxX8664SHA: "24ef0edb7c7203f4e6c0dff0d33132e57a815fc5f0dfbbb49c54915e96d57809",
 		LinuxARM64SHA: "28a125314d193c1cc9d91fe65482716598d7644cfa61d359fd8f6f2801f01890",
 	},
-	Templates: TemplatesPin{
-		Repository: "https://github.com/openlia/minions.git",
-		Revision:   "a9ab24339b75e29fbd6da426978e61c3d5a2aae0",
-	},
-	Remind: SourcePin{
-		Version:      "06.03.06",
-		SourceURL:    "https://dianne.skoll.ca/projects/remind/download/remind-06.03.06.tar.gz",
-		SourceSHA256: "19518dfa6ab3695749e74b26b664a7134b573ddd03f0a7a6fee3867868d6fd58",
+	Bun: BunPin{
+		Version:       "1.2.22",
+		LinuxX64SHA:   "4c446af1a01d7b40e1e11baebc352f9b2bfd12887e51b97dd3b59879cee2743a",
+		LinuxARM64SHA: "a97c687fb5e54de4e2fb0869a7ac9a2d9c3af75ac182e2b68138c1dd8f98131b",
 	},
 }

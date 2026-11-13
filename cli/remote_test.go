@@ -17,21 +17,6 @@ func TestOperationCommandIncludesTimezone(t *testing.T) {
 	}
 }
 
-func TestParseWorkspaceUIReleaseDigest(t *testing.T) {
-	digest := strings.Repeat("a", 64)
-	got, err := parseWorkspaceUIReleaseDigest([]byte(`{"schema":1,"ok":true,"release_sha256":"` + digest + `"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != digest {
-		t.Fatalf("release digest = %q, want %q", got, digest)
-	}
-
-	if _, err := parseWorkspaceUIReleaseDigest([]byte(`{"schema":1,"ok":true}`)); err == nil {
-		t.Fatal("missing Workspace UI release digest was accepted")
-	}
-}
-
 func TestOperationCommandPropagatesBackupCredentialInputs(t *testing.T) {
 	config := defaultConfig()
 	config.Target = "operator@example.test"
@@ -90,7 +75,7 @@ func TestRemoteOperationLockingLeavesReadsAvailable(t *testing.T) {
 		read   bool
 	}{
 		{script: "healthcheck", args: []string{"--json"}, read: true},
-		{script: "instructions", args: []string{"diff", "workspace/AGENTS.md"}, read: true},
+		{script: "locho-host", args: []string{"share"}, read: true},
 		{script: "deploy", args: []string{"deploy", "--json"}, read: false},
 		{script: "attachments", args: []string{"rotate", "laptop"}, read: false},
 	} {
@@ -113,37 +98,16 @@ func TestOperationCommandIncludesOutputLanguage(t *testing.T) {
 	}
 }
 
-func TestOperationCommandIncludesIngestionConcurrency(t *testing.T) {
+func TestOperationCommandUsesInternalHermesImageByDefault(t *testing.T) {
 	config := defaultConfig()
 	config.Target = "operator@example.test"
-	config.IngestionMaxConcurrentJobs = 2
 	command := (Remote{Config: config}).operationCommand("ops/deploy.sh")
-	if !strings.Contains(command, "OPENLIA_INGESTION_MAX_CONCURRENT_JOBS='2'") {
-		t.Fatalf("operation command does not include ingestion concurrency: %s", command)
-	}
-	if !strings.Contains(strings.Join(operationEnvironment(config, "/tmp/release"), "\n"), "OPENLIA_INGESTION_MAX_CONCURRENT_JOBS=2") {
-		t.Fatal("local environment does not transport ingestion concurrency")
-	}
-}
-
-func TestOperationCommandUsesProjectScopedManagedHermesImage(t *testing.T) {
-	first := defaultConfig()
-	first.Target = "operator@example.test"
-	first.Project = "first"
-	second := first
-	second.Project = "second"
-	firstCommand := (Remote{Config: first}).operationCommand("ops/deploy.sh")
-	secondCommand := (Remote{Config: second}).operationCommand("ops/deploy.sh")
-	firstImage := hermesImage(first)
-	secondImage := hermesImage(second)
-	if firstImage == secondImage || !strings.Contains(firstCommand, "OPENLIA_HERMES_IMAGE='"+firstImage+"'") || !strings.Contains(secondCommand, "OPENLIA_HERMES_IMAGE='"+secondImage+"'") {
-		t.Fatalf("project-scoped Hermes images were not transported: first=%s second=%s", firstCommand, secondCommand)
-	}
-	if !strings.Contains(firstCommand, "DEBIAN_SNAPSHOT='20260801T000000Z'") {
-		t.Fatalf("managed Debian snapshot was not transported: %s", firstCommand)
+	image := hermesImage(config)
+	if !strings.Contains(command, "OPENLIA_HERMES_IMAGE='"+image+"'") {
+		t.Fatalf("Hermes image was not transported: %s", command)
 	}
 
-	custom := first
+	custom := config
 	custom.HermesImage = "registry.example.test/openlia-hermes:custom"
 	if got := hermesImage(custom); got != custom.HermesImage {
 		t.Fatalf("custom Hermes image was replaced: got %q", got)
@@ -170,19 +134,13 @@ func TestOperatorArgumentsMapAllOperationScripts(t *testing.T) {
 	for _, script := range []string{
 		"ops/bootstrap.sh",
 		"ops/profile.sh",
-		"ops/skill-status.sh",
-		"skill-fork",
-		"skill-migration",
 		"ops/backup.sh",
 		"ops/attachments.sh",
 		"ops/auth.sh",
 		"ops/deploy.sh",
 		"ops/healthcheck.sh",
-		"ops/workspace-git.sh",
 		"ops/uninstall.sh",
-		"workspace-migrate",
-		"workspace-export",
-		"instructions",
+		"locho-host",
 	} {
 		if _, ok := operatorArguments(script, []string{"--json"}); !ok {
 			t.Fatalf("script %s was not mapped to the Go operator", script)
@@ -190,28 +148,17 @@ func TestOperatorArgumentsMapAllOperationScripts(t *testing.T) {
 	}
 }
 
-func TestOperatorOnlyOperationsHaveNoLegacyFallback(t *testing.T) {
-	config := defaultConfig()
-	config.Target = "operator@example.test"
-	for _, operation := range []string{"workspace-git", "instructions"} {
-		command := (Remote{Config: config}).operationCommand(operation, "list", "--json")
-		if strings.Contains(command, "ops/skills") || !strings.Contains(command, "Go operator is required") {
-			t.Fatalf("%s operation has unsafe fallback: %s", operation, command)
-		}
-	}
-}
-
 func TestRemoteExtractsOperatorErrorJSON(t *testing.T) {
 	bin := t.TempDir()
 	ssh := filepath.Join(bin, "ssh")
-	if err := os.WriteFile(ssh, []byte("#!/bin/sh\nprintf '%s\\n' '{\"schema\":1,\"ok\":false,\"error\":\"remote skill failure\"}'\nexit 1\n"), 0o700); err != nil {
+	if err := os.WriteFile(ssh, []byte("#!/bin/sh\nprintf '%s\\n' '{\"schema\":1,\"ok\":false,\"error\":\"remote failure\"}'\nexit 1\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	config := defaultConfig()
 	config.Target = "operator@example.test"
 	_, err := (Remote{Config: config}).ssh(context.Background(), "ignored", nil)
-	if err == nil || err.Error() != "remote command failed: remote skill failure" {
+	if err == nil || err.Error() != "remote command failed: remote failure" {
 		t.Fatalf("Remote.ssh() error = %v", err)
 	}
 }
@@ -284,13 +231,6 @@ func TestLocalExtractsOperatorErrorJSON(t *testing.T) {
 	_, err := (Local{Config: config}).operator(context.Background(), filepath.Join(config.InstallRoot, "release"), nil, "unknown", "--json")
 	if err == nil || !strings.Contains(err.Error(), "local operator failed: unknown command") {
 		t.Fatalf("Local.operator() error = %v", err)
-	}
-}
-
-func TestWorkspaceGitArgumentsAreLocalOnly(t *testing.T) {
-	args := workspaceGitArguments("setup")
-	if strings.Join(args, " ") != "setup --json" {
-		t.Fatalf("workspace Git arguments = %q, want local-only setup", args)
 	}
 }
 

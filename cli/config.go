@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
-	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -17,7 +17,6 @@ import (
 	"filippo.io/age"
 	"github.com/robfig/cron/v3"
 	"openlia/internal/releaseinfo"
-	"openlia/internal/toolcatalog"
 )
 
 const (
@@ -27,7 +26,6 @@ const (
 	defaultProject               = "openlia"
 	defaultOutputLanguage        = "en"
 	defaultTimezone              = "Asia/Ho_Chi_Minh"
-	defaultWorkspaceUIPort       = 8089
 	maxBackupRemoteRetentionDays = (1<<63 - 1) / int64(24*time.Hour)
 )
 
@@ -37,15 +35,6 @@ var (
 	defaultLochoVersion = releaseinfo.Default.Locho.Version
 	defaultHermesImage  = "openlia-hermes:" + defaultHermesTag
 )
-
-var defaultSkills = []string{
-	"document-intelligence",
-	"daily-briefing",
-	"weekly-review",
-	"calendar",
-	"workspace-git",
-	"workspace-organize",
-}
 
 const (
 	RoleOpenLiaBrowser = "openlia-browser"
@@ -65,60 +54,55 @@ func ValidateServiceRole(role string) error {
 }
 
 type Config struct {
-	Schema                        int
-	Version                       string
-	Mode                          string
-	Target                        string
-	InstallRoot                   string
-	Project                       string
-	Model                         string
-	OutputLanguage                string
-	FallbackProviders             []FallbackProviderConfig
-	Timezone                      string
-	Provider                      string
-	ExternalNetwork               string
-	HermesImage                   string
-	HermesTag                     string
-	HermesDigest                  string
-	LochoImage                    string
-	LochoVersion                  string
-	LochoX8664SHA256              string
-	LochoARM64SHA256              string
-	APIEnabled                    bool
-	APIHost                       string
-	WorkspaceUIHost               string
-	WorkspaceUIPort               int
-	WorkspaceUIPublicOrigin       string
-	WorkspaceUIPasswordHash       string
-	WorkspaceUIAllowedEmails      []string
-	WorkspaceUIFirebaseProjectID  string
-	WorkspaceUIFirebaseAPIKey     string
-	WorkspaceUIFirebaseAuthDomain string
-	WorkspaceUIFirebaseAppID      string
-	LochoHostEnabled              bool
-	LochoHostStateDir             string
-	LochoRelayConfigSource        string
-	LochoRelaySecretsSource       string
-	SecretSource                  string
-	ReleaseSource                 string
-	TemplatesRepo                 string
-	TemplatesRef                  string
-	EnabledSkills                 []string
-	SkillsConfigured              bool
-	IngestionMaxConcurrentJobs    int
-	BackupIdentityFile            string
-	BackupKnownHosts              string
-	BackupRecipient               string
-	BackupSchedule                string
-	BackupScheduleEnabled         bool
-	BackupLocalRetention          int
-	BackupLocalMaxBytes           int64
-	BackupRemoteRetentionDays     int
-	BackupDestinations            []BackupDestinationConfig
-	WorkspaceGitSchedule          string
-	WorkspaceGitEnabled           bool
-	Services                      []ServiceHostConfig
-	OpenLiaBrowser                OpenLiaBrowserConfig
+	Schema                    int
+	Version                   string
+	Mode                      string
+	Target                    string
+	InstallRoot               string
+	Project                   string
+	Model                     string
+	OutputLanguage            string
+	FallbackProviders         []FallbackProviderConfig
+	Timezone                  string
+	Provider                  string
+	ExternalNetwork           string
+	HermesImage               string
+	HermesTag                 string
+	HermesDigest              string
+	LochoImage                string
+	LochoVersion              string
+	LochoX8664SHA256          string
+	LochoARM64SHA256          string
+	APIEnabled                bool
+	APIHost                   string
+	LochoHostEnabled          bool
+	LochoHostStateDir         string
+	LochoRelayConfigSource    string
+	LochoRelaySecretsSource   string
+	SecretSource              string
+	ReleaseSource             string
+	BackupIdentityFile        string
+	BackupKnownHosts          string
+	BackupRecipient           string
+	BackupSchedule            string
+	BackupScheduleEnabled     bool
+	BackupLocalRetention      int
+	BackupLocalMaxBytes       int64
+	BackupRemoteRetentionDays int
+	BackupDestinations        []BackupDestinationConfig
+	Services                  []ServiceHostConfig
+	OpenLiaBrowser            OpenLiaBrowserConfig
+}
+
+type CustomInitConfig struct {
+	SoulMD   CustomDocConfig
+	AgentsMD CustomDocConfig
+}
+
+type CustomDocConfig struct {
+	Content string
+	File    string
+	Append  string
 }
 
 type BackupDestinationConfig struct {
@@ -162,38 +146,32 @@ type OpenLiaBrowserConfig struct {
 
 func defaultConfig() Config {
 	return Config{
-		Schema:                     configSchema,
-		Version:                    defaultVersion,
-		Mode:                       "ssh",
-		InstallRoot:                defaultRemoteRoot,
-		Project:                    defaultProject,
-		Model:                      "gpt-5.6-luna",
-		OutputLanguage:             defaultOutputLanguage,
-		Timezone:                   defaultTimezone,
-		Provider:                   "copilot",
-		HermesImage:                defaultHermesImage,
-		HermesTag:                  defaultHermesTag,
-		HermesDigest:               releaseinfo.Default.Hermes.Digest,
-		LochoImage:                 releaseinfo.InternalImage("openlia-locho", defaultLochoVersion),
-		LochoVersion:               defaultLochoVersion,
-		LochoX8664SHA256:           releaseinfo.Default.Locho.LinuxX8664SHA,
-		LochoARM64SHA256:           releaseinfo.Default.Locho.LinuxARM64SHA,
-		APIHost:                    "127.0.0.1",
-		WorkspaceUIHost:            "",
-		WorkspaceUIPort:            defaultWorkspaceUIPort,
-		LochoHostEnabled:           false,
-		EnabledSkills:              append([]string(nil), defaultSkills...),
-		BackupSchedule:             "20 4 * * *",
-		BackupScheduleEnabled:      true,
-		BackupLocalRetention:       5,
-		BackupLocalMaxBytes:        10 << 30,
-		BackupRemoteRetentionDays:  30,
-		BackupDestinations:         []BackupDestinationConfig{},
-		WorkspaceGitSchedule:       "0 4 * * *",
-		WorkspaceGitEnabled:        true,
-		IngestionMaxConcurrentJobs: 1,
-		OpenLiaBrowser:             OpenLiaBrowserConfig{Mode: "local", SSHPort: 22},
-		Services:                   nil,
+		Schema:                    configSchema,
+		Version:                   defaultVersion,
+		Mode:                      "ssh",
+		InstallRoot:               defaultRemoteRoot,
+		Project:                   defaultProject,
+		Model:                     "gpt-5.6-luna",
+		OutputLanguage:            defaultOutputLanguage,
+		Timezone:                  defaultTimezone,
+		Provider:                  "copilot",
+		HermesImage:               defaultHermesImage,
+		HermesTag:                 defaultHermesTag,
+		HermesDigest:              releaseinfo.Default.Hermes.Digest,
+		LochoImage:                releaseinfo.InternalImage("openlia-locho", defaultLochoVersion),
+		LochoVersion:              defaultLochoVersion,
+		LochoX8664SHA256:          releaseinfo.Default.Locho.LinuxX8664SHA,
+		LochoARM64SHA256:          releaseinfo.Default.Locho.LinuxARM64SHA,
+		APIHost:                   "127.0.0.1",
+		LochoHostEnabled:          false,
+		BackupSchedule:            "20 4 * * *",
+		BackupScheduleEnabled:     true,
+		BackupLocalRetention:      5,
+		BackupLocalMaxBytes:       10 << 30,
+		BackupRemoteRetentionDays: 30,
+		BackupDestinations:        []BackupDestinationConfig{},
+		OpenLiaBrowser:            OpenLiaBrowserConfig{Mode: "local", SSHPort: 22},
+		Services:                  nil,
 	}
 }
 
@@ -201,7 +179,7 @@ func hermesImage(config Config) string {
 	if config.HermesImage != defaultHermesImage {
 		return config.HermesImage
 	}
-	return toolcatalog.ManagedHermesImage(config.Project, config.HermesTag, config.HermesDigest, toolcatalog.DefaultDebianSnapshot)
+	return releaseinfo.InternalImage("openlia-hermes", config.HermesTag)
 }
 
 func defaultLocalInstallRoot() string {
@@ -214,7 +192,10 @@ func defaultLocalInstallRoot() string {
 
 func configPath() string {
 	if value := os.Getenv("OPENLIA_CONFIG"); value != "" {
-		return value
+		return expandTilde(value)
+	}
+	if value := os.Getenv("OPENLIA_CONFIG_FILE"); value != "" {
+		return expandTilde(value)
 	}
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
@@ -424,24 +405,6 @@ func parseConfigUnchecked(data string) (Config, error) {
 				config.Provider, err = parseString(value)
 			case "openlia.external_network":
 				config.ExternalNetwork, err = parseString(value)
-			case "workspace-ui.host":
-				config.WorkspaceUIHost, err = parseString(value)
-			case "workspace-ui.port":
-				config.WorkspaceUIPort, err = parseInt(value)
-			case "workspace-ui.public_origin":
-				config.WorkspaceUIPublicOrigin, err = parseString(value)
-			case "workspace-ui.password_hash":
-				config.WorkspaceUIPasswordHash, err = parseString(value)
-			case "workspace-ui.allowed_emails":
-				config.WorkspaceUIAllowedEmails, err = parseStringArray(value)
-			case "workspace-ui.firebase_project_id":
-				config.WorkspaceUIFirebaseProjectID, err = parseString(value)
-			case "workspace-ui.firebase_api_key":
-				config.WorkspaceUIFirebaseAPIKey, err = parseString(value)
-			case "workspace-ui.firebase_auth_domain":
-				config.WorkspaceUIFirebaseAuthDomain, err = parseString(value)
-			case "workspace-ui.firebase_app_id":
-				config.WorkspaceUIFirebaseAppID, err = parseString(value)
 			case "locho-host.enabled":
 				config.LochoHostEnabled, err = parseBool(value)
 			case "locho-host.state_dir":
@@ -471,13 +434,6 @@ func parseConfigUnchecked(data string) (Config, error) {
 				config.OpenLiaBrowser.ExtensionTokenFile, err = parseString(value)
 			case "release.source":
 				config.ReleaseSource, err = parseString(value)
-			case "templates.repo":
-				config.TemplatesRepo, err = parseString(value)
-				if err == nil {
-					config.TemplatesRepo = expandTilde(config.TemplatesRepo)
-				}
-			case "templates.ref":
-				config.TemplatesRef, err = parseString(value)
 			case "components.hermes_image":
 				config.HermesImage, err = parseString(value)
 			case "components.hermes_tag":
@@ -498,11 +454,6 @@ func parseConfigUnchecked(data string) (Config, error) {
 				config.APIHost, err = parseString(value)
 			case "secrets.source":
 				config.SecretSource, err = parseString(value)
-			case "skills.enabled":
-				config.EnabledSkills, err = parseStringArray(value)
-				config.SkillsConfigured = true
-			case "ingestion.max_concurrent_jobs":
-				config.IngestionMaxConcurrentJobs, err = parseInt(value)
 			case "backup.identity_file":
 				config.BackupIdentityFile, err = parseString(value)
 				if err == nil {
@@ -535,10 +486,6 @@ func parseConfigUnchecked(data string) (Config, error) {
 				backupLocalMaxSizeSet = true
 			case "backup.remote_retention_days":
 				config.BackupRemoteRetentionDays, err = parseInt(value)
-			case "workspace_git.schedule":
-				config.WorkspaceGitSchedule, err = parseString(value)
-			case "workspace_git.enabled":
-				config.WorkspaceGitEnabled, err = parseBool(value)
 			default:
 				return Config{}, fmt.Errorf("line %d contains unknown setting %q", lineNumber, section+"."+key)
 			}
@@ -700,11 +647,6 @@ func validateConfig(config Config) error {
 			return fmt.Errorf("backup.schedule must be a five-field cron expression: %w", err)
 		}
 	}
-	if config.WorkspaceGitEnabled || config.WorkspaceGitSchedule != "" {
-		if _, err := cron.ParseStandard(config.WorkspaceGitSchedule); err != nil {
-			return fmt.Errorf("workspace_git.schedule must be a five-field cron expression: %w", err)
-		}
-	}
 	if err := validateBackupDestinations(config.BackupDestinations); err != nil {
 		return err
 	}
@@ -756,14 +698,6 @@ func validateConfig(config Config) error {
 	if config.APIHost != "127.0.0.1" {
 		return errors.New("API host must remain 127.0.0.1; use SSH or a private network for access")
 	}
-	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIPublicOrigin, config.WorkspaceUIPasswordHash, config.WorkspaceUIAllowedEmails, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain, config.LochoHostEnabled); err != nil {
-		return err
-	}
-	if config.LochoHostEnabled {
-		if config.WorkspaceUIHost != "127.0.0.1" {
-			return errors.New("locho-host requires workspace-ui to bind to 127.0.0.1")
-		}
-	}
 	if config.LochoHostStateDir != "" {
 		if err := validateAbsoluteRoot(config.LochoHostStateDir, "locho-host.state_dir"); err != nil {
 			return err
@@ -809,14 +743,6 @@ func validateConfig(config Config) error {
 		if fallback.KeyEnv != "" && !safeEnvName(fallback.KeyEnv) {
 			return fmt.Errorf("fallback provider %d key_env is invalid", index)
 		}
-	}
-	for _, skill := range config.EnabledSkills {
-		if !safeComponent(skill) {
-			return fmt.Errorf("invalid skill name %q", skill)
-		}
-	}
-	if config.IngestionMaxConcurrentJobs <= 0 {
-		return errors.New("ingestion.max_concurrent_jobs must be a positive integer")
 	}
 	hostNames := make(map[string]bool)
 	for i, host := range config.Services {
@@ -907,50 +833,6 @@ func validateBackupDestinations(destinations []BackupDestinationConfig) error {
 	return nil
 }
 
-func validateWorkspaceUI(host string, port int, publicOrigin, passwordHash string, allowedEmails []string, firebaseProjectID, firebaseAPIKey, firebaseAuthDomain string, authRequired bool) error {
-	if host != "" && (net.ParseIP(host) == nil || host != "127.0.0.1" && host != "0.0.0.0") {
-		return errors.New("workspace-ui.host must be 127.0.0.1 or 0.0.0.0")
-	}
-	if port < 1 || port > 65535 {
-		return errors.New("workspace-ui.port must be between 1 and 65535")
-	}
-	if err := validateWorkspaceUIPublicOrigin(publicOrigin); err != nil {
-		return err
-	}
-
-	isFirebase := firebaseProjectID != "" || len(allowedEmails) > 0
-	if isFirebase {
-		if len(allowedEmails) == 0 {
-			return errors.New("workspace-ui.allowed_emails must contain at least one email address")
-		}
-		for _, email := range allowedEmails {
-			if email == "" || !strings.Contains(email, "@") || strings.HasPrefix(email, "@") || strings.HasSuffix(email, "@") {
-				return errors.New("workspace-ui.allowed_emails must contain valid email addresses")
-			}
-		}
-		if firebaseProjectID == "" {
-			return errors.New("workspace-ui.firebase_project_id is required when Firebase Auth is configured")
-		}
-		if firebaseAPIKey == "" {
-			return errors.New("workspace-ui.firebase_api_key is required when Firebase Auth is configured")
-		}
-		if firebaseAuthDomain == "" {
-			return errors.New("workspace-ui.firebase_auth_domain is required when Firebase Auth is configured")
-		}
-		return nil
-	}
-
-	if passwordHash != "" {
-		if err := validateWorkspaceUIPasswordHash(passwordHash); err != nil {
-			return err
-		}
-	}
-	if (host == "0.0.0.0" || authRequired) && passwordHash == "" {
-		return errors.New("workspace-ui.password_hash is required when Workspace UI authentication is enabled")
-	}
-	return nil
-}
-
 func validateOpenLiaBrowser(config OpenLiaBrowserConfig) error {
 	if config.Mode != "local" && config.Mode != "ssh" {
 		return errors.New("openlia-browser.mode must be local or ssh")
@@ -984,17 +866,6 @@ func validateOpenLiaBrowser(config OpenLiaBrowserConfig) error {
 	}
 	if !strings.Contains(config.Target, "@") || strings.HasPrefix(config.Target, "@") || strings.HasSuffix(config.Target, "@") {
 		return errors.New("openlia-browser.target must use user@host syntax")
-	}
-	return nil
-}
-
-func validateWorkspaceUIPublicOrigin(value string) error {
-	if value == "" {
-		return nil
-	}
-	origin, err := url.Parse(value)
-	if err != nil || (origin.Scheme != "http" && origin.Scheme != "https") || origin.Host == "" || origin.User != nil || origin.Opaque != "" || origin.RawQuery != "" || origin.Fragment != "" || origin.Path != "" && origin.Path != "/" {
-		return errors.New("workspace-ui.public_origin must be an absolute http(s) origin")
 	}
 	return nil
 }
@@ -1200,38 +1071,6 @@ func renderConfig(config Config) string {
 	if config.OpenLiaBrowser.Configured {
 		fmt.Fprintf(&builder, "[openlia-browser]\nmode = %q\ntarget = %q\nssh_port = %d\nroot = %q\nextension_token_file = %q\n\n", config.OpenLiaBrowser.Mode, config.OpenLiaBrowser.Target, config.OpenLiaBrowser.SSHPort, config.OpenLiaBrowser.Root, config.OpenLiaBrowser.ExtensionTokenFile)
 	}
-	if config.WorkspaceUIHost != "" {
-		fmt.Fprintf(&builder, "[workspace-ui]\nhost = %q\nport = %d\n", config.WorkspaceUIHost, config.WorkspaceUIPort)
-		if config.WorkspaceUIPublicOrigin != "" {
-			fmt.Fprintf(&builder, "public_origin = %q\n", config.WorkspaceUIPublicOrigin)
-		}
-		if config.WorkspaceUIPasswordHash != "" {
-			fmt.Fprintf(&builder, "password_hash = %q\n", config.WorkspaceUIPasswordHash)
-		}
-		if len(config.WorkspaceUIAllowedEmails) > 0 {
-			builder.WriteString("allowed_emails = [")
-			for i, email := range config.WorkspaceUIAllowedEmails {
-				if i > 0 {
-					builder.WriteString(", ")
-				}
-				fmt.Fprintf(&builder, "%q", email)
-			}
-			builder.WriteString("]\n")
-		}
-		if config.WorkspaceUIFirebaseProjectID != "" {
-			fmt.Fprintf(&builder, "firebase_project_id = %q\n", config.WorkspaceUIFirebaseProjectID)
-		}
-		if config.WorkspaceUIFirebaseAPIKey != "" {
-			fmt.Fprintf(&builder, "firebase_api_key = %q\n", config.WorkspaceUIFirebaseAPIKey)
-		}
-		if config.WorkspaceUIFirebaseAuthDomain != "" {
-			fmt.Fprintf(&builder, "firebase_auth_domain = %q\n", config.WorkspaceUIFirebaseAuthDomain)
-		}
-		if config.WorkspaceUIFirebaseAppID != "" {
-			fmt.Fprintf(&builder, "firebase_app_id = %q\n", config.WorkspaceUIFirebaseAppID)
-		}
-		builder.WriteString("\n")
-	}
 	if config.LochoHostEnabled || config.LochoHostStateDir != "" {
 		builder.WriteString("[locho-host]\n")
 		if config.LochoHostEnabled {
@@ -1266,31 +1105,9 @@ func renderConfig(config Config) string {
 		builder.WriteString("\n")
 	}
 	fmt.Fprintf(&builder, "[release]\nsource = %q\n\n", config.ReleaseSource)
-	if config.TemplatesRepo != "" || config.TemplatesRef != "" {
-		builder.WriteString("[templates]\n")
-		if config.TemplatesRepo != "" {
-			fmt.Fprintf(&builder, "repo = %q\n", config.TemplatesRepo)
-		}
-		if config.TemplatesRef != "" {
-			fmt.Fprintf(&builder, "ref = %q\n", config.TemplatesRef)
-		}
-		builder.WriteString("\n")
-	}
 	fmt.Fprintf(&builder, "[components]\nhermes_image = %q\nhermes_tag = %q\nhermes_digest = %q\nlocho_image = %q\nlocho_version = %q\nlocho_x86_64_sha256 = %q\nlocho_arm64_sha256 = %q\n\n", config.HermesImage, config.HermesTag, config.HermesDigest, config.LochoImage, config.LochoVersion, config.LochoX8664SHA256, config.LochoARM64SHA256)
 	fmt.Fprintf(&builder, "[api]\nenabled = %t\nhost = %q\n\n", config.APIEnabled, config.APIHost)
-	fmt.Fprintf(&builder, "[secrets]\nsource = %q\n\n", config.SecretSource)
-	if config.SkillsConfigured || !sameStrings(config.EnabledSkills, defaultSkills) {
-		builder.WriteString("[skills]\nenabled = [")
-		for index, skill := range config.EnabledSkills {
-			if index > 0 {
-				builder.WriteString(", ")
-			}
-			fmt.Fprintf(&builder, "%q", skill)
-		}
-		builder.WriteString("]\n")
-	}
-	fmt.Fprintf(&builder, "\n[ingestion]\nmax_concurrent_jobs = %d\n", config.IngestionMaxConcurrentJobs)
-	fmt.Fprintf(&builder, "\n[workspace_git]\nenabled = %t\nschedule = %q\n", config.WorkspaceGitEnabled, config.WorkspaceGitSchedule)
+	fmt.Fprintf(&builder, "[secrets]\nsource = %q\n", config.SecretSource)
 	fmt.Fprintf(&builder, "\n[backup]\nschedule = %q\nschedule_enabled = %t\nlocal_retention = %d\nlocal_max_size = %q\nremote_retention_days = %d\n", config.BackupSchedule, config.BackupScheduleEnabled, config.BackupLocalRetention, formatBackupSize(config.BackupLocalMaxBytes), config.BackupRemoteRetentionDays)
 	if config.BackupKnownHosts != "" {
 		fmt.Fprintf(&builder, "known_hosts = %q\n", config.BackupKnownHosts)
@@ -1371,4 +1188,149 @@ func expandTilde(path string) string {
 		}
 	}
 	return path
+}
+
+func loadCustomInitConfig(path string) (CustomInitConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return CustomInitConfig{}, fmt.Errorf("read custom init config: %w", err)
+	}
+	return parseCustomInitConfig(string(data), filepath.Dir(path))
+}
+
+func parseCustomInitConfig(data, baseDir string) (CustomInitConfig, error) {
+	var cfg CustomInitConfig
+	section := ""
+	lines := strings.Split(data, "\n")
+	for i := 0; i < len(lines); i++ {
+		lineNumber := i + 1
+		line := strings.TrimSpace(lines[i])
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.TrimSpace(line[1 : len(line)-1])
+			section = strings.Trim(section, "\"'")
+			if section != "soul.md" && section != "agents.md" {
+				return CustomInitConfig{}, fmt.Errorf("line %d: unknown section [%s]; expected [soul.md] or [agents.md]", lineNumber, section)
+			}
+			continue
+		}
+		key, rawValue, ok := strings.Cut(line, "=")
+		if !ok {
+			return CustomInitConfig{}, fmt.Errorf("line %d is not a key/value pair", lineNumber)
+		}
+		key = strings.TrimSpace(key)
+		rawValue = strings.TrimSpace(rawValue)
+		var val string
+		var err error
+		if strings.HasPrefix(rawValue, `"""`) || strings.HasPrefix(rawValue, `'''`) {
+			quote := rawValue[:3]
+			rest := rawValue[3:]
+			if idx := strings.Index(rest, quote); idx >= 0 {
+				val = rest[:idx]
+			} else {
+				var buf strings.Builder
+				buf.WriteString(rest)
+				found := false
+				for i+1 < len(lines) {
+					i++
+					nextLine := lines[i]
+					if idx := strings.Index(nextLine, quote); idx >= 0 {
+						if buf.Len() > 0 {
+							buf.WriteByte('\n')
+						}
+						buf.WriteString(nextLine[:idx])
+						found = true
+						break
+					}
+					if buf.Len() > 0 {
+						buf.WriteByte('\n')
+					}
+					buf.WriteString(nextLine)
+				}
+				if !found {
+					return CustomInitConfig{}, fmt.Errorf("line %d: unterminated multiline string", lineNumber)
+				}
+				val = strings.TrimPrefix(buf.String(), "\n")
+			}
+		} else {
+			rawValue = strings.TrimSpace(strings.SplitN(rawValue, " #", 2)[0])
+			val, err = parseString(rawValue)
+			if err != nil {
+				return CustomInitConfig{}, fmt.Errorf("line %d: %w", lineNumber, err)
+			}
+		}
+		var target *CustomDocConfig
+		switch section {
+		case "soul.md":
+			target = &cfg.SoulMD
+		case "agents.md":
+			target = &cfg.AgentsMD
+		default:
+			return CustomInitConfig{}, fmt.Errorf("line %d: setting %q outside [soul.md] or [agents.md]", lineNumber, key)
+		}
+		switch key {
+		case "content":
+			target.Content = val
+		case "file":
+			resolved := expandTilde(val)
+			if !filepath.IsAbs(resolved) && baseDir != "" {
+				resolved = filepath.Join(baseDir, resolved)
+			}
+			target.File = resolved
+		case "append":
+			target.Append = val
+		default:
+			return CustomInitConfig{}, fmt.Errorf("line %d: unknown setting %q in [%s]; expected content, file, or append", lineNumber, key, section)
+		}
+	}
+	if err := validateCustomDocConfig("soul.md", cfg.SoulMD); err != nil {
+		return CustomInitConfig{}, err
+	}
+	if err := validateCustomDocConfig("agents.md", cfg.AgentsMD); err != nil {
+		return CustomInitConfig{}, err
+	}
+	return cfg, nil
+}
+
+func validateCustomDocConfig(name string, doc CustomDocConfig) error {
+	if doc.Content != "" && doc.File != "" {
+		return fmt.Errorf("[%s] cannot set both content and file", name)
+	}
+	if doc.File != "" {
+		info, err := os.Stat(doc.File)
+		if err != nil || !info.Mode().IsRegular() {
+			return fmt.Errorf("[%s].file %q must be a readable regular file", name, doc.File)
+		}
+	}
+	return nil
+}
+
+func renderCustomDoc(assets fs.FS, assetPath string, doc CustomDocConfig) ([]byte, bool, error) {
+	if doc.Content == "" && doc.File == "" && doc.Append == "" {
+		return nil, false, nil
+	}
+	var base string
+	if doc.Content != "" {
+		base = doc.Content
+	} else if doc.File != "" {
+		raw, err := os.ReadFile(doc.File)
+		if err != nil {
+			return nil, false, fmt.Errorf("read custom doc file %q: %w", doc.File, err)
+		}
+		base = string(raw)
+	} else {
+		raw, err := fs.ReadFile(assets, assetPath)
+		if err != nil {
+			return nil, false, fmt.Errorf("read base profile %q: %w", assetPath, err)
+		}
+		base = string(raw)
+	}
+	if doc.Append != "" {
+		base = strings.TrimRight(base, "\n") + "\n\n" + strings.TrimSpace(doc.Append) + "\n"
+	} else if !strings.HasSuffix(base, "\n") {
+		base += "\n"
+	}
+	return []byte(base), true, nil
 }

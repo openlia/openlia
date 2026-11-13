@@ -22,6 +22,7 @@ type Options struct {
 	Follow         bool
 	ProviderCheck  bool
 	Release        bool
+	ConfigPath     string
 }
 
 var secretPatterns = []*regexp.Regexp{
@@ -77,10 +78,10 @@ func fail(options Options, code int, message string, fields map[string]any) int 
 }
 
 func usage(out io.Writer) {
-	fmt.Fprintln(out, `openlia - manage your self-hosted AI workspace
+	fmt.Fprintln(out, `openlia - manage your self-hosted Hermes Agent deployment
 
-OpenLia combines a Git-versioned workspace, interactive apps, and
-Hermes Agent to turn your context into knowledge and action.
+OpenLia deploys and manages Hermes Agent with Locho tunneling,
+encrypted local and remote backups, and the openlia-browser relay.
 
 Run this CLI on the operator machine to deploy and manage OpenLia
 locally or over SSH. In local mode the runtime runs on that machine;
@@ -89,46 +90,27 @@ applies to openlia browser: the browser service is managed locally
 or on its selected SSH target.
 
 Usage:
-  openlia init [--local|--target user@host] [--root /path] [--project NAME]
-                [--timezone Asia/Ho_Chi_Minh] [--model MODEL] [--provider PROVIDER]
-                [--external-network NAME] [--api] [--api-host 127.0.0.1]
-                [--locho-host]
-  openlia status [--json]
-  openlia doctor [--json]
   openlia deploy [--release] | start | stop | restart
+  openlia auth [--config PATH] [--username USER] [--password-stdin]
+  openlia auth --oidc [--config PATH] [--issuer URL] [--client-id ID] [--client-secret-stdin] [--public-url URL]
+  openlia status [--check-providers] [--json]
   openlia uninstall [--local|--target user@host] [--project NAME] [--root /path]
   openlia logs [--follow]
-  openlia update [openlia|hermes|locho]
-  openlia features sync|list|show|status|install|update|import|package|remove
-  openlia skills list|show|test
-  openlia skills status|install|update|fork|migrate|enable|disable
-  openlia auth list|setup|rotate
   openlia attachments list
   openlia attachments map <host> <service> --role <role>
   openlia attachments rotate <host> --source PATH
   openlia backup create|push|status|list|keygen|schedule install|remove
   openlia backup restore [--archive PATH.age|--from NAME --latest|--object NAME]
   openlia backup rollback-restore --archive PATH
-  openlia workspace serve [<path>] [--port 8089] [--bind 127.0.0.1] [--open] [--skills PATH]
-  openlia workspace export [PATH.zip]
-  openlia workspace git setup|status
-  openlia workspace migrate [<path>|upload <path>|status [id]|merge [id]|list] [--dry-run]  (beta)
-  openlia instructions status [NAME]
-  openlia instructions diff|merge|keep|reset NAME
-  openlia workspace-ui password
   openlia locho-host share [--output PATH]
   openlia browser configure --local|--target user@host --root PATH --extension-token-file PATH [--ssh-port PORT]
   openlia browser install|start|stop|restart|status|logs|uninstall
-  openlia telegram id [--token TOKEN]
 
-Global flags: --json, --non-interactive, --version, --help, --release
+Global flags: --config PATH, --json, --non-interactive, --version, --help, --release, --check-providers
 
-openlia deploy applies configuration using the release already installed on
-the target. Use openlia deploy --release to upload and activate the release
-bundled in this CLI before applying configuration.
-
-workspace-ui password prompts without echo and prints only an Argon2id hash.
-Copy it into [workspace-ui].password_hash in config.toml, then run openlia deploy.
+openlia deploy provisions, bootstraps, and reconciles the deployment defined in
+config.toml (or specified with --config). Use openlia deploy --release to upload
+and activate the release bundled in this CLI before applying configuration.
 
 Secrets are accepted only through protected files or Hermes' configured secret source.`)
 }

@@ -9,25 +9,6 @@ import (
 	"testing/fstest"
 )
 
-func TestDeploymentResultRunningGate(t *testing.T) {
-	if !deploymentResultIsRunning([]byte(`{"state":"running"}`)) {
-		t.Fatal("running deployment did not enable workspace Git reconciliation")
-	}
-	for _, raw := range [][]byte{[]byte(`{"state":"stopped"}`), []byte(`{"state":"never-started"}`), []byte(`not-json`)} {
-		if deploymentResultIsRunning(raw) {
-			t.Fatalf("non-running deployment enabled workspace Git reconciliation: %s", raw)
-		}
-	}
-}
-
-func TestDeploymentResultStateRejectsMissingOrInvalidState(t *testing.T) {
-	for _, raw := range [][]byte{[]byte(`{}`), []byte(`not-json`)} {
-		if state, ok := deploymentResultState(raw); ok || state != "" {
-			t.Fatalf("deployment state %q, %t for %s", state, ok, raw)
-		}
-	}
-}
-
 func TestSplitCommonFlagsParsesReleaseAndRejectsItForNonDeployLifecycle(t *testing.T) {
 	options, remaining, err := splitCommonFlags([]string{"--json", "deploy", "--release"})
 	if err != nil {
@@ -42,81 +23,22 @@ func TestSplitCommonFlagsParsesReleaseAndRejectsItForNonDeployLifecycle(t *testi
 	}
 }
 
-func TestAuthSetupPersistsPromptedSourceBeforeDeployment(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "config.toml")
-	t.Setenv("OPENLIA_CONFIG", configPath)
-	config := defaultConfig()
-	config.Mode = "local"
-	config.Target = ""
-	config.InstallRoot = filepath.Join(t.TempDir(), "missing-deployment")
-	if err := saveConfig(config); err != nil {
-		t.Fatal(err)
-	}
-	source := filepath.Join(t.TempDir(), "hermes.env")
-	if err := os.WriteFile(source, []byte("OPENAI_API_KEY=test-key\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	input, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := writer.WriteString(source + "\n"); err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	previousStdin := os.Stdin
-	os.Stdin = input
-	t.Cleanup(func() {
-		os.Stdin = previousStdin
-		_ = input.Close()
-	})
-
-	if code := commandAuth(Options{}, []string{"setup"}); code != ExitFailure {
-		t.Fatalf("auth setup exit code = %d, want deployment failure", code)
-	}
-	stored, err := loadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stored.SecretSource != source {
-		t.Fatalf("persisted secret source = %q, want %q", stored.SecretSource, source)
-	}
-}
-
-func TestRunRejectsRetiredSkillSourceCommand(t *testing.T) {
+func TestRunRejectsRetiredCommands(t *testing.T) {
 	t.Setenv("OPENLIA_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
-	if code := Run([]string{"skill-sources", "list"}, fstest.MapFS{}); code != ExitUsage {
-		t.Fatalf("retired skill-sources command exit code = %d, want %d", code, ExitUsage)
-	}
-}
-
-func TestInitRejectsWorkspaceGitRemoteFlag(t *testing.T) {
-	if code := commandInit(Options{}, []string{"--local", "--workspace-git-remote", "https://github.com/example/workspace.git"}, fstest.MapFS{}); code != ExitUsage {
-		t.Fatalf("retired workspace Git remote flag exit code = %d, want %d", code, ExitUsage)
-	}
-}
-
-func TestWorkspaceGitSetupRejectsRemoteOptions(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	t.Setenv("OPENLIA_CONFIG", path)
-	config := defaultConfig()
-	config.Mode = "local"
-	config.Target = ""
-	config.InstallRoot = filepath.Join(t.TempDir(), "openlia")
-	if err := saveConfig(config); err != nil {
-		t.Fatal(err)
-	}
-	if code := commandWorkspaceGit(Options{}, []string{"setup", "--remote", "https://github.com/example/workspace.git"}); code != ExitUsage {
-		t.Fatalf("retired workspace Git remote option exit code = %d, want %d", code, ExitUsage)
-	}
-}
-
-func TestSkillsRejectsRetiredExternalLifecycleActions(t *testing.T) {
-	for _, action := range []string{"install", "update", "uninstall", "reset", "audit", "fork-refresh"} {
-		if code := commandSkills(Options{NonInteractive: true}, []string{action}, fstest.MapFS{}); code != ExitUsage {
-			t.Fatalf("retired skills %s action exit code = %d, want %d", action, code, ExitUsage)
+	for _, cmd := range []string{
+		"skill-sources",
+		"skills",
+		"features",
+		"feature",
+		"workspace",
+		"workspace-ui",
+		"instructions",
+		"telegram",
+		"update",
+		"doctor",
+	} {
+		if code := Run([]string{cmd}, fstest.MapFS{}); code != ExitUsage {
+			t.Fatalf("retired %s command exit code = %d, want %d", cmd, code, ExitUsage)
 		}
 	}
 }
@@ -163,27 +85,16 @@ func TestAttachmentHostIDValidation(t *testing.T) {
 	}
 }
 
-func TestInitRejectsSecretSourceOverride(t *testing.T) {
-	if got := commandInit(Options{}, []string{
-		"--target", "operator@example.test",
-		"--secret-source", "/tmp/hermes.env",
-	}, fstest.MapFS{}); got != ExitUsage {
-		t.Fatalf("init with --secret-source exit code = %d, want %d", got, ExitUsage)
+func TestUnknownInitCommand(t *testing.T) {
+	if got := Run([]string{"init"}, nil); got != ExitUsage {
+		t.Fatalf("Run(['init']) exit code = %d, want %d", got, ExitUsage)
 	}
 }
 
-func TestAuthRejectsSourceOverride(t *testing.T) {
-	if got := commandAuth(Options{}, []string{"rotate", "--source", "/tmp/hermes.env"}); got != ExitUsage {
-		t.Fatalf("auth rotate with --source exit code = %d, want %d", got, ExitUsage)
-	}
-}
-
-func TestWorkspaceUIPasswordRejectsNonInteractiveSetup(t *testing.T) {
-	if got := commandWorkspaceUI(Options{NonInteractive: true}, []string{"password"}); got != ExitUsage {
-		t.Fatalf("non-interactive workspace-ui password exit code = %d, want %d", got, ExitUsage)
-	}
-	if got := commandWorkspaceUI(Options{}, []string{"password", "secret"}); got != ExitUsage {
-		t.Fatalf("workspace-ui password argument exit code = %d, want %d", got, ExitUsage)
+func TestDeployWithoutConfigFileFailsWithPrereq(t *testing.T) {
+	t.Setenv("OPENLIA_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	if got := Run([]string{"deploy"}, nil); got != ExitPrereq {
+		t.Fatalf("Run(['deploy']) without config exit code = %d, want %d", got, ExitPrereq)
 	}
 }
 
@@ -281,12 +192,6 @@ func TestResolveMaintenanceDeploymentSupportsExplicitSelectionWithoutConfig(t *t
 	}
 }
 
-func TestSkillMigrationApplyRequiresInteractiveApproval(t *testing.T) {
-	if got := commandSkillMigration(Options{NonInteractive: true}, []string{"apply", "proposal-1"}); got != ExitUsage {
-		t.Fatalf("non-interactive migration apply exit code = %d, want %d", got, ExitUsage)
-	}
-}
-
 func TestAttachmentsMapRejectsInvalidRole(t *testing.T) {
 	temporary := t.TempDir()
 	t.Setenv("OPENLIA_CONFIG", filepath.Join(temporary, "config.toml"))
@@ -301,6 +206,7 @@ func TestAttachmentsMapRejectsInvalidRole(t *testing.T) {
 		}
 	}
 }
+
 func TestAttachmentsMapRejectsMissingArgs(t *testing.T) {
 	temporary := t.TempDir()
 	t.Setenv("OPENLIA_CONFIG", filepath.Join(temporary, "config.toml"))
@@ -321,17 +227,6 @@ func TestAttachmentsMapRejectsMissingArgs(t *testing.T) {
 	}
 }
 
-func TestUpdateRejectsUnsupportedComponent(t *testing.T) {
-	temporary := t.TempDir()
-	t.Setenv("OPENLIA_CONFIG", filepath.Join(temporary, "config.toml"))
-	if err := saveConfig(defaultConfig()); err != nil {
-		t.Fatal(err)
-	}
-	if got := commandUpdate(Options{}, []string{"unsupported"}, fstest.MapFS{}); got != ExitUsage {
-		t.Fatalf("update unsupported component exit code = %d, want %d", got, ExitUsage)
-	}
-}
-
 func TestLochoHostStatePersistsInOperatorConfigAcrossUninstallReinit(t *testing.T) {
 	operatorDir := t.TempDir()
 	cfgPath := filepath.Join(operatorDir, "config.toml")
@@ -343,8 +238,6 @@ func TestLochoHostStatePersistsInOperatorConfigAcrossUninstallReinit(t *testing.
 	config.Target = ""
 	config.InstallRoot = installRoot
 	config.LochoHostEnabled = true
-	config.WorkspaceUIHost = "127.0.0.1"
-	config.WorkspaceUIPasswordHash = "$argon2id$v=19$m=65536,t=3,p=1$eIwxVdNwGiP5tSdLEaAU3g$KeDL6pxY8F3jC/rifCbGti4bQDFzPjE6lI0uHhKQ6e8"
 	if err := saveConfig(config); err != nil {
 		t.Fatal(err)
 	}
@@ -385,17 +278,17 @@ func TestLochoHostStatePersistsInOperatorConfigAcrossUninstallReinit(t *testing.
 		t.Fatal(err)
 	}
 
-	// Simulate fresh `openlia init` re-staging from operator directory
+	// Simulate fresh `openlia deploy` re-staging from operator directory
 	if err := syncLochoHostState(ctx, dep, &config); err != nil {
 		t.Fatalf("second syncLochoHostState after uninstall failed: %v", err)
 	}
 	restagedKey, err := os.ReadFile(stagedKeyPath)
 	if err != nil || string(restagedKey) != string(operatorKey) {
-		t.Fatalf("restaged host.key changed after uninstall/init: err=%v", err)
+		t.Fatalf("restaged host.key changed after uninstall/deploy: err=%v", err)
 	}
 	restagedState, err := os.ReadFile(stagedStatePath)
 	if err != nil || string(restagedState) != string(operatorState) {
-		t.Fatalf("restaged host_state.json changed after uninstall/init: err=%v", err)
+		t.Fatalf("restaged host_state.json changed after uninstall/deploy: err=%v", err)
 	}
 }
 
@@ -446,97 +339,104 @@ func TestLochoHostStateAdoptsExistingTargetStateWhenOperatorDirMissing(t *testin
 	}
 }
 
-func TestFeaturesAndSkillsInstallFromTemplatesCatalog(t *testing.T) {
-	operatorDir := t.TempDir()
-	cfgPath := filepath.Join(operatorDir, "config.toml")
-	t.Setenv("OPENLIA_CONFIG", cfgPath)
-
-	installRoot := filepath.Join(t.TempDir(), "local_install")
-	templatesDir := filepath.Join(t.TempDir(), "templates_catalog")
-
-	// Seed a feature, standalone skill, and profile in templatesDir
-	if err := os.MkdirAll(filepath.Join(templatesDir, "features", "tasks", "workspace", "tasks"), 0o755); err != nil {
+func TestCommandAuthUpdatesDashboardCredentialsInSecretSource(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.toml")
+	secretPath := filepath.Join(tmp, "openlia_dev.env")
+	if err := os.WriteFile(secretPath, []byte("# Comment preserved\nCOPILOT_GITHUB_TOKEN=gho_testtoken123456\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	tasksYAML := `schema: 1
-id: tasks
-name: Tasks
-version: 0.1.0
-description: Task tracking
-domains:
-  - path: tasks
-    kind: extension
-    label: Tasks
-    purpose: Task tracking
-    lifecycle: active -> completed
-`
-	if err := os.WriteFile(filepath.Join(templatesDir, "features", "tasks", "feature.yaml"), []byte(tasksYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(templatesDir, "features", "tasks", "workspace", "tasks", "task-template.md"), []byte("# Task\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(templatesDir, "skills", "weekly-review"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(templatesDir, "skills", "weekly-review", "SKILL.md"), []byte("---\nname: weekly-review\n---\n# Weekly Review\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(templatesDir, "profiles", "personal-os"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	profileYAML := `schema: 1
-id: personal-os
-name: Personal OS
-version: 0.1.0
-description: Starter profile
-features:
-  - tasks
-skills:
-  - weekly-review
-`
-	if err := os.WriteFile(filepath.Join(templatesDir, "profiles", "personal-os", "profile.yaml"), []byte(profileYAML), 0o644); err != nil {
+	cfg := defaultConfig()
+	cfg.Mode = "local"
+	cfg.InstallRoot = filepath.Join(tmp, "install")
+	cfg.SecretSource = secretPath
+	if err := os.WriteFile(cfgPath, []byte(renderConfig(cfg)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create release root directory expected by Local deployment
-	config := defaultConfig()
-	config.Mode = "local"
-	config.InstallRoot = installRoot
-	config.TemplatesRepo = templatesDir
-	if err := os.MkdirAll(filepath.Join(installRoot, "releases", config.Version), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := saveConfig(config); err != nil {
-		t.Fatal(err)
-	}
-
-	if code := Run([]string{"--json", "features", "sync"}, nil); code != ExitOK {
-		t.Fatalf("features sync exited with %d", code)
-	}
-	if code := Run([]string{"--json", "features", "install", "--profile", "personal-os"}, nil); code != ExitOK {
-		t.Fatalf("features install --profile personal-os exited with %d", code)
-	}
-	if code := Run([]string{"--json", "features", "status", "tasks"}, nil); code != ExitOK {
-		t.Fatalf("features status tasks exited with %d", code)
-	}
-	if code := Run([]string{"--json", "feature", "status", "tasks"}, nil); code != ExitOK {
-		t.Fatalf("feature status tasks (singular alias) exited with %d", code)
-	}
-	if code := Run([]string{"--json", "skills", "install", "weekly-review"}, nil); code != ExitOK {
-		t.Fatalf("skills install weekly-review exited with %d", code)
-	}
-
-	// Also verify relative path resolution for `features import`
-	cwd, err := os.Getwd()
+	origStdin := os.Stdin
+	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chdir(templatesDir); err != nil {
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+	if _, err := w.WriteString("liaadmin\nSuperSecretPass123!\nSuperSecretPass123!\n"); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = os.Chdir(cwd) }()
-	if code := Run([]string{"--json", "features", "import", "./features/tasks"}, nil); code != ExitOK {
-		t.Fatalf("features import ./features/tasks exited with %d", code)
+	_ = w.Close()
+
+	code := Run([]string{"auth", "--config", cfgPath, "--json"}, fstest.MapFS{})
+	if code != ExitOK {
+		t.Fatalf("openlia auth exited with %d", code)
+	}
+
+	updated, err := os.ReadFile(secretPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(updated)
+	for _, want := range []string{
+		"# Comment preserved",
+		"COPILOT_GITHUB_TOKEN=gho_testtoken123456",
+		"HERMES_DASHBOARD_BASIC_AUTH_USERNAME=liaadmin",
+		"HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=SuperSecretPass123!",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in secret file, got:\n%s", want, text)
+		}
+	}
+}
+
+func TestCommandAuthOIDCUpdatesOIDCCredentialsInSecretSource(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.toml")
+	secretPath := filepath.Join(tmp, "openlia_dev.env")
+	if err := os.WriteFile(secretPath, []byte("COPILOT_GITHUB_TOKEN=gho_testtoken123456\nHERMES_DASHBOARD_BASIC_AUTH_USERNAME=old\nHERMES_DASHBOARD_BASIC_AUTH_PASSWORD=oldpass\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	cfg.Mode = "local"
+	cfg.InstallRoot = filepath.Join(tmp, "install")
+	cfg.SecretSource = secretPath
+	if err := os.WriteFile(cfgPath, []byte(renderConfig(cfg)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	origStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+	if _, err := w.WriteString("https://accounts.google.com\n12345-abc.apps.googleusercontent.com\nGOCSPX-mysecret\nhttp://127.0.0.1:9119\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Close()
+
+	code := Run([]string{"auth", "--oidc", "--config", cfgPath, "--json"}, fstest.MapFS{})
+	if code != ExitOK {
+		t.Fatalf("openlia auth --oidc exited with %d", code)
+	}
+
+	updated, err := os.ReadFile(secretPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(updated)
+	for _, want := range []string{
+		"COPILOT_GITHUB_TOKEN=gho_testtoken123456",
+		"HERMES_DASHBOARD_OIDC_ISSUER=https://accounts.google.com",
+		"HERMES_DASHBOARD_OIDC_CLIENT_ID=12345-abc.apps.googleusercontent.com",
+		"HERMES_DASHBOARD_OIDC_CLIENT_SECRET=GOCSPX-mysecret",
+		"HERMES_DASHBOARD_PUBLIC_URL=http://127.0.0.1:9119",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in secret file, got:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "HERMES_DASHBOARD_BASIC_AUTH_") {
+		t.Fatalf("expected basic auth keys to be removed when switching to OIDC, got:\n%s", text)
 	}
 }

@@ -261,55 +261,29 @@ func createBackupWithRestart(ctx context.Context, config Config, reason string, 
 		return BackupResult{}, fmt.Errorf("metadata directory is missing")
 	}
 	wasRunning := false
-	uiWasRunning := false
 	if !live && compose != nil && compose.ServiceRunning(ctx, "hermes") {
 		if _, err := compose.Run(ctx, "stop", "hermes"); err != nil {
 			return BackupResult{}, fmt.Errorf("cannot stop Hermes for a consistent backup")
 		}
 		wasRunning = true
 	}
-	if !live && compose != nil && config.WorkspaceUIHost != "" && compose.ServiceRunning(ctx, "workspace-ui") {
-		if _, err := compose.Run(ctx, "stop", "workspace-ui"); err != nil {
-			if wasRunning {
-				_, _ = compose.Run(ctx, "up", "-d", "--no-deps", "hermes")
-			}
-			return BackupResult{}, fmt.Errorf("cannot stop workspace UI for a consistent backup")
-		}
-		uiWasRunning = true
-	}
 	defer func() {
 		if !restartServices {
 			return
 		}
-		if !wasRunning && !uiWasRunning {
+		if !wasRunning {
 			return
 		}
-		if wasRunning {
-			if res, restartErr := compose.Run(ctx, "up", "-d", "--no-deps", "hermes"); restartErr != nil {
-				msg := strings.TrimSpace(string(res.Stderr))
-				if msg == "" {
-					msg = strings.TrimSpace(string(res.Stdout))
-				}
-				failure := fmt.Errorf("Hermes could not be restarted (%s): %w", msg, restartErr)
-				if err == nil {
-					err = fmt.Errorf("backup completed but %w", failure)
-				} else {
-					err = fmt.Errorf("%v; %w", err, failure)
-				}
+		if res, restartErr := compose.Run(ctx, "up", "-d", "--no-deps", "hermes"); restartErr != nil {
+			msg := strings.TrimSpace(string(res.Stderr))
+			if msg == "" {
+				msg = strings.TrimSpace(string(res.Stdout))
 			}
-		}
-		if uiWasRunning {
-			if res, restartErr := compose.Run(ctx, "up", "-d", "--no-deps", "workspace-ui"); restartErr != nil {
-				msg := strings.TrimSpace(string(res.Stderr))
-				if msg == "" {
-					msg = strings.TrimSpace(string(res.Stdout))
-				}
-				failure := fmt.Errorf("workspace UI could not be restarted (%s): %w", msg, restartErr)
-				if err == nil {
-					err = fmt.Errorf("backup completed but %w", failure)
-				} else {
-					err = fmt.Errorf("%v; %w", err, failure)
-				}
+			failure := fmt.Errorf("Hermes could not be restarted (%s): %w", msg, restartErr)
+			if err == nil {
+				err = fmt.Errorf("backup completed but %w", failure)
+			} else {
+				err = fmt.Errorf("%v; %w", err, failure)
 			}
 		}
 	}()
@@ -391,11 +365,6 @@ func createBackupWithRestart(ctx context.Context, config Config, reason string, 
 		if wasRunning {
 			if _, restartErr := compose.Run(ctx, "up", "-d", "--no-deps", "hermes"); restartErr == nil {
 				wasRunning = false
-			}
-		}
-		if uiWasRunning {
-			if _, restartErr := compose.Run(ctx, "up", "-d", "--no-deps", "workspace-ui"); restartErr == nil {
-				uiWasRunning = false
 			}
 		}
 	}
@@ -501,7 +470,6 @@ func restoreBackup(ctx context.Context, config Config, archivePath string, now t
 		return BackupResult{}, err
 	}
 	wasRunning := compose != nil && compose.ServiceRunning(ctx, "hermes")
-	uiWasRunning := compose != nil && config.WorkspaceUIHost != "" && compose.ServiceRunning(ctx, "workspace-ui")
 	restoreCommitted := false
 	defer func() {
 		if restoreCommitted || compose == nil {
@@ -509,11 +477,6 @@ func restoreBackup(ctx context.Context, config Config, archivePath string, now t
 		}
 		if wasRunning {
 			_, _ = compose.Run(context.Background(), "up", "-d", "--no-deps", "hermes")
-		}
-		if uiWasRunning {
-			_, _ = compose.Run(context.Background(), "up", "-d", "--no-deps", "workspace-ui")
-		}
-		if wasRunning {
 			_ = WriteState(config, stateRunning)
 		}
 	}()
@@ -526,11 +489,6 @@ func restoreBackup(ctx context.Context, config Config, archivePath string, now t
 			if compose.ServiceRunning(ctx, "hermes") {
 				if _, stopErr := compose.Run(ctx, "stop", "hermes"); stopErr != nil {
 					return BackupResult{}, fmt.Errorf("cannot stop Hermes before restore")
-				}
-			}
-			if config.WorkspaceUIHost != "" && compose.ServiceRunning(ctx, "workspace-ui") {
-				if _, stopErr := compose.Run(ctx, "stop", "workspace-ui"); stopErr != nil {
-					return BackupResult{}, fmt.Errorf("cannot stop workspace UI before restore")
 				}
 			}
 		}
@@ -676,7 +634,6 @@ func restoreDurableBackup(config Config, archivePath, staging string, preRestore
 		rollback()
 		return BackupResult{}, fmt.Errorf("restore metadata ownership: %w", err)
 	}
-	_ = ReprovisionLocalStore(config)
 	if err := RecordChange(config, "restore", "ok", preRestore.Archive, "durable archive="+archivePath, now); err != nil {
 		return BackupResult{}, err
 	}
@@ -869,28 +826,15 @@ func RestoreRollback(config Config, archivePath string, now time.Time, composers
 		compose = &composers[0]
 	}
 	wasRunning := false
-	uiWasRunning := false
 	if compose != nil && compose.ServiceRunning(context.Background(), "hermes") {
 		if _, err := compose.Run(context.Background(), "stop", "hermes"); err != nil {
 			return BackupResult{}, fmt.Errorf("cannot stop Hermes before rollback")
 		}
 		wasRunning = true
 	}
-	if compose != nil && config.WorkspaceUIHost != "" && compose.ServiceRunning(context.Background(), "workspace-ui") {
-		if _, err := compose.Run(context.Background(), "stop", "workspace-ui"); err != nil {
-			if wasRunning {
-				_, _ = compose.Run(context.Background(), "up", "-d", "--no-deps", "hermes")
-			}
-			return BackupResult{}, fmt.Errorf("cannot stop workspace UI before rollback")
-		}
-		uiWasRunning = true
-	}
 	defer func() {
 		if wasRunning {
 			_, _ = compose.Run(context.Background(), "up", "-d", "--no-deps", "hermes")
-		}
-		if uiWasRunning {
-			_, _ = compose.Run(context.Background(), "up", "-d", "--no-deps", "workspace-ui")
 		}
 	}()
 	old := make(map[string]string)

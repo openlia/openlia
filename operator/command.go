@@ -2,20 +2,15 @@ package operator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-
-	"openlia/operator/migration"
 )
 
-// Run is the standalone Go operator entrypoint. The root CLI is intentionally
-// left unchanged while this command is evaluated as a replacement boundary.
+// Run is the standalone Go operator entrypoint.
 func Run(args []string, input io.Reader, output, errorOutput io.Writer) int {
 	return RunContext(context.Background(), args, input, output, errorOutput)
 }
@@ -63,32 +58,11 @@ func RunContext(ctx context.Context, args []string, input io.Reader, output, err
 		if len(args) > 1 || (len(args) == 1 && args[0] != "sync") {
 			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("profile accepts sync"))
 		}
-		result, err := syncProfileAndRefresh(ctx, config, NewCompose(config, nil))
+		result, err := NewProfileOperator(config).Sync()
 		if err != nil {
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
-		return emit(output, result, jsonOutput, "openlia profile: distribution assets synchronized; workspace preserved")
-	case "skill-status":
-		selected, remaining, err := stringFlag(args, "--skill")
-		if err != nil || len(remaining) != 0 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("skill-status accepts --skill NAME"))
-		}
-		result, err := NewProfileOperator(config).Status(selected)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, result, jsonOutput, "openlia skill-status: read-only skill provenance inspection")
-	case "skill-fork":
-		if len(args) != 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("skill-fork requires NAME"))
-		}
-		result, err := ForkSkill(config, args[0], now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, result, jsonOutput, "openlia skill-fork: skill forked; active files preserved")
-	case "skill-migration":
-		return runSkillMigration(config, args, output, errorOutput, jsonOutput, now)
+		return emit(output, result, jsonOutput, "openlia profile: distribution assets synchronized")
 	case "backup":
 		return runBackup(ctx, config, args, input, output, errorOutput, jsonOutput, now)
 	case "attachments":
@@ -101,16 +75,6 @@ func RunContext(ctx context.Context, args []string, input io.Reader, output, err
 		return runDeploy(ctx, config, args, output, errorOutput, jsonOutput, now)
 	case "healthcheck":
 		return runHealthcheck(ctx, config, args, output, errorOutput, jsonOutput)
-	case "workspace-git":
-		return runWorkspaceGit(ctx, config, args, output, errorOutput, jsonOutput)
-	case "workspace-migrate":
-		return runWorkspaceMigrate(ctx, config, args, output, errorOutput, jsonOutput)
-	case "workspace-export":
-		return runWorkspaceExport(ctx, config, args, output, errorOutput, jsonOutput)
-	case "instructions":
-		return runInstructions(config, args, input, output, errorOutput, jsonOutput, now)
-	case "features", "feature":
-		return runFeatures(config, args, output, errorOutput, jsonOutput, now)
 	case "uninstall":
 		if len(args) != 0 {
 			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("uninstall accepts no arguments"))
@@ -402,14 +366,11 @@ func runDeploy(ctx context.Context, config Config, args []string, output, errorO
 			runtimeRelativePath(config, filepath.Join(config.DataRoot, "SOUL.md")),
 			runtimeRelativePath(config, config.MetaRoot),
 		}
-		for _, skill := range config.EnabledSkills {
-			rollbackPaths = append(rollbackPaths, runtimeRelativePath(config, filepath.Join(config.DataRoot, "skills", skill)))
-		}
 		backup, err := CreateRollback(config, "profile-update", now, rollbackPaths...)
 		if err != nil {
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
-		result, err := syncProfileAndRefresh(ctx, config, NewCompose(config, nil))
+		result, err := NewProfileOperator(config).Sync()
 		if err != nil {
 			_ = RecordChange(config, "profile", "failed", backup.Archive, "profile synchronization failed", now)
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
@@ -417,8 +378,7 @@ func runDeploy(ctx context.Context, config Config, args []string, output, errorO
 		if err := RecordChange(config, "profile", "ok", backup.Archive, "profile assets synchronized", now); err != nil {
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
-		human := fmt.Sprintf("openlia deploy: profile assets synchronized; workspace preserved; updated=%d; forked=%d; updates_available=%d; customized=%d; unmanaged=%d", result.Skills.Updated, result.Skills.Forked, result.Skills.UpdatesAvailable, result.Skills.Customized, result.Skills.Unmanaged)
-		return emit(output, map[string]any{"ok": true, "action": "profile", "backup": backup.Archive, "workspace": "preserved", "attention_required": result.Instructions.AttentionRequired, "profile_sync": result}, jsonOutput, human)
+		return emit(output, map[string]any{"ok": true, "action": "profile", "backup": backup.Archive, "profile_sync": result}, jsonOutput, "openlia deploy: profile assets synchronized")
 	}
 	forceRecreate := config.LochoRelayConfig != "" || config.LochoRelaySecrets != ""
 	result, err := Deploy(ctx, config, NewCompose(config, &ExecRunner{Stderr: errorOutput}), DeployOptions{Action: action, Component: component, ForceStart: forceStart, ForceRecreate: forceRecreate}, now)
@@ -426,31 +386,6 @@ func runDeploy(ctx context.Context, config Config, args []string, output, errorO
 		return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 	}
 	return emit(output, result, jsonOutput, fmt.Sprintf("openlia deploy: action=%s state=%s", result.Action, result.State))
-}
-
-func syncProfileAndRefresh(ctx context.Context, config Config, compose Compose) (ProfileSyncResult, error) {
-	result, err := NewProfileOperator(config).Sync()
-	if err != nil {
-		return ProfileSyncResult{}, err
-	}
-	if err := refreshProtectedSkillRuntime(ctx, config, compose); err != nil {
-		return ProfileSyncResult{}, err
-	}
-	return result, nil
-}
-
-func refreshProtectedSkillRuntime(ctx context.Context, config Config, compose Compose) error {
-	state, err := ReadState(config)
-	if err != nil {
-		return err
-	}
-	if state != stateRunning {
-		return nil
-	}
-	if _, err := compose.Run(ctx, "up", "-d", "--no-deps", "--force-recreate", "hermes"); err != nil {
-		return fmt.Errorf("reload Hermes protected skills: %w", err)
-	}
-	return nil
 }
 
 func runHealthcheck(ctx context.Context, config Config, args []string, output, errorOutput io.Writer, jsonOutput bool) int {
@@ -474,43 +409,6 @@ func runHealthcheck(ctx context.Context, config Config, args []string, output, e
 	return ExitOK
 }
 
-func runWorkspaceGit(ctx context.Context, config Config, args []string, output, errorOutput io.Writer, jsonOutput bool) int {
-	action := "setup"
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		action, args = args[0], args[1:]
-	}
-	if len(args) != 0 {
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("workspace-git accepts only setup, ensure, or status"))
-	}
-	result, err := WorkspaceGit(ctx, NewCompose(config, nil), WorkspaceGitOptions{
-		Action:   action,
-		Schedule: config.WorkspaceGitSchedule,
-		Enabled:  config.WorkspaceGitEnabled,
-	})
-	if err != nil {
-		return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-	}
-	return emit(output, result, jsonOutput, "openlia workspace git: operation completed")
-}
-
-func runWorkspaceExport(ctx context.Context, config Config, args []string, output, errorOutput io.Writer, jsonOutput bool) int {
-	outputFile := ""
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--output" && i+1 < len(args) {
-			outputFile = args[i+1]
-			i++
-		}
-	}
-	if outputFile == "" {
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("workspace-export requires --output"))
-	}
-	result, err := WorkspaceExport(config, outputFile)
-	if err != nil {
-		return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-	}
-	return emit(output, result, jsonOutput, fmt.Sprintf("openlia workspace-export: %d files exported (%d bytes)", result.FilesCount, result.SizeBytes))
-}
-
 func emit(output io.Writer, value any, jsonOutput bool, human string) int {
 	if jsonOutput {
 		if err := WriteJSON(output, value); err != nil {
@@ -531,67 +429,6 @@ func commandError(output, errorOutput io.Writer, jsonOutput bool, code int, err 
 		fmt.Fprintf(errorOutput, "openlia: %s\n", formatError(err))
 	}
 	return code
-}
-
-func runInstructions(config Config, args []string, input io.Reader, output, errorOutput io.Writer, jsonOutput bool, now time.Time) int {
-	if len(args) == 0 {
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("instructions requires status, diff, merge, keep, or reset"))
-	}
-	action := args[0]
-	args = args[1:]
-	approved, args := removeFlag(args, "--approve")
-	switch action {
-	case "status":
-		if len(args) > 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("instructions status accepts at most one name"))
-		}
-		selected := ""
-		if len(args) == 1 {
-			selected = args[0]
-		}
-		result, err := InstructionStatus(config, selected)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, result, jsonOutput, fmt.Sprintf("openlia instructions: %d instruction file(s); attention_required=%t", len(result.Instructions), result.AttentionRequired))
-	case "diff":
-		if len(args) != 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("instructions diff requires NAME"))
-		}
-		result, err := InstructionDiff(config, args[0])
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		if !jsonOutput {
-			fmt.Fprint(output, result.ThreeWay)
-			return ExitOK
-		}
-		return emit(output, result, true, "")
-	case "merge", "keep", "reset":
-		if len(args) != 1 || !approved {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("instructions %s requires NAME and --approve", action))
-		}
-		if input == nil {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("instruction mutation request is required"))
-		}
-		decoder := json.NewDecoder(io.LimitReader(input, 64*1024))
-		decoder.DisallowUnknownFields()
-		var request InstructionMutationRequest
-		if err := decoder.Decode(&request); err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("decode instruction mutation request: %w", err))
-		}
-		var trailing any
-		if err := decoder.Decode(&trailing); err != io.EOF {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("instruction mutation request contains trailing data"))
-		}
-		result, err := MutateInstruction(config, args[0], action, request, now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, result, jsonOutput, fmt.Sprintf("openlia instructions: %s %s; state=%s", action, args[0], result.State))
-	default:
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("unknown instructions action %q", action))
-	}
 }
 
 func removeFlag(args []string, wanted string) (bool, []string) {
@@ -624,15 +461,6 @@ func stringFlag(args []string, name string) (string, []string, error) {
 	return value, remaining, nil
 }
 
-func intFlag(args []string, name string) (int, []string, error) {
-	strVal, remaining, err := stringFlag(args, name)
-	if err != nil || strVal == "" {
-		return 0, remaining, err
-	}
-	val, err := strconv.Atoi(strVal)
-	return val, remaining, err
-}
-
 func consumeOptionalValue(args []string, name string) ([]string, string, error) {
 	value, remaining, err := stringFlag(args, name)
 	return remaining, value, err
@@ -654,469 +482,5 @@ Usage:
   openlia-operator <subcommand> [--json]
 
 Subcommands:
-	  bootstrap profile skill-status skill-fork skill-migration backup attachments locho-host auth deploy
-	  healthcheck workspace-git workspace-migrate workspace-export instructions uninstall`)
-}
-
-func runWorkspaceMigrate(ctx context.Context, config Config, args []string, output, errorOutput io.Writer, jsonOutput bool) int {
-	if len(args) == 0 {
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("workspace-migrate requires action: worker, status, plan, apply-chunk, or list"))
-	}
-	action := args[0]
-	args = args[1:]
-	migrationID, args, _ := stringFlag(args, "--migration-id")
-	chunkID, args, _ := stringFlag(args, "--chunk-id")
-
-	revisionID, args, _ := stringFlag(args, "--revision")
-	revisionNum, args, _ := intFlag(args, "--revision")
-	fromRev, args, _ := intFlag(args, "--from-revision")
-	toRev, args, _ := intFlag(args, "--to-revision")
-	patchHash, args, _ := stringFlag(args, "--patch-hash")
-
-	switch action {
-	case "init":
-		if migrationID == "" {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("init requires --migration-id"))
-		}
-		mig, err := InitMigrationV2(config, migrationID)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, mig, jsonOutput, fmt.Sprintf("openlia workspace-migrate: initialized %s", migrationID))
-
-	case "worker":
-		if migrationID == "" {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("worker requires --migration-id"))
-		}
-		migDir := MigrationRoot(config, migrationID)
-		if _, err := os.Stat(filepath.Join(migDir, "migration.sqlite")); err == nil {
-			if err := RunMigrationSupervisor(ctx, config, migrationID); err != nil {
-				return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-			}
-			return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "status": "completed"}, jsonOutput, "openlia workspace-migrate: worker finished")
-		}
-		if err := RunMigrationWorker(ctx, config, migrationID); err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "status": "completed"}, jsonOutput, "openlia workspace-migrate: worker finished")
-
-	case "stop":
-		if migrationID == "" {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("stop requires --migration-id"))
-		}
-		if err := StopMigration(config, migrationID); err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "state": "stopped"}, jsonOutput, fmt.Sprintf("openlia workspace-migrate: migration %s stopped", migrationID))
-
-	case "resume":
-		if migrationID == "" {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("resume requires --migration-id"))
-		}
-		if err := ResumeMigration(ctx, config, migrationID); err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "state": "resumed"}, jsonOutput, fmt.Sprintf("openlia workspace-migrate: migration %s resumed", migrationID))
-
-	case "discard":
-		if migrationID == "" {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("discard requires --migration-id"))
-		}
-		if err := DiscardMigration(config, migrationID); err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "state": "discarded"}, jsonOutput, fmt.Sprintf("openlia workspace-migrate: migration %s discarded", migrationID))
-
-	case "diff":
-		if migrationID == "" {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("diff requires --migration-id"))
-		}
-		targetToRev := toRev
-		if targetToRev == 0 && revisionNum > 0 {
-			targetToRev = revisionNum
-		}
-		diffText, err := GetMigrationDiffV2(config, migrationID, fromRev, targetToRev)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "diff": diffText}, jsonOutput, diffText)
-
-	case "apply":
-		if migrationID == "" || revisionID == "" {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("apply requires --migration-id and --revision"))
-		}
-		if err := ApplyRevision(config, migrationID, revisionID, patchHash); err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "revision_id": revisionID, "state": "applied"}, jsonOutput, fmt.Sprintf("openlia workspace-migrate: revision %s applied", revisionID))
-
-	case "status":
-		if migrationID == "" {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("status requires --migration-id"))
-		}
-		status, err := GetMigrationStatusV2(config, migrationID)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, status, jsonOutput, fmt.Sprintf("openlia workspace-migrate: status for %s", migrationID))
-
-	case "plan":
-		if migrationID == "" {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("plan requires --migration-id"))
-		}
-		plan, err := GetMigrationPlan(config, migrationID)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, plan, jsonOutput, fmt.Sprintf("openlia workspace-migrate: plan contains %d chunks, %d files", plan.TotalChunks, plan.TotalFiles))
-
-	case "apply-chunk":
-		if migrationID == "" || chunkID == "" {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("apply-chunk requires --migration-id and --chunk-id"))
-		}
-		if err := ApplyMigrationChunk(config, migrationID, chunkID, nil); err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "chunk_id": chunkID, "state": "applied"}, jsonOutput, fmt.Sprintf("openlia workspace-migrate: chunk %s applied", chunkID))
-
-	case "recover":
-		if migrationID == "" {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("recover requires --migration-id"))
-		}
-		recoverAction, _, _ := stringFlag(args, "--action")
-		if recoverAction == "" {
-			recoverAction = "inspect"
-		}
-		res, err := RecoverMigration(config, migrationID, recoverAction)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, res, jsonOutput, res.Message)
-
-	case "feedback":
-		if migrationID == "" {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("feedback requires --migration-id"))
-		}
-		comment, args, _ := stringFlag(args, "--comment")
-		if comment == "" {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("feedback requires --comment"))
-		}
-		targetPath, args, _ := stringFlag(args, "--target-path")
-		migDir := MigrationRoot(config, migrationID)
-		db, err := migration.OpenDB(migDir)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		defer db.Close()
-		mig, err := db.GetMigration(migrationID)
-		if err != nil || mig == nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, fmt.Errorf("migration %s not found", migrationID))
-		}
-		targetRev := revisionID
-		if targetRev == "" {
-			targetRev = mig.ActiveRevisionID
-		}
-		item := migration.FeedbackItem{
-			ID:          fmt.Sprintf("fb-%d", time.Now().UnixNano()),
-			MigrationID: migrationID,
-			RevisionID:  targetRev,
-			TargetPath:  targetPath,
-			Comment:     comment,
-			Status:      "submitted",
-			CreatedAt:   time.Now().UTC(),
-		}
-		if err := db.AddFeedback(item); err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		state := mig.State
-		if strings.HasPrefix(strings.TrimSpace(comment), "[CHANGES REQUESTED]") {
-			_ = db.UpdateMigrationState(migrationID, migration.StateRevising, "")
-			state = migration.StateRevising
-			go func() {
-				_ = RunMigrationSupervisor(context.Background(), config, migrationID)
-			}()
-		}
-		return emit(output, map[string]any{"ok": true, "feedback_id": item.ID, "status": "submitted", "state": state}, jsonOutput, "Feedback submitted.")
-
-	case "retry-jobs":
-		if migrationID == "" {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("retry-jobs requires --migration-id"))
-		}
-		migDir := MigrationRoot(config, migrationID)
-		db, err := migration.OpenDB(migDir)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		defer db.Close()
-		if err := db.ResetFailedJobs(migrationID); err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		_ = db.UpdateMigrationState(migrationID, migration.StateProcessing, "")
-		go func() {
-			_ = RunMigrationSupervisor(context.Background(), config, migrationID)
-		}()
-		return emit(output, map[string]any{"ok": true, "migration_id": migrationID, "status": "retrying"}, jsonOutput, "Failed jobs reset and worker restarted.")
-
-	case "list":
-		items, err := ListMigrations(config)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, map[string]any{"ok": true, "migrations": items}, jsonOutput, fmt.Sprintf("openlia workspace-migrate: %d migration(s) found", len(items)))
-
-	default:
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("unknown workspace-migrate action %s", action))
-	}
-}
-
-func runSkillMigration(config Config, args []string, output, errorOutput io.Writer, jsonOutput bool, now time.Time) int {
-	if len(args) == 0 {
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("skill-migration requires prepare, show, apply, reject, install, or update"))
-	}
-	action := args[0]
-	if len(args) != 2 {
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("skill-migration %s requires one name or proposal ID", action))
-	}
-	switch action {
-	case "prepare":
-		result, err := PrepareSkillMigration(config, args[1], now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, result, jsonOutput, "openlia skill-migration: context staged for Hermes")
-	case "install":
-		result, err := SkillInstall(config, args[1], now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, result, jsonOutput, fmt.Sprintf("openlia skill-migration: installed %s", result.SkillID))
-	case "update":
-		result, err := RebaseInstalledSkill(config, args[1], now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, result, jsonOutput, fmt.Sprintf("openlia skill-migration: updated %s (%s)", result.ID, result.Status))
-	case "show":
-		proposal, err := ReadSkillMigrationProposal(config, args[1])
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, proposal, jsonOutput, "openlia skill-migration: proposal loaded")
-	case "apply":
-		result, err := ApplySkillMigration(config, args[1], now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, result, jsonOutput, "openlia skill-migration: proposal applied")
-	case "reject":
-		result, err := RejectSkillMigration(config, args[1], now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, result, jsonOutput, "openlia skill-migration: proposal rejected")
-	default:
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("unknown skill-migration action %s", action))
-	}
-}
-
-func runFeatures(config Config, args []string, output, errorOutput io.Writer, jsonOutput bool, now time.Time) int {
-	if len(args) == 0 {
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features requires list, show, status, sync, install, update, import, package, or remove"))
-	}
-	action := args[0]
-	args = args[1:]
-
-	switch action {
-	case "list":
-		res, err := FeatureList(config)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: %d feature(s)", len(res.Features)))
-
-	case "status":
-		if len(args) == 0 {
-			res, err := FeatureList(config)
-			if err != nil {
-				return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-			}
-			return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: %d feature(s)", len(res.Features)))
-		}
-		if len(args) != 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features status accepts at most one FEATURE_ID"))
-		}
-		res, err := FeatureShow(config, args[0])
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, res, jsonOutput, fmt.Sprintf("feature %s (%s): %s", res.Status.ID, res.Status.State, res.Status.Description))
-
-	case "sync":
-		if len(args) != 0 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features sync takes no arguments; configure templates.repo and templates.ref"))
-		}
-		res, err := SyncTemplatesCatalog(context.Background(), config)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		message := "openlia features: synchronized templates catalog (" + res.CacheDir + ") at " + res.Catalog.Revision
-		if res.Catalog.Mode == "local-worktree" {
-			message += " [local worktree]"
-		}
-		if res.UIRefreshRequired {
-			message += "; recreate Workspace UI to refresh its catalog bind mount"
-		}
-		return emit(output, res, jsonOutput, message)
-
-	case "cache-prune":
-		confirmed, args := removeFlag(args, "--confirm-unmounted")
-		keepValue, args, err := stringFlag(args, "--keep")
-		keep := 2
-		if err == nil && keepValue != "" {
-			keep, err = strconv.Atoi(keepValue)
-		}
-		if err != nil || len(args) != 0 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features cache-prune accepts --keep N --confirm-unmounted"))
-		}
-		result, err := PruneTemplatesCatalogSnapshots(context.Background(), config, keep, confirmed)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, result, jsonOutput, fmt.Sprintf("retired catalog snapshots: removed %d, retained %d", len(result.Removed), result.Retained))
-
-	case "update":
-		if len(args) != 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features update requires FEATURE_ID"))
-		}
-		res, err := RebaseInstalledFeature(config, args[0], now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: updated %s (%s)", res.ID, res.Status))
-
-	case "show":
-		if len(args) != 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features show requires FEATURE_ID"))
-		}
-		res, err := FeatureShow(config, args[0])
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, res, jsonOutput, fmt.Sprintf("feature %s (%s): %s", res.Status.ID, res.Status.State, res.Status.Description))
-
-	case "install":
-		withPolicy, args := removeFlag(args, "--with-policy")
-		profileID, args, flagErr := stringFlag(args, "--profile")
-		if flagErr != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, flagErr)
-		}
-		if profileID != "" {
-			if len(args) != 0 {
-				return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features install --profile takes no positional FEATURE_ID"))
-			}
-			res, err := InstallTemplateProfile(config, profileID, withPolicy, now)
-			if err != nil {
-				return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-			}
-			return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: installed profile %s (%d features, %d skills)", res.ProfileID, len(res.InstalledFeatures), len(res.InstalledSkills)))
-		}
-		if len(args) != 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features install requires FEATURE_ID or --profile PROFILE_ID"))
-		}
-		res, err := FeatureInstall(config, args[0], withPolicy, now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: installed %s", res.FeatureID))
-
-	case "import":
-		withPolicy, args := removeFlag(args, "--with-policy")
-		if len(args) != 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features import requires ARCHIVE_OR_DIR"))
-		}
-		res, err := FeatureImport(config, args[0], withPolicy, now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: imported %s", res.FeatureID))
-
-	case "package":
-		includeRecords, args := removeFlag(args, "--include-records")
-		domainsCSV, args, _ := stringFlag(args, "--domains")
-		skillsCSV, args, _ := stringFlag(args, "--skills")
-		outPath, args, _ := stringFlag(args, "--output")
-		nameStr, args, _ := stringFlag(args, "--name")
-		descStr, args, _ := stringFlag(args, "--description")
-		if len(args) != 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features package requires FEATURE_ID"))
-		}
-		var domains []string
-		for _, p := range strings.Split(domainsCSV, ",") {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				domains = append(domains, trimmed)
-			}
-		}
-		var skills []string
-		for _, s := range strings.Split(skillsCSV, ",") {
-			if trimmed := strings.TrimSpace(s); trimmed != "" {
-				skills = append(skills, trimmed)
-			}
-		}
-		res, err := FeaturePackage(config, FeaturePackageOptions{
-			FeatureID:      args[0],
-			Name:           nameStr,
-			Description:    descStr,
-			Domains:        domains,
-			Skills:         skills,
-			OutputPath:     outPath,
-			IncludeRecords: includeRecords,
-		})
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: packaged %s -> %s", res.FeatureID, res.OutputPath))
-
-	case "deactivate", "disable":
-		if len(args) != 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features %s requires FEATURE_ID", action))
-		}
-		res, err := FeatureDeactivate(config, args[0], now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: deactivated %s", res.FeatureID))
-
-	case "activate", "enable":
-		if len(args) != 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features %s requires FEATURE_ID", action))
-		}
-		res, err := FeatureActivate(config, args[0], now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: activated %s", res.FeatureID))
-
-	case "unlink":
-		if len(args) != 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features unlink requires FEATURE_ID"))
-		}
-		res, err := FeatureUnlink(config, args[0], now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: unlinked %s", res.FeatureID))
-
-	case "remove":
-		if len(args) != 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("features remove requires FEATURE_ID"))
-		}
-		res, err := FeatureRemove(config, args[0], now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, res, jsonOutput, fmt.Sprintf("openlia features: removed %s", res.FeatureID))
-
-	default:
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("unknown features action %s", action))
-	}
+  bootstrap profile backup attachments locho-host auth deploy healthcheck uninstall`)
 }

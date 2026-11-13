@@ -2,306 +2,182 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
+	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
+	"regexp"
 	"strings"
 )
 
 type manifest struct {
-	Schema    int       `json:"schema"`
-	OpenLia   string    `json:"openlia"`
-	Hermes    image     `json:"hermes"`
-	Locho     locho     `json:"locho"`
-	Templates templates `json:"templates"`
-	Remind    sourcePin `json:"remind"`
-}
-
-type sourcePin struct {
-	Version      string `json:"version"`
-	SourceURL    string `json:"source_url"`
-	SourceSHA256 string `json:"source_sha256"`
-}
-
-type templates struct {
-	Repository string `json:"repository"`
-	Revision   string `json:"revision"`
+	Schema  int    `json:"schema"`
+	OpenLia string `json:"openlia"`
+	Hermes  image  `json:"hermes"`
+	Locho   locho  `json:"locho"`
+	Bun     bun    `json:"bun"`
 }
 
 type image struct {
 	Image   string `json:"image"`
 	Channel string `json:"channel"`
 	Tag     string `json:"tag"`
-	Digest  string `json:"image_digest"`
+	Digest  string `json:"digest"`
 }
 
 type locho struct {
 	Version       string `json:"version"`
 	LinuxX8664SHA string `json:"linux_x86_64_sha256"`
-	LinuxARM64SHA string `json:"linux_arm64_sha256"`
+	LinuxARM64SHA string `json:"linux_aarch64_sha256"`
 }
+
+type bun struct {
+	Version       string `json:"version"`
+	LinuxX64SHA   string `json:"linux_x64_sha256"`
+	LinuxARM64SHA string `json:"linux_aarch64_sha256"`
+}
+
+type replacement struct {
+	file    string
+	pattern *regexp.Regexp
+	value   func(manifest) string
+}
+
+var (
+	semverRe     = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+	vSemverRe    = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
+	digestRe     = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	hex64Re      = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	replacements = []replacement{
+		{
+			file:    "docker/compose.yaml",
+			pattern: regexp.MustCompile(`OPENLIA_HERMES_TAG:-v[0-9]+\.[0-9]+\.[0-9]+`),
+			value:   func(m manifest) string { return "OPENLIA_HERMES_TAG:-" + m.Hermes.Tag },
+		},
+		{
+			file:    "docker/compose.yaml",
+			pattern: regexp.MustCompile(`OPENLIA_HERMES_DIGEST:-sha256:[0-9a-f]{64}`),
+			value:   func(m manifest) string { return "OPENLIA_HERMES_DIGEST:-" + m.Hermes.Digest },
+		},
+		{
+			file:    "docker/Dockerfile",
+			pattern: regexp.MustCompile(`ARG HERMES_TAG=v[0-9]+\.[0-9]+\.[0-9]+`),
+			value:   func(m manifest) string { return "ARG HERMES_TAG=" + m.Hermes.Tag },
+		},
+		{
+			file:    "docker/Dockerfile",
+			pattern: regexp.MustCompile(`ARG HERMES_DIGEST=sha256:[0-9a-f]{64}`),
+			value:   func(m manifest) string { return "ARG HERMES_DIGEST=" + m.Hermes.Digest },
+		},
+		{
+			file:    "docker/Dockerfile",
+			pattern: regexp.MustCompile(`ARG BUN_VERSION=[0-9]+\.[0-9]+\.[0-9]+`),
+			value:   func(m manifest) string { return "ARG BUN_VERSION=" + m.Bun.Version },
+		},
+		{
+			file:    "docker/Dockerfile",
+			pattern: regexp.MustCompile(`ARG BUN_LINUX_X64_SHA256=[0-9a-f]{64}`),
+			value:   func(m manifest) string { return "ARG BUN_LINUX_X64_SHA256=" + m.Bun.LinuxX64SHA },
+		},
+		{
+			file:    "docker/Dockerfile",
+			pattern: regexp.MustCompile(`ARG BUN_LINUX_ARM64_SHA256=[0-9a-f]{64}`),
+			value:   func(m manifest) string { return "ARG BUN_LINUX_ARM64_SHA256=" + m.Bun.LinuxARM64SHA },
+		},
+	}
+)
 
 func main() {
-	check := flag.Bool("check", false, "check generated release information without writing")
-	rootFlag := flag.String("root", ".", "repository root")
-	flag.Parse()
-
-	root, err := filepath.Abs(*rootFlag)
-	if err != nil {
-		fatal(err)
+	mode := "check"
+	if len(os.Args) > 1 {
+		mode = os.Args[1]
 	}
-	manifestPath := filepath.Join(root, "release", "manifest.json")
-	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		fatal(err)
-	}
-	var value manifest
-	if err := json.Unmarshal(data, &value); err != nil {
-		fatal(fmt.Errorf("parse %s: %w", manifestPath, err))
-	}
-	if err := validate(value); err != nil {
-		fatal(err)
+	if mode != "check" && mode != "sync" {
+		fail(fmt.Errorf("usage: go run ./cmd/release-manifest [check|sync]"))
 	}
 
-	output := render(value)
-	outputPath := filepath.Join(root, "internal", "releaseinfo", "generated.go")
-	if *check {
-		existing, err := os.ReadFile(outputPath)
-		if err != nil {
-			fatal(err)
-		}
-		if string(existing) != output {
-			fatal(fmt.Errorf("%s is out of date; run `make versions-generate`", outputPath))
-		}
-		if err := syncManagedFiles(root, value, true); err != nil {
-			fatal(err)
-		}
-		return
+	m, err := loadManifest("release/manifest.json")
+	if err != nil {
+		fail(err)
 	}
-	if err := os.WriteFile(outputPath, []byte(output), 0o600); err != nil {
-		fatal(err)
+	if err := validate(m); err != nil {
+		fail(err)
 	}
-	if err := syncManagedFiles(root, value, false); err != nil {
-		fatal(err)
+	for _, item := range replacements {
+		if err := applyReplacement(item, m, mode == "sync"); err != nil {
+			fail(err)
+		}
 	}
 }
 
-func validate(value manifest) error {
-	if !stableTag("v"+value.Remind.Version) || value.Remind.SourceURL != "https://dianne.skoll.ca/projects/remind/download/remind-"+value.Remind.Version+".tar.gz" || !validSHA(value.Remind.SourceSHA256) {
-		return fmt.Errorf("Remind requires an exact upstream version, source URL, and SHA-256")
+func loadManifest(path string) (manifest, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return manifest{}, err
 	}
-	if value.Templates.Repository != "https://github.com/openlia/minions.git" || len(value.Templates.Revision) != 40 || strings.Trim(value.Templates.Revision, "0123456789abcdef") != "" {
-		return fmt.Errorf("templates release pin must name the official repository and a full lowercase commit SHA")
+	var m manifest
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return manifest{}, err
 	}
-	if value.Schema != 1 || value.OpenLia == "" {
-		return fmt.Errorf("release manifest has an unsupported schema or missing OpenLia version")
+	return m, nil
+}
+
+func validate(m manifest) error {
+	if m.Schema != 1 {
+		return fmt.Errorf("release/manifest.json schema must be 1, got %d", m.Schema)
 	}
-	for name, pin := range map[string]image{"Hermes": value.Hermes} {
-		if pin.Image == "" || pin.Channel != "stable" || pin.Tag == "" || !validDigest(pin.Digest) {
-			return fmt.Errorf("%s release pin is incomplete", name)
-		}
-		if !stableTag(pin.Tag) {
-			return fmt.Errorf("%s must use an immutable stable version tag, got %q", name, pin.Tag)
-		}
+	if !semverRe.MatchString(m.OpenLia) {
+		return fmt.Errorf("openlia version must be stable X.Y.Z, got %q", m.OpenLia)
 	}
-	if value.Locho.Version == "" || !validSHA(value.Locho.LinuxX8664SHA) || !validSHA(value.Locho.LinuxARM64SHA) {
-		return fmt.Errorf("Locho release pin is incomplete")
+	if err := validateImage("hermes", m.Hermes, "nousresearch/hermes-agent", vSemverRe); err != nil {
+		return err
+	}
+	if !semverRe.MatchString(m.Locho.Version) {
+		return fmt.Errorf("locho version must be stable X.Y.Z, got %q", m.Locho.Version)
+	}
+	if !hex64Re.MatchString(m.Locho.LinuxX8664SHA) || !hex64Re.MatchString(m.Locho.LinuxARM64SHA) {
+		return errors.New("locho binary sha256 values must be 64 lowercase hex characters")
 	}
 	return nil
 }
 
-func stableTag(value string) bool {
-	if !strings.HasPrefix(value, "v") {
-		return false
+func validateImage(name string, img image, expectedImage string, tagRe *regexp.Regexp) error {
+	if img.Image != expectedImage {
+		return fmt.Errorf("%s image must be %q, got %q", name, expectedImage, img.Image)
 	}
-	parts := strings.Split(strings.TrimPrefix(value, "v"), ".")
-	if len(parts) != 3 {
-		return false
+	if img.Channel != "stable" {
+		return fmt.Errorf("%s channel must be stable, got %q", name, img.Channel)
 	}
-	for _, part := range parts {
-		if part == "" {
-			return false
-		}
-		for _, character := range part {
-			if character < '0' || character > '9' {
-				return false
-			}
-		}
+	if !tagRe.MatchString(img.Tag) {
+		return fmt.Errorf("%s tag must be an exact stable release tag without prerelease suffixes, got %q", name, img.Tag)
 	}
-	return true
-}
-
-func validDigest(value string) bool {
-	return strings.HasPrefix(value, "sha256:") && validSHA(strings.TrimPrefix(value, "sha256:"))
-}
-
-func validSHA(value string) bool {
-	if len(value) != 64 {
-		return false
-	}
-	for _, character := range value {
-		if !strings.ContainsRune("0123456789abcdef", character) {
-			return false
-		}
-	}
-	return true
-}
-
-func render(value manifest) string {
-	return fmt.Sprintf(`// Code generated by cmd/release-manifest; DO NOT EDIT.
-
-package releaseinfo
-
-var Default = Manifest{
-	Schema:  %d,
-	OpenLia: %q,
-	Hermes: ImagePin{
-		Image:   %q,
-		Channel: %q,
-		Tag:     %q,
-		Digest:  %q,
-	},
-	Locho: LochoPin{
-		Version:       %q,
-		LinuxX8664SHA: %q,
-		LinuxARM64SHA: %q,
-	},
-	Templates: TemplatesPin{
-		Repository: %q,
-		Revision:   %q,
-	},
-	Remind: SourcePin{
-		Version:      %q,
-		SourceURL:    %q,
-		SourceSHA256: %q,
-	},
-}
-`, value.Schema, value.OpenLia, value.Hermes.Image, value.Hermes.Channel, value.Hermes.Tag, value.Hermes.Digest, value.Locho.Version, value.Locho.LinuxX8664SHA, value.Locho.LinuxARM64SHA, value.Templates.Repository, value.Templates.Revision, value.Remind.Version, value.Remind.SourceURL, value.Remind.SourceSHA256)
-}
-
-func syncManagedFiles(root string, value manifest, check bool) error {
-	lochoImage := internalImage("openlia-locho", value.Locho.Version)
-	files := []struct {
-		path         string
-		replacements map[string]string
-	}{
-		{
-			path: filepath.Join(root, "docker", ".env.example"),
-			replacements: map[string]string{
-				"OPENLIA_HERMES_IMAGE=":           "OPENLIA_HERMES_IMAGE=" + internalImage("openlia-hermes", value.Hermes.Tag),
-				"OPENLIA_BACKUP_SCHEDULER_IMAGE=": "OPENLIA_BACKUP_SCHEDULER_IMAGE=" + internalImage("openlia-backup-scheduler", value.Hermes.Tag),
-				"OPENLIA_LOCHO_IMAGE=":            "OPENLIA_LOCHO_IMAGE=" + lochoImage,
-				"HERMES_BASE_TAG=":                "HERMES_BASE_TAG=" + value.Hermes.Tag,
-				"HERMES_BASE_DIGEST=":             "HERMES_BASE_DIGEST=" + value.Hermes.Digest,
-			},
-		},
-		{
-			path: filepath.Join(root, "examples", "profiles", "dev", "config.toml.example"),
-			replacements: map[string]string{
-				"version =":             fmt.Sprintf("version = %q", value.OpenLia),
-				"hermes_image =":        fmt.Sprintf("hermes_image = %q", internalImage("openlia-hermes", value.Hermes.Tag)),
-				"hermes_tag =":          fmt.Sprintf("hermes_tag = %q", value.Hermes.Tag),
-				"hermes_digest =":       fmt.Sprintf("hermes_digest = %q", value.Hermes.Digest),
-				"locho_image =":         fmt.Sprintf("locho_image = %q", lochoImage),
-				"locho_version =":       fmt.Sprintf("locho_version = %q", value.Locho.Version),
-				"locho_x86_64_sha256 =": fmt.Sprintf("locho_x86_64_sha256 = %q", value.Locho.LinuxX8664SHA),
-				"locho_arm64_sha256 =":  fmt.Sprintf("locho_arm64_sha256 = %q", value.Locho.LinuxARM64SHA),
-			},
-		},
-		{
-			path: filepath.Join(root, "packages", "workspace-ui", "src", "client", "mockApi.ts"),
-			replacements: map[string]string{
-				"openlia_version:": fmt.Sprintf("openlia_version: %q,", value.OpenLia),
-				"hermes_version:":  fmt.Sprintf("hermes_version: %q,", value.Hermes.Tag),
-				"locho_version:":   fmt.Sprintf("locho_version: %q,", value.Locho.Version),
-			},
-		},
-		{
-			path: filepath.Join(root, "packages", "workspace-ui", "src", "server", "app.test.ts"),
-			replacements: map[string]string{
-				"openlia_version:": fmt.Sprintf("openlia_version: %q,", value.OpenLia),
-				"hermes_version:":  fmt.Sprintf("hermes_version: %q,", value.Hermes.Tag),
-				"locho_version:":   fmt.Sprintf("locho_version: %q,", value.Locho.Version),
-			},
-		},
-		{
-			path: filepath.Join(root, "docs", "operator-guide.md"),
-			replacements: map[string]string{
-				"Install [Locho ": fmt.Sprintf("Install [Locho `%s`](https://github.com/trchopan/locho/releases/tag/v%s)", value.Locho.Version, value.Locho.Version),
-				"Locho `":         fmt.Sprintf("Locho `%s` also supports custom relay transports and configurable HTTP", value.Locho.Version),
-			},
-		},
-		{
-			path: filepath.Join(root, "examples", "locho", "relay.toml.example"),
-			replacements: map[string]string{
-				"# Optional Locho ": fmt.Sprintf("# Optional Locho %s relay transport configuration.", value.Locho.Version),
-			},
-		},
-		{
-			path: filepath.Join(root, "THIRD_PARTY_NOTICES.md"),
-			replacements: map[string]string{
-				"| Hermes Agent |":     fmt.Sprintf("| Hermes Agent | `%s` at `%s` | MIT | [Upstream repository](https://github.com/NousResearch/hermes-agent) |", imageTagRef(value.Hermes), value.Hermes.Digest),
-				"| Locho |":            fmt.Sprintf("| Locho | `v%s`; architecture-specific SHA-256 values are recorded in [`release/manifest.json`](release/manifest.json) | MIT | [Upstream repository](https://github.com/trchopan/locho) and [release downloads](https://github.com/trchopan/locho/releases/tag/v%s) |", value.Locho.Version, value.Locho.Version),
-				"- Hermes image base:": fmt.Sprintf("- Hermes image base: `%s` at the digest", imageTagRef(value.Hermes)),
-			},
-		},
-	}
-	for _, file := range files {
-		if err := syncManagedFile(file.path, file.replacements, check); err != nil {
-			return err
-		}
+	if !digestRe.MatchString(img.Digest) {
+		return fmt.Errorf("%s digest must be sha256:<64 lowercase hex>, got %q", name, img.Digest)
 	}
 	return nil
 }
 
-func syncManagedFile(path string, replacements map[string]string, check bool) error {
-	data, err := os.ReadFile(path)
+func applyReplacement(item replacement, m manifest, write bool) error {
+	raw, err := os.ReadFile(item.file)
 	if err != nil {
 		return err
 	}
-	lines := strings.SplitAfter(string(data), "\n")
-	found := make(map[string]bool, len(replacements))
-	for index, line := range lines {
-		newline := strings.TrimSuffix(line, "\n")
-		ending := ""
-		if strings.HasSuffix(line, "\n") {
-			ending = "\n"
-		}
-		indent := newline[:len(newline)-len(strings.TrimLeft(newline, " \t"))]
-		trimmed := strings.TrimLeft(newline, " \t")
-		for prefix, replacement := range replacements {
-			if strings.HasPrefix(trimmed, prefix) {
-				lines[index] = indent + replacement + ending
-				found[prefix] = true
-				break
-			}
-		}
+	content := string(raw)
+	matches := item.pattern.FindAllString(content, -1)
+	if len(matches) == 0 {
+		return fmt.Errorf("%s did not match %s", item.file, item.pattern.String())
 	}
-	for prefix := range replacements {
-		if !found[prefix] {
-			return fmt.Errorf("managed release pin %q is missing from %s", prefix, path)
-		}
-	}
-	updated := strings.Join(lines, "")
-	if check {
-		if updated != string(data) {
-			return fmt.Errorf("%s is out of date; run `make versions-generate`", path)
-		}
+	expected := item.value(m)
+	updated := item.pattern.ReplaceAllStringFunc(content, func(string) string { return expected })
+	if content == updated {
 		return nil
 	}
-	return os.WriteFile(path, []byte(updated), 0o600)
+	if !write {
+		return fmt.Errorf("%s is out of sync with release/manifest.json (%s != %s); run `go run ./cmd/release-manifest sync`", item.file, strings.Join(matches, ", "), expected)
+	}
+	return os.WriteFile(item.file, []byte(updated), 0o644)
 }
 
-func internalImage(name, version string) string {
-	return name + ":v" + strings.TrimPrefix(version, "v")
-}
-
-func imageTagRef(value image) string {
-	return value.Image + ":" + value.Tag
-}
-
-func fatal(err error) {
-	fmt.Fprintln(os.Stderr, err)
+func fail(err error) {
+	fmt.Fprintf(os.Stderr, "release-manifest: %v\n", err)
 	os.Exit(1)
 }

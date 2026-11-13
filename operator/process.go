@@ -180,7 +180,6 @@ func (c Compose) composeEnvironment() []string {
 		"HERMES_BASE_DIGEST=" + hermesDigest,
 		"OPENLIA_LOCHO_IMAGE=" + lochoImage,
 		"OPENLIA_DATA_ROOT=" + c.Config.DataRoot,
-		"OPENLIA_SYSTEM_SKILLS_ROOT=" + c.Config.SystemSkillsRoot,
 		"OPENLIA_SECRET_DIR=" + c.Config.SecretDir,
 		"OPENLIA_META_ROOT=" + c.Config.MetaRoot,
 		"OPENLIA_BACKUP_ROOT=" + c.Config.BackupRoot,
@@ -191,7 +190,6 @@ func (c Compose) composeEnvironment() []string {
 		"OPENLIA_AWS_CREDENTIALS_SOURCE=" + awsCredentials,
 		"OPENLIA_AWS_CONFIG_SOURCE=" + awsConfig,
 		"OPENLIA_NETWORK_NAME=" + c.Config.NetworkName,
-		"OPENLIA_INGESTION_MAX_CONCURRENT_JOBS=" + strconv.Itoa(c.Config.IngestionMaxConcurrentJobs),
 	}
 }
 

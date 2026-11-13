@@ -20,7 +20,6 @@ import (
 
 	"golang.org/x/sys/unix"
 	"openlia/internal/releaseinfo"
-	"openlia/internal/toolcatalog"
 	"openlia/operator"
 )
 
@@ -36,12 +35,10 @@ type deployment interface {
 	uploadRelease(ctx context.Context, archive []byte, digest string) error
 	activateRelease(ctx context.Context) error
 	releaseDigest(ctx context.Context) (string, error)
-	workspaceUIReleaseDigest(ctx context.Context) (string, error)
 	bootstrap(ctx context.Context) ([]byte, error)
 	deploy(ctx context.Context, action string, start bool, component string) ([]byte, error)
 	health(ctx context.Context, allowStopped, providerCheck bool) ([]byte, error)
 	operation(ctx context.Context, script string, input []byte, args ...string) ([]byte, error)
-	workspaceGit(ctx context.Context, action string) ([]byte, error)
 	uninstall(ctx context.Context) ([]byte, error)
 	composeLogs(ctx context.Context, follow bool) ([]byte, error)
 }
@@ -68,39 +65,12 @@ func (remote Remote) releasePath() string {
 
 func (remote Remote) releaseDigest(ctx context.Context) (string, error) {
 	path := remote.rootPath("current", "release.sha256")
-	command := "if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then sudo -n cat -- " + shellQuote(path) + "; else cat -- " + shellQuote(path) + "; fi"
+	command := "if [ ! -f " + shellQuote(path) + " ]; then exit 0; fi; if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then sudo -n cat -- " + shellQuote(path) + "; else cat -- " + shellQuote(path) + "; fi"
 	raw, err := remote.ssh(ctx, command, nil)
 	if err != nil {
 		return "", err
 	}
 	return normalizeReleaseDigest(raw)
-}
-
-func (remote Remote) workspaceUIReleaseDigest(ctx context.Context) (string, error) {
-	if remote.Config.WorkspaceUIHost == "" {
-		return "", nil
-	}
-	root := remote.rootPath("current")
-	base := filepath.Join(root, "docker", "compose.yaml")
-	generated := filepath.Join(root, "docker", "compose.generated.yaml")
-	compose := remote.composeEnvironment() + " docker compose --project-name " + shellQuote(remote.Config.Project) + " --project-directory " + shellQuote(filepath.Join(root, "docker")) + " -f " + shellQuote(base)
-	probe := "bun -e " + shellQuote(fmt.Sprintf("fetch('http://127.0.0.1:%d/health').then(async response => { if (!response.ok) process.exit(1); console.log(await response.text()) })", remote.Config.WorkspaceUIPort))
-	command := "set -eu; if [ -f " + shellQuote(generated) + " ]; then " + compose + " -f " + shellQuote(generated) + " exec -T workspace-ui " + probe + "; else " + compose + " exec -T workspace-ui " + probe + "; fi"
-	raw, err := remote.ssh(ctx, command, nil)
-	if err != nil {
-		return "", err
-	}
-	return parseWorkspaceUIReleaseDigest(raw)
-}
-
-func parseWorkspaceUIReleaseDigest(raw []byte) (string, error) {
-	var payload struct {
-		ReleaseSHA256 string `json:"release_sha256"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(string(raw))), &payload); err != nil {
-		return "", fmt.Errorf("parse workspace UI health response: %w", err)
-	}
-	return normalizeReleaseDigest([]byte(payload.ReleaseSHA256))
 }
 
 func (remote Remote) ssh(ctx context.Context, command string, input []byte) ([]byte, error) {
@@ -151,7 +121,6 @@ func (remote Remote) composeEnvironment() string {
 	}
 	values := []string{
 		"OPENLIA_DATA_ROOT=" + shellQuote(remote.rootPath("runtime", "hermes")),
-		"OPENLIA_SYSTEM_SKILLS_ROOT=" + shellQuote(remote.rootPath("runtime", "system-skills")),
 		"OPENLIA_SECRET_DIR=" + shellQuote(remote.rootPath("runtime", "secrets")),
 		"OPENLIA_META_ROOT=" + shellQuote(remote.rootPath("runtime", "meta")),
 		"OPENLIA_BACKUP_ROOT=" + shellQuote(remote.rootPath("runtime", "backups")),
@@ -160,6 +129,9 @@ func (remote Remote) composeEnvironment() string {
 		"OPENLIA_OPERATION_LOCK=" + shellQuote(remote.Config.InstallRoot+".operation.lock"),
 		"OPENLIA_BACKUP_KNOWN_HOSTS_SOURCE=" + shellQuote(knownHosts),
 		"OPENLIA_NETWORK_NAME=" + shellQuote(remote.Config.Project+"-private"),
+		"OPENLIA_HERMES_IMAGE=" + shellQuote(hermesImage(remote.Config)),
+		"OPENLIA_BACKUP_SCHEDULER_IMAGE=" + shellQuote(hermesImage(remote.Config)),
+		"OPENLIA_LOCHO_IMAGE=" + shellQuote(remote.Config.LochoImage),
 	}
 	return strings.Join(values, " ")
 }
@@ -205,22 +177,10 @@ func (remote Remote) operationCommandForRoot(operationRoot, operation string, ar
 		"HERMES_BASE_IMAGE=" + shellQuote(releaseinfo.Default.Hermes.Image),
 		"HERMES_BASE_TAG=" + shellQuote(remote.Config.HermesTag),
 		"HERMES_BASE_DIGEST=" + shellQuote(remote.Config.HermesDigest),
-		"DEBIAN_SNAPSHOT=" + shellQuote(toolcatalog.DefaultDebianSnapshot),
 		"OPENLIA_API_ENABLED=" + shellQuote(strconv.FormatBool(remote.Config.APIEnabled)),
 		"OPENLIA_API_HOST=" + shellQuote(remote.Config.APIHost),
-		"OPENLIA_WORKSPACE_UI_HOST=" + shellQuote(remote.Config.WorkspaceUIHost),
-		"OPENLIA_WORKSPACE_UI_PORT=" + shellQuote(strconv.Itoa(remote.Config.WorkspaceUIPort)),
-		"OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN=" + shellQuote(remote.Config.WorkspaceUIPublicOrigin),
-		"OPENLIA_WORKSPACE_UI_AUTH_REQUIRED=" + shellQuote(strconv.FormatBool(workspaceUIPasswordRequired(remote.Config))),
-		"OPENLIA_WORKSPACE_UI_PASSWORD_HASH_FILE=" + shellQuote(remote.rootPath("runtime", "secrets", "workspace-ui-password.hash")),
-		"OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS=" + shellQuote(strings.Join(remote.Config.WorkspaceUIAllowedEmails, ",")),
-		"OPENLIA_WORKSPACE_UI_FIREBASE_PROJECT_ID=" + shellQuote(remote.Config.WorkspaceUIFirebaseProjectID),
-		"OPENLIA_WORKSPACE_UI_FIREBASE_API_KEY=" + shellQuote(remote.Config.WorkspaceUIFirebaseAPIKey),
-		"OPENLIA_WORKSPACE_UI_FIREBASE_AUTH_DOMAIN=" + shellQuote(remote.Config.WorkspaceUIFirebaseAuthDomain),
-		"OPENLIA_WORKSPACE_UI_FIREBASE_APP_ID=" + shellQuote(remote.Config.WorkspaceUIFirebaseAppID),
 		"OPENLIA_LOCHO_HOST_ENABLED=" + shellQuote(strconv.FormatBool(remote.Config.LochoHostEnabled)),
 		"OPENLIA_DATA_ROOT=" + shellQuote(remote.rootPath("runtime", "hermes")),
-		"OPENLIA_SYSTEM_SKILLS_ROOT=" + shellQuote(remote.rootPath("runtime", "system-skills")),
 		"OPENLIA_LOCHO_ROOT=" + shellQuote(remote.rootPath("runtime", "locho")),
 		"OPENLIA_SECRET_FILE=" + shellQuote(remote.rootPath("runtime", "secrets", "hermes.env")),
 		"OPENLIA_SECRET_DIR=" + shellQuote(remote.rootPath("runtime", "secrets")),
@@ -233,18 +193,11 @@ func (remote Remote) operationCommandForRoot(operationRoot, operation string, ar
 		"OPENLIA_BACKUP_SCHEDULE_ENABLED=" + shellQuote(strconv.FormatBool(remote.Config.BackupScheduleEnabled)),
 		"OPENLIA_BACKUP_RETENTION=" + shellQuote(strconv.Itoa(remote.Config.BackupLocalRetention)),
 		"OPENLIA_BACKUP_MAX_BYTES=" + shellQuote(strconv.FormatInt(remote.Config.BackupLocalMaxBytes, 10)),
-		"OPENLIA_WORKSPACE_GIT_SCHEDULE=" + shellQuote(remote.Config.WorkspaceGitSchedule),
-		"OPENLIA_WORKSPACE_GIT_ENABLED=" + shellQuote(strconv.FormatBool(remote.Config.WorkspaceGitEnabled)),
 		"OPENLIA_BACKUP_REMOTE_RETENTION_DAYS=" + shellQuote(strconv.Itoa(remote.Config.BackupRemoteRetentionDays)),
 		"OPENLIA_BACKUP_DESTINATIONS=" + shellQuote(renderBackupDestinationsJSON(remote.Config.BackupDestinations, remote.Config.InstallRoot)),
 		"OPENLIA_COMPOSE_FILE=" + shellQuote(filepath.Join(operationRoot, "docker", "compose.yaml")),
 		"OPENLIA_COMPOSE_PROJECT_DIR=" + shellQuote(filepath.Join(operationRoot, "docker")),
 		"OPENLIA_GENERATED_COMPOSE=" + shellQuote(filepath.Join(operationRoot, "docker", "compose.generated.yaml")),
-		"OPENLIA_ENABLED_SKILLS=" + shellQuote(strings.Join(remote.Config.EnabledSkills, ",")),
-		"OPENLIA_TEMPLATES_REPO=" + shellQuote(remote.Config.TemplatesRepo),
-		"OPENLIA_TEMPLATES_REF=" + shellQuote(remote.Config.TemplatesRef),
-		"OPENLIA_INGESTION_MAX_CONCURRENT_JOBS=" + shellQuote(strconv.Itoa(remote.Config.IngestionMaxConcurrentJobs)),
-		"OPENLIA_SKILLS_CONFIGURED='true'",
 		"OPENLIA_SERVICE_ROLES=" + shellQuote(renderServicesJSON(remote.Config.Services)),
 		"OPENLIA_CONFIGURED_HOSTS=" + shellQuote(configuredHosts(remote.Config.Services)),
 	}
@@ -273,14 +226,8 @@ func (remote Remote) operation(ctx context.Context, script string, input []byte,
 
 func remoteOperationReadOnly(script string, args []string) bool {
 	switch filepath.ToSlash(script) {
-	case "healthcheck", "skill-status", "locho-host", "workspace-export":
+	case "healthcheck", "locho-host":
 		return true
-	case "instructions":
-		return len(args) > 0 && (args[0] == "status" || args[0] == "diff")
-	case "workspace-git":
-		return len(args) > 0 && args[0] == "status"
-	case "workspace-migrate":
-		return len(args) > 0 && (args[0] == "status" || args[0] == "diff" || args[0] == "list" || args[0] == "stop")
 	default:
 		return false
 	}
@@ -333,59 +280,23 @@ func unprivilegedEnvironment(environment []string) []string {
 func operatorArguments(operation string, args []string) ([]string, bool) {
 	var command string
 	switch filepath.ToSlash(operation) {
-	case "bootstrap":
+	case "bootstrap", "ops/bootstrap.sh":
 		command = "bootstrap"
-	case "profile":
+	case "profile", "ops/profile.sh":
 		command = "profile"
-	case "skill-status":
-		command = "skill-status"
-	case "skill-fork":
-		command = "skill-fork"
-	case "skill-migration":
-		command = "skill-migration"
-	case "backup":
+	case "backup", "ops/backup.sh":
 		command = "backup"
-	case "attachments":
+	case "attachments", "ops/attachments.sh":
 		command = "attachments"
 	case "locho-host":
 		command = "locho-host"
-	case "auth":
+	case "auth", "ops/auth.sh":
 		command = "auth"
-	case "deploy":
+	case "deploy", "ops/deploy.sh":
 		command = "deploy"
-	case "healthcheck":
+	case "healthcheck", "ops/healthcheck.sh":
 		command = "healthcheck"
-	case "workspace-git":
-		command = "workspace-git"
-	case "uninstall":
-		command = "uninstall"
-	case "workspace-migrate":
-		command = "workspace-migrate"
-	case "workspace-export":
-		command = "workspace-export"
-	case "instructions":
-		command = "instructions"
-	case "features", "feature":
-		command = "features"
-	case "ops/bootstrap.sh":
-		command = "bootstrap"
-	case "ops/profile.sh":
-		command = "profile"
-	case "ops/skill-status.sh":
-		command = "skill-status"
-	case "ops/backup.sh":
-		command = "backup"
-	case "ops/attachments.sh":
-		command = "attachments"
-	case "ops/auth.sh":
-		command = "auth"
-	case "ops/deploy.sh":
-		command = "deploy"
-	case "ops/healthcheck.sh":
-		command = "healthcheck"
-	case "ops/workspace-git.sh":
-		command = "workspace-git"
-	case "ops/uninstall.sh":
+	case "uninstall", "ops/uninstall.sh":
 		command = "uninstall"
 	default:
 		return nil, false
@@ -394,12 +305,7 @@ func operatorArguments(operation string, args []string) ([]string, bool) {
 }
 
 func operatorOnlyOperation(operation string) bool {
-	switch filepath.ToSlash(operation) {
-	case "workspace-git", "ops/workspace-git.sh", "workspace-migrate", "workspace-export", "instructions", "features":
-		return true
-	default:
-		return false
-	}
+	return false
 }
 
 func legacyOperationScript(operation string) string {
@@ -408,12 +314,6 @@ func legacyOperationScript(operation string) string {
 		return "ops/bootstrap.sh"
 	case "profile", "ops/profile.sh":
 		return "ops/profile.sh"
-	case "skill-status", "ops/skill-status.sh":
-		return "ops/skill-status.sh"
-	case "skill-fork":
-		return "ops/skill-fork.sh"
-	case "skill-migration":
-		return "ops/skill-migration.sh"
 	case "backup", "ops/backup.sh":
 		return "ops/backup.sh"
 	case "attachments", "ops/attachments.sh":
@@ -424,21 +324,11 @@ func legacyOperationScript(operation string) string {
 		return "ops/deploy.sh"
 	case "healthcheck", "ops/healthcheck.sh":
 		return "ops/healthcheck.sh"
-	case "workspace-git", "ops/workspace-git.sh":
-		return "ops/workspace-git.sh"
 	case "uninstall", "ops/uninstall.sh":
 		return "ops/uninstall.sh"
 	default:
 		return operation
 	}
-}
-
-func workspaceGitArguments(action string) []string {
-	return []string{action, "--json"}
-}
-
-func (remote Remote) workspaceGit(ctx context.Context, action string) ([]byte, error) {
-	return remote.operation(ctx, "workspace-git", nil, workspaceGitArguments(action)...)
 }
 
 func (remote Remote) uninstall(ctx context.Context) ([]byte, error) {
@@ -664,22 +554,10 @@ func operationEnvironment(config Config, operationRoot string) []string {
 		"HERMES_BASE_IMAGE=" + releaseinfo.Default.Hermes.Image,
 		"HERMES_BASE_TAG=" + config.HermesTag,
 		"HERMES_BASE_DIGEST=" + config.HermesDigest,
-		"DEBIAN_SNAPSHOT=" + toolcatalog.DefaultDebianSnapshot,
 		"OPENLIA_API_ENABLED=" + strconv.FormatBool(config.APIEnabled),
 		"OPENLIA_API_HOST=" + config.APIHost,
-		"OPENLIA_WORKSPACE_UI_HOST=" + config.WorkspaceUIHost,
-		"OPENLIA_WORKSPACE_UI_PORT=" + strconv.Itoa(config.WorkspaceUIPort),
-		"OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN=" + config.WorkspaceUIPublicOrigin,
-		"OPENLIA_WORKSPACE_UI_AUTH_REQUIRED=" + strconv.FormatBool(workspaceUIPasswordRequired(config)),
-		"OPENLIA_WORKSPACE_UI_PASSWORD_HASH_FILE=" + filepath.Join(config.InstallRoot, "runtime", "secrets", "workspace-ui-password.hash"),
-		"OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS=" + strings.Join(config.WorkspaceUIAllowedEmails, ","),
-		"OPENLIA_WORKSPACE_UI_FIREBASE_PROJECT_ID=" + config.WorkspaceUIFirebaseProjectID,
-		"OPENLIA_WORKSPACE_UI_FIREBASE_API_KEY=" + config.WorkspaceUIFirebaseAPIKey,
-		"OPENLIA_WORKSPACE_UI_FIREBASE_AUTH_DOMAIN=" + config.WorkspaceUIFirebaseAuthDomain,
-		"OPENLIA_WORKSPACE_UI_FIREBASE_APP_ID=" + config.WorkspaceUIFirebaseAppID,
 		"OPENLIA_LOCHO_HOST_ENABLED=" + strconv.FormatBool(config.LochoHostEnabled),
 		"OPENLIA_DATA_ROOT=" + filepath.Join(config.InstallRoot, "runtime", "hermes"),
-		"OPENLIA_SYSTEM_SKILLS_ROOT=" + filepath.Join(config.InstallRoot, "runtime", "system-skills"),
 		"OPENLIA_LOCHO_ROOT=" + filepath.Join(config.InstallRoot, "runtime", "locho"),
 		"OPENLIA_SECRET_FILE=" + filepath.Join(config.InstallRoot, "runtime", "secrets", "hermes.env"),
 		"OPENLIA_SECRET_DIR=" + filepath.Join(config.InstallRoot, "runtime", "secrets"),
@@ -692,19 +570,11 @@ func operationEnvironment(config Config, operationRoot string) []string {
 		"OPENLIA_BACKUP_SCHEDULE_ENABLED=" + strconv.FormatBool(config.BackupScheduleEnabled),
 		"OPENLIA_BACKUP_RETENTION=" + strconv.Itoa(config.BackupLocalRetention),
 		"OPENLIA_BACKUP_MAX_BYTES=" + strconv.FormatInt(config.BackupLocalMaxBytes, 10),
-		"OPENLIA_WORKSPACE_GIT_SCHEDULE=" + config.WorkspaceGitSchedule,
-		"OPENLIA_WORKSPACE_GIT_ENABLED=" + strconv.FormatBool(config.WorkspaceGitEnabled),
 		"OPENLIA_BACKUP_REMOTE_RETENTION_DAYS=" + strconv.Itoa(config.BackupRemoteRetentionDays),
 		"OPENLIA_BACKUP_DESTINATIONS=" + renderBackupDestinationsJSON(config.BackupDestinations, config.InstallRoot),
-		"OPENLIA_META_ROOT=" + filepath.Join(config.InstallRoot, "runtime", "meta"),
 		"OPENLIA_COMPOSE_FILE=" + filepath.Join(operationRoot, "docker", "compose.yaml"),
 		"OPENLIA_COMPOSE_PROJECT_DIR=" + filepath.Join(operationRoot, "docker"),
 		"OPENLIA_GENERATED_COMPOSE=" + filepath.Join(operationRoot, "docker", "compose.generated.yaml"),
-		"OPENLIA_ENABLED_SKILLS=" + strings.Join(config.EnabledSkills, ","),
-		"OPENLIA_TEMPLATES_REPO=" + config.TemplatesRepo,
-		"OPENLIA_TEMPLATES_REF=" + config.TemplatesRef,
-		"OPENLIA_INGESTION_MAX_CONCURRENT_JOBS=" + strconv.Itoa(config.IngestionMaxConcurrentJobs),
-		"OPENLIA_SKILLS_CONFIGURED=true",
 		"OPENLIA_SERVICE_ROLES=" + renderServicesJSON(config.Services),
 		"OPENLIA_CONFIGURED_HOSTS=" + configuredHosts(config.Services),
 	}
@@ -867,10 +737,6 @@ func operatorError(data []byte) string {
 	return ""
 }
 
-func (local Local) workspaceGit(ctx context.Context, action string) ([]byte, error) {
-	return local.operation(ctx, "workspace-git", nil, workspaceGitArguments(action)...)
-}
-
 func (local Local) releasePath() string {
 	return local.rootPath("releases", local.Config.Version)
 }
@@ -884,25 +750,6 @@ func (local Local) releaseDigest(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return normalizeReleaseDigest(raw)
-}
-
-func (local Local) workspaceUIReleaseDigest(ctx context.Context) (string, error) {
-	if local.Config.WorkspaceUIHost == "" {
-		return "", nil
-	}
-	root := local.rootPath("current")
-	base := filepath.Join(root, "docker", "compose.yaml")
-	generated := filepath.Join(root, "docker", "compose.generated.yaml")
-	args := []string{"docker", "compose", "--project-name", local.Config.Project, "--project-directory", filepath.Join(root, "docker"), "-f", base}
-	if _, err := os.Stat(generated); err == nil {
-		args = append(args, "-f", generated)
-	}
-	args = append(args, "exec", "-T", "workspace-ui", "bun", "-e", fmt.Sprintf("fetch('http://127.0.0.1:%d/health').then(async response => { if (!response.ok) process.exit(1); console.log(await response.text()) })", local.Config.WorkspaceUIPort))
-	raw, err := local.run(ctx, args...)
-	if err != nil {
-		return "", err
-	}
-	return parseWorkspaceUIReleaseDigest(raw)
 }
 
 func (local Local) uploadRelease(ctx context.Context, archive []byte, digest string) error {

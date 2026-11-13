@@ -119,37 +119,6 @@ func GenerateAttachmentsContext(ctx context.Context, config Config, composers ..
 	if err := EnsureDir(config.MetaRoot, 0o700); err != nil {
 		return err
 	}
-	if config.WorkspaceUIHost != "" || config.WorkspaceUIAuthRequired || config.WorkspaceUIFirebaseProjectID != "" {
-		sessionDir := filepath.Join(config.RuntimeRoot, "workspace-ui")
-		if err := EnsureDir(sessionDir, 0o700); err != nil {
-			return err
-		}
-		if err := ensureRuntimeOwner(sessionDir, config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
-			return err
-		}
-	}
-	ingestionDir := filepath.Join(config.DataRoot, "ingestion")
-	for _, path := range []string{
-		filepath.Join(config.DataRoot, "usage"),
-		filepath.Join(config.DataRoot, "usage", "reports"),
-		filepath.Join(config.DataRoot, "cron"),
-		filepath.Join(config.DataRoot, "maintainer"),
-		filepath.Join(config.DataRoot, ".openlia"),
-		filepath.Join(config.DataRoot, ".openlia", "workspace-migrations"),
-	} {
-		if err := EnsureDir(path, 0o700); err != nil {
-			return err
-		}
-		if err := ensureRuntimeOwner(path, config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
-			return err
-		}
-	}
-	if err := EnsureDir(ingestionDir, 0o700); err != nil {
-		return err
-	}
-	if err := ensureRuntimeOwner(ingestionDir, config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
-		return err
-	}
 	if len(composers) > 0 {
 		return generateAttachmentsWithCompose(ctx, config, composers[0])
 	}
@@ -229,9 +198,6 @@ func generateAttachmentsWithCompose(ctx context.Context, config Config, compose 
 }
 
 func generateAttachmentsFile(config Config) error {
-	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort, config.WorkspaceUIAuthRequired, config.WorkspaceUIPasswordHashFile, config.WorkspaceUIFirebaseProjectID, config.WorkspaceUIAllowedEmails, config.WorkspaceUIFirebaseAPIKey, config.WorkspaceUIFirebaseAuthDomain); err != nil {
-		return err
-	}
 	if config.LochoHostEnabled {
 		if err := writeLochoHostConfig(config); err != nil {
 			return err
@@ -242,12 +208,11 @@ func generateAttachmentsFile(config Config) error {
 		lochoImage = releaseinfo.InternalImage("openlia-locho", releaseinfo.Default.Locho.Version)
 	}
 	apiEnvPath := filepath.Join(config.SecretDir, "api-server.env")
-	if config.APIEnabled || config.WorkspaceUIHost != "" {
+	if config.APIEnabled || config.LochoHostEnabled {
 		if err := ensureAPIServerEnv(config, apiEnvPath); err != nil {
 			return err
 		}
 	}
-	workspaceUIHost, workspaceUIPort := config.WorkspaceUIHost, config.WorkspaceUIPort
 	hosts, err := ListAttachments(config)
 	if err != nil {
 		return err
@@ -260,7 +225,6 @@ func generateAttachmentsFile(config Config) error {
 	}
 	var allServices []LochoService
 	browserURL := ""
-	ingestionURL := ""
 	hasOpenLiaBrowserRole := false
 	for _, host := range hosts.Hosts {
 		for _, svc := range host.Services {
@@ -271,12 +235,6 @@ func generateAttachmentsFile(config Config) error {
 					return fmt.Errorf("multiple openlia-browser attachment endpoints are configured")
 				}
 				browserURL = svc.Endpoint
-			}
-			if svc.Role == "openlia-ingestion" {
-				if ingestionURL != "" && ingestionURL != svc.Endpoint {
-					return fmt.Errorf("multiple openlia-ingestion attachment endpoints are configured")
-				}
-				ingestionURL = svc.Endpoint
 			}
 		}
 	}
@@ -300,9 +258,9 @@ func generateAttachmentsFile(config Config) error {
 	}
 
 	var builder strings.Builder
-	hasHermesEnv := config.APIEnabled || config.WorkspaceUIHost != "" || config.ExternalNetwork != "" || browserURL != "" || ingestionURL != "" || config.WorkspaceUIPublicOrigin != "" || len(allServices) > 0
+	hasHermesEnv := config.APIEnabled || config.LochoHostEnabled || config.ExternalNetwork != "" || browserURL != "" || len(allServices) > 0
 	schedulerVolumes := append(backupSchedulerIdentityVolumes(config), backupSchedulerCredentialVolumes(config)...)
-	hasGeneratedServices := hasHermesEnv || config.WorkspaceUIHost != "" || len(hosts.Hosts) > 0 || len(schedulerVolumes) > 0
+	hasGeneratedServices := hasHermesEnv || config.LochoHostEnabled || len(hosts.Hosts) > 0 || len(schedulerVolumes) > 0
 	if !hasGeneratedServices {
 		builder.WriteString("services: {}\n")
 	} else {
@@ -313,17 +271,14 @@ func generateAttachmentsFile(config Config) error {
 				fmt.Fprintf(&builder, "    ports:\n      - %q\n", config.APIHost+":8642:8642")
 			}
 			builder.WriteString("    environment:\n")
-			if config.APIEnabled || config.WorkspaceUIHost != "" {
+			if config.APIEnabled || config.LochoHostEnabled {
 				builder.WriteString("      API_SERVER_ENABLED: \"true\"\n      API_SERVER_HOST: \"0.0.0.0\"\n")
 			}
-			if config.WorkspaceUIPublicOrigin != "" {
-				fmt.Fprintf(&builder, "      OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN: %q\n", config.WorkspaceUIPublicOrigin)
+			if config.LochoHostEnabled {
+				builder.WriteString("      HERMES_DASHBOARD: \"1\"\n      HERMES_DASHBOARD_HOST: \"0.0.0.0\"\n      HERMES_DASHBOARD_PORT: \"9119\"\n")
 			}
 			if browserURL != "" {
 				fmt.Fprintf(&builder, "      OPENLIA_BROWSER_MCP_URL: %q\n", browserURL)
-			}
-			if ingestionURL != "" {
-				fmt.Fprintf(&builder, "      OPENLIA_INGESTION_URL: %q\n", ingestionURL)
 			}
 			for _, svc := range allServices {
 				if svc.Role != "unassigned" {
@@ -331,7 +286,7 @@ func generateAttachmentsFile(config Config) error {
 					fmt.Fprintf(&builder, "      %s: %q\n", envKey, svc.Endpoint)
 				}
 			}
-			if config.APIEnabled || config.WorkspaceUIHost != "" {
+			if config.APIEnabled || config.LochoHostEnabled {
 				quotedAPIEnvPath, _ := json.Marshal(apiEnvPath)
 				builder.WriteString("    env_file:\n      - ")
 				builder.Write(quotedAPIEnvPath)
@@ -342,108 +297,9 @@ func generateAttachmentsFile(config Config) error {
 			}
 		}
 	}
-	if config.WorkspaceUIHost != "" {
-		workspace, _ := json.Marshal(filepath.Join(config.DataRoot, "workspace"))
-		skills, _ := json.Marshal(filepath.Join(config.DataRoot, "skills"))
-		memories, _ := json.Marshal(filepath.Join(config.DataRoot, "memories"))
-		usage, _ := json.Marshal(filepath.Join(config.DataRoot, "usage"))
-		ingestion, _ := json.Marshal(filepath.Join(config.DataRoot, "ingestion"))
-		migrations, _ := json.Marshal(filepath.Join(config.DataRoot, ".openlia", "workspace-migrations"))
-		cronDir, _ := json.Marshal(filepath.Join(config.DataRoot, "cron"))
-		maintainerDir, _ := json.Marshal(filepath.Join(config.DataRoot, "maintainer"))
-		templatesCacheDir, _ := json.Marshal(filepath.Join(config.MetaRoot, "templates-cache"))
-		sessionDir, _ := json.Marshal(filepath.Join(config.RuntimeRoot, "workspace-ui"))
-		passwordHashFile, _ := json.Marshal(config.WorkspaceUIPasswordHashFile)
-		builder.WriteString("  workspace-ui:\n    image: \"${OPENLIA_WORKSPACE_UI_IMAGE:-openlia-workspace-ui:v0.1.0}\"\n")
-		builder.WriteString("    build:\n      context: ..\n      dockerfile: docker/workspace-ui.Dockerfile\n")
-		if config.OpenLiaReleaseSHA256 != "" {
-			builder.WriteString(fmt.Sprintf("      args:\n        OPENLIA_RELEASE_SHA256: %q\n", config.OpenLiaReleaseSHA256))
-		}
-		builder.WriteString(fmt.Sprintf("    command: [\"bun\", \"/opt/openlia/workspace-ui/server.js\"]\n    restart: unless-stopped\n    user: \"%d:%d\"\n    read_only: true\n    tmpfs:\n      - /tmp:rw,noexec,nosuid,size=32m\n    security_opt:\n      - no-new-privileges:true\n    cap_drop: [ALL]\n    environment:\n      OPENLIA_WORKSPACE_ROOT: /workspace\n      OPENLIA_SKILLS_ROOT: /skills\n      OPENLIA_VERSION: %q\n      OPENLIA_REVISION: %q\n      OPENLIA_HERMES_VERSION: %q\n      OPENLIA_LOCHO_VERSION: %q\n      OPENLIA_WORKSPACE_UI_BIND: 0.0.0.0\n      OPENLIA_WORKSPACE_UI_PORT: \"%d\"\n", config.RuntimeUID, config.RuntimeGID, config.OpenLiaVersion, config.OpenLiaRevision, config.HermesVersion, config.LochoVersion, workspaceUIPort))
-		if config.OpenLiaReleaseSHA256 != "" {
-			builder.WriteString(fmt.Sprintf("      OPENLIA_RELEASE_SHA256: %q\n", config.OpenLiaReleaseSHA256))
-		}
-		builder.WriteString("      OPENLIA_INGESTION_ROOT: /ingestion\n")
-		builder.WriteString("      OPENLIA_USAGE_ROOT: /usage\n")
-		builder.WriteString("      OPENLIA_CRON_ROOT: /cron\n")
-		builder.WriteString("      OPENLIA_MAINTAINER_ROOT: /maintainer\n")
-		builder.WriteString("      OPENLIA_TEMPLATES_ROOT: /templates-cache\n")
-		if config.BackupSchedule != "" {
-			builder.WriteString(fmt.Sprintf("      OPENLIA_BACKUP_SCHEDULE: %q\n", config.BackupSchedule))
-			builder.WriteString(fmt.Sprintf("      OPENLIA_BACKUP_SCHEDULE_ENABLED: %q\n", fmt.Sprintf("%t", config.BackupScheduleEnabled)))
-		}
-		if config.WorkspaceGitSchedule != "" {
-			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_GIT_SCHEDULE: %q\n", config.WorkspaceGitSchedule))
-		}
-		if config.Timezone != "" {
-			builder.WriteString(fmt.Sprintf("      OPENLIA_TIMEZONE: %q\n", config.Timezone))
-		}
-		if ingestionURL != "" {
-			fmt.Fprintf(&builder, "      OPENLIA_INGESTION_URL: %q\n", ingestionURL)
-		}
-		builder.WriteString("      OPENLIA_MEMORIES_ROOT: /memories\n")
-		builder.WriteString("      OPENLIA_MIGRATIONS_ROOT: /migrations\n")
-		builder.WriteString("      OPENLIA_RUNTIME_ROOT: /var/lib/openlia\n")
-		builder.WriteString("      OPENLIA_HERMES_API_URL: http://hermes:8642\n")
-		builder.WriteString("      OPENLIA_WORKSPACE_UI_SHARES_DB: /var/lib/openlia/shares.sqlite\n")
-		builder.WriteString("      OPENLIA_DATA_ROOT: /workspace/..\n")
-		quotedPublicOrigin, _ := json.Marshal(config.WorkspaceUIPublicOrigin)
-		builder.WriteString("      OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN: ")
-		builder.Write(quotedPublicOrigin)
-		builder.WriteString("\n")
-		isFirebase := config.WorkspaceUIFirebaseProjectID != ""
-		if isFirebase {
-			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS: %q\n", strings.Join(config.WorkspaceUIAllowedEmails, ",")))
-			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_FIREBASE_PROJECT_ID: %q\n", config.WorkspaceUIFirebaseProjectID))
-			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_FIREBASE_API_KEY: %q\n", config.WorkspaceUIFirebaseAPIKey))
-			builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_FIREBASE_AUTH_DOMAIN: %q\n", config.WorkspaceUIFirebaseAuthDomain))
-			if config.WorkspaceUIFirebaseAppID != "" {
-				builder.WriteString(fmt.Sprintf("      OPENLIA_WORKSPACE_UI_FIREBASE_APP_ID: %q\n", config.WorkspaceUIFirebaseAppID))
-			}
-			builder.WriteString("      OPENLIA_WORKSPACE_UI_SESSION_DB: /var/lib/openlia/sessions.sqlite\n")
-		} else if config.WorkspaceUIAuthRequired {
-			builder.WriteString("      OPENLIA_WORKSPACE_UI_AUTH_REQUIRED: \"true\"\n      OPENLIA_WORKSPACE_UI_PASSWORD_HASH_FILE: /run/openlia-secrets/workspace-ui-password.hash\n      OPENLIA_WORKSPACE_UI_SESSION_DB: /var/lib/openlia/sessions.sqlite\n")
-		}
-		quotedChatAPIEnvPath, _ := json.Marshal(apiEnvPath)
-		builder.WriteString("    env_file:\n      - ")
-		builder.Write(quotedChatAPIEnvPath)
-		builder.WriteString("\n")
-		builder.WriteString("    volumes:\n      - type: bind\n        source: ")
-		builder.Write(workspace)
-		builder.WriteString("\n        target: /workspace\n      - type: bind\n        source: ")
-		builder.Write(skills)
-		builder.WriteString("\n        target: /skills\n      - type: bind\n        source: ")
-		builder.Write(memories)
-		builder.WriteString("\n        target: /memories\n      - type: bind\n        source: ")
-		builder.Write(ingestion)
-		builder.WriteString("\n        target: /ingestion\n      - type: bind\n        source: ")
-		builder.Write(migrations)
-		builder.WriteString("\n        target: /migrations")
-		builder.WriteString("\n      - type: bind\n        source: ")
-		builder.Write(usage)
-		builder.WriteString("\n        target: /usage")
-		builder.WriteString("\n      - type: bind\n        source: ")
-		builder.Write(cronDir)
-		builder.WriteString("\n        target: /cron")
-		builder.WriteString("\n      - type: bind\n        source: ")
-		builder.Write(maintainerDir)
-		builder.WriteString("\n        target: /maintainer")
-		builder.WriteString("\n      - type: bind\n        source: ")
-		builder.Write(templatesCacheDir)
-		builder.WriteString("\n        target: /templates-cache\n        read_only: true")
-		if !isFirebase && config.WorkspaceUIAuthRequired {
-			builder.WriteString("\n      - type: bind\n        source: ")
-			builder.Write(passwordHashFile)
-			builder.WriteString("\n        target: /run/openlia-secrets/workspace-ui-password.hash\n        read_only: true")
-		}
-		builder.WriteString("\n      - type: bind\n        source: ")
-		builder.Write(sessionDir)
-		builder.WriteString("\n        target: /var/lib/openlia")
-		builder.WriteString(fmt.Sprintf("\n    ports:\n      - %q\n    networks:\n      - openlia-private\n    healthcheck:\n      test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:%d/health').then(r => { if (!r.ok) process.exit(1) })\"]\n      interval: 10s\n      timeout: 3s\n      retries: 5\n    deploy:\n      resources:\n        limits:\n          cpus: \"0.5\"\n          memory: 256M\n    logging:\n      driver: \"json-file\"\n      options:\n        max-size: \"20m\"\n        max-file: \"5\"\n", fmt.Sprintf("%s:%d:%d", workspaceUIHost, workspaceUIPort, workspaceUIPort), workspaceUIPort))
-	}
 	if config.LochoHostEnabled {
 		lochoRoot, _ := json.Marshal(config.LochoHostRoot)
-		lochoCommand := "set -eu; set -- $(getent ahostsv4 workspace-ui); workspace_ip=\"$$1\"; config=/var/lib/openlia-locho-host/locho.toml; temporary=\"$$config.tmp\"; trap 'rm -f \"$$temporary\"' EXIT; printf '" + lochoHostConfigFormat(config.WorkspaceUIPort) + "' \"$$workspace_ip\" > \"$$temporary\"; chmod 600 \"$$temporary\"; mv -f \"$$temporary\" \"$$config\"; trap - EXIT; exec locho host --config \"$$config\""
+		lochoCommand := "set -eu; set -- $(getent ahostsv4 hermes); hermes_ip=\"$$1\"; config=/var/lib/openlia-locho-host/locho.toml; temporary=\"$$config.tmp\"; trap 'rm -f \"$$temporary\"' EXIT; printf '" + lochoHostConfigFormat() + "' \"$$hermes_ip\" \"$$hermes_ip\" > \"$$temporary\"; chmod 600 \"$$temporary\"; mv -f \"$$temporary\" \"$$config\"; trap - EXIT; exec locho host --config \"$$config\""
 		if config.LochoRelayConfig != "" {
 			lochoCommand += " --relay-config /etc/locho/relay.toml"
 		}
@@ -458,7 +314,7 @@ func generateAttachmentsFile(config Config) error {
 		if config.LochoRelaySecrets != "" {
 			fmt.Fprintf(&builder, "    env_file:\n      - %q\n", config.LochoRelaySecrets)
 		}
-		builder.WriteString("    depends_on:\n      - workspace-ui\n    networks:\n      - openlia-private\n    deploy:\n      resources:\n        limits:\n          cpus: \"0.5\"\n          memory: 512M\n    logging:\n      driver: \"json-file\"\n      options:\n        max-size: \"20m\"\n        max-file: \"5\"\n")
+		builder.WriteString("    depends_on:\n      - hermes\n    networks:\n      - openlia-private\n    deploy:\n      resources:\n        limits:\n          cpus: \"0.5\"\n          memory: 512M\n    logging:\n      driver: \"json-file\"\n      options:\n        max-size: \"20m\"\n        max-file: \"5\"\n")
 	}
 	for _, host := range hosts.Hosts {
 		configPath := filepath.Join(config.LochoRoot, host.Host, "attachments.toml")
@@ -556,8 +412,8 @@ func backupSchedulerCredentialVolumes(config Config) []backupSchedulerIdentityVo
 	return volumes
 }
 
-func lochoHostConfigFormat(workspacePort int) string {
-	return fmt.Sprintf("[[services]]\\nname = \"workspace-ui\"\\ntype = \"tcp\"\\nendpoint = \"%%s:%d\"\\n", workspacePort)
+func lochoHostConfigFormat() string {
+	return fmt.Sprintf("[[services]]\\nname = %q\\ntype = \"tcp\"\\nendpoint = \"%%s:%d\"\\n\\n[[services]]\\nname = %q\\ntype = \"tcp\"\\nendpoint = \"%%s:%d\"\\n", LochoHostServiceAPI, HermesAPIPort, LochoHostServiceDashboard, HermesDashboardPort)
 }
 
 func writeLochoHostConfig(config Config) error {
@@ -578,7 +434,7 @@ func writeLochoHostConfig(config Config) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	contents := "[[services]]\nname = \"workspace-ui\"\ntype = \"tcp\"\nendpoint = \"127.0.0.1:" + strconv.Itoa(config.WorkspaceUIPort) + "\"\n"
+	contents := fmt.Sprintf("[[services]]\nname = %q\ntype = \"tcp\"\nendpoint = \"127.0.0.1:%d\"\n\n[[services]]\nname = %q\ntype = \"tcp\"\nendpoint = \"127.0.0.1:%d\"\n", LochoHostServiceAPI, HermesAPIPort, LochoHostServiceDashboard, HermesDashboardPort)
 	if err := AtomicWriteFile(config.LochoHostConfig, []byte(contents), 0o600); err != nil {
 		return err
 	}
@@ -587,7 +443,7 @@ func writeLochoHostConfig(config Config) error {
 
 func ensureAPIServerEnv(config Config, path string) error {
 	apiKey, err := readSecretValue(config.SecretFile, "API_SERVER_KEY")
-	if config.WorkspaceUIHost != "" {
+	if config.LochoHostEnabled && (err != nil || apiKey == "") {
 		apiKey, err = ensureHermesAPIKey(config)
 	}
 	if err != nil {
@@ -599,7 +455,58 @@ func ensureAPIServerEnv(config Config, path string) error {
 	if err := ensureSecretDirectory(config); err != nil {
 		return err
 	}
-	if err := AtomicWriteFile(path, []byte("API_SERVER_KEY="+apiKey+"\n"), 0o600); err != nil {
+	lines := []string{"API_SERVER_KEY=" + apiKey}
+	if config.LochoHostEnabled {
+		oidcIssuer, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_OIDC_ISSUER")
+		oidcClientID, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_OIDC_CLIENT_ID")
+		oidcClientSecret, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_OIDC_CLIENT_SECRET")
+		oidcScopes, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_OIDC_SCOPES")
+		publicURL, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_PUBLIC_URL")
+		hasOIDC := oidcIssuer != "" && oidcClientID != ""
+		if hasOIDC {
+			lines = append(lines,
+				"HERMES_DASHBOARD_OIDC_ISSUER="+oidcIssuer,
+				"HERMES_DASHBOARD_OIDC_CLIENT_ID="+oidcClientID,
+			)
+			if oidcClientSecret != "" {
+				lines = append(lines, "HERMES_DASHBOARD_OIDC_CLIENT_SECRET="+oidcClientSecret)
+			}
+			if oidcScopes != "" {
+				lines = append(lines, "HERMES_DASHBOARD_OIDC_SCOPES="+oidcScopes)
+			}
+		}
+		if publicURL != "" {
+			lines = append(lines, "HERMES_DASHBOARD_PUBLIC_URL="+publicURL)
+		}
+
+		user, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_BASIC_AUTH_USERNAME")
+		pass, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD")
+		if user != "" || !hasOIDC {
+			if user == "" {
+				user = "openlia"
+			}
+			if pass == "" {
+				pass = apiKey
+			}
+			sessionSecret, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_BASIC_AUTH_SECRET")
+			if sessionSecret == "" {
+				sessionSecret, _ = readSecretValue(path, "HERMES_DASHBOARD_BASIC_AUTH_SECRET")
+			}
+			if len(sessionSecret) < 32 {
+				buf := make([]byte, 32)
+				if _, err := rand.Read(buf); err != nil {
+					return fmt.Errorf("generate dashboard auth signing secret: %w", err)
+				}
+				sessionSecret = hex.EncodeToString(buf)
+			}
+			lines = append(lines,
+				"HERMES_DASHBOARD_BASIC_AUTH_USERNAME="+user,
+				"HERMES_DASHBOARD_BASIC_AUTH_PASSWORD="+pass,
+				"HERMES_DASHBOARD_BASIC_AUTH_SECRET="+sessionSecret,
+			)
+		}
+	}
+	if err := AtomicWriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
 		return err
 	}
 	return ensureRuntimeOwner(path, config.RuntimeUID, config.RuntimeGID, 0o600)
@@ -846,7 +753,7 @@ func serviceInventory(host, path string, roles map[string]string) ([]LochoServic
 			role = assigned
 		}
 		endpoint := fmt.Sprintf("http://locho-%s:%d", host, listenPort)
-		if proto == "tcp" && role != "openlia-browser" && role != "openlia-ingestion" {
+		if proto == "tcp" && role != "openlia-browser" {
 			endpoint = fmt.Sprintf("locho-%s:%d", host, listenPort)
 		}
 		services = append(services, LochoService{
@@ -980,7 +887,6 @@ func FormatAttachmentListHuman(result AttachmentListResult) string {
 	return strings.TrimRight(builder.String(), "\n")
 }
 
-// Reuse the Hermes credential for native Workspace UI chat across reconciliations.
 func ensureHermesAPIKey(config Config) (string, error) {
 	if err := ensureSecretDirectory(config); err != nil {
 		return "", err

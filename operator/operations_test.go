@@ -27,25 +27,6 @@ type restartRunner struct {
 	network   string
 }
 
-type workspaceUIRunner struct {
-	calls []string
-}
-
-func (r *workspaceUIRunner) Run(_ context.Context, name string, args ...string) (CommandResult, error) {
-	call := strings.Join(append([]string{name}, args...), " ")
-	r.calls = append(r.calls, call)
-	if strings.Contains(call, "config --services") {
-		return CommandResult{Stdout: []byte("workspace-ui\n")}, nil
-	}
-	if strings.Contains(call, "ps --services --filter status=running") {
-		return CommandResult{Stdout: []byte("workspace-ui\n")}, nil
-	}
-	if strings.Contains(call, "port workspace-ui 8089") {
-		return CommandResult{Stdout: []byte("127.0.0.1:8089\n")}, nil
-	}
-	return CommandResult{}, nil
-}
-
 type deployBuildRunner struct {
 	calls     []string
 	dataRoot  string
@@ -62,13 +43,10 @@ func (r *lochoLifecycleRunner) Run(_ context.Context, name string, args ...strin
 	call := strings.Join(append([]string{name}, args...), " ")
 	r.calls = append(r.calls, call)
 	if strings.Contains(call, "config --services") {
-		return CommandResult{Stdout: []byte("workspace-ui\nlocho-host\n")}, nil
+		return CommandResult{Stdout: []byte("hermes\nlocho-host\n")}, nil
 	}
 	if strings.Contains(call, "ps --services --filter status=running") {
 		return CommandResult{Stdout: []byte(r.runningServices)}, nil
-	}
-	if strings.Contains(call, "port workspace-ui 8089") {
-		return CommandResult{Stdout: []byte("127.0.0.1:8089\n")}, nil
 	}
 	if strings.Contains(call, "exec -T locho-host sh -c") && r.stale {
 		return CommandResult{ExitCode: 1}, fmt.Errorf("stale endpoint")
@@ -154,67 +132,6 @@ func TestValidateRuntimeDoesNotRequireTargetArchiveTools(t *testing.T) {
 	}
 }
 
-func TestProtectedSkillRefreshRecreatesOnlyRunningHermes(t *testing.T) {
-	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
-	if err := os.MkdirAll(config.MetaRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteState(config, stateRunning); err != nil {
-		t.Fatal(err)
-	}
-	runner := &recordedRunner{}
-	if err := refreshProtectedSkillRuntime(context.Background(), config, NewCompose(config, runner)); err != nil {
-		t.Fatal(err)
-	}
-	if len(runner.calls) != 1 || !strings.Contains(runner.calls[0], "up -d --no-deps --force-recreate hermes") {
-		t.Fatalf("unexpected protected skill refresh calls: %v", runner.calls)
-	}
-}
-
-func TestSyncProfileAndRefreshRecreatesHermesAfterProtectedSkillSync(t *testing.T) {
-	repo := t.TempDir()
-	runtime := filepath.Join(t.TempDir(), "runtime")
-	config := testConfig(repo, runtime)
-	files := map[string]string{
-		filepath.Join(repo, "profile", "SOUL.md"):                                                                               "soul\n",
-		filepath.Join(repo, "profile", "AGENTS.md"):                                                                             "agents\n",
-		filepath.Join(repo, "profile", "config.yaml"):                                                                           "model: {}\n",
-		filepath.Join(repo, "profile", "skills", ".gitkeep"):                                                                    "",
-		filepath.Join(repo, "profile", "system-skills", "openlia-skill-migration", "SKILL.md"):                                  "migration\n",
-		filepath.Join(repo, "profile", "system-skills", "inline-openui-authoring", "SKILL.md"):                                  "openui\n",
-		filepath.Join(repo, "profile", "system-skills", "workspace-template-customization", "SKILL.md"):                         "customization\n",
-		filepath.Join(repo, "profile", "system-skills", "workspace-template-customization", "scripts", "workspace_registry.py"): "helper\n",
-		filepath.Join(repo, "release", "manifest.json"):                                                                         `{"openlia":"test"}`,
-	}
-	for path, contents := range files {
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.MkdirAll(config.MetaRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteState(config, stateRunning); err != nil {
-		t.Fatal(err)
-	}
-	runner := &recordedRunner{}
-	if _, err := syncProfileAndRefresh(context.Background(), config, NewCompose(config, runner)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(config.SystemSkillsRoot, "workspace-template-customization", "scripts", "workspace_registry.py")); err != nil {
-		t.Fatalf("protected helper was not synchronized: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(config.SystemSkillsRoot, inlineOpenUISkillName, "SKILL.md")); err != nil {
-		t.Fatalf("protected OpenUI authoring skill was not synchronized: %v", err)
-	}
-	if !strings.Contains(strings.Join(runner.calls, "\n"), "up -d --no-deps --force-recreate hermes") {
-		t.Fatalf("running Hermes was not refreshed after profile sync: %v", runner.calls)
-	}
-}
-
 func TestDeployRestartRecreatesFullStack(t *testing.T) {
 	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
 	for _, directory := range []string{config.DataRoot, config.BackupRoot, config.MetaRoot, config.LochoRoot, config.SecretDir} {
@@ -293,91 +210,16 @@ func TestDeployBuildsOnceAndRunsOneFullHealthcheck(t *testing.T) {
 	}
 }
 
-func TestDeployWorkspaceUIComponentTargetsOnlyWorkspaceUI(t *testing.T) {
-	repo := t.TempDir()
-	runtime := filepath.Join(t.TempDir(), "runtime")
-	config := testConfig(repo, runtime)
-	config.WorkspaceUIHost = "127.0.0.1"
-	if err := os.MkdirAll(filepath.Dir(config.ComposeFile), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(config.ComposeFile, []byte("services: {}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(config.SecretDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(config.SecretFile, []byte("# test\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(config.MetaRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteState(config, stateNeverStarted); err != nil {
-		t.Fatal(err)
-	}
-	runner := &workspaceUIRunner{}
-	if _, err := Deploy(context.Background(), config, NewCompose(config, runner), DeployOptions{Action: "start", Component: "workspace-ui", HealthAttempts: 1}, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	joined := strings.Join(runner.calls, "\n")
-	if !strings.Contains(joined, "up -d --no-deps --force-recreate workspace-ui") {
-		t.Fatalf("workspace-ui target was not started directly: %s", joined)
-	}
-	if strings.Contains(joined, "hermes") || strings.Contains(joined, "locho") {
-		t.Fatalf("targeted workspace-ui deploy touched another service: %s", joined)
-	}
-}
-
-func TestTargetedUIRecreationAlsoRecreatesLochoHost(t *testing.T) {
-	for _, component := range []string{"workspace-ui"} {
-		t.Run(component, func(t *testing.T) {
-			repo := t.TempDir()
-			runtimeRoot := filepath.Join(t.TempDir(), "runtime")
-			config := testConfig(repo, runtimeRoot)
-			config.LochoHostEnabled = true
-			config.LochoHostRoot = filepath.Join(runtimeRoot, "locho-host")
-			config.LochoHostConfig = filepath.Join(config.LochoHostRoot, "locho.toml")
-			config.LochoHostStateRoot = filepath.Join(config.LochoHostRoot, "state")
-			config.WorkspaceUIHost = "127.0.0.1"
-			config.WorkspaceUIAuthRequired = true
-			config.WorkspaceUIPasswordHashFile = filepath.Join(config.SecretDir, "workspace-ui-password.hash")
-			for _, directory := range []string{filepath.Dir(config.ComposeFile), config.SecretDir, config.MetaRoot, config.LochoHostRoot, config.LochoHostStateRoot} {
-				if err := os.MkdirAll(directory, 0o700); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if err := os.WriteFile(config.ComposeFile, []byte("services: {}\n"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(config.SecretFile, []byte("# test\n"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if err := WriteState(config, stateNeverStarted); err != nil {
-				t.Fatal(err)
-			}
-			runner := &lochoLifecycleRunner{runningServices: "workspace-ui\nlocho-host\n"}
-			if _, err := Deploy(context.Background(), config, NewCompose(config, runner), DeployOptions{Action: "start", Component: component, HealthAttempts: 1}, time.Now()); err != nil {
-				t.Fatalf("%v; calls=%v", err, runner.calls)
-			}
-			joined := strings.Join(runner.calls, "\n")
-			if !strings.Contains(joined, "up -d --no-deps --force-recreate "+component) || !strings.Contains(joined, "up -d --no-deps --force-recreate locho-host") {
-				t.Fatalf("targeted recreation did not reconcile Locho host: %s", joined)
-			}
-		})
-	}
-}
-
 func TestLochoHostHealthRejectsStaleEndpoints(t *testing.T) {
 	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
 	config.LochoHostEnabled = true
-	runner := &lochoLifecycleRunner{runningServices: "workspace-ui\nlocho-host\n", stale: true}
+	runner := &lochoLifecycleRunner{runningServices: "hermes\nlocho-host\n", stale: true}
 	if lochoHostHealthy(context.Background(), config, NewCompose(config, runner)) {
 		t.Fatal("stale Locho endpoints were reported healthy")
 	}
 }
 
-func TestLochoOnlyDeployRejectsStoppedUIDependencies(t *testing.T) {
+func TestLochoOnlyDeployRejectsStoppedHermesDependency(t *testing.T) {
 	repo := t.TempDir()
 	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
 	config := testConfig(repo, runtimeRoot)
@@ -385,9 +227,6 @@ func TestLochoOnlyDeployRejectsStoppedUIDependencies(t *testing.T) {
 	config.LochoHostRoot = filepath.Join(runtimeRoot, "locho-host")
 	config.LochoHostConfig = filepath.Join(config.LochoHostRoot, "locho.toml")
 	config.LochoHostStateRoot = filepath.Join(config.LochoHostRoot, "state")
-	config.WorkspaceUIHost = "127.0.0.1"
-	config.WorkspaceUIAuthRequired = true
-	config.WorkspaceUIPasswordHashFile = filepath.Join(config.SecretDir, "workspace-ui-password.hash")
 	for _, directory := range []string{filepath.Dir(config.ComposeFile), config.SecretDir, config.MetaRoot, config.LochoHostRoot, config.LochoHostStateRoot} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatal(err)
@@ -404,47 +243,7 @@ func TestLochoOnlyDeployRejectsStoppedUIDependencies(t *testing.T) {
 	}
 	runner := &lochoLifecycleRunner{runningServices: "locho-host\n"}
 	if _, err := Deploy(context.Background(), config, NewCompose(config, runner), DeployOptions{Action: "deploy", Component: "locho", HealthAttempts: 1}, time.Now()); err == nil || !strings.Contains(err.Error(), "run openlia deploy first") {
-		t.Fatalf("missing UI dependencies were not rejected: %v", err)
-	}
-}
-
-func TestTargetedUIUpdateNeedsNoPeer(t *testing.T) {
-	for _, test := range []struct {
-		component string
-		running   string
-	}{
-		{component: "workspace-ui", running: "workspace-ui\nlocho-host\n"},
-	} {
-		t.Run(test.component, func(t *testing.T) {
-			repo := t.TempDir()
-			runtimeRoot := filepath.Join(t.TempDir(), "runtime")
-			config := testConfig(repo, runtimeRoot)
-			config.LochoHostEnabled = true
-			config.LochoHostRoot = filepath.Join(runtimeRoot, "locho-host")
-			config.LochoHostConfig = filepath.Join(config.LochoHostRoot, "locho.toml")
-			config.LochoHostStateRoot = filepath.Join(config.LochoHostRoot, "state")
-			config.WorkspaceUIHost = "127.0.0.1"
-			config.WorkspaceUIAuthRequired = true
-			config.WorkspaceUIPasswordHashFile = filepath.Join(config.SecretDir, "workspace-ui-password.hash")
-			for _, directory := range []string{filepath.Dir(config.ComposeFile), config.SecretDir, config.MetaRoot, config.LochoHostRoot, config.LochoHostStateRoot} {
-				if err := os.MkdirAll(directory, 0o700); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if err := os.WriteFile(config.ComposeFile, []byte("services: {}\n"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(config.SecretFile, []byte("# test\n"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if err := WriteState(config, stateStopped); err != nil {
-				t.Fatal(err)
-			}
-			runner := &lochoLifecycleRunner{runningServices: test.running}
-			if _, err := Deploy(context.Background(), config, NewCompose(config, runner), DeployOptions{Action: "deploy", Component: test.component, ForceStart: true, HealthAttempts: 1}, time.Now()); err != nil {
-				t.Fatalf("Workspace UI-only update failed: %v", err)
-			}
-		})
+		t.Fatalf("missing Hermes dependency was not rejected: %v", err)
 	}
 }
 
@@ -954,9 +753,6 @@ func TestGeneratedLochoHostHasOneRelayEnvFile(t *testing.T) {
 	repo := t.TempDir()
 	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
 	config := testConfig(repo, runtimeRoot)
-	config.WorkspaceUIHost = "127.0.0.1"
-	config.WorkspaceUIAuthRequired = true
-	config.WorkspaceUIPasswordHashFile = filepath.Join(runtimeRoot, "secrets", "workspace-ui-password.hash")
 	config.LochoHostEnabled = true
 	config.LochoHostRoot = filepath.Join(runtimeRoot, "locho-host")
 	config.LochoHostConfig = filepath.Join(config.LochoHostRoot, "locho.toml")
@@ -1011,77 +807,7 @@ func TestGeneratedLochoHostHasOneRelayEnvFile(t *testing.T) {
 	}
 }
 
-func TestGeneratedAttachmentsContainWorkspaceUIWhenEnabled(t *testing.T) {
-	for _, test := range []struct {
-		name      string
-		host      string
-		port      int
-		published string
-	}{
-		{name: "loopback", host: "127.0.0.1", port: 8089, published: "127.0.0.1:8089:8089"},
-		{name: "all interfaces", host: "0.0.0.0", port: 8090, published: "0.0.0.0:8090:8090"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			repo := t.TempDir()
-			runtimeRoot := filepath.Join(t.TempDir(), "runtime")
-			config := testConfig(repo, runtimeRoot)
-			config.OpenLiaReleaseSHA256 = strings.Repeat("a", 64)
-			config.WorkspaceUIHost = test.host
-			config.WorkspaceUIPort = test.port
-			config.WorkspaceUIAuthRequired = test.host == "0.0.0.0"
-			config.WorkspaceUIPasswordHashFile = filepath.Join(runtimeRoot, "secrets", "workspace-ui-password.hash")
-			if err := os.MkdirAll(filepath.Join(repo, "docker"), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := GenerateAttachments(config); err != nil {
-				t.Fatal(err)
-			}
-			data, err := os.ReadFile(config.GeneratedCompose)
-			if err != nil {
-				t.Fatal(err)
-			}
-			text := string(data)
-			for _, expected := range []string{"OPENLIA_USAGE_ROOT: /usage", "target: /usage", filepath.Join(config.DataRoot, "usage")} {
-				if !strings.Contains(text, expected) {
-					t.Fatalf("generated Compose missing usage wiring %q", expected)
-				}
-			}
-			for _, path := range []string{filepath.Join(config.DataRoot, "usage"), filepath.Join(config.DataRoot, "usage", "reports")} {
-				info, err := os.Stat(path)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if info.Mode().Perm() != 0o700 {
-					t.Fatalf("usage directory permissions %s", info.Mode())
-				}
-			}
-			for _, expected := range []string{"OPENLIA_MEMORIES_ROOT: /memories", "target: /memories", filepath.Join(config.DataRoot, "memories")} {
-				if !strings.Contains(text, expected) {
-					t.Fatalf("generated Compose missing memory mount %q:\n%s", expected, text)
-				}
-			}
-			for _, expected := range []string{"workspace-ui:", "docker/workspace-ui.Dockerfile", "OPENLIA_RELEASE_SHA256: \"" + strings.Repeat("a", 64) + "\"", test.published, fmt.Sprintf("OPENLIA_WORKSPACE_UI_PORT: \"%d\"", test.port), "OPENLIA_SKILLS_ROOT: /skills", "OPENLIA_INGESTION_ROOT: /ingestion", "OPENLIA_CRON_ROOT: /cron", "target: /workspace", "target: /skills", "target: /ingestion", "target: /cron", fmt.Sprintf("user: \"%d:%d\"", config.RuntimeUID, config.RuntimeGID), "cap_drop: [ALL]"} {
-				if !strings.Contains(text, expected) {
-					t.Fatalf("generated Compose missing %q:\n%s", expected, text)
-				}
-			}
-			if strings.Contains(text, "target: /ingestion\n        read_only: true") {
-				t.Fatal("Workspace UI ingestion mount must be writable")
-			}
-			if test.host == "0.0.0.0" {
-				for _, expected := range []string{"OPENLIA_WORKSPACE_UI_AUTH_REQUIRED: \"true\"", "OPENLIA_WORKSPACE_UI_SESSION_DB: /var/lib/openlia/sessions.sqlite", "target: /run/openlia-secrets/workspace-ui-password.hash", "target: /var/lib/openlia", "read_only: true"} {
-					if !strings.Contains(text, expected) {
-						t.Fatalf("generated public Workspace UI Compose missing %q:\n%s", expected, text)
-					}
-				}
-			} else if strings.Contains(text, "OPENLIA_WORKSPACE_UI_AUTH_REQUIRED") {
-				t.Fatal("loopback Workspace UI unexpectedly enabled authentication")
-			}
-		})
-	}
-}
-
-func TestGeneratedAttachmentsContainLochoHostForWorkspaceUI(t *testing.T) {
+func TestGeneratedAttachmentsContainLochoHostForHermesServices(t *testing.T) {
 	repo := t.TempDir()
 	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
 	config := testConfig(repo, runtimeRoot)
@@ -1092,9 +818,6 @@ func TestGeneratedAttachmentsContainLochoHostForWorkspaceUI(t *testing.T) {
 	config.LochoVersion = "9.9.9-test"
 	config.LochoX8664SHA256 = strings.Repeat("a", 64)
 	config.LochoARM64SHA256 = strings.Repeat("b", 64)
-	config.WorkspaceUIHost = "127.0.0.1"
-	config.WorkspaceUIAuthRequired = true
-	config.WorkspaceUIPasswordHashFile = filepath.Join(runtimeRoot, "secrets", "workspace-ui-password.hash")
 	if err := os.MkdirAll(filepath.Join(repo, "docker"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1112,8 +835,10 @@ func TestGeneratedAttachmentsContainLochoHostForWorkspaceUI(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
-		"name = \"workspace-ui\"",
-		"endpoint = \"127.0.0.1:8089\"",
+		"name = \"hermes-api\"",
+		"endpoint = \"127.0.0.1:8642\"",
+		"name = \"hermes-dashboard\"",
+		"endpoint = \"127.0.0.1:9119\"",
 	} {
 		if !strings.Contains(string(lochoConfig), expected) {
 			t.Fatalf("Locho host config missing %q:\n%s", expected, lochoConfig)
@@ -1132,6 +857,11 @@ func TestGeneratedAttachmentsContainLochoHostForWorkspaceUI(t *testing.T) {
 		"LOCHO_STATE_DIR: /var/lib/openlia-locho-host/state",
 		"- openlia-private",
 		"depends_on:",
+		"- hermes",
+		"API_SERVER_HOST: \"0.0.0.0\"",
+		"HERMES_DASHBOARD: \"1\"",
+		"HERMES_DASHBOARD_HOST: \"0.0.0.0\"",
+		"HERMES_DASHBOARD_PORT: \"9119\"",
 		"LOCHO_VERSION: \"9.9.9-test\"",
 		"LOCHO_X86_64_SHA256: \"" + strings.Repeat("a", 64) + "\"",
 		"LOCHO_AARCH64_SHA256: \"" + strings.Repeat("b", 64) + "\"",
@@ -1140,10 +870,16 @@ func TestGeneratedAttachmentsContainLochoHostForWorkspaceUI(t *testing.T) {
 			t.Fatalf("generated Compose missing %q:\n%s", expected, text)
 		}
 	}
-	if strings.Contains(text, "open-webui") || strings.Contains(string(lochoConfig), "open-webui") {
-		t.Fatal("Locho Compose or host config still exposes the retired service")
+	apiEnvData, err := os.ReadFile(filepath.Join(config.SecretDir, "api-server.env"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	activeConfig := "[[services]]\nname = \"workspace-ui\"\ntype = \"tcp\"\nendpoint = \"172.30.0.2:8089\"\n"
+	for _, expected := range []string{"API_SERVER_KEY=", "HERMES_DASHBOARD_BASIC_AUTH_USERNAME=", "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD="} {
+		if !strings.Contains(string(apiEnvData), expected) {
+			t.Fatalf("api-server.env missing %q:\n%s", expected, apiEnvData)
+		}
+	}
+	activeConfig := "[[services]]\nname = \"hermes-api\"\ntype = \"tcp\"\nendpoint = \"172.30.0.2:8642\"\n"
 	if err := os.WriteFile(config.LochoHostConfig, []byte(activeConfig), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1158,7 +894,8 @@ func TestGeneratedAttachmentsContainLochoHostForWorkspaceUI(t *testing.T) {
 
 func TestLochoHostRuntimeConfigIsValidTOML(t *testing.T) {
 	contents := fmt.Sprintf(
-		strings.ReplaceAll(lochoHostConfigFormat(8089), `\n`, "\n"),
+		strings.ReplaceAll(lochoHostConfigFormat(), `\n`, "\n"),
+		"172.30.0.2",
 		"172.30.0.2",
 	)
 	if strings.Contains(contents, `\"`) {
@@ -1181,7 +918,8 @@ func TestLochoHostRuntimeConfigIsValidTOML(t *testing.T) {
 		typeName string
 		endpoint string
 	}{
-		{name: "workspace-ui", typeName: "tcp", endpoint: "172.30.0.2:8089"},
+		{name: "hermes-api", typeName: "tcp", endpoint: "172.30.0.2:8642"},
+		{name: "hermes-dashboard", typeName: "tcp", endpoint: "172.30.0.2:9119"},
 	}
 	if len(config.Services) != len(expected) {
 		t.Fatalf("Locho host config has %d services, want %d", len(config.Services), len(expected))
@@ -1211,9 +949,6 @@ func TestGeneratedLochoComposeValidates(t *testing.T) {
 	config.LochoHostStateRoot = filepath.Join(config.LochoHostRoot, "state")
 	config.LochoRelayConfig = filepath.Join(runtimeRoot, "locho", "relay.toml")
 	config.LochoRelaySecrets = filepath.Join(runtimeRoot, "locho-relay-secrets", "relay.env")
-	config.WorkspaceUIHost = "127.0.0.1"
-	config.WorkspaceUIAuthRequired = true
-	config.WorkspaceUIPasswordHashFile = filepath.Join(config.SecretDir, "workspace-ui-password.hash")
 	if err := os.MkdirAll(config.SecretDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -1319,15 +1054,6 @@ func TestBrowserPolicyRefusesUserAgentMapping(t *testing.T) {
 	data := []byte("agent:\n  disabled_toolsets: [terminal]\n")
 	if _, _, err := renderBrowserPolicy(data, true, "http://locho-laptop:8932"); err == nil {
 		t.Fatal("browser policy overwrote a user-owned agent mapping")
-	}
-}
-
-func TestWorkspaceGitProtectsSensitivePaths(t *testing.T) {
-	for _, path := range []string{".env", "nested/auth.json", "logs/hermes.log", "cache/token", "private.key", "notes.md"} {
-		want := path != "notes.md"
-		if protectedWorkspacePath(path) != want {
-			t.Fatalf("protectedWorkspacePath(%q) = %t, want %t", path, protectedWorkspacePath(path), want)
-		}
 	}
 }
 
@@ -1785,33 +1511,5 @@ listen_port = 2222
 	}
 	if strings.Contains(composeText, "OPENAI_BASE_URL") {
 		t.Fatalf("generated Compose must not configure OPENAI_BASE_URL:\n%s", composeText)
-	}
-}
-
-func TestReconcileAttachments_WorkspaceUIPublicOrigin(t *testing.T) {
-	repo := t.TempDir()
-	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
-	config := testConfig(repo, runtimeRoot)
-	if err := os.MkdirAll(filepath.Join(repo, "docker"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	config.WorkspaceUIHost = "127.0.0.1"
-	config.WorkspaceUIPort = 8089
-	config.WorkspaceUIPublicOrigin = "https://workspace.example.test"
-
-	if err := EnsureDir(config.LochoRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := generateAttachmentsFile(config); err != nil {
-		t.Fatalf("generateAttachmentsFile failed: %v", err)
-	}
-	composeBytes, err := os.ReadFile(config.GeneratedCompose)
-	if err != nil {
-		t.Fatalf("failed to read generated compose: %v", err)
-	}
-	composeText := string(composeBytes)
-	expectedHermesEnv := "OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN: \"https://workspace.example.test\""
-	if !strings.Contains(composeText, expectedHermesEnv) {
-		t.Fatalf("compose missing Hermes OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN:\n%s", composeText)
 	}
 }

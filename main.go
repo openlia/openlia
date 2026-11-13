@@ -2,22 +2,16 @@ package main
 
 import (
 	"embed"
-	"io/fs"
 	"os"
 
 	"openlia/cli"
+	"openlia/internal/releaseinfo"
 )
 
-// The release payload is embedded so the operator can bootstrap a target
-// without cloning this repository on the operator or remote machine.
-//
-//go:embed THIRD_PARTY_NOTICES.md all:docker all:profile all:workspace-template all:examples/locho all:release all:packages/openlia-browser/dist all:packages/workspace-ui/dist
+//go:embed all:docker all:profile all:examples/locho packages/openlia-browser/dist/server.js release/manifest.json
 var releaseAssets embed.FS
 
 func main() {
-	assets, err := fs.Sub(releaseAssets, ".")
-	if err != nil {
-		os.Exit(cli.ExitInternal)
-	}
-	os.Exit(cli.Run(os.Args[1:], assets))
+	releaseinfo.SetEmbeddedAssets(releaseAssets)
+	os.Exit(cli.Run(os.Args[1:], releaseAssets))
 }
