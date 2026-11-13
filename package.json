@@ -1,43 +1,27 @@
 {
-  "name": "openlia-runtime",
+  "name": "openlia",
   "private": true,
-  "packageManager": "bun@1.2.22",
-  "workspaces": [
-    "packages/*"
-  ],
+  "type": "module",
   "scripts": {
-    "prepare": "git config core.hooksPath .githooks || true",
-    "build": "bun run build:openlia-browser && bun run build:ui",
-    "build:openlia-browser": "bun build packages/openlia-browser/src/server.ts --target=node --format=esm --outfile=packages/openlia-browser/dist/server.js",
-    "build:ui": "bun run --cwd packages/workspace-ui build",
-    "build:ui:client": "bun run --cwd packages/workspace-ui build:client",
-    "build:ui:server": "bun run --cwd packages/workspace-ui build:server",
-    "typecheck": "bun run typecheck:openlia-browser && bun run typecheck:ui",
-    "typecheck:openlia-browser": "tsc -p packages/openlia-browser/tsconfig.json --noEmit",
-    "typecheck:ui": "bun run --cwd packages/workspace-ui typecheck",
-    "test": "bun run test:server && bun run test:ui && bun test packages/openlia-browser",
-    "test:server": "bun run --cwd packages/workspace-ui test:server",
-    "test:ui": "bun run --cwd packages/workspace-ui test",
-    "format": "biome format --write packages tests package.json tsconfig.base.json biome.json",
-    "format:check": "biome format packages tests package.json tsconfig.base.json biome.json",
-    "lint": "biome lint packages tests package.json tsconfig.base.json",
-    "check": "bun run format:check && bun run lint && bun run typecheck",
-    "verify-dist": "bun run build && test -s packages/openlia-browser/dist/server.js && test -s packages/workspace-ui/dist/server.js && test -s packages/workspace-ui/dist/openui-authoring.js && test -d packages/workspace-ui/dist/client/assets"
+    "build": "bun run build:openlia-browser",
+    "build:openlia-browser": "bun build packages/openlia-browser/src/server.ts --target=bun --outfile packages/openlia-browser/dist/server.js",
+    "lint": "bunx @biomejs/biome check packages/openlia-browser",
+    "format": "bunx @biomejs/biome format --write packages/openlia-browser package.json biome.json",
+    "format:check": "bunx @biomejs/biome format packages/openlia-browser package.json biome.json",
+    "typecheck": "bun run typecheck:openlia-browser",
+    "typecheck:openlia-browser": "bunx tsc --noEmit -p packages/openlia-browser/tsconfig.json",
+    "test": "bun run test:openlia-browser",
+    "test:openlia-browser": "bun test packages/openlia-browser/src",
+    "verify-dist": "bun run build && test -s packages/openlia-browser/dist/server.js",
+    "check": "bun run lint && bun run typecheck"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@playwright/mcp": "0.0.70"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.1",
-    "@tailwindcss/vite": "4",
-    "@testing-library/jest-dom": "6.8.0",
-    "@testing-library/react": "16.3.0",
-    "@types/bun": "1.3.14",
-    "@types/react": "19.1.12",
-    "@types/react-dom": "19.1.9",
-    "@vitejs/plugin-react": "5.0.2",
-    "daisyui": "5",
-    "happy-dom": "18.0.1",
-    "tailwindcss": "4",
-    "typescript": "5.9.3",
-    "vite": "7.1.5",
-    "vitest": "3.2.4"
+    "@biomejs/biome": "^2.4.12",
+    "@types/bun": "^1.2.22",
+    "typescript": "^5.8.2"
   }
 }

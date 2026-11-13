@@ -1,7 +1,0 @@
-# OpenLia Knowledge Note
-Hermes Agent ingestion runtime processes incoming files and URLs.
-Key capabilities:
-- Text and Markdown capture
-- Tabular CSV and Excel extraction
-- Searchable and scanned PDF reading
-- Multilingual YouTube transcription
