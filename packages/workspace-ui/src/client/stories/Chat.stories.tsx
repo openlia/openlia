@@ -190,6 +190,33 @@ export const CompletedExecution: Story = {
   ),
 };
 
+export const CompletedExecutionExpanded: Story = {
+  render: () => (
+    <div className="p-4 bg-base-100">
+      <ChatExecution
+        run={completedRun}
+        history={[
+          completedRun,
+          {
+            ...completedRun,
+            run_id: "run_prev_01",
+            submitted_at: Date.parse("2026-11-12T14:10:00Z"),
+            status_observed_at: Date.parse("2026-11-12T14:15:20Z"),
+          },
+          recordedFailure,
+        ]}
+        hasMore={false}
+        busy={false}
+        historyError=""
+        defaultOpen
+        onRefresh={action("refreshExecution")}
+        onRefreshRun={action("refreshRun")}
+        onMore={action("earlierExecutions")}
+      />
+    </div>
+  ),
+};
+
 export const RunningExecution: Story = {
   render: () => (
     <div className="p-4 bg-base-100">

@@ -596,6 +596,15 @@ export function ChatPage({
           busy={busy}
           active={active}
           onOpenConversations={() => setDrawerOpen(true)}
+          onShowExecution={() => {
+            const details = pane.current?.querySelector<HTMLDetailsElement>(
+              "#chat-execution details",
+            );
+            if (details) {
+              details.open = true;
+              details.scrollIntoView({ behavior: "smooth" });
+            }
+          }}
           onAction={(action) => {
             if (!selected?.writable) return;
             if (action === "rename") setRename(selected.title ?? "");
