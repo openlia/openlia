@@ -1,122 +1,29 @@
 # OpenLia
 
-> A self-hosted, AI-native workspace for turning personal context into organized knowledge, decisions, and action—with [Hermes Agent](https://hermes-agent.nousresearch.com/) as its agent runtime.
+> A lean, self-hosted deployment and connectivity control plane on top of [Hermes Agent](https://hermes-agent.nousresearch.com/).
 
-OpenLia helps you organize documents, connect projects and daily context, and act with a clear human approval boundary. Your information lives in a **Git-versioned plain-text workspace**, not proprietary app silos or a fixed domain layout. Start small and extend it with profiles, domain features, and workflow skills from the public **[`openlia/minions`](https://github.com/openlia/minions.git)** catalog.
-
-**Hermes Agent** powers Lia, the assistant you collaborate with through chat and **Workspace UI**. **Durable multi-format ingestion** retains your sources, while **inline OpenUI** provides interactive views inside Markdown documents. An **on-demand dependency store**, private connectivity through **[Locho](https://github.com/trchopan/locho)**, and a **separate operator control plane** support deployment and ongoing operations.
+OpenLia deploys and manages **Hermes Agent** on a local machine or a remote Linux host over SSH, wires private connectivity through **[Locho](https://github.com/trchopan/locho)** tunnels (for the Hermes API server, Hermes Dashboard, and external browser/service hosts), automates **Age-encrypted backups** (local + S3 or rsync), and provides the **`openlia-browser` Playwright MCP relay** for safe shared-profile browser automation.
 
 ---
 
-## Why Lia?
+## Core Responsibilities
 
-**Lia** is a classic Italian form of **Leah**. In Dante's *Purgatorio*, Leah represents the active life: she gathers flowers and weaves a garland, while her sister Rachel represents the contemplative life.
-
-OpenLia is built to bridge reflection and action:
-```text
-Observe -> Understand -> Remember -> Reason -> Recommend -> [Approve] -> Act -> Update State
-```
-The goal is not maximum unattended autonomy—the goal is **useful autonomy with a clear human approval boundary**.
-
----
-
-## The Two Roles: End User vs. Operator
-
-To use and understand OpenLia, distinguish between **two distinct roles** (even when one self-hoster fulfills both):
-
-```text
-+-------------------------------------------------------------------------------+
-|                                YOU (The Human)                                |
-|                                                                               |
-|  ┌───────────────────────────────────┐     ┌───────────────────────────────┐  |
-|  │          THE END USER             │     │         THE OPERATOR          │  |
-|  │        (Daily Companion)          │     │    (System Administrator)     │  |
-|  ├───────────────────────────────────┤     ├───────────────────────────────┤  |
-|  │ • Workspace UI Chat & Editor      │     │ • Workstation `openlia` CLI   │  |
-|  │ • Telegram (Bot DM / Home Channel)│     │ • Deployment (Local / SSH VM) │  |
-|  │ • Quick-notes & document intake   │     │ • Secret rotation & API keys  │  |
-|  │ • Inline OpenUI document views   │     │ • Encrypted backups & restore │  |
-|  │ • Git checkpoints & approvals     │     │ • Profiles, features & skills │  |
-|  └─────────────────▲─────────────────┘     └───────────────┬───────────────┘  |
-+--------------------┼───────────────────────────────────────┼------------------+
-                     │ interacts daily                       │ manages & provisions
-                     │                                       │
-        ┌────────────┴───────────────────────────────────────▼───────────┐
-        │                     OPENLIA RUNTIME PLANE                      │
-        │   (Hermes Gateway + Workspace UI + Locho + Git Workspace)      │
-        └────────────────────────────────────────────────────────────────┘
-```
-
-| Dimension | The End User | The Operator |
-| :--- | :--- | :--- |
-| **Primary Interface** | Workspace UI (`/chat`, `/files`) & Telegram | `openlia` CLI (terminal on operator workstation) |
-| **Responsibilities** | Daily workflows, quick capture, document intake, reviews, approvals | Deployment, VM/Docker setup, API keys, backups, updates |
-| **Data Handled** | Workspace documents, inline views, ingested sources | SSH keys, LLM API keys, Age recovery keys, Locho capabilities |
-| **Cadence** | Multiple times daily | Initial setup + periodic updates, secret rotation & backup checks |
-
-> [!TIP]
-> **Self-hosting OpenLia for yourself?**
-> You wear the **Operator** hat once to deploy and maintain the stack with the `openlia` CLI, and wear the **End User** hat every day when chatting with Lia or reviewing your workspace.
+1. **Zero-Fork Hermes Agent Deployment**:
+   - Runs the official upstream `nousresearch/hermes-agent` container image with an injected mode-`0600` secret source wrapper (`/usr/local/bin/openlia-secret-source`).
+   - Seeds a clean base `SOUL.md` and `AGENTS.md` on deployment, while letting upstream Hermes Agent manage its own `/opt/data/config.yaml` and native features.
+2. **Locho Tunneling (`locho-host` & `attachments`)**:
+   - **`locho-host`**: Exposes Hermes' built-in API Server (`127.0.0.1:8642` -> service `hermes-api`) and built-in Web Dashboard (`127.0.0.1:9119` -> service `hermes-dashboard`) over an outbound encrypted Locho relay—with zero public ports opened on the agent machine.
+   - **`attachments`**: Connects Hermes to remote services (`openlia-browser`, private OpenAI-compatible gateways) through dedicated `locho-<host>` sidecar containers.
+3. **Hermes Dashboard & API Authentication (`auth`)**:
+   - Configures Hermes Dashboard Basic Auth (`openlia auth`) or OIDC / GCP OAuth / Auth0 (`openlia auth --oidc`) inside your protected mode-`0600` secret source file and propagates credentials to the runtime.
+4. **Age-Encrypted Backups (`backup`)**:
+   - Creates compressed, Age-encrypted snapshots of `/opt/data`, retaining the private Age recovery key strictly on the operator workstation while pushing encrypted archives to S3-compatible object storage or an SSH/rsync target.
+5. **Playwright MCP Relay (`browser`)**:
+   - Supervises a host-local Playwright MCP server (`127.0.0.1:8931`) and exposes a Streamable HTTP `/mcp` relay (`127.0.0.1:8932`) with single-owner FIFO workflow leases and mutating-call idempotency.
 
 ---
 
-## Documentation Map
-
-Browse the full documentation in **[`docs/README.md`](docs/README.md)**:
-
-| Audience | Guide | What It Covers |
-| :--- | :--- | :--- |
-| **End Users** | 📖 **[End User Guide](docs/user-guide.md)** | Daily workflows, Telegram & Workspace UI, Minimal Core Workspace, Public Catalog (`openlia/minions`), and approval rules. |
-| **End Users** | 📊 **[Inline OpenUI Views](docs/workspace-domain-views.md)** | Interactive tables, charts, Calendar, and Finance inside Markdown documents. |
-| **End Users** | 🎨 **[Generative UI with Moi](docs/generative-ui-moi.md)** | Dynamic React component workspace over ACP (`hermes -p personal-os acp`). |
-| **Operators** | 🛠️ **[Operator Guide](docs/operator-guide.md)** | Complete `openlia` CLI handbook, `config.toml` & `secrets.env`, `openlia/minions` catalog & on-demand dependencies (`/opt/data/.local`), Locho & Browser hosts, migrations, and Age-encrypted backups. |
-| **Operators** | 📈 **[LLM Usage Monitoring](docs/usage-monitoring.md)** | Token and USD cost tracking across Hermes, Ingestion, and Migration, plus custom pricing overrides. |
-| **Operators / QA** | 🧪 **[End-to-End Drills](docs/e2e-drills.md)** | Repeatable verification runbook and troubleshooting guide for disposable or remote deployments. |
-| **Contributors** | 🤝 **[Contributing Guide](CONTRIBUTING.md)** | Developer prerequisites, 5-minute setup, component workflows, test suites, and PR conventions. |
-| **Contributors** | 🏗️ **[System Architecture](docs/architecture.md)** | Full-stack codebase tour: Go CLI/operator, TypeScript/Bun UI & Browser Relay, Python plugins, `/opt/data/.local` tool store, and Docker runtime. |
-| **Contributors** | 🧠 **[Skill & Feature Development](docs/skill-and-feature-development.md)** | Authoring and testing workspace profiles, modular features, standalone skills, and `requires.{tools,python,bun}` manifests for [`openlia/minions`](https://github.com/openlia/minions.git). |
-
----
-
-## Core Platform Capabilities
-
-### 1. Ultra-Minimal Core Workspace + Public Catalog (`openlia/minions`)
-Every new OpenLia deployment starts with a clean, unopinionated core workspace (`workspace-template/`):
-- `AGENTS.md` and `README.md` (workspace instructions and contracts)
-- `inbox/ingestion/` (durable intake notes created from uploaded documents and links)
-- `sources/` (`artifacts/`, `records/`, and `document-passwords.toml`)
-- `feature.schema.json` (JSON Schema for modular feature manifests)
-
-Install starter profiles, domain features, and standalone skills on demand from [`https://github.com/openlia/minions.git`](https://github.com/openlia/minions.git) (or your own catalog repository / local directory / `.zip` archive):
-- **Starter Profiles**: `personal-os` (installs `goals`, `tasks`, `calendar`, `daily-briefing`, and core productivity skills in one command)
-- **Modular Features**: `goals`, `tasks`, `calendar`, `daily-briefing`, `personal-finance`, `personal-health`, `decision-analysis`, `deep-research`, `areas`, `ideas`, `monitors`, `people`, `shopping`, `travel`
-- **Standalone Skills**: `daily-briefing`, `weekly-review`, `workspace-organize`, `workspace-git`, `calendar`, `document-intelligence`
-
-### 2. On-Demand Tool & Dependency Store (`/opt/data/.local`)
- Core container images stay lean. Features (`feature.yaml`) and skills (`SKILL.md`) declare domain-specific dependencies under `requires`:
-- **`requires.tools`**: Curated CLI binaries (`hledger`, `remind`, `jq`, `sqlite3`) downloaded from pinned checksums or installed into `/opt/data/.local/tools/<tool>/<version>/` and symlinked into `/opt/data/.local/bin/`.
-- **`requires.python`**: Isolated Python virtual environments provisioned via `uv` under `/opt/data/.local/envs/python/<owner>/`.
-- **`requires.bun`**: Isolated Bun package environments provisioned under `/opt/data/.local/envs/bun/<owner>/`.
-- Because `/opt/data/.local/bin` is on the persistent volume and in Hermes's `PATH`, installed tools survive container rebuilds and host restarts without bloating the base Docker image.
-
-### 3. Automatic Fork Detection & 3-Way Rebase
-Customize any installed feature template or skill directly in your workspace—no manual `fork` command is required before editing. OpenLia stores the clean upstream snapshot at install time, automatically detects your local edits (`current_hash != base_hash`), and performs a 3-way rebase (`old-base` vs. `current-fork` vs. `new-base`) when upstream templates update.
-
-### 4. Durable Multi-Format Ingestion
-Send chat text, PDFs, images (processed via your configured vision LLM), Excel spreadsheets, CSVs, or YouTube links. OpenLia retains the originals under `sources/` and creates structured provenance and intake records automatically.
-
-### 5. Built-in Workspace UI & Inline OpenUI
-When `[workspace-ui]` is enabled, a single Bun service provides:
-- **Native Chat (`/chat`)**: Streaming conversations over Hermes' private `/v1/runs` API with live tool activity, inline approvals, and detached execution.
-- **Document Explorer & Editor (`/files`)**: Markdown preview, CodeMirror editor, and advisory JSON Schema validation.
-- **Inline OpenUI**: Interactive tables, charts, Calendar, and Finance rendered from fenced `openui` blocks inside Markdown documents.
-- **Git Checkpoints & Folder Migration (`/migration`)**: Review and confirm AI-grouped Git commits or staged folder imports before they touch your live workspace.
-
----
-
-## Architecture & Deployment Shape
-
-OpenLia is not a fork of Hermes Agent. It uses Hermes as its agent runtime and adds a durable workspace, interactive apps, extensible workflows, and human approval boundaries. A separate operator control plane handles deployment, updates, credentials, and backups.
+## Architecture Overview
 
 ```text
 Operator Machine (macOS / Linux Workstation)
@@ -125,11 +32,10 @@ Operator Machine (macOS / Linux Workstation)
       +-- Local Mode --> Docker Compose on the same machine
       |
       +-- Remote Mode -> SSH -> Agent Machine (Linux VM, no checkout/Go needed)
-      |                           |-- Hermes Gateway container
-      |                           |-- Workspace UI container (optional)
-      |                           |-- Locho attachment sidecars (optional)
+      |                           |-- Hermes Agent container (:8642 API, :9119 Dashboard)
+      |                           |-- Locho sidecars (locho-host & locho-<host> attachments)
       |                           |-- Backup scheduler sidecar
-      |                           `-- /opt/data (Workspace Git repo + .local tools + SQLite state)
+      |                           `-- /opt/data (Hermes state, SOUL.md, AGENTS.md, config.yaml)
       |
       `-- Optional ----> Local or SSH -> Browser Machine
                                            openlia-browser (:8932) + Playwright MCP (:8931)
@@ -137,110 +43,94 @@ Operator Machine (macOS / Linux Workstation)
 
 ---
 
+## CLI Command Reference
+
+All CLI commands accept `--config <path>` (or the `OPENLIA_CONFIG=<path>` environment variable) to select an operator configuration file (default: `~/.config/openlia/config.toml`).
+
+### Lifecycle Commands
+- `openlia deploy [--release]` — Provision and bootstrap uninitialized targets, sync configuration/secrets, and start or update the Compose stack (`--release` uploads and activates the bundled release on existing targets).
+- `openlia start` / `openlia stop` / `openlia restart` — Control the deployed Compose stack.
+- `openlia status [--check-providers]` — Inspect container health, secret permissions, runtime directories, and optional live provider reachability (`--check-providers`).
+- `openlia logs [--follow]` — Tail or stream container logs.
+- `openlia uninstall` — Tear down containers and remove the installation root while preserving remote backups and local Age recovery keys.
+
+### Authentication & Capability Commands
+- `openlia auth [--oidc | rotate]` — Configure Hermes Dashboard Basic Auth (`openlia auth`) or OIDC / GCP OAuth / Auth0 (`openlia auth --oidc`) in your mode-`0600` secret source, or rotate deployed runtime secrets (`openlia auth rotate`).
+- `openlia locho-host <share|rotate>` — Export a mode-`0600` client attachment file (`share --output <file>`) or rotate `hermes-api` (`:8642`) and `hermes-dashboard` (`:9119`) capabilities (`rotate --service <all|hermes-api|hermes-dashboard>`).
+- `openlia attachments <list|rotate|map>` — Inspect attached Locho hosts, rotate a host's `attachments.toml`, or map discovered services to roles (`openlia-browser`, `openai-gateway`).
+- `openlia backup <keygen|create|status|list|push|restore|rollback-restore|schedule>` — Manage Age-encrypted backups, off-box S3/rsync replication, and automated cron schedules.
+- `openlia browser <configure|install|start|stop|restart|status|logs|uninstall>` — Manage the `openlia-browser` Playwright MCP relay service.
+
+---
+
 ## Quick Start
 
-### Prerequisites
-
-| Use Case | Required Runtime |
-| :--- | :--- |
-| **Source build & tests** | Go 1.26+, Bun 1.2.22+, Python 3.9+ (`make venv`), Bash, Docker CLI |
-| **Local deployment** | Docker Engine with Compose v2 (Linux) or Docker Desktop (macOS) |
-| **Remote deployment** | SSH access to a Linux host (`amd64` or `arm64`) with Docker Engine & Compose v2 |
-
-### Step 1: Build & Configure (Operator Step)
-
-1. **Build and install the release artifacts and `openlia` CLI**:
-   ```bash
-   make install
-   ```
-
-   This builds everything and installs `openlia` to `~/.local/bin/`, with the Linux operator binaries in `~/.local/bin/dist/` so deployment works from any directory. No `sudo` is needed. To choose another location, use `make install BIN_DIR=/your/bin`.
-
-   Add this line once to your shell configuration (`~/.zshrc` for zsh or `~/.bashrc` for bash), then restart your shell or run it in your current terminal:
-   ```bash
-   export PATH="$HOME/.local/bin:$PATH"
-   ```
-   Verify with `openlia --help`. Rerun `make install` after source updates. For a build without installation, use `make build`.
-
-2. **Create your protected secrets file (`0600`) outside the repository**:
-   ```bash
-   mkdir -p ~/.config/openlia
-   chmod 700 ~/.config/openlia
-   cat << 'EOF' > ~/.config/openlia/secrets.env
-   COPILOT_GITHUB_TOKEN=ghu_xxxxxxxxxxxxxxxxxxxx
-   # Optional Telegram integration:
-   # TELEGRAM_BOT_TOKEN=123456789:ABCDEFxxxxxxxxxxxxxxxxxxxx
-   # TELEGRAM_ALLOWED_USERS=123456789
-   EOF
-   chmod 600 ~/.config/openlia/secrets.env
-   ```
-
-3. **Create `~/.config/openlia/config.toml`**:
-   ```toml
-   [openlia]
-   schema = 2
-   provider = "copilot"
-   model = "copilot-model"
-   output_language = "en"
-   timezone = "America/New_York"
-
-   [ingestion]
-   max_concurrent_jobs = 1
-
-   [workspace-ui]
-   host = "127.0.0.1"
-   port = 8089
-
-   [secrets]
-   source = "/Users/yourname/.config/openlia/secrets.env"
-   ```
-
-4. **Initialize, deploy, and install optional features and skills**:
-   ```bash
-   # Local deployment on this machine:
-   openlia init --local --root "$HOME/.openlia"
-   openlia deploy
-
-   # Optional: browse and install profiles/features/skills from openlia/minions
-   openlia features sync
-   openlia features install --profile personal-os
-   # Or install individual features & skills:
-   # openlia features install tasks
-   # openlia skills install workspace-git
-   ```
-
-### Step 2: Connect & Use Lia (End User Step)
-
-1. **Workspace UI Chat**: Open [http://localhost:8089/chat](http://localhost:8089/chat) and start collaborating with your agent.
-2. **Workspace UI Editor**: Open [http://localhost:8089](http://localhost:8089) to browse Markdown files, install feature packages, or inspect inline OpenUI views.
-3. **Telegram**: If configured, message `/start` to your bot on Telegram for mobile capture and notifications.
-
-👉 Next steps: Read the **[End User Guide](docs/user-guide.md)** and **[Operator Guide](docs/operator-guide.md)**.
-
----
-
-## Security Boundaries
-
-- **Out-of-Repo Secrets**: Credentials, OAuth state, and Locho capabilities live outside Git in mode-`0600` files and are injected at runtime (`openlia auth rotate`).
-- **Private-by-Default Listeners**: The default Compose stack exposes no public ports and mounts no Docker socket. Remote access uses SSH tunnels or encrypted [Locho](https://github.com/trchopan/locho) attachments (`--locho-host`). Binding Workspace UI to `0.0.0.0` requires an Argon2id `password_hash`.
-- **Unprivileged Runtime & Scoped Mounts**: Hermes runs as an unprivileged user with `/opt/data` as its mutable volume; system skills are mounted read-only.
-- **Human-in-the-Loop Approvals**: Consequential actions, external side effects, skill/feature conflict migrations, folder imports, and workspace Git commits require explicit confirmation.
-- **Client-Side Encrypted Backups**: Durable backups (`openlia backup create`) are encrypted with Age using a public recipient on the target while the private recovery key remains strictly on the operator machine.
-
-To report a security vulnerability, see **[`SECURITY.md`](SECURITY.md)**.
-
----
-
-## Contributing & License
-
-We welcome contributions across the Go CLI/operator, Workspace UI, Browser Relay, system skills, and documentation!
+### 1. Build and Install `openlia`
 
 ```bash
-make venv    # Set up Python virtualenv (.venv)
-make build   # Build Bun packages, host CLI, and Linux operator binaries
-make test    # Run Go, TypeScript, Python, template, and skill test suites
-make lint    # Run Biome, gofmt, and ShellCheck
+make install
 ```
 
-- Start with the **[Contributing & Onboarding Guide](CONTRIBUTING.md)** and **[System Architecture](docs/architecture.md)**.
-- OpenLia source code is licensed under the **[MIT License](LICENSE)**. Third-party component licenses and pins are documented in **[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)**.
+Ensure `~/.local/bin` is on your `PATH`:
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+### 2. Create Your Config & Protected Secrets File (`0600`)
+
+```bash
+mkdir -p ~/.config/openlia
+chmod 700 ~/.config/openlia
+cp examples/profiles/dev/config.toml.example ~/.config/openlia/config.toml
+cat << 'EOF' > ~/.config/openlia/secrets.env
+COPILOT_GITHUB_TOKEN=ghu_xxxxxxxxxxxxxxxxxxxx
+# Optional Telegram integration:
+# TELEGRAM_BOT_TOKEN=123456789:ABCDEFxxxxxxxxxxxxxxxxxxxx
+# TELEGRAM_ALLOWED_USERS=123456789
+EOF
+chmod 600 ~/.config/openlia/secrets.env
+```
+
+### 3. Configure Hermes Dashboard Authentication
+
+Configure Basic Auth (username & password):
+```bash
+openlia auth --config ~/.config/openlia/config.toml
+```
+
+Or configure OIDC (GCP OAuth or Auth0):
+```bash
+openlia auth --oidc --config ~/.config/openlia/config.toml
+```
+
+### 4. Deploy & Verify
+
+```bash
+openlia deploy --config ~/.config/openlia/config.toml
+openlia status --check-providers --config ~/.config/openlia/config.toml
+```
+
+### 5. Connect to Hermes API & Dashboard via Locho (`locho-host`)
+
+When `[locho-host] enabled = true` is set in `config.toml`, export client capabilities and attach locally:
+
+```bash
+openlia locho-host share --output ~/.config/openlia/locho-attachments.toml --config ~/.config/openlia/config.toml
+locho attach --config ~/.config/openlia/locho-attachments.toml
+# Hermes Dashboard: http://127.0.0.1:19119
+# Hermes API Server: http://127.0.0.1:18642
+```
+
+---
+
+## Development & Verification
+
+```bash
+make build   # Build openlia-browser bundle, Linux operator binaries, and openlia CLI
+make install # Run tests, build all artifacts, and install to ~/.local/bin
+make test    # Verify release manifest, Bun tests, and Go tests
+make lint    # Run Biome, TypeScript typecheck, gofmt, go vet, and ShellCheck
+make smoke   # Run CLI smoke verification
+```
+
+OpenLia is licensed under the **[MIT License](LICENSE)**. See the **[Documentation Hub](docs/README.md)** and **[System Architecture](docs/architecture.md)** for full operator, user, and developer guides.

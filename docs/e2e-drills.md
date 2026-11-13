@@ -8,22 +8,24 @@
 
 ## Overview & Architecture
 
-OpenLia separates its operator control plane from the workspace and agent runtime:
-- **Operator Machine**: Your local workstation where you run the `./openlia` CLI and manage profile configurations (`~/.config/openlia/<profile>/`).
-- **Target Machine**: The machine where the Hermes Agent stack runs inside Docker containers (`/opt/<project>/`), managed over SSH (or locally with `--local`).
+OpenLia separates its operator control plane from the agent runtime:
+- **Operator Machine**: Your local workstation where you run the `openlia` CLI and manage profile configurations (`~/.config/openlia/<profile>/`).
+- **Target Machine**: The machine where the Hermes Agent stack runs inside Docker containers (`/opt/<project>/`), managed over SSH (or locally with `mode = "local"`).
 - **Secure Communication**:
-  - Outbound commands and chat arrive via messaging platforms (e.g. Telegram).
-  - Workspace UI (Chat and Editor) is accessible over encrypted P2P or relayed tunnels via [Locho](https://github.com/trchopan/locho).
+  - Outbound commands and chat arrive via messaging platforms (e.g., Telegram).
+  - Hermes Web Dashboard (`:9119` -> `:19119`) and Hermes API Server (`:8642` -> `:18642`) are accessible privately over encrypted tunnels via [Locho](https://github.com/trchopan/locho).
 
 ```text
-Operator Workstation                       Target Host (e.g. user@test-host)
+Operator Workstation                       Target Host (e.g. root@test-host)
 ┌─────────────────────────┐               ┌─────────────────────────────────┐
-│ ./openlia CLI           │ ──(SSH Init)─>│ /opt/openlia_dev/               │
-│ ~/.config/openlia/dev/  │               │   ├── hermes (Agent Container)  │
-│   ├── config.toml       │               │   ├── workspace-ui (Port 8089)  │
+│ openlia CLI             │ ──(SSH)──────>│ /opt/openlia_dev/               │
+│ ~/.config/openlia/dev/  │               │   ├── hermes (:8642 & :9119)    │
+│   ├── config.toml       │               │   └── locho-host (Sidecar)      │
 │   └── openlia_dev.env   │               │                                 │
-│                         │               │   └── locho-host (Sidecar)      │
+│                         │               │                                 │
 │ locho attach            │ <──(Locho)───>│                                 │
+│  :18642 -> hermes-api   │               │                                 │
+│  :19119 -> dashboard    │               │                                 │
 └─────────────────────────┘               └─────────────────────────────────┘
 ```
 
@@ -46,7 +48,7 @@ On the target machine:
 
 ## Profile Setup (`~/.config/openlia/dev`)
 
-Starter templates are provided under `examples/profiles/dev/`.
+Starter templates are provided under [`examples/profiles/dev/`](../examples/profiles/dev).
 
 1. Create the dev profile directory:
    ```bash
@@ -62,7 +64,7 @@ Starter templates are provided under `examples/profiles/dev/`.
    ```
 
 3. Edit `~/.config/openlia/dev/config.toml`:
-   - Set `target = "user@your-host"` to your target SSH connection.
+   - Set `target = "root@your-host"` to your target SSH connection.
    - Adjust `model`, `output_language`, and `timezone` as desired.
    - Keep `schema = 2`.
 
@@ -70,6 +72,15 @@ Starter templates are provided under `examples/profiles/dev/`.
    - Provide your `COPILOT_GITHUB_TOKEN` (must start with `gho_`, `ghu_`, or `github_pat_`).
    - Provide your dedicated test bot token in `TELEGRAM_BOT_TOKEN`.
    - Provide your Telegram numeric user ID in `TELEGRAM_ALLOWED_USERS`.
+
+5. Configure Hermes Dashboard authentication (`openlia auth`):
+   ```bash
+   # Option A: Basic Auth (username & password)
+   openlia auth --config ~/.config/openlia/dev/config.toml
+
+   # Option B: OIDC (GCP OAuth or Auth0)
+   openlia auth --oidc --config ~/.config/openlia/dev/config.toml
+   ```
 
 > [!WARNING]
 > **Token Validation Rules**:
@@ -79,118 +90,53 @@ Starter templates are provided under `examples/profiles/dev/`.
 
 ## Step-by-Step Drill Sequence
 
-### Drill 1: Build Host CLI & Target Operator
-Before deploying any release, compile both the host CLI and the cross-compiled Linux operator artifact:
+### Drill 1: Build & Install `openlia`
+Compile the `openlia-browser` bundle, cross-compiled Linux operator binaries, and host CLI, and install to `~/.local/bin`:
 
 ```bash
-make build-cli build-operator-linux-amd64
-```
-*(Use `make build-operator-linux-arm64` if your target is an ARM64/Raspberry Pi host, or simply run `make build` to build both).*
-
-Verify the compiled version:
-```bash
-./openlia --version
+make install
+openlia --version
 ```
 
 ---
 
-### Drill 2: Pre-flight & Remote Deployment
-1. Verify the target directory is clean before initialization (or inspect existing deployment):
+### Drill 2: Pre-Flight & Remote Deployment
+1. Verify the target directory is clean before first deployment (or uninstall an old test run first):
    ```bash
-   ssh user@test-host "test ! -e /opt/openlia_dev && echo 'Target directory is clean'"
+   ssh root@test-host "test ! -e /opt/openlia_dev && echo 'Target directory is clean'"
    ```
 
 2. Deploy and initialize the stack:
    ```bash
-   OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia init --json
+   openlia deploy --config ~/.config/openlia/dev/config.toml
    ```
-   If the stack is already initialized and you are applying configuration,
-   secret, or attachment changes, use `./openlia deploy`:
+   *(If updating an already-deployed target after rebuilding the CLI/operator, pass `--release`)*:
    ```bash
-   OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia deploy
-   ```
-   If you rebuilt the OpenLia CLI and target operator and need to transfer
-   those release assets to the target, use `./openlia update openlia` (or `./openlia deploy --release`):
-   ```bash
-   OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia update openlia
+   openlia deploy --release --config ~/.config/openlia/dev/config.toml
    ```
 
-3. Inspect stack status and runtime components:
+3. Inspect stack status and runtime health checks:
    ```bash
-   OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia status
+   openlia status --config ~/.config/openlia/dev/config.toml
    ```
-   **Pass Criteria**: Checks include `hermes_ingestion` reporting `required_dependencies_available` and `hermes_runtimes` reporting `hermes_bun_uv_git_available`.
+   **Pass Criteria**: Reports `"ok": true` across all checks (`service:hermes`, `service:locho-host`, `locho_host_upstreams: hermes_reachable`, `hermes_runtimes: hermes_bun_uv_git_available`, `hermes_config: valid`, `workspace: initialized`, `secret_source: mode_0600`).
 
-4. Run provider, ingestion, and runtime diagnostics:
+4. Run live provider diagnostics:
    ```bash
-   OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia doctor --check-providers
+   openlia status --check-providers --config ~/.config/openlia/dev/config.toml
    ```
-   **Pass Criteria**: All checks report `ok: true`, `hermes_doctor` reports `healthy`, and `provider_request` reports `completed`.
-
-5. Verify bundled skills and installed features:
-   ```bash
-   OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia skills list --json
-   OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia features list
-   ```
-   **Pass Criteria**: Lists bundled skills (`calendar`, `daily-briefing`, `document-intelligence`, `weekly-review`, `workspace-git`, `workspace-organize`) and available/installed features (`personal-finance`, `personal-health`, etc.).
+   **Pass Criteria**: `hermes_doctor` reports `healthy` and `provider_request` reports `completed`.
 
 ---
 
-### Drill 3: Local Workspace Git & Scheduled Reminder
-OpenLia maintains the workspace (`/opt/data/workspace`) as a local Git repository for history tracking without network remotes:
+### Drill 3: Locho Host, Hermes Dashboard & API Verification
+When `[locho-host] enabled = true` is configured, `locho-host` exposes `hermes-api` (`:8642` -> `:18642`) and `hermes-dashboard` (`:9119` -> `:19119`):
 
-1. Check workspace git status:
+1. Export client attachment credentials:
    ```bash
-   OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia workspace git status
-   ```
-   **Pass Criteria**: Returns `{"ok":true,"workspace":"/opt/data/workspace","branch":"main","status":"## main"}`.
-
-2. Inspect the scheduled workspace git cron reminder entry:
-   ```bash
-   ssh user@test-host "docker exec openlia_dev-hermes-1 crontab -l 2>/dev/null || true"
-   ```
-   Look for the scheduled daily reminder entry configured by `[workspace_git] schedule`.
-
----
-
-### Drill 4: Telegram Bot Interactive Verification
-1. Confirm the Telegram poller is connected inside the Hermes container:
-   ```bash
-   ssh user@test-host "docker logs openlia_dev-hermes-1 2>&1 | tail -n 20"
-   ```
-   Look for: `[Telegram] Connected to Telegram (polling mode)`.
-
-2. Open Telegram and send the following test prompts to your bot:
-   - **Persona & Language Check**:
-     > `Xin chào, bạn là ai?`
-     *Expected*: Agent responds in Vietnamese (or configured language), identifying as OpenLia.
-   - **Safe Personal Finance Workflow & Journal Creation** *(with `personal-finance` feature installed)*:
-     > `I spent 15,000 VND on a Banh Mi today`
-     *Expected*: Agent invokes the `personal-finance` skill and asks for confirmation or journal category, rather than blindly writing to disk. Upon approval, it initializes/appends to the financial journal (`finance/journal.journal`).
-   - **Remind-backed Calendar Scheduling & Agenda Check**:
-     > `Lên lịch nhắc nhở lúc 9h sáng mai họp đội ngũ`
-     *Expected*: Agent uses the `calendar` skill and Remind syntax to record the event into `calendar/reminders.rem`.
-     > `Kiểm tra lịch hôm nay`
-     *Expected*: Agent queries today's agenda with native `remind` and returns scheduled items.
-   - **Personal Health Record Workflow** *(with `personal-health` feature installed)*:
-     > `Ghi nhận hồ sơ sức khỏe: cân nặng 65kg, huyết áp 120/80`
-     *Expected*: Agent recognizes the health workflow, validates against `health/` schemas, and safely logs or confirms the entry.
-   - **Durable Ingestion Runtime & Tool Check**:
-     > `Kiểm tra hàng đợi ingestion`
-     *Expected*: Agent calls the Hermes ingestion tool `ingestion_status` and reports queue length and status.
-   - **Workspace Notes Check**:
-     > `Kiểm tra các ghi chú trong workspace`
-     *Expected*: Agent reads and summarizes workspace template files.
-
----
-
-### Drill 5: Locho Host & Web UI Verification
-When `[locho-host] enabled = true` is configured, you can expose Workspace UI over an encrypted tunnel:
-
-1. Generate client attachment credentials:
-   ```bash
-   OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia locho-host share \
-     --output ~/.config/openlia/dev/locho-attachments.toml
+   openlia locho-host share \
+     --output ~/.config/openlia/dev/locho-attachments.toml \
+     --config ~/.config/openlia/dev/config.toml
    ```
 
 2. Start the Locho tunnel on your local machine:
@@ -201,39 +147,61 @@ When `[locho-host] enabled = true` is configured, you can expose Workspace UI ov
      --relay-config ~/.config/openlia/locho/relay.toml
    ```
 
-3. Test endpoints locally:
-   - **Workspace UI**: [http://127.0.0.1:8089](http://127.0.0.1:8089)
-     - Test authentication with the configured password.
-     - **Hledger Journal & Sankey Diagram Flow**: Open any `.journal` or `.hledger` document (e.g. `finance/journal.journal`). Verify the visual preview renders:
-       - `JournalHighlights` metric cards: Total Income, Total Expenses, Net Retained, Category Breakdown.
-       - Interactive SVG `SankeyDiagram` visualizing money flow from sources to accounts and expenses.
-       - Mode switcher toggles seamlessly between Visual Preview and CodeMirror code editor.
-     - **Schema Validation & Document Toolbar**:
-       - Verify toolbar actions (Validate, Rename, Delete).
-       - Test schema validation endpoint: `curl -i -X POST http://127.0.0.1:8089/api/workspace/validate -H "Content-Type: application/json" -d '{"path":"inbox/proof.md","content":"# Proof\nContent"}'`.
-     - **Ingestion & Sources Inspection**: Inspect `inbox/ingestion/` records and `sources/records/` in the file tree.
-     - **Document Archive Export**: Test workspace document zip export: `curl -i http://127.0.0.1:8089/api/workspace/export -o /tmp/export.zip`.
-     - **Chat**: Open [http://127.0.0.1:8089/chat](http://127.0.0.1:8089/chat), send a message, inspect streaming/tool activity, and verify the conversation survives a refresh.
+3. Verify endpoints locally:
+   - **Hermes API Server (`http://127.0.0.1:18642`)**:
+     ```bash
+     curl -fsS http://127.0.0.1:18642/health
+     ```
+   - **Hermes Web Dashboard (`http://127.0.0.1:19119`)**:
+     - Check configured authentication providers:
+       ```bash
+       curl -fsS http://127.0.0.1:19119/api/auth/providers
+       ```
+     - Verify unauthenticated session requests are rejected (`401` / `"error": "unauthenticated"`):
+       ```bash
+       curl -s http://127.0.0.1:19119/api/auth/session
+       ```
+     - Open [http://127.0.0.1:19119](http://127.0.0.1:19119) in your browser and sign in via Basic Auth or your configured OIDC provider (Google / Auth0).
+
+---
+
+### Drill 4: Telegram Bot Interactive Verification
+1. Confirm the Telegram gateway is connected inside the Hermes container:
+   ```bash
+   openlia logs --config ~/.config/openlia/dev/config.toml | tail -n 30
+   ```
+
+2. Open Telegram and send test prompts to your bot:
+   - **Persona & Language Check**:
+     > `Xin chào, bạn là ai?`
+     *Expected*: Agent responds in the configured `output_language` (`vi`).
+   - **Workspace Check**:
+     > `Kiểm tra các file trong /opt/data/workspace`
+     *Expected*: Agent inspects `/opt/data/workspace` and summarizes its contents.
+
+---
+
+### Drill 5: Encrypted Backup & Restore Check
+1. Create an Age-encrypted backup archive:
+   ```bash
+   openlia backup create --config ~/.config/openlia/dev/config.toml
+   openlia backup status --config ~/.config/openlia/dev/config.toml
+   ```
+   **Pass Criteria**: A `.tar.gz.age` archive and `.sha256` digest are created under `/opt/openlia_dev/runtime/backups`.
 
 ---
 
 ### Drill 6: Complete Teardown & Post-Flight Cleanup
-When testing is complete, tear down all resources to leave both local and target machines clean:
+When testing is complete, tear down all resources to leave the target machine clean:
 
-1. Stop your local `locho attach` process (Ctrl+C).
-2. Clean up temporary attachment files:
+1. Stop your local `locho attach` process (`Ctrl+C`).
+2. Run non-interactive uninstallation:
    ```bash
-   rm -f ~/.config/openlia/dev/locho-attachments.toml
+   openlia uninstall --non-interactive --json --config ~/.config/openlia/dev/config.toml
    ```
-3. Run non-interactive uninstallation:
+3. Verify remote host cleanup:
    ```bash
-   OPENLIA_CONFIG=~/.config/openlia/dev/config.toml ./openlia uninstall \
-     --non-interactive \
-     --json
-   ```
-4. Verify remote host cleanup:
-   ```bash
-   ssh user@test-host "test ! -e /opt/openlia_dev && docker ps -a --filter name=openlia_dev"
+   ssh root@test-host "test ! -e /opt/openlia_dev && docker ps -a --filter name=openlia_dev"
    ```
    **Pass Criteria**: `/opt/openlia_dev` is removed, all `openlia_dev-*` containers are stopped and removed, and the `openlia_dev-private` network is deleted.
 
@@ -243,11 +211,8 @@ When testing is complete, tear down all resources to leave both local and target
 
 | Symptom / Error | Root Cause | Solution |
 | :--- | :--- | :--- |
-| `unsupported config schema 1` | OpenLia bumped configuration schema to `2`. | Ensure `schema = 2` is set under `[openlia]` in `config.toml`. |
-| `[workspace_git] invalid schedule` | Workspace Git reminder tracking requires a valid cron expression. | Set `schedule = "0 4 * * *"` in `[workspace_git]` in `config.toml`. |
-| `[secrets:command] helper failed; resolving no value: code=1` | An environment variable in `hermes.env` failed `secret-source.sh` regex validation. | Verify `COPILOT_GITHUB_TOKEN` starts with `gho_`, `ghu_`, or `github_pat_`. Comment out any unused or malformed token variables. |
-| `locho-host is disabled` | Running `locho-host share` when `locho-host.enabled = false`. | Set `[locho-host] enabled = true` in `config.toml` and run `./openlia deploy` before sharing. |
-| `backup encryption key setup failed: operator recovery identity is not ready` | `backup.recipient` is set in `config.toml` but the matching private key file does not exist on disk. | Clear `recipient = ""` in `config.toml` so `openlia init` automatically generates a matching pair at `backup.identity_file`. |
-| `ingestion: password_required` or `password_invalid` | Encrypted document (PDF/XLSX) cannot be decrypted without a password. | Add the password under `[passwords]` in `sources/document-passwords.toml` matching the document label. |
-| `No journal transactions detected` | Hledger file lacks standard posting format. | Ensure journal entries have `YYYY-MM-DD Description` followed by indented lines: `<account> <amount>`. |
-| `env: '/opt/.../ops/healthcheck.sh': No such file or directory` | Attempting to run `status` or `doctor` before running `init`. | Run `openlia init` to stage the release files on the target first. |
+| `unsupported config schema 1` | OpenLia requires configuration schema `2`. | Ensure `schema = 2` is set under `[openlia]` in `config.toml`. |
+| `[secrets:command] helper failed; resolving no value: code=1` | An environment variable in `hermes.env` failed `secret-source.sh` validation. | Verify `COPILOT_GITHUB_TOKEN` starts with `gho_`, `ghu_`, or `github_pat_`. Comment out any unused or malformed token variables. |
+| `locho-host is disabled` | Running `locho-host share` when `locho-host.enabled = false`. | Set `[locho-host] enabled = true` in `config.toml` and run `openlia deploy` before sharing. |
+| `backup encryption key setup failed: operator recovery identity is not ready` | `backup.recipient` is set in `config.toml` but the matching private key file does not exist on disk. | Clear `recipient = ""` in `config.toml` so `openlia deploy` automatically generates a matching pair at `backup.identity_file`. |
+| OIDC login shows `redirect_uri_mismatch` | The callback URL in Google Cloud / Auth0 does not match the browser URL or `HERMES_DASHBOARD_PUBLIC_URL`. | Register `<your-dashboard-url>/auth/callback` in your OAuth provider and re-run `openlia auth --oidc --config <path>` followed by `openlia deploy`. |

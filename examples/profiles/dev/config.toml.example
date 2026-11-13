@@ -14,25 +14,9 @@ timezone = "Asia/Ho_Chi_Minh"
 provider = "copilot"
 external_network = ""
 
-[workspace-ui]
-host = "127.0.0.1"
-port = 8089
-# Authentication options (choose one):
-# Option A: Password authentication (Argon2id hash)
-# Generate via: ./openlia workspace-ui password
-password_hash = ""
-
-# Option B: Firebase Authentication (Google Sign-In)
-# When configured, password authentication is disabled.
-# allowed_emails = ["user1@example.com", "user2@example.com"]
-# firebase_project_id = "your-firebase-project-id"
-# firebase_api_key = "AIzaSy..."
-# firebase_auth_domain = "your-firebase-project-id.firebaseapp.com"
-# firebase_app_id = "1:...:web:..." # optional
-
 [locho-host]
 # Set to true to start the private locho-host sidecar container on the server
-# and allow encrypted peer-to-peer attachment tunnels for Workspace UI, including Chat.
+# and expose Hermes API (:8642) and Hermes Dashboard (:9119) over Locho.
 enabled = true
 
 [locho]
@@ -58,27 +42,9 @@ host = "127.0.0.1"
 [secrets]
 source = "~/.config/openlia/dev/openlia_dev.env"
 
-[skills]
-enabled = [
-  "daily-briefing",
-  "weekly-review",
-  "decision-analysis",
-  "deep-research",
-  "personal-finance",
-  "calendar",
-  "workspace-git",
-  "workspace-organize",
-  "personal-health"
-]
-
-[tools]
-enabled = []
-
-[workspace_git]
-enabled = true
-schedule = "0 4 * * *"
-
 [backup]
 schedule = "20 4 * * *"
 schedule_enabled = false
-remote_retention = 30
+local_retention = 5
+local_max_size = "10 GiB"
+remote_retention_days = 30

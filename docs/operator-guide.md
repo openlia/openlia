@@ -1,10 +1,10 @@
 # OpenLia Operator Guide
 
-> A complete handbook for provisioning, configuring, updating, backing up, and securing OpenLia with the `openlia` CLI.
+> A complete handbook for provisioning, configuring, authenticating, backing up, and securing OpenLia with the `openlia` CLI.
 
 [← Back to Documentation Index](README.md)
 
-The **Operator** is responsible for the infrastructure control plane: deploying the Hermes Agent runtime, injecting credentials, configuring model failover chains, managing private Locho and browser attachments, reviewing skill/instruction updates, and maintaining encrypted backups.
+The **Operator** is responsible for the infrastructure control plane: deploying the Hermes Agent runtime, configuring Hermes Dashboard & API authentication (`openlia auth`), setting up model failover chains, managing private Locho and browser attachments, and maintaining Age-encrypted backups.
 
 ---
 
@@ -15,23 +15,23 @@ OpenLia uses a decoupled control-plane architecture. The `openlia` CLI runs on y
 ```text
 Operator Machine (Local Laptop / Workstation)
   openlia CLI
-  ~/.config/openlia/config.toml
+  ~/.config/openlia/config.toml (or --config <path>)
   ~/.config/openlia/backup-identity.txt (Age private key)
   Protected Secrets (.env, mode 0600)
        |
        +--- [Local Mode] ---> Docker Engine on same machine
        |
        +--- [Remote Mode] --> SSH -> Agent Machine (Linux VM)
-       |                             Docker Compose + Hermes + Workspace UI + Locho
+       |                             Docker Compose + Hermes (:8642 API, :9119 Dashboard) + Locho
        |
        `--- [Optional] -----> Local or SSH -> Browser Machine
-                                              openlia-browser + Playwright MCP
+                                              openlia-browser (:8932) + Playwright MCP (:8931)
 ```
 
 | Machine | Responsibility | Requirements |
 | :--- | :--- | :--- |
-| **Operator Machine** | Runs the `openlia` CLI, stores operator config (`config.toml`), holds the private Age backup recovery key, and supplies protected source `.env` and attachment files. | Go 1.26+, Bun 1.2.22+, Python 3.9+ (for building from source) or a published `openlia` release binary. |
-| **Agent Machine** | Runs Hermes Gateway, optional Workspace UI, Locho sidecars, backup scheduler, and persistent workspace data (`/opt/data`). | Linux (`amd64` or `arm64`) with Docker Engine & Compose v2 (or macOS with Docker Desktop in local mode). Remote targets need SSH access (direct Docker permission or passwordless `sudo`), **not** Go, Bun, or the `openlia` checkout. |
+| **Operator Machine** | Runs the `openlia` CLI, stores operator config (`config.toml`), holds the private Age backup recovery key, and supplies protected source `.env` and attachment files. | Go 1.26+, Bun 1.2.22+, Python 3.9+ (for building from source) or an installed `openlia` release binary. |
+| **Agent Machine** | Runs Hermes Agent (`gateway`, `api-server`, `dashboard`), Locho sidecars (`locho-host` & `locho-<host>`), backup scheduler, and persistent workspace data (`/opt/data`). | Linux (`amd64` or `arm64`) with Docker Engine & Compose v2 (or macOS with Docker Desktop in local mode). Remote targets need SSH access (direct Docker permission or passwordless `sudo`), **not** Go, Bun, or the `openlia` checkout. |
 | **Browser Machine** *(Optional)* | Runs `openlia-browser` and Playwright MCP with an authenticated browser profile. | Node.js with `npx`, browser binary, and Playwright token file. Can be the Operator machine, Agent machine, or a third host. |
 
 ### Runtime File Ownership (UID/GID)
@@ -40,12 +40,14 @@ Operator Machine (Local Laptop / Workstation)
 
 ---
 
-## 2. Configuration & Secret Management
+## 2. Configuration, Authentication & Secret Management
 
-The default operator configuration file lives at `~/.config/openlia/config.toml`. Manage multiple environments (e.g., `dev` and `prod`) by setting `OPENLIA_CONFIG`:
+The default operator configuration file lives at `~/.config/openlia/config.toml`. You can select any profile config file on any command using `--config <path>` or `OPENLIA_CONFIG`:
 
 ```bash
-export OPENLIA_CONFIG="$HOME/.config/openlia/prod/config.toml"
+openlia status --config ~/.config/openlia/dev/config.toml
+# Or via environment variable:
+export OPENLIA_CONFIG="$HOME/.config/openlia/dev/config.toml"
 ```
 
 ### Complete `config.toml` Reference
@@ -53,34 +55,34 @@ export OPENLIA_CONFIG="$HOME/.config/openlia/prod/config.toml"
 ```toml
 [openlia]
 schema = 2
-# Target host: empty for local Docker, or user@remote-host for SSH
+version = "0.1.0"
+mode = "ssh" # "ssh" or "local"
 target = "user@my-vps.example.com"
 root = "/srv/openlia"
+project = "openlia"
 provider = "copilot"
-model = "copilot-model"
+model = "gpt-5.6-luna"
 # Default response language (BCP 47 tag, default "en"). Run `openlia restart` after changing.
 output_language = "en"
 # Agent timezone (IANA timezone, default "Asia/Ho_Chi_Minh"). Operational logs remain UTC.
-timezone = "America/New_York"
+timezone = "Asia/Ho_Chi_Minh"
+external_network = ""
 
-# Required durable ingestion worker concurrency (positive integer, default 1)
-[ingestion]
-max_concurrent_jobs = 1
+[locho-host]
+enabled = true
+state_dir = "/Users/username/.config/openlia/prod/locho-host"
 
-# Optional Workspace UI (Chat, Document Editor with inline OpenUI, Migration, Usage)
-[workspace-ui]
+[locho]
+relay_config = "/Users/username/.config/openlia/locho/relay.toml"
+relay_secrets = "/Users/username/.config/openlia/locho/relay.env"
+
+[api]
+enabled = false
 host = "127.0.0.1"
-port = 8089
-# Required when host = "0.0.0.0" or when using --locho-host:
-# password_hash = "$argon2id$..."
 
 # Path to protected mode-0600 dotenv file on the operator machine
 [secrets]
 source = "/Users/username/.config/openlia/prod/secrets.env"
-
-# Reminder schedule for user-approved workspace Git checkpoints (default "0 4 * * *")
-[workspace_git]
-schedule = "0 4 * * *"
 
 # Primary LLM fallback chain (evaluated in table order)
 [[fallback_providers]]
@@ -97,14 +99,37 @@ model = "gpt-4o"
 > [!NOTE]
 > Do not set `OPENAI_BASE_URL` in `secrets.env` for custom gateways. Instead, assign the Locho service the `openai-gateway` role and declare its explicit `/v1` URL in `[[fallback_providers]]`. Hermes keeps `openai-api` pointed at official OpenAI.
 
-### Workspace UI Authentication & Listener Policy
-- **Loopback (`host = "127.0.0.1"`)**: Private by default; accessible locally or via SSH tunnel.
-- **All interfaces (`host = "0.0.0.0"`) or `--locho-host`**: Requires an Argon2id `password_hash` (or Firebase authentication). Generate a password verifier interactively (prompts on stderr, prints hash to stdout, never takes passwords as CLI arguments):
-  ```bash
-  openlia workspace-ui password
-  ```
-  Paste `password_hash = "$argon2id$..."` under `[workspace-ui]` and run `openlia deploy`.
-- Sessions use `HttpOnly`, `SameSite=Strict` cookies backed by SQLite with a 7-day idle timeout and 30-day maximum lifetime. Use HTTPS via a reverse proxy or encrypted Locho tunnel when accessing over untrusted networks.
+### Hermes Dashboard & API Authentication (`openlia auth`)
+
+Hermes Agent includes a built-in Web Dashboard (`127.0.0.1:9119`, exposed via Locho as `hermes-dashboard`) and an OpenAI-compatible API Server (`127.0.0.1:8642`, exposed via Locho as `hermes-api`). All credentials are stored exclusively in your mode-`0600` `secrets.source` file—never in `config.toml`.
+
+#### Option A: Basic Auth (Username & Password)
+Prompt interactively for a username and hidden password (with confirmation):
+```bash
+openlia auth --config ~/.config/openlia/prod/config.toml
+```
+Or non-interactively via stdin:
+```bash
+printf '%s\n' "$PASSWORD" | openlia auth --config ~/.config/openlia/prod/config.toml --username admin --password-stdin
+```
+This writes `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` and `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` to `secrets.source`. During deployment, OpenLia automatically generates and persists `HERMES_DASHBOARD_BASIC_AUTH_SECRET` in `runtime/secrets/api-server.env` so session cookies remain valid across restarts.
+
+#### Option B: OIDC Single Sign-On (GCP OAuth or Auth0)
+Hermes Dashboard includes a built-in `SelfHostedOIDCProvider` (`Authorization Code + PKCE` at `/auth/callback`). Configure it interactively:
+```bash
+openlia auth --oidc --config ~/.config/openlia/prod/config.toml
+```
+This sets `HERMES_DASHBOARD_OIDC_ISSUER`, `HERMES_DASHBOARD_OIDC_CLIENT_ID`, `HERMES_DASHBOARD_OIDC_CLIENT_SECRET`, `HERMES_DASHBOARD_OIDC_SCOPES`, and `HERMES_DASHBOARD_PUBLIC_URL` in `secrets.source` (and removes Basic Auth credentials unless `--keep-basic-auth` is passed, so the Dashboard auto-redirects straight to your identity provider).
+
+- **Google Cloud (GCP OAuth)**:
+  - **Issuer**: `https://accounts.google.com`
+  - **Authorized Redirect URI**: `<your-dashboard-url>/auth/callback` (e.g., `http://127.0.0.1:19119/auth/callback` for local Locho attach, or `https://dashboard.example.com/auth/callback` behind a reverse proxy).
+  - **Client Secret**: Required for Google Web Application OAuth clients even with PKCE.
+  - **User Access Control**: Keep your Google Auth Platform OAuth consent screen in **Testing** mode and add only your email under **Audience → Test users** (or set Audience to **Internal** on Google Workspace). Do not publish a consumer `@gmail.com` app to **In production**, or any Google account would be able to sign in.
+- **Auth0**:
+  - **Issuer**: `https://<your-tenant>.<region>.auth0.com`
+  - **Allowed Callback URL**: `<your-dashboard-url>/auth/callback`
+  - **User Access Control**: Disable Public Signups on the Auth0 database connection or add an Auth0 Post-Login Action that checks `event.user.email` against an allowlist.
 
 ### Protected Secrets (`secrets.env`)
 Secrets are **never** committed to Git, stored in `config.toml`, or passed on the command line. Maintain a regular file outside the repository with mode `0600`:
@@ -129,9 +154,11 @@ TELEGRAM_HOME_CHANNEL_NAME="OpenLia Home"
 > `docker/secret-source.sh` strictly validates secret formats. If any variable in `secrets.env` is malformed, the helper exits with code `1` and Hermes drops all secrets. Comment out or remove unused variables.
 
 ### Rotating Secrets
-Whenever you update `secrets.env`, apply the new credentials to the target:
+Whenever you update `secrets.env` (via `openlia auth` or manual edits), apply the new credentials to the target:
 ```bash
-openlia auth rotate
+openlia auth rotate --config ~/.config/openlia/prod/config.toml
+# Or run a full deploy:
+openlia deploy --config ~/.config/openlia/prod/config.toml
 ```
 Credential rotation backs up the previous secret on the runtime target and rolls back automatically if container recreation fails.
 
@@ -142,41 +169,43 @@ Credential rotation backs up the previous secret on the runtime target and rolls
 1. Message [@BotFather](https://t.me/BotFather) on Telegram to create a bot and obtain `TELEGRAM_BOT_TOKEN`.
 2. Send `/start` to your new bot on Telegram.
 3. *(Optional)* Create a dedicated **Home Channel** or group, add your bot as an administrator, and post a test message in the channel.
-4. On your operator workstation, discover the numeric User ID and Channel ID:
+4. Add `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS` (comma-separated numeric Telegram user IDs), `TELEGRAM_HOME_CHANNEL`, and `TELEGRAM_HOME_CHANNEL_NAME` to your mode-`0600` `secrets.env` file, then apply:
    ```bash
-   openlia telegram id --token 123456789:ABCDEFxxxxxxxxxxxxxxxxxxxx
-   ```
-5. Add `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS`, `TELEGRAM_HOME_CHANNEL`, and `TELEGRAM_HOME_CHANNEL_NAME` to your `0600` `secrets.env` file, then apply:
-   ```bash
-   openlia auth rotate
+   openlia auth rotate --config ~/.config/openlia/prod/config.toml
    ```
 
 ---
 
 ## 4. Private Networking, Locho & Browser Host
 
-### Built-in Locho Host Bundle (`--locho-host`)
-To access Workspace UI (Editor and Chat) privately from client machines without opening public ports on a remote server, initialize with `--locho-host`:
+### Built-in Locho Host Bundle (`locho-host`)
+To access the Hermes API Server (`:8642`) and Hermes Web Dashboard (`:9119`) privately from client machines without opening public ports on a remote server, enable `locho-host` in `config.toml`:
 
-```bash
-openlia init --target user@server --root /srv/openlia --locho-host
+```toml
+[locho-host]
+enabled = true
 ```
 
-This binds Workspace UI to loopback (`127.0.0.1:8089`) and starts a private `locho-host` sidecar that exports only Workspace UI over an encrypted Locho tunnel.
+Then run `openlia deploy`. This starts a private `locho-host` sidecar that exports two services over an outbound encrypted Locho tunnel:
+- `hermes-api` -> `hermes:8642` (default client local port: `18642`)
+- `hermes-dashboard` -> `hermes:9119` (default client local port: `19119`)
 
 After deployment, export a mode-`0600` client attachment file on the operator machine:
 ```bash
 openlia locho-host share --output openlia-attachments.toml
 ```
 
-Install [Locho `1.3.0`](https://github.com/trchopan/locho/releases/tag/v1.3.0)
-on your client machine, copy `openlia-attachments.toml` over a trusted channel, and start the local listener:
+To rotate capabilities for `all`, `hermes-api`, or `hermes-dashboard`:
+```bash
+openlia locho-host rotate --service all
+```
+
+Install [Locho `1.3.0`](https://github.com/trchopan/locho/releases/tag/v1.3.0) on your client machine, copy `openlia-attachments.toml` over a trusted channel, and start the local listener:
 ```bash
 locho attach --config openlia-attachments.toml
 ```
 
-Locho `1.3.0` also supports custom relay transports and configurable HTTP
-timeouts. Configure `relay_config` and optional `relay_secrets` (mode `0600`) under `[locho]` in `config.toml`. See [`examples/locho/hosts/example/README.md`](../examples/locho/hosts/example/README.md) for relay templates and service-role mapping (`openlia attachments rotate|map|list`).
+Configure `relay_config` and optional `relay_secrets` (mode `0600`) under `[locho]` in `config.toml`. See [`examples/locho/hosts/example/README.md`](../examples/locho/hosts/example/README.md) for relay templates and service-role mapping (`openlia attachments rotate|map|list`).
 
 ### Browser Host (`openlia-browser`)
 OpenLia can attach a supervised Playwright MCP proxy (`openlia-browser`) running on the operator machine, agent machine, or a dedicated browser host:
@@ -208,152 +237,51 @@ Raw Playwright MCP listens on `127.0.0.1:8931`; `openlia-browser` listens on `12
 
 ## 5. Deployment Lifecycle & Health Diagnostics
 
-### Initialization (`openlia init`)
-```bash
-# Local deployment (Docker on the operator machine)
-openlia init --local --root "$HOME/.openlia"
+### Provisioning & Updating (`openlia deploy`)
+`openlia deploy` is the single command for both initial target provisioning and subsequent updates:
 
-# Remote deployment (over SSH)
-openlia init --target user@server --root /srv/openlia --timezone America/New_York
+```bash
+# Provision an uninitialized target, or sync config/secrets/attachments on an existing target
+openlia deploy [--config <path>]
+
+# Publish and activate a newly built CLI/operator release bundle on an existing target
+openlia deploy --release [--config <path>]
 ```
 
-`init` installs the pinned release at `--root`, seeds the initial workspace template only if the workspace is empty, starts the Compose stack, creates the operator Age backup identity at `~/.config/openlia/backup-identity.txt` if needed, and runs health checks.
+On first deployment to a clean target (`installed_before == ""`), `openlia deploy` automatically uploads and activates the bundled release, bootstraps the runtime directory structure (`0700`), seeds base `SOUL.md` and `AGENTS.md` if missing, reconciles `/opt/data/config.yaml`, creates the operator Age backup identity (`backup-identity.txt`) if needed, stages secrets and Locho relays, builds the container images, and starts the Compose stack.
 
-### Deploying, Starting & Stopping
+### Service Lifecycle Controls & Health Checks
 ```bash
-# Reconcile current config.toml, secrets, and attachments using the installed target release
-openlia deploy
-
-# Upload and activate the release bundled in this CLI binary, then apply config and start
-openlia deploy --release
-
-# Service lifecycle controls
-openlia status [--json]
-openlia doctor [--check-providers] [--json]
-openlia logs [--follow]
-openlia stop
-openlia start
-openlia restart
+openlia status [--check-providers] [--json] [--config <path>]
+openlia logs [--follow] [--config <path>]
+openlia stop [--config <path>]
+openlia start [--config <path>]
+openlia restart [--config <path>]
 ```
 
 ### Uninstalling (`openlia uninstall`)
 ```bash
-openlia uninstall
-# Or with explicit target assertions:
-openlia uninstall --target user@host --project NAME --root /srv/openlia
+openlia uninstall [--config <path>]
+# Or non-interactively with explicit target assertions:
+openlia uninstall --non-interactive --target user@host --project NAME --root /srv/openlia
 ```
 `uninstall` stops and removes Compose containers, the project network, the installation root, and local backup archives/schedules, while preserving remote S3/rsync backups and the operator's local Age private key.
 
 ---
 
-## 6. Updates, Instructions, Skills & Features
-
-### Release and Component Updates
-```bash
-# Read-only inspection of current release pins
-openlia update
-
-# Upload and activate a newly built OpenLia release (operator, profile, templates, bundled skills)
-openlia update openlia
-
-# Reconcile a single pinned runtime component
-openlia update hermes
-openlia update locho
-```
-
-### Instruction Provenance & 3-Way Merge
-OpenLia tracks provenance for `profile/AGENTS.md`, `profile/SOUL.md`, and `workspace/AGENTS.md`. Unchanged files update automatically during `openlia update openlia`. If you have customized an instruction file, your changes remain active and the upstream update is staged for review:
-
-```bash
-openlia instructions status
-openlia instructions diff workspace/AGENTS.md
-openlia instructions merge workspace/AGENTS.md  # Conflict-free 3-way merge
-openlia instructions keep workspace/AGENTS.md   # Keep local file and acknowledge new upstream base
-openlia instructions reset workspace/AGENTS.md  # Replace with upstream file (creates backup)
-```
-
-### `openlia/minions` Catalog, Automatic Forking, & 3-Way Rebase
-OpenLia discovers starter profiles, modular features, and standalone skills from [`https://github.com/openlia/minions.git`](https://github.com/openlia/minions.git) (configurable under `[templates]` in `config.toml` or via `OPENLIA_TEMPLATES_REPO`).
-
-```bash
-# Sync the catalog from https://github.com/openlia/minions.git
-openlia features sync
-
-# List catalog and installed profiles/features/skills
-openlia features list [--json]
-openlia skills list [--json]
-
-# Install a full profile, an individual feature, or a standalone skill
-openlia features install --profile personal-os
-openlia features install personal-finance
-openlia skills install daily-briefing
-
-# Inspect customization status and 3-way rebase against upstream template updates
-openlia features status [FEATURE]
-openlia features update [FEATURE]
-openlia skills status [SKILL]
-openlia skills update [SKILL]
-
-# Package or import portable feature archives
-openlia features package <feature-dir> --output my-feature.zip
-openlia features import my-feature.zip
-```
-
-- **Automatic Fork Detection**: You do not need to run `openlia skills fork` before customizing a skill or feature template. OpenLia stores a clean upstream snapshot at install time and automatically detects any local edits (`current_hash != base_hash`).
-- **3-Way Rebase & Conflict Staging**: Running `openlia features update` or `openlia skills update` performs a 3-way rebase (`old-base` vs. `current-fork` vs. `new-base`). Non-overlapping upstream changes merge automatically; overlapping conflicts leave the live workspace untouched and stage a migration directory under `/opt/data/.openlia/migrations/<id>` for review via `openlia skills migrate show|apply`.
-- **On-Demand `/opt/data/.local` Tool Store**: When a feature or skill declares `requires.tools` (such as `hledger`, `remind`, `jq`, or `sqlite3`), `requires.python`, or `requires.bun`, OpenLia provisions them into `/opt/data/.local/{bin,tools,envs}` and records `/opt/data/.local/manifests/<owner>.json`. Backups capture the manifests and automatically re-materialize the tools and virtual environments on `openlia backup restore`.
-
----
-
-## 7. Workspace Git Checkpoints & Folder Migration
-
-### Local Workspace Git & User-Approved Checkpoints
-OpenLia initializes `/opt/data/workspace` as a local-only Git repository (never push to a remote; use encrypted OpenLia backups for off-machine recovery).
-
-```bash
-openlia workspace git status
-openlia workspace git setup
-```
-
-- **User-Approved Checkpoints**: When a user asks Lia to propose commits or clicks **Propose commits** in Workspace UI (**Git Activity**), the `openlia-workspace-git` plugin analyzes a frozen snapshot of diffs (bounded to 500 paths, 8 MiB content, 2 MiB diffs; single files >2 MiB excluded) and proposes logical commit groups. Commits are only created when the user clicks **Review & confirm** → **Confirm commits** in the UI.
-- **`[workspace_git]` Schedule**: Defaults to `"0 4 * * *"` and acts as a **reminder-only** prompt when the workspace has uncommitted changes.
-
-### Workspace Folder Migration (Beta)
-Import an external folder of notes/ledgers into an isolated proposal repository for review before touching the live workspace:
-
-```bash
-# Package, upload, scan eligibility, start sequential Hermes processing, and monitor
-openlia workspace migrate ./my-notes
-
-# Inspect or control an active migration
-openlia workspace migrate list
-openlia workspace migrate status mig-...
-openlia workspace migrate monitor mig-...
-openlia workspace migrate stop mig-...
-openlia workspace migrate resume mig-...
-openlia workspace migrate discard mig-...
-
-# Review diffs and approve an exact revision from the CLI (or via Workspace UI at /migration)
-openlia workspace migrate diff mig-... --to-revision 1
-openlia workspace migrate approve mig-... --revision rev-1-mig-...
-```
-Detected credentials, VCS metadata, and path traversals are blocked automatically during intake. Imported files are treated as data, never overriding active `AGENTS.md` or deployment policy.
-
----
-
-## 8. Encrypted Backups & Disaster Recovery
+## 6. Encrypted Backups & Disaster Recovery
 
 OpenLia uses client-side [Age](https://age-encryption.org/) encryption for durable backups.
-- The **Operator Machine** holds the private recovery key (`~/.config/openlia/backup-identity.txt`).
+- The **Operator Machine** holds the private recovery key (`backup-identity.txt`).
 - The **Agent Machine** receives only the public recipient and can encrypt archives, never decrypt them.
-- Durable archives include the workspace (with local Git history), Hermes state, usage monitoring state, profile metadata, and forked skills—excluding secrets, Locho capabilities, and caches.
+- Durable archives capture `/opt/data` (workspace files, Hermes SQLite state, memories, `SOUL.md`, `AGENTS.md`, `config.yaml`, and skills)—excluding secrets, Locho capabilities, and caches.
 
 ### Manual & Scheduled Backups
 ```bash
-# Generate an operator recovery key (created automatically by `openlia init`)
+# Generate an operator recovery key (also created automatically by `openlia deploy`)
 openlia backup keygen
 
-# Create a consistent encrypted archive (briefly stops Hermes & Workspace UI during capture)
+# Create a consistent encrypted archive (briefly stops Hermes during capture)
 openlia backup create
 
 # Inspect local retention, budget usage, and remote upload status
@@ -365,7 +293,7 @@ openlia backup list
 # Retry uploading the latest or a specific encrypted archive
 openlia backup push [--archive FILENAME.age]
 
-# Manage the live best-effort Compose backup-scheduler sidecar
+# Manage the live Compose backup-scheduler sidecar
 openlia backup schedule install
 openlia backup schedule remove
 ```

@@ -1,10 +1,10 @@
 # Security Policy
 
-OpenLia is an early-stage, self-hosted AI workspace with Hermes Agent as its
-agent runtime. This policy covers vulnerabilities in OpenLia's source code,
-including its CLI, Workspace UI, browser services, runtime plugins, operations
-scripts, Docker build files, release metadata, profile, and generated runtime
-configuration.
+OpenLia is a self-hosted deployment and connectivity control plane on top of
+[Hermes Agent](https://hermes-agent.nousresearch.com/). This policy covers
+vulnerabilities in OpenLia's source code, including its CLI, target operator,
+`openlia-browser` Playwright MCP relay, Docker build files, release metadata,
+profile seeding, and generated runtime configuration.
 
 ## Supported Versions
 
@@ -27,14 +27,12 @@ Include:
 
 Do not include live credentials, personal workspace data, private deployment
 identifiers, or unredacted logs. OpenLia's secret-handling rules are documented
-in the [README](README.md), and reports should follow the same redaction
-standard.
+in the [Operator Guide](docs/operator-guide.md), and reports should follow the
+same redaction standard.
 
 Please do not disclose a suspected vulnerability through a public issue, pull
 request, discussion, or social-media post until a coordinated disclosure plan
-has been agreed. There is no guaranteed response time, but reports will be
-reviewed and follow-up will be coordinated through the private security
-advisory.
+has been agreed.
 
 If you accidentally expose a credential while investigating, revoke or rotate
 it immediately and report only the minimum sanitized details needed to identify
@@ -45,26 +43,27 @@ the exposure.
 The following are in scope when the security boundary is controlled by
 OpenLia:
 
-- Secret ingestion, redaction, rotation, and credential handling.
-- Workspace UI password hashing, session authentication, throttling, and public
-  listener policy.
+- Secret ingestion (`docker/secret-source.sh`), redaction, rotation (`openlia auth`),
+  and credential propagation (`runtime/secrets/hermes.env` & `api-server.env`).
+- Hermes Dashboard (`:9119` Basic Auth & OIDC) and Hermes API (`:8642` Bearer `API_SERVER_KEY`)
+  provisioning and private Locho exposure (`locho-host`).
+- `openlia-browser` Playwright MCP tool allowlisting, FIFO lease fencing, and
+  mutating-call idempotency.
 - CLI validation, remote-operation boundaries, and generated Compose files.
-- Backup and restore behavior, including path and archive validation.
+- Backup and restore behavior, including client-side Age encryption and path/archive validation.
 - Container isolation, exposed listeners, and generated service configuration.
-- Workspace local Git history handling.
 - Release integrity, provenance, and checksum verification.
 
-Durable backup archives use client-side age encryption. The target receives
+Durable backup archives use client-side Age encryption. The target receives
 only the public recipient; the private recovery identity stays on the operator
 machine and should be backed up separately. S3 and rsync destinations receive
 ciphertext. Operation-scoped rollback snapshots are local-only, protected by
 filesystem permissions, and are not covered by durable-backup encryption.
 
 Report vulnerabilities in Hermes Agent, Locho, Debian, Docker, Go, Python,
-Bun, uv, PyYAML, or another upstream dependency to that project's maintainers
-as well. Notify OpenLia through the private GitHub report form when the issue
-affects OpenLia's integration, configuration, packaging, or documented security
-boundary.
+Bun, uv, or another upstream dependency to that project's maintainers as well.
+Notify OpenLia through the private GitHub report form when the issue affects
+OpenLia's integration, configuration, packaging, or documented security boundary.
 
 The following are not OpenLia vulnerabilities by themselves:
 
@@ -83,14 +82,8 @@ reporter will be credited in release notes or the security advisory when they
 request credit and it is safe to do so.
 
 Security fixes should preserve the repository's existing safeguards, including
-protected out-of-repository secrets, private-by-default listeners, read-only
-container filesystems, restricted capabilities, and manual approval boundaries.
-The Workspace UI is unauthenticated only on loopback by default. Binding it to
-`0.0.0.0` requires an Argon2id verifier and protects workspace APIs with
-expiring SQLite-backed sessions. Private HTTP remains available for trusted
-networks, but HTTPS is required for confidentiality on untrusted networks.
-See the [security boundaries in the README](README.md#security-boundaries).
-Locho and Workspace UI use the configured runtime identity for their
-bind-mounted state.
+protected out-of-repository secrets (`0600`), private-by-default listeners,
+read-only container filesystems, restricted capabilities, and manual approval
+boundaries.
 
 See the [contribution guidelines](CONTRIBUTING.md) for additional requirements.

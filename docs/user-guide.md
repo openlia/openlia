@@ -1,16 +1,16 @@
 # OpenLia End User Guide
 
-> A guide to collaborating with your autonomous AI workspace assistant.
+> A guide to collaborating with your self-hosted [Hermes Agent](https://hermes-agent.nousresearch.com/) deployed via OpenLia.
 
 [← Back to Documentation Index](README.md)
 
-OpenLia is a **self-hosted, AI-native workspace** for turning personal context into organized knowledge, decisions, and action—with **Hermes Agent** as its agent runtime. Chat, document editing, and inline OpenUI views share the same Git-versioned workspace. Profiles, features, and skills extend your workflows, while human approval boundaries keep consequential actions under your control.
+OpenLia deploys and manages **Hermes Agent** with persistent state under `/opt/data`, a plain-text workspace under `/opt/data/workspace`, private connectivity through **[Locho](https://github.com/trchopan/locho)** tunnels, and optional shared-browser automation via **`openlia-browser`**.
 
 ---
 
 ## 1. Understanding Your Roles
 
-When working with OpenLia, there are two distinct roles:
+When working with OpenLia, there are two complementary roles:
 
 ```text
 +-------------------------------------------------------------------------+
@@ -20,134 +20,74 @@ When working with OpenLia, there are two distinct roles:
 |  │        AS THE END USER            │  │      AS THE OPERATOR       │  |
 |  │       (Daily Companion)           │  │   (System Administrator)   │  |
 |  ├───────────────────────────────────┤  ├────────────────────────────┤  |
-|  │ • Chat on Telegram or Workspace   │  │ • Runs `openlia` CLI       │  |
-|  │ • Quick-capture notes & documents │  │ • Deploys & updates server │  |
-|  │ • Explore inline document views  │  │ • Rotates API keys         │  |
-|  │ • Edit Markdown & OpenUI views    │  │ • Manages backups & health │  |
-|  │ • Approve git checkpoints & plans │  │ • Installs template packs  │  |
+|  │ • Chat on Telegram                │  │ • Runs `openlia` CLI       │  |
+|  │ • Use Hermes Web Dashboard        │  │ • Deploys & updates server │  |
+|  │ • Connect clients to Hermes API   │  │ • Configures Auth / OIDC   │  |
+|  │ • Organize `/opt/data/workspace`  │  │ • Manages Locho & backups  │  |
+|  │ • Review & approve agent actions  │  │ • Supervises browser relay │  |
 |  └───────────────────────────────────┘  └────────────────────────────┘  |
 +-------------------------------------------------------------------------+
 ```
 
-- **The End User**: The person collaborating with Lia throughout the day to organize documents, compose inline views, run domain workflows, and make decisions. **This guide is for this role.**
-- **The Operator**: The person managing the underlying servers, Docker containers, API keys, and backups using the `openlia` command-line tool. If you are also managing your own server, see the [Operator Guide](operator-guide.md).
+- **The End User**: Collaborates with the agent day-to-day over Telegram, the Hermes Web Dashboard, or API clients. **This guide is for this role.**
+- **The Operator**: Manages servers, Docker containers, authentication (`openlia auth`), Locho tunnels, and encrypted backups using the `openlia` CLI. See the [Operator Guide](operator-guide.md).
 
 ---
 
-## 2. How You Interact With Lia
+## 2. How You Interact With Your Agent
 
-OpenLia supports multiple user interfaces depending on your preferred workflow:
+### A. Telegram (Mobile & Messaging Interface)
+Telegram is the primary mobile and desktop messaging channel:
+- **Direct Messages (DMs)**: Chat one-on-one with your private bot, share links and files, and run skills or workspace tasks.
+- **Home Channel / Group**: A dedicated Telegram channel (e.g., `"OpenLia Home"`) where the agent posts scheduled cron briefings and notifications.
+- **Interactive Approvals**: When a command or external action requires confirmation (`HERMES_EXEC_ASK=1`), the agent prompts you in chat before executing.
 
-### A. Workspace UI Chat (Browser Conversations)
-Open the **Chat** tab at `http://localhost:8089/chat` (or your private Workspace UI address). No separate service or login is required beyond your Workspace UI session:
-- Conversations and tool history are saved by Hermes and can be resumed at any time.
-- Rename, pin, archive, or delete Workspace chats; other Hermes sessions (such as Telegram) are available as read-only history.
-- Replies stream live with grouped tool activity, interactive approval controls, a **Stop** button, and the ability to send explicit guidance to a running agent. Navigating away or refreshing does not interrupt the running agent.
-- Select a model route advertised by Hermes or leave **Hermes default** selected.
+### B. Hermes Web Dashboard (`:9119` / `:19119` via Locho)
+Hermes Agent includes a full-featured Web Dashboard running on `127.0.0.1:9119` inside the container (exposed privately via `locho-host` as `hermes-dashboard`, typically bound to `http://127.0.0.1:19119` on your client machine):
+- **Authentication**: Protected by Basic Auth (`openlia auth`) or Single Sign-On via GCP OAuth / Auth0 (`openlia auth --oidc`).
+- **Capabilities**:
+  - **Status & Sessions**: Inspect active and historical chat sessions across Telegram and API clients.
+  - **Analytics & Usage**: View token consumption, model usage, and tool execution metrics.
+  - **Logs**: Inspect live agent and gateway logs.
+  - **Cron**: View and manage scheduled recurring agent tasks.
+  - **Skills & Memory**: Browse installed Hermes skills (`/opt/data/skills`) and persistent memory entries (`memories/MEMORY.md` and `memories/USER.md`).
+  - **Configuration**: Inspect runtime settings in `/opt/data/config.yaml`.
 
-### B. Telegram (Mobile & Messaging Interface)
-Telegram is the primary mobile channel for quick capture and notifications on the go:
-- **Direct Messages (DMs)**: Chat one-on-one with your private bot. Send text messages, share links, upload PDFs/images/spreadsheets for durable ingestion, or record voice notes.
-- **Home Channel / Group**: A dedicated Telegram channel (e.g., `"OpenLia Home"`) where Lia posts scheduled briefings, automated monitor alerts, and periodic reviews.
-- **Interactive Approvals**: When an action requires confirmation, Lia prompts you in chat before executing.
-
-### C. Workspace UI (Documents, Projects, Git Activity & Usage)
-Accessible at `http://localhost:8089` (directly on loopback, via SSH tunnel, or via a private Locho connection):
-- **Documents (`/files/<path>`)**: Web-based explorer and editor for your entire workspace. View Markdown files with live preview, edit YAML/JSON/TOML/CSV/code files with syntax highlighting, and see real-time schema validation diagnostics.
-- **Inline OpenUI**: Interactive tables, charts, and domain views appear within Markdown documents in Documents. See [Inline OpenUI Views](workspace-domain-views.md).
-- **Maintainer (`/maintainer`)**: Advisory workspace structure & schema health dashboard powered by **Workspace Maintainer**, offering guided fixes without blocking normal saves.
-- **Git Activity**: Review frozen-snapshot diffs of your workspace changes and ask Lia to propose coherent commit groups (**Propose commits** → **Review & confirm** → **Confirm commits**).
-- **Migration (`/migration`)**: Inspect and approve staged folder imports into your workspace.
-- **Usage (`/usage`)**: Monitor estimated LLM token consumption and USD costs across Hermes, Ingestion, and Migration. See [LLM Usage Monitoring](usage-monitoring.md).
+### C. Hermes API Server (`:8642` / `:18642` via Locho)
+Hermes Agent provides an OpenAI-compatible HTTP API server on `127.0.0.1:8642` (exposed privately via `locho-host` as `hermes-api`, typically bound to `http://127.0.0.1:18642` on your client machine):
+- Authenticate requests with `Authorization: Bearer <API_SERVER_KEY>`.
+- Exposes `/v1/chat/completions`, `/v1/responses`, `/v1/models`, `/v1/runs`, and `/health`.
 
 ---
 
-## 3. The Modular Workspace Model
+## 3. Workspace, Persona, Memory & Skills
 
-Unlike traditional assistants where your context is locked away in vendor databases or ephemeral chat windows, OpenLia stores your context in a **versioned, plain-text workspace** (`/opt/data/workspace`).
-
-### Ultra-Minimal Core Workspace
-Every new workspace starts with a clean, unopinionated core structure (`workspace-template/`):
+All persistent agent state lives under `/opt/data` on the agent machine and is captured by OpenLia's Age-encrypted backups:
 
 ```text
-workspace/
-├── AGENTS.md               # Workspace-specific guidance and conventions for Lia
-├── README.md               # Workspace overview
-├── feature.schema.json     # Schema for modular feature manifests
-├── inbox/                  # Unsorted captures and incoming items
-│   └── ingestion/          # Durable intake records from uploaded files & links
-└── sources/                # Retained original documents, extraction artifacts & passwords
-    ├── artifacts/          # Immutable extracted text/tables from ingested files
-    ├── records/            # Provenance records for ingested sources
-    └── document-passwords.toml
+/opt/data/
+├── config.yaml        # Hermes runtime configuration (managed model/secrets block + custom settings)
+├── SOUL.md            # Agent persona, tone, and managed default output language
+├── AGENTS.md          # Global operating instructions and safety boundaries
+├── memories/          # Hermes-managed MEMORY.md and USER.md
+├── skills/            # Hermes skills installed or authored in the runtime
+└── workspace/         # Your plain-text files, projects, notes, and scripts
 ```
 
-### Public Catalog (`https://github.com/openlia/minions.git`)
-You can keep your workspace completely custom or install starter profiles, modular features, and workflow skills from **[`openlia/minions`](https://github.com/openlia/minions.git)**:
-
-- **`personal-os` Profile (`openlia features install --profile personal-os`)**: Installs the full Personal OS suite (`goals`, `tasks`, `calendar`, `daily-briefing`, and core productivity skills) in one command.
-- **Modular Features (`openlia features install <id>`)**:
-
-| Feature Package | Workspace Folders Added | Capabilities & Dependencies |
-| :--- | :--- | :--- |
-| **`goals`** | `goals/` | High-level outcomes and milestones with OpenUI dashboard |
-| **`tasks`** | `tasks/` | Concrete action items with Kanban & table views |
-| **`calendar`** | `calendar/` | Calendar views in Markdown with Month, Week, event-duration Timeline, local appointment creation, companion event notes, and `reminders.rem` (automatically installs `remind` CLI into `/opt/data/.local`) |
-| **`daily-briefing`** | `inbox/daily-briefing/` | Dated morning briefing reports and `/daily-briefing` skill |
-| **`personal-finance`** | `finance/`, `finance/intake/`, `finance/accounts/`, `finance/portfolios/`, `finance/reviews/` | Read-only hledger dashboards and charts, structured account mappings, and the `personal-finance` skill (automatically installs agent-side `hledger` into `/opt/data/.local`) |
-| **`personal-health`** | `health/`, `health/profiles/`, `health/history/`, `health/conditions/`, `health/treatments/`, `health/reviews/` | `personal-health` skill & structured medical templates |
-| **`decision-analysis`** | `decisions/` | `decision-analysis` skill + option/criteria trade-off matrix |
-| **`deep-research`** | `knowledge/research/` | `deep-research` skill + source rubric & brief templates |
-| **`areas`**, **`ideas`**, **`monitors`**, **`people`**, **`shopping`**, **`travel`** | Domain folders & inline Markdown views | Specialized personal & operational domains |
-
-### Customizing Templates & Skills Safely
-You can edit any installed template, schema, OpenUI view, or skill directly. OpenLia automatically detects your edits (`current_hash != base_hash`) as a local customization and preserves them with a 3-way rebase when you update upstream templates later.
-
-### Structured Records and Schemas
-Records in templated folders use standard Markdown with YAML frontmatter. Each folder's `*-template.md` declares a local `$schema` pointing to a JSON Schema file:
-
-```markdown
----
-$schema: ./goal-template.schema.json
-title: Become proficient in distributed systems
-status: active
-target_date: "2026-12-31"
----
-
-## Why This Matters
-Build strong foundations for designing fault-tolerant services.
-
-## Milestones
-- [x] Read Designing Data-Intensive Applications
-- [ ] Implement Raft consensus lab
-```
-
-Validation is **advisory**: the Workspace UI and Workspace Maintainer highlight structural or schema issues without blocking you from saving your notes. Ordinary nested folders without a local template remain free-form.
-
-### Durable Ingestion (`sources/` & `inbox/ingestion/`)
-When you send Lia a PDF, image, Excel spreadsheet, CSV, text file, or YouTube link:
-1. The ingestion runtime retains the original file and extracted artifacts under `sources/`.
-2. It creates a durable intake record in `inbox/ingestion/` and a source provenance record in `sources/records/`.
-3. For password-protected PDFs or spreadsheets, you can store document-unlock passwords in `sources/document-passwords.toml`.
-
-### Generative UI with Moi
-In addition to inline OpenUI views embedded directly in Markdown documents, OpenLia supports [Moi](https://github.com/moi-computer/moi) (`moi.computer`) as a Generative UI workspace.
-Hermes connects directly to Moi via ACP (`hermes -p personal-os acp`), allowing agents to generate tailored, stateful React components in `.moi/` within your workspace on demand.
-See [Generative UI with Moi](generative-ui-moi.md) for installation and workflows.
+- **Persona & Language (`SOUL.md`)**: Seeded on first deployment from `profile/SOUL.md`, with the default response language synchronized from `output_language` in `config.toml`.
+- **Workspace (`/opt/data/workspace`)**: The agent's default working directory. Keep your notes, scripts, and project files here; you can organize subdirectories freely or maintain local Git repositories inside your workspace.
+- **Memories (`/opt/data/memories`)**: Managed through Hermes' native memory tools (`MEMORY.md` and `USER.md`) and editable in the Hermes Web Dashboard.
 
 ---
 
 ## 4. Trust, Safety, and Approvals
 
-OpenLia is designed around **useful autonomy with a clear human approval boundary** powered by Hermes's native approval and security engine (`/opt/data/config.yaml`):
+OpenLia configures Hermes Agent with conservative defaults (`profile/AGENTS.md` and `docker/compose.yaml`):
 
-| Action Category | Default Authority | Behavior |
-| :--- | :--- | :--- |
-| **Reading & Analyzing Workspace** | Automatic | Lia reads notes, searches files, and synthesizes answers automatically. |
-| **Writing to Inbox & Sources** | Standing delegation | Lia captures incoming notes/files to `inbox/` and `sources/`. |
-| **Routine Workspace Updates** | Standing delegation | Routine updates to records and notes within authorized domains, preserving provenance. |
-| **New Recurring Workspace Structure** | Scoped confirmation | Lia designs the folder, template, and optional inline Markdown view and offers **Confirm, Adjust, or Cancel** before applying. |
-| **Workspace Git Commits** | Explicit confirmation | Lia proposes grouped commits from a frozen diff snapshot; you confirm them in the UI. |
-| **External Communications (Email/Chat)** | Always ask | Lia drafts messages and waits for your explicit approval before sending. |
-| **Financial Transactions & Purchases** | Always ask | Local bookkeeping is separate from external money movement, which always requires approval. |
-| **Destructive Actions / Deletions** | Always ask | Lia never permanently deletes records or rewrites Git history without confirmation. |
+| Boundary | Behavior |
+| :--- | :--- |
+| **Workspace Scope** | File writes default to `/opt/data/workspace` unless you explicitly ask otherwise. |
+| **Command Execution (`HERMES_EXEC_ASK=1`)** | Potentially consequential shell commands prompt for approval through the active session notifier. |
+| **Secret Isolation** | Credentials live in `/run/openlia-secrets/hermes.env` (`0600`) and are resolved via `/usr/local/bin/openlia-secret-source`; they are never written into workspace files or backups. |
+| **Shared Browser (`openlia-browser`)** | Browser automation requires an active FIFO workflow lease (`openlia_browser_session_request`) and filters out unsafe Playwright tools (such as arbitrary JS evaluation or file uploads) by default. |
+| **External Actions & Deletions** | Sending external messages, modifying external accounts, making purchases, or deleting user data requires explicit user confirmation. |
