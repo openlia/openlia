@@ -386,37 +386,45 @@ export function ChatExecution({
       className="chat-run-status chat-execution w-full max-w-[48rem] mx-auto my-2 text-sm"
     >
       <details
-        className="chat-execution-details group"
+        className={`chat-execution-details group transition-all duration-200 ${
+          open ? `rounded-xl border ${theme.container} shadow-sm` : ""
+        }`}
         open={open}
         onToggle={(event) => setUserToggledOpen(event.currentTarget.open)}
       >
-        <summary className="chat-execution-pill inline-flex cursor-pointer select-none items-center gap-2 rounded-full border border-base-300/80 bg-base-200/50 px-3 py-1 text-xs text-base-content/75 transition-all hover:bg-base-200 hover:text-base-content">
-          <ChevronIcon className="h-3 w-3 transition-transform duration-200 group-open:rotate-90" />
-          <span
-            role="status"
-            className={`font-semibold inline-flex items-center gap-1.5 ${
-              isCompleted
-                ? "text-success"
-                : theme.isAlert
-                  ? "text-error"
-                  : "text-base-content"
-            }`}
-          >
-            {theme.icon}
-            {run ? label(run.status) : "Execution status"}
-          </span>
-          {duration ? <span className="opacity-60">• {duration}</span> : null}
+        <summary
+          className={`chat-execution-pill cursor-pointer select-none transition-all ${
+            open
+              ? "flex items-center justify-between border-b border-base-300/60 bg-base-200/40 px-3.5 py-2.5 text-xs rounded-t-xl"
+              : "inline-flex items-center gap-2 rounded-full border border-base-300/80 bg-base-200/50 px-3 py-1 text-xs text-base-content/75 hover:bg-base-200 hover:text-base-content"
+          }`}
+        >
+          <div className="inline-flex items-center gap-2">
+            <ChevronIcon className="h-3 w-3 transition-transform duration-200 group-open:rotate-90" />
+            <span
+              role="status"
+              className={`font-semibold inline-flex items-center gap-1.5 ${
+                isCompleted
+                  ? "text-success"
+                  : theme.isAlert
+                    ? "text-error"
+                    : "text-base-content"
+              }`}
+            >
+              {theme.icon}
+              {run ? label(run.status) : "Execution status"}
+            </span>
+            {duration ? <span className="opacity-60">• {duration}</span> : null}
+          </div>
           <span className="text-[11px] opacity-50 group-open:hidden">
             • Run details
           </span>
           <span className="text-[11px] opacity-50 hidden group-open:inline">
-            • Hide details
+            Hide details
           </span>
         </summary>
 
-        <div
-          className={`chat-execution-card mt-2 rounded-xl border p-3.5 sm:p-4 transition-colors ${theme.container}`}
-        >
+        <div className="chat-execution-card p-3.5 sm:p-4">
           {run && (
             <div className="space-y-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">

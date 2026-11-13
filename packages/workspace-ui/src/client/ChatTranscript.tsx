@@ -49,14 +49,20 @@ export function groupChatMessages(messages: ChatMessage[]): ChatTurn[] {
   return turns;
 }
 
-function ToolActivity({ messages }: { messages: ChatMessage[] }) {
+function ToolActivity({
+  messages,
+  defaultOpen,
+}: {
+  messages: ChatMessage[];
+  defaultOpen?: boolean | undefined;
+}) {
   const calls = messages.flatMap((message) => message.tool_calls ?? []);
   const results = messages.filter((message) => message.role === "tool");
   const count = Math.max(calls.length, results.length);
   const reasoning = messages.filter((message) => message.reasoning?.trim());
   if (!count && !reasoning.length) return null;
   return (
-    <details className="chat-tool-group">
+    <details className="chat-tool-group" open={defaultOpen}>
       <summary>
         {count
           ? `Used ${count} ${count === 1 ? "tool" : "tools"}`
@@ -93,9 +99,11 @@ function ToolActivity({ messages }: { messages: ChatMessage[] }) {
 export function ChatTranscript({
   messages,
   onNavigateLink,
+  defaultOpenTools,
 }: {
   messages: ChatMessage[];
   onNavigateLink?: ((href: string) => void) | undefined;
+  defaultOpenTools?: boolean;
 }) {
   return groupChatMessages(messages).map((turn) => {
     const text = turn.messages
@@ -111,7 +119,12 @@ export function ChatTranscript({
         <div className="chat-speaker">
           {turn.role === "user" ? "You" : "Lia"}
         </div>
-        {turn.role === "assistant" && <ToolActivity messages={turn.messages} />}
+        {turn.role === "assistant" && (
+          <ToolActivity
+            messages={turn.messages}
+            defaultOpen={defaultOpenTools}
+          />
+        )}
         {turn.messages
           .filter(
             (message) =>

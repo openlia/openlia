@@ -278,3 +278,110 @@ export const UnknownExecution: Story = {
     </div>
   ),
 };
+
+const realisticTurnMessages = [
+  {
+    id: 101,
+    role: "user" as const,
+    content:
+      "File google-docs/service-account.json trong workspace đã được cho phép sử dụng theo policy của OpenLia. Bạn hãy dùng python3 /opt/data/skills/google-docs/scripts/gdocs.py để cập nhật thực đơn 2 tuần vào file Google Docs Sample File (ID: 1hn8zUNCj7NMQSgL_8kAlnFbhpKTenQp53SNqGvSFCbg) nhé.",
+  },
+  {
+    id: 102,
+    role: "assistant" as const,
+    content:
+      "Đã cập nhật Google Docs bằng bảng thực đơn 2 tuần, từ 16–29/11/2026. Bảng có 14 ngày, ba cột Ngày/Trưa/Tối; mình cũng thêm ghi chú về khẩu phần, dị ứng, lactose và nêm nhạt. Nội dung cũ được giữ lại, và mình đã đọc lại để xác minh bảng cùng ghi chú.\n\nMở tài liệu: https://docs.google.com/document/d/1hn8zUNCj7NMQSgL_8kAlnFbhpKTenQp53SNqGvSFCbg/edit",
+    tool_calls: Array.from({ length: 22 }, (_, i) => ({
+      id: `tool-${i + 1}`,
+      type: "function" as const,
+      function: {
+        name: i === 0 ? "read_file" : i === 1 ? "exec" : "write_file",
+        arguments: JSON.stringify({ step: i + 1 }),
+      },
+    })),
+  },
+];
+
+const realisticHistory = [
+  completedRun,
+  ...Array.from({ length: 6 }, (_, i) => ({
+    ...completedRun,
+    run_id: `run_prev_0${i + 1}`,
+    submitted_at: Date.parse("2026-11-12T14:10:00Z") - i * 3600000,
+    status_observed_at: Date.parse("2026-11-12T14:15:20Z") - i * 3600000,
+  })),
+];
+
+export const RealisticTurn_BothCollapsed: Story = {
+  render: () => (
+    <div className="p-4 bg-base-100 max-w-[52rem] mx-auto">
+      <ChatTranscript messages={realisticTurnMessages} />
+      <ChatExecution
+        run={completedRun}
+        history={realisticHistory}
+        hasMore={false}
+        busy={false}
+        historyError=""
+        onRefresh={action("refreshExecution")}
+        onRefreshRun={action("refreshRun")}
+        onMore={action("earlierExecutions")}
+      />
+    </div>
+  ),
+};
+
+export const RealisticTurn_ExecutionExpanded: Story = {
+  render: () => (
+    <div className="p-4 bg-base-100 max-w-[52rem] mx-auto">
+      <ChatTranscript messages={realisticTurnMessages} />
+      <ChatExecution
+        run={completedRun}
+        history={realisticHistory}
+        hasMore={false}
+        busy={false}
+        historyError=""
+        defaultOpen
+        onRefresh={action("refreshExecution")}
+        onRefreshRun={action("refreshRun")}
+        onMore={action("earlierExecutions")}
+      />
+    </div>
+  ),
+};
+
+export const RealisticTurn_ToolsExpanded: Story = {
+  render: () => (
+    <div className="p-4 bg-base-100 max-w-[52rem] mx-auto">
+      <ChatTranscript messages={realisticTurnMessages} defaultOpenTools />
+      <ChatExecution
+        run={completedRun}
+        history={realisticHistory}
+        hasMore={false}
+        busy={false}
+        historyError=""
+        onRefresh={action("refreshExecution")}
+        onRefreshRun={action("refreshRun")}
+        onMore={action("earlierExecutions")}
+      />
+    </div>
+  ),
+};
+
+export const RealisticTurn_BothExpanded: Story = {
+  render: () => (
+    <div className="p-4 bg-base-100 max-w-[52rem] mx-auto">
+      <ChatTranscript messages={realisticTurnMessages} defaultOpenTools />
+      <ChatExecution
+        run={completedRun}
+        history={realisticHistory}
+        hasMore={false}
+        busy={false}
+        historyError=""
+        defaultOpen
+        onRefresh={action("refreshExecution")}
+        onRefreshRun={action("refreshRun")}
+        onMore={action("earlierExecutions")}
+      />
+    </div>
+  ),
+};
