@@ -3,6 +3,8 @@ package cli
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -245,40 +247,9 @@ func commandLifecycle(options Options, action string, args []string, assets fs.F
 		return code
 	}
 	if action == "deploy" {
-		if config.SecretSource != "" {
-			if err := validateProtectedSourcePath(config.SecretSource, "secret source"); err != nil {
-				return fail(options, ExitUsage, err.Error(), nil)
-			}
-		}
-		for path, label := range map[string]string{
-			config.LochoRelayConfigSource:  "Locho relay configuration",
-			config.LochoRelaySecretsSource: "Locho relay secrets",
-		} {
-			if path != "" {
-				if err := validateProtectedSourcePath(path, label); err != nil {
-					return fail(options, ExitUsage, err.Error(), nil)
-				}
-			}
-		}
-		for _, host := range config.Services {
-			if host.Source != "" && host.Name != "" {
-				if err := validateProtectedSourcePath(host.Source, "attachment source"); err != nil {
-					return fail(options, ExitUsage, err.Error(), nil)
-				}
-			}
-		}
-		origRecipient := config.BackupRecipient
-		origIdentityFile := config.BackupIdentityFile
-		if err := ensureBackupIdentity(&config); err != nil {
-			return fail(options, ExitFailure, "backup encryption key setup failed: "+err.Error(), nil)
-		}
-		if config.BackupRecipient != origRecipient || config.BackupIdentityFile != origIdentityFile {
-			if err := saveConfig(config); err != nil {
-				return fail(options, ExitInternal, "could not save operator config: "+err.Error(), nil)
-			}
-		}
-		if err := validateConfig(config); err != nil {
-			return fail(options, ExitUsage, err.Error(), nil)
+		config, code = validateDeployConfig(options, config)
+		if code != ExitOK {
+			return code
 		}
 	}
 
@@ -397,6 +368,45 @@ func commandLifecycle(options Options, action string, args []string, assets fs.F
 		return fail(options, ExitFailure, "backup scheduler reconciliation failed: "+err.Error(), map[string]any{"action": action})
 	}
 	return renderRemote(options, raw, "openlia "+action+": "+redact(string(raw)))
+}
+
+func validateDeployConfig(options Options, config Config) (Config, int) {
+	if config.SecretSource != "" {
+		if err := validateProtectedSourcePath(config.SecretSource, "secret source"); err != nil {
+			return config, fail(options, ExitUsage, err.Error(), nil)
+		}
+	}
+	for path, label := range map[string]string{
+		config.LochoRelayConfigSource:  "Locho relay configuration",
+		config.LochoRelaySecretsSource: "Locho relay secrets",
+	} {
+		if path != "" {
+			if err := validateProtectedSourcePath(path, label); err != nil {
+				return config, fail(options, ExitUsage, err.Error(), nil)
+			}
+		}
+	}
+	for _, host := range config.Services {
+		if host.Source != "" && host.Name != "" {
+			if err := validateProtectedSourcePath(host.Source, "attachment source"); err != nil {
+				return config, fail(options, ExitUsage, err.Error(), nil)
+			}
+		}
+	}
+	origRecipient := config.BackupRecipient
+	origIdentityFile := config.BackupIdentityFile
+	if err := ensureBackupIdentity(&config); err != nil {
+		return config, fail(options, ExitFailure, "backup encryption key setup failed: "+err.Error(), nil)
+	}
+	if config.BackupRecipient != origRecipient || config.BackupIdentityFile != origIdentityFile {
+		if err := saveConfig(config); err != nil {
+			return config, fail(options, ExitInternal, "could not save operator config: "+err.Error(), nil)
+		}
+	}
+	if err := validateConfig(config); err != nil {
+		return config, fail(options, ExitUsage, err.Error(), nil)
+	}
+	return config, ExitOK
 }
 
 func collectLifecycleBundle(ctx context.Context, deployment deployment, config *Config, action string) ([]bundleFile, []string, error) {
@@ -926,7 +936,7 @@ func commandAttachments(options Options, args []string) int {
 		if source == "" {
 			return fail(options, ExitUsage, "attachments rotate requires --source PATH or source configured in config.toml", nil)
 		}
-		return rotateRemoteFile(options, "attachments:"+host, source)
+		return rotateRemoteAttachment(options, host, source)
 	}
 	return fail(options, ExitUsage, "attachments requires list, map, or rotate", nil)
 }
@@ -1033,20 +1043,7 @@ func writeExclusiveFile(path string, contents []byte, mode os.FileMode) error {
 	return nil
 }
 
-func syncSecretSource(ctx context.Context, deployment deployment, source string) error {
-	if err := validateProtectedSourcePath(source, "secret source"); err != nil {
-		return err
-	}
-	remotePath := deployment.rootPath("runtime", "meta", ".openlia-incoming")
-	if err := deployment.uploadFile(ctx, source, remotePath, 0o600); err != nil {
-		return err
-	}
-	defer deployment.removeFile(context.Background(), remotePath)
-	_, err := deployment.operation(ctx, "auth", nil, "rotate", "--source", remotePath, "--json")
-	return err
-}
-
-func rotateRemoteFile(options Options, kind, source string) int {
+func rotateRemoteAttachment(options Options, host, source string) int {
 	if err := validateProtectedSourcePath(source, "source"); err != nil {
 		return fail(options, ExitUsage, err.Error(), nil)
 	}
@@ -1066,27 +1063,15 @@ func rotateRemoteFile(options Options, kind, source string) int {
 		return fail(options, ExitFailure, err.Error(), nil)
 	}
 	files := []bundleFile{cfgBundleFile}
-	var jobArgs []string
-	if strings.HasPrefix(kind, "attachments:") {
-		host := strings.TrimPrefix(kind, "attachments:")
-		files = append(files, bundleFile{
-			RelativePath: filepath.ToSlash(filepath.Join("runtime", "meta", ".incoming", "attachments", host+".toml")),
-			Data:         data,
-			Mode:         0o600,
-		})
-		jobArgs = []string{"start", "attachment-rotate", host, "--json"}
-	} else {
-		files = append(files, bundleFile{
-			RelativePath: "runtime/meta/.incoming/secrets.env",
-			Data:         data,
-			Mode:         0o600,
-		})
-		jobArgs = []string{"start", "auth-rotate", "--json"}
-	}
+	files = append(files, bundleFile{
+		RelativePath: filepath.ToSlash(filepath.Join("runtime", "meta", ".incoming", "attachments", host+".toml")),
+		Data:         data,
+		Mode:         0o600,
+	})
 	if err := deployment.syncBundle(ctx, files, nil); err != nil {
 		return fail(options, ExitFailure, err.Error(), nil)
 	}
-	raw, err := deployment.operation(ctx, "job", nil, jobArgs...)
+	raw, err := deployment.operation(ctx, "job", nil, "start", "attachment-rotate", host, "--json")
 	if err != nil {
 		return fail(options, ExitFailure, err.Error(), nil)
 	}
@@ -1104,9 +1089,9 @@ func rotateRemoteFile(options Options, kind, source string) int {
 				raw = encoded
 			}
 		}
-		return renderRemote(options, raw, kind+" rotation completed; values were not displayed")
+		return renderRemote(options, raw, "attachments:"+host+" rotation completed; values were not displayed")
 	}
-	return renderRemote(options, raw, fmt.Sprintf("openlia %s: job=%s status=%s; values were not displayed", kind, startRes.JobID, startRes.Status))
+	return renderRemote(options, raw, fmt.Sprintf("openlia attachments rotate: host=%s job=%s status=%s; values were not displayed", host, startRes.JobID, startRes.Status))
 }
 
 func validateProtectedSourcePath(path, label string) error {
@@ -1209,6 +1194,15 @@ func extractFlag(args []string, name string) (string, []string, error) {
 }
 
 func commandAuth(options Options, args []string) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "api-key-rotate":
+			return commandAuthAPIKeyRotate(options, args[1:])
+		case "keygen", "rotate":
+			return fail(options, ExitUsage, "use `openlia auth api-key-rotate` for API key rotation; use `openlia deploy` to apply other secret-source changes", nil)
+		}
+	}
+
 	set := newFlagSet("auth")
 	oidcMode := set.Bool("oidc", false, "configure OpenID Connect (GCP OAuth / Auth0) instead of Basic Auth")
 	usernameFlag := set.String("username", "", "Hermes Dashboard Basic Auth username")
@@ -1311,6 +1305,126 @@ func commandAuth(options Options, args []string) int {
 			"HERMES_DASHBOARD_BASIC_AUTH_PASSWORD",
 		},
 	}, fmt.Sprintf("openlia auth: updated HERMES_DASHBOARD_BASIC_AUTH_USERNAME (%s) and HERMES_DASHBOARD_BASIC_AUTH_PASSWORD in %s", username, secretPath))
+}
+
+func commandAuthAPIKeyRotate(options Options, args []string) int {
+	return commandAuthAPIKeyRotateWithDeployment(options, args, newDeployment)
+}
+
+func commandAuthAPIKeyRotateWithDeployment(options Options, args []string, makeDeployment func(Config) deployment) int {
+	if len(args) != 0 {
+		return fail(options, ExitUsage, "auth api-key-rotate accepts no command-specific arguments", nil)
+	}
+	if options.Wait {
+		return fail(options, ExitUsage, "auth api-key-rotate is always asynchronous; omit --wait and check the job with `openlia job status`", nil)
+	}
+	config, code := configOrError(options)
+	if code != ExitOK {
+		return code
+	}
+	if !config.APIEnabled && !config.LochoHostEnabled {
+		return fail(options, ExitPrereq, "Hermes API is disabled; enable [api] or [locho-host] before rotating its key", nil)
+	}
+	config, code = validateDeployConfig(options, config)
+	if code != ExitOK {
+		return code
+	}
+	secretPath := expandTilde(strings.TrimSpace(config.SecretSource))
+	if secretPath == "" {
+		return fail(options, ExitUsage, "secrets.source is not configured in config.toml", map[string]any{"config": configPath()})
+	}
+	if err := validateProtectedSourcePath(secretPath, "secret source"); err != nil {
+		return fail(options, ExitUsage, err.Error(), nil)
+	}
+	config.SecretSource = secretPath
+
+	ctx, cancel := remoteContext()
+	defer cancel()
+	deployment := makeDeployment(config)
+	installedRelease, err := deployment.releaseDigest(ctx)
+	if err != nil {
+		return fail(options, ExitFailure, "could not verify the target deployment: "+err.Error(), nil)
+	}
+	if installedRelease == "" {
+		return fail(options, ExitPrereq, "no deployed OpenLia release found; run `openlia deploy` before rotating the Hermes API key", nil)
+	}
+
+	previousSource, err := os.ReadFile(secretPath)
+	if err != nil {
+		return fail(options, ExitFailure, "could not read secret source", nil)
+	}
+	apiKey, err := generateAPIKey()
+	if err != nil {
+		return fail(options, ExitFailure, "could not generate API_SERVER_KEY", nil)
+	}
+	if err := mutateSecretSourceVars(secretPath, []struct{ key, value string }{
+		{"API_SERVER_KEY", apiKey},
+	}, nil); err != nil {
+		return fail(options, ExitFailure, "could not update secret source: "+err.Error(), nil)
+	}
+
+	rollbackSource := func(cause error) int {
+		if restoreErr := writePrivateFileAtomic(secretPath, previousSource); restoreErr != nil {
+			return fail(options, ExitFailure, cause.Error()+"; previous secret source could not be restored: "+restoreErr.Error(), nil)
+		}
+		return fail(options, ExitFailure, cause.Error(), nil)
+	}
+
+	bundleFiles, bundleRemovals, err := collectLifecycleBundle(ctx, deployment, &config, "deploy")
+	if err != nil {
+		return rollbackSource(fmt.Errorf("could not prepare deploy bundle: %w", err))
+	}
+	if err := deployment.syncBundle(ctx, bundleFiles, bundleRemovals); err != nil {
+		return rollbackSource(fmt.Errorf("could not stage deploy bundle: %w", err))
+	}
+	job, _, err := enqueueDeployJob(ctx, deployment)
+	if err != nil {
+		return failWithPayload(options, ExitFailure, "API_SERVER_KEY was saved locally, but deployment submission was not confirmed; check operator jobs or retry `openlia deploy`", map[string]any{
+			"action":        "auth-api-key-rotate",
+			"secret_source": secretPath,
+			"target":        config.Target,
+			"job_id":        job.JobID,
+		})
+	}
+	return writeResult(options, map[string]any{
+		"schema":        1,
+		"ok":            true,
+		"action":        "auth-api-key-rotate",
+		"key":           "API_SERVER_KEY",
+		"secret_values": "redacted",
+		"secret_source": secretPath,
+		"target":        config.Target,
+		"job_id":        job.JobID,
+		"status":        job.Status,
+		"application":   "pending",
+	}, fmt.Sprintf("openlia auth api-key-rotate: deployment queued (job=%s status=%s); key value was not displayed; check `openlia job status %s` before using it", job.JobID, job.Status, job.JobID))
+}
+
+func generateAPIKey() (string, error) {
+	keyBytes := make([]byte, 32)
+	if _, err := rand.Read(keyBytes); err != nil {
+		return "", err
+	}
+	return "sk-openlia-" + hex.EncodeToString(keyBytes), nil
+}
+
+type operatorJobDispatcher interface {
+	operation(ctx context.Context, script string, input []byte, args ...string) ([]byte, error)
+}
+
+func enqueueDeployJob(ctx context.Context, deployment operatorJobDispatcher) (operator.JobStartResult, []byte, error) {
+	raw, err := deployment.operation(ctx, "job", nil, "start", "deploy", "deploy", "--component", "all", "--json")
+	var result operator.JobStartResult
+	if err != nil {
+		return result, raw, err
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return result, raw, fmt.Errorf("parse operator deploy-job response: %w", err)
+	}
+	if !result.OK || result.JobID == "" {
+		return result, raw, fmt.Errorf("operator did not confirm deploy-job acceptance")
+	}
+	return result, raw, nil
 }
 
 func configureOIDCAuth(options Options, secretPath string, reader *bufio.Reader, issuer, clientID string, secretStdin bool, scopes, publicURL string) int {

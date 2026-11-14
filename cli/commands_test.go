@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -387,6 +389,191 @@ func TestCommandAuthUpdatesDashboardCredentialsInSecretSource(t *testing.T) {
 		}
 	}
 }
+
+func TestCommandAuthAPIKeyRotateQueuesAsyncDeployWithoutDisplayingKey(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.toml")
+	secretPath := filepath.Join(tmp, "openlia_dev.env")
+	originalSource := []byte("# Keep this comment\nCOPILOT_GITHUB_TOKEN=gho_testtoken123456\nAPI_SERVER_KEY=previous-key\n")
+	if err := os.WriteFile(secretPath, originalSource, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	cfg.Mode = "local"
+	cfg.InstallRoot = filepath.Join(tmp, "install")
+	cfg.APIEnabled = true
+	cfg.SecretSource = secretPath
+	if err := os.WriteFile(cfgPath, []byte(renderConfig(cfg)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPENLIA_CONFIG", cfgPath)
+
+	run := func(options Options, fake *fakeAuthDeploy) (int, string) {
+		t.Helper()
+		originalStdout := os.Stdout
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stdout = writer
+		code := commandAuthAPIKeyRotateWithDeployment(options, nil, func(Config) deployment { return fake })
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		os.Stdout = originalStdout
+		output, err := io.ReadAll(reader)
+		_ = reader.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return code, string(output)
+	}
+
+	fake := &fakeAuthDeploy{
+		release:   "abcdef",
+		jobOutput: []byte(`{"schema":1,"ok":true,"async":true,"job_id":"job-api-key","kind":"deploy","status":"running"}`),
+	}
+	code, output := run(Options{JSON: true}, fake)
+	if code != ExitOK {
+		t.Fatalf("openlia auth api-key-rotate exited with %d", code)
+	}
+	apiKey := readSecretEnvValue(secretPath, "API_SERVER_KEY")
+	if !strings.HasPrefix(apiKey, "sk-openlia-") || len(apiKey) != len("sk-openlia-")+64 {
+		t.Fatalf("generated API_SERVER_KEY has unexpected shape")
+	}
+	if strings.Contains(output, apiKey) || strings.Contains(output, "sk-openlia-") {
+		t.Fatal("API key rotation output leaked API_SERVER_KEY")
+	}
+	updatedSecretSource := string(mustReadAuthTestFile(t, secretPath))
+	if !strings.Contains(updatedSecretSource, "# Keep this comment\n") || !strings.Contains(updatedSecretSource, "COPILOT_GITHUB_TOKEN=gho_testtoken123456") {
+		t.Fatal("API key rotation did not preserve unrelated secret-source content")
+	}
+	info, err := os.Stat(secretPath)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("secret source mode = %v, err=%v; want 0600", info, err)
+	}
+	if !fake.synced || fake.jobScript != "job" || strings.Join(fake.jobArgs, " ") != "start deploy deploy --component all --json" {
+		t.Fatalf("deploy was not staged and queued through the operator: synced=%t script=%q args=%v", fake.synced, fake.jobScript, fake.jobArgs)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("could not parse command result: %v", err)
+	}
+	if result["job_id"] != "job-api-key" || result["status"] != "running" || result["application"] != "pending" {
+		t.Fatalf("unexpected async rotation result: %#v", result)
+	}
+	secretStaged := false
+	for _, file := range fake.files {
+		if file.RelativePath == "runtime/meta/.incoming/secrets.env" {
+			secretStaged = strings.Contains(string(file.Data), "API_SERVER_KEY="+apiKey)
+		}
+	}
+	if !secretStaged {
+		t.Fatal("deploy bundle did not stage the generated API_SERVER_KEY")
+	}
+	if !strings.Contains(updatedSecretSource, "API_SERVER_KEY="+apiKey) || strings.Contains(updatedSecretSource, "API_SERVER_KEY=previous-key") {
+		t.Fatal("generated API_SERVER_KEY did not replace the previous key")
+	}
+	if strings.Contains(output, "previous-key") {
+		t.Fatal("command output leaked the previous API_SERVER_KEY")
+	}
+
+	rollbackFake := &fakeAuthDeploy{release: "abcdef", syncErr: os.ErrPermission}
+	code, _ = run(Options{JSON: true}, rollbackFake)
+	if code != ExitFailure {
+		t.Fatalf("staging failure exit code = %d, want %d", code, ExitFailure)
+	}
+	if got := string(mustReadAuthTestFile(t, secretPath)); got != updatedSecretSource {
+		t.Fatal("failed pre-submission staging unexpectedly changed the saved API key")
+	}
+	if len(rollbackFake.jobArgs) != 0 {
+		t.Fatal("operator job was queued despite bundle staging failure")
+	}
+
+	uncertainFake := &fakeAuthDeploy{release: "abcdef", jobErr: os.ErrPermission}
+	code, output = run(Options{JSON: true}, uncertainFake)
+	if code != ExitFailure {
+		t.Fatalf("unconfirmed operator submission exit code = %d, want %d", code, ExitFailure)
+	}
+	if strings.Contains(output, "sk-openlia-") || strings.Contains(output, readSecretEnvValue(secretPath, "API_SERVER_KEY")) {
+		t.Fatal("unconfirmed submission output leaked API_SERVER_KEY")
+	}
+	if !strings.Contains(output, "submission was not confirmed") {
+		t.Fatalf("unconfirmed submission did not explain next steps: %s", output)
+	}
+	desiredSourceAfterUnconfirmed := string(mustReadAuthTestFile(t, secretPath))
+
+	waitFake := &fakeAuthDeploy{release: "abcdef"}
+	code, _ = run(Options{JSON: true, Wait: true}, waitFake)
+	if code != ExitUsage {
+		t.Fatalf("auth api-key-rotate --wait exit code = %d, want %d", code, ExitUsage)
+	}
+	if got := string(mustReadAuthTestFile(t, secretPath)); got != desiredSourceAfterUnconfirmed {
+		t.Fatal("--wait rejection changed the API key")
+	}
+}
+
+func TestRetiredAuthKeygenAndRotateCommandsAreRejected(t *testing.T) {
+	for _, action := range []string{"keygen", "rotate"} {
+		if code := Run([]string{"auth", action}, fstest.MapFS{}); code != ExitUsage {
+			t.Errorf("openlia auth %s exit code = %d, want %d", action, code, ExitUsage)
+		}
+	}
+	if code := Run([]string{"auth", "api-key-rotate", "--wait"}, fstest.MapFS{}); code != ExitUsage {
+		t.Errorf("openlia auth api-key-rotate --wait exit code = %d, want %d", code, ExitUsage)
+	}
+}
+
+func mustReadAuthTestFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+type fakeAuthDeploy struct {
+	release   string
+	files     []bundleFile
+	synced    bool
+	syncErr   error
+	jobScript string
+	jobArgs   []string
+	jobOutput []byte
+	jobErr    error
+}
+
+func (f *fakeAuthDeploy) rootPath(parts ...string) string {
+	return filepath.Join(append([]string{"/fake-openlia"}, parts...)...)
+}
+
+func (*fakeAuthDeploy) uploadFile(context.Context, string, string, os.FileMode) error { return nil }
+func (*fakeAuthDeploy) downloadFile(context.Context, string, string) error            { return nil }
+func (*fakeAuthDeploy) removeFile(context.Context, string) error                      { return nil }
+func (f *fakeAuthDeploy) syncBundle(_ context.Context, files []bundleFile, _ []string) error {
+	f.files = append([]bundleFile(nil), files...)
+	if f.syncErr != nil {
+		return f.syncErr
+	}
+	f.synced = true
+	return nil
+}
+func (*fakeAuthDeploy) uploadRelease(context.Context, []byte, string) error { return nil }
+func (*fakeAuthDeploy) activateRelease(context.Context) error               { return nil }
+func (f *fakeAuthDeploy) releaseDigest(context.Context) (string, error)     { return f.release, nil }
+func (*fakeAuthDeploy) bootstrap(context.Context) ([]byte, error)           { return nil, nil }
+func (*fakeAuthDeploy) deploy(context.Context, string, bool, string) ([]byte, error) {
+	return nil, nil
+}
+func (*fakeAuthDeploy) health(context.Context, bool, bool, bool) ([]byte, error) { return nil, nil }
+func (f *fakeAuthDeploy) operation(_ context.Context, script string, _ []byte, args ...string) ([]byte, error) {
+	f.jobScript = script
+	f.jobArgs = append([]string(nil), args...)
+	return f.jobOutput, f.jobErr
+}
+func (*fakeAuthDeploy) uninstall(context.Context) ([]byte, error)         { return nil, nil }
+func (*fakeAuthDeploy) composeLogs(context.Context, bool) ([]byte, error) { return nil, nil }
 
 func TestCommandAuthOIDCUpdatesOIDCCredentialsInSecretSource(t *testing.T) {
 	tmp := t.TempDir()

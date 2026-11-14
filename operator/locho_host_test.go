@@ -123,6 +123,12 @@ func TestEnsureAPIServerEnvForwardsOIDCWithoutFallbackBasicAuth(t *testing.T) {
 	if err := os.MkdirAll(config.SecretDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(config.DataRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(config.DataRoot, ".env"), []byte("KEEP_ME=preserved\nAPI_SERVER_KEY=stale-key\nAPI_SERVER_KEY=duplicate-stale-key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	secretContent := strings.Join([]string{
 		"API_SERVER_KEY=sk-openlia-0123456789abcdef0123456789abcdef",
 		"HERMES_DASHBOARD_OIDC_ISSUER=https://accounts.google.com",
@@ -155,5 +161,13 @@ func TestEnsureAPIServerEnvForwardsOIDCWithoutFallbackBasicAuth(t *testing.T) {
 	}
 	if strings.Contains(text, "HERMES_DASHBOARD_BASIC_AUTH_") {
 		t.Fatalf("expected no fallback BASIC_AUTH when OIDC is configured, got:\n%s", text)
+	}
+	hermesEnv, err := os.ReadFile(filepath.Join(config.DataRoot, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hermesEnvText := string(hermesEnv)
+	if !strings.Contains(hermesEnvText, "KEEP_ME=preserved\n") || strings.Count(hermesEnvText, "API_SERVER_KEY=") != 1 || !strings.Contains(hermesEnvText, "API_SERVER_KEY=sk-openlia-0123456789abcdef0123456789abcdef\n") {
+		t.Fatalf("Hermes .env did not preserve other settings and synchronize the API key:\n%s", hermesEnvText)
 	}
 }

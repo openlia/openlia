@@ -103,6 +103,12 @@ model = "gpt-4o"
 
 Hermes Agent includes a built-in Web Dashboard (`127.0.0.1:9119`, exposed via Locho as `hermes-dashboard`) and an OpenAI-compatible API Server (`127.0.0.1:8642`, exposed via Locho as `hermes-api`). All credentials are stored exclusively in your mode-`0600` `secrets.source` file—never in `config.toml`.
 
+Generate a new API bearer key and queue its application to the configured target:
+```bash
+openlia auth api-key-rotate --config ~/.config/openlia/prod/config.toml
+```
+The command stores the key in the configured mode-`0600` `secrets.source` file without printing it, then queues the standard asynchronous deploy job. Its response includes a job ID; check `openlia job status <JOB_ID>` before using the new key. Send it as `Authorization: Bearer <API_SERVER_KEY>` to the OpenAI-compatible API.
+
 #### Option A: Basic Auth (Username & Password)
 Prompt interactively for a username and hidden password (with confirmation):
 ```bash
@@ -153,14 +159,13 @@ TELEGRAM_HOME_CHANNEL_NAME="OpenLia Home"
 > [!WARNING]
 > `docker/secret-source.sh` strictly validates secret formats. If any variable in `secrets.env` is malformed, the helper exits with code `1` and Hermes drops all secrets. Comment out or remove unused variables.
 
-### Rotating Secrets
-Whenever you update `secrets.env` (via `openlia auth` or manual edits), apply the new credentials to the target:
+### Applying Secret Changes
+Whenever you update `secrets.env` (via `openlia auth` or manual edits), apply the new credentials to the target with the standard asynchronous deploy flow:
 ```bash
-openlia auth rotate --config ~/.config/openlia/prod/config.toml
-# Or run a full deploy:
 openlia deploy --config ~/.config/openlia/prod/config.toml
+openlia job status <JOB_ID>
 ```
-Credential rotation backs up the previous secret on the runtime target and rolls back automatically if container recreation fails.
+`openlia deploy` stages the configured secret source for the operator and returns a job ID; check that job before relying on the updated credentials.
 
 ---
 
@@ -171,7 +176,7 @@ Credential rotation backs up the previous secret on the runtime target and rolls
 3. *(Optional)* Create a dedicated **Home Channel** or group, add your bot as an administrator, and post a test message in the channel.
 4. Add `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS` (comma-separated numeric Telegram user IDs), `TELEGRAM_HOME_CHANNEL`, and `TELEGRAM_HOME_CHANNEL_NAME` to your mode-`0600` `secrets.env` file, then apply:
    ```bash
-   openlia auth rotate --config ~/.config/openlia/prod/config.toml
+   openlia deploy --config ~/.config/openlia/prod/config.toml
    ```
 
 ---

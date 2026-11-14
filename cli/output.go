@@ -97,6 +97,7 @@ Usage:
   openlia job [status|logs [JOB_ID]]
   openlia auth [--config PATH] [--username USER] [--password-stdin]
   openlia auth --oidc [--config PATH] [--issuer URL] [--client-id ID] [--client-secret-stdin] [--public-url URL]
+  openlia auth api-key-rotate [--config PATH]
   openlia status [--live] [--check-providers] [--json]
   openlia uninstall [--local|--target user@host] [--project NAME] [--root /path]
   openlia logs [--follow]

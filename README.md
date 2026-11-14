@@ -55,7 +55,8 @@ All CLI commands accept `--config <path>` (or the `OPENLIA_CONFIG=<path>` enviro
 - `openlia uninstall` — Tear down containers and remove the installation root while preserving remote backups and local Age recovery keys.
 
 ### Authentication & Capability Commands
-- `openlia auth [--oidc | rotate]` — Configure Hermes Dashboard Basic Auth (`openlia auth`) or OIDC / GCP OAuth / Auth0 (`openlia auth --oidc`) in your mode-`0600` secret source, or rotate deployed runtime secrets (`openlia auth rotate`).
+- `openlia auth [--oidc]` — Configure Hermes Dashboard Basic Auth (`openlia auth`) or OIDC / GCP OAuth / Auth0 (`openlia auth --oidc`) in your mode-`0600` secret source.
+- `openlia auth api-key-rotate` — Generate a new Hermes API key and asynchronously apply it through the operator deploy job. Use `openlia deploy` to apply other secret-source changes.
 - `openlia locho-host <share|rotate>` — Export a mode-`0600` client attachment file (`share --output <file>`) or rotate `hermes-api` (`:8642`) and `hermes-dashboard` (`:9119`) capabilities (`rotate --service <all|hermes-api|hermes-dashboard>`).
 - `openlia attachments <list|rotate|map>` — Inspect attached Locho hosts, rotate a host's `attachments.toml`, or map discovered services to roles (`openlia-browser`, `openai-gateway`).
 - `openlia backup <keygen|create|status|list|push|restore|rollback-restore|schedule>` — Manage Age-encrypted backups, off-box S3/rsync replication, and automated cron schedules.
