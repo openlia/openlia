@@ -44,6 +44,7 @@ func Uninstall(ctx context.Context, config Config, compose Compose) (UninstallRe
 	if json.Unmarshal(data, &marker) != nil || marker.InstallRoot != config.InstallRoot || marker.Project != config.ProjectName || marker.Network != config.NetworkName {
 		return UninstallResult{}, fmt.Errorf("installation marker does not match configured installation")
 	}
+	_ = StopReconcilerDaemon(config)
 	backupUnlock, err := acquireBackupLock(ctx, config)
 	if err != nil {
 		return UninstallResult{}, fmt.Errorf("cannot quiesce backup before uninstall: %w", err)

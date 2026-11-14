@@ -2,6 +2,7 @@ package operator
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -97,24 +98,73 @@ type FallbackProviderConfig struct {
 	KeyEnv   string `json:"key_env,omitempty"`
 }
 
-// LoadConfig reads the process environment.
-func LoadConfig() (Config, error) {
-	if configPath := os.Getenv("OPENLIA_OPERATOR_CONFIG_FILE"); configPath != "" {
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			return Config{}, fmt.Errorf("read persisted operator config: %w", err)
-		}
-		var config Config
-		if err := json.Unmarshal(data, &config); err != nil {
-			return Config{}, fmt.Errorf("parse persisted operator config: %w", err)
-		}
-		return config, config.ValidatePaths()
+// OperatorConfigPath returns the canonical target path for the persisted
+// desired-state operator configuration JSON file.
+func OperatorConfigPath(metaRoot string) string {
+	return filepath.Join(metaRoot, "operator-config.json")
+}
+
+// WriteOperatorConfig atomically persists the desired operator configuration
+// to <MetaRoot>/operator-config.json so detached jobs and target reconcilers
+// can execute without inline CLI environment variables.
+func WriteOperatorConfig(config Config) error {
+	if config.MetaRoot == "" {
+		return fmt.Errorf("MetaRoot is required to persist operator config")
 	}
+	if err := EnsureDir(config.MetaRoot, 0o700); err != nil {
+		return err
+	}
+	path := OperatorConfigPath(config.MetaRoot)
+	configCopy := config
+	configCopy.OperatorConfigFile = path
+	data, err := json.MarshalIndent(configCopy, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal operator config: %w", err)
+	}
+	if err := AtomicWriteFile(path, append(data, '\n'), 0o600); err != nil {
+		return err
+	}
+	return ensureRuntimeOwner(path, config.RuntimeUID, config.RuntimeGID, 0o600)
+}
+
+func loadConfigFromFile(path string) (Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("read persisted operator config: %w", err)
+	}
+	var config Config
+	if err := json.Unmarshal(data, &config); err != nil {
+		return Config{}, fmt.Errorf("parse persisted operator config: %w", err)
+	}
+	return config, config.ValidatePaths()
+}
+
+// LoadConfig reads the process environment or persisted operator config file.
+func LoadConfig() (Config, error) {
 	values := make(map[string]string)
 	for _, value := range os.Environ() {
 		key, item, ok := strings.Cut(value, "=")
 		if ok {
 			values[key] = item
+		}
+	}
+	if configPath := strings.TrimSpace(values["OPENLIA_OPERATOR_CONFIG_FILE"]); configPath != "" && values["OPENLIA_PROJECT_NAME"] == "" {
+		cfg, err := loadConfigFromFile(configPath)
+		if err == nil || !errors.Is(err, os.ErrNotExist) || strings.TrimSpace(values["OPENLIA_RUNTIME_ROOT"]) == "" {
+			return cfg, err
+		}
+	}
+	if runtimeRoot := strings.TrimSpace(values["OPENLIA_RUNTIME_ROOT"]); runtimeRoot != "" && values["OPENLIA_PROJECT_NAME"] == "" {
+		metaRoot := values["OPENLIA_META_ROOT"]
+		if metaRoot == "" {
+			metaRoot = filepath.Join(strings.TrimRight(runtimeRoot, "/"), "meta")
+		}
+		persistedPath := OperatorConfigPath(metaRoot)
+		if data, err := os.ReadFile(persistedPath); err == nil {
+			var config Config
+			if json.Unmarshal(data, &config) == nil {
+				return config, config.ValidatePaths()
+			}
 		}
 	}
 	return LoadConfigFromEnv(values)

@@ -23,6 +23,7 @@ REQUIRED_CLI_TOPICS = {
     "auth",
     "status",
     "deploy",
+    "job",
     "start",
     "stop",
     "restart",
@@ -279,8 +280,9 @@ enabled = true
     if ctx.config_file is None:
         return
 
-    cli_env = {"OPENLIA_CONFIG_FILE": str(ctx.config_file)}
-    status_proc = run_command([*cmd_prefix, "status", "--json"], env=cli_env)
+    cli_env = {"OPENLIA_CONFIG": str(ctx.config_file)}
+    cfg_args = ["--config", str(ctx.config_file), "--json"]
+    status_proc = run_command([*cmd_prefix, "status", *cfg_args], env=cli_env)
     status_payload = json.loads(status_proc.stdout)
     ctx.results.append(
         CheckResult(
@@ -292,8 +294,20 @@ enabled = true
         )
     )
 
+    job_proc = run_command([*cmd_prefix, "job", "status", *cfg_args], env=cli_env)
+    job_payload = json.loads(job_proc.stdout)
+    ctx.results.append(
+        CheckResult(
+            name="cli-job-status",
+            details={
+                "config_file": str(ctx.config_file),
+                "status": job_payload.get("status", ""),
+            },
+        )
+    )
+
     if ctx.args.check_providers:
-        check_proc = run_command([*cmd_prefix, "status", "--check-providers", "--json"], env=cli_env, check=False)
+        check_proc = run_command([*cmd_prefix, "status", "--check-providers", *cfg_args], env=cli_env, check=False)
         check_payload = json.loads(check_proc.stdout)
         if not check_payload.get("ok"):
             raise SmokeError(f"openlia status --check-providers failed: {check_payload}")
@@ -331,9 +345,11 @@ def build_temp_compose_env(tmp_dir: Path, ctx: SmokeContext, manifest: dict) -> 
         secret_file.chmod(0o600)
 
     verify_secret_permissions(secret_file, secret_dir)
-    hermes_comp = manifest["components"]["hermes"]
-    locho_comp = manifest["components"]["locho"]
-    version_tag = f"v{manifest['openliaVersion']}"
+    components = manifest.get("components", manifest)
+    hermes_comp = components["hermes"]
+    locho_comp = components["locho"]
+    openlia_ver = manifest.get("openliaVersion") or manifest["openlia"]
+    version_tag = f"v{openlia_ver}"
     locho_tag = f"v{locho_comp['version']}"
 
     env_map = {
@@ -414,8 +430,10 @@ def check_hermes_runtime(ctx: SmokeContext, manifest: dict) -> None:
     if shutil.which("docker") is None:
         raise SmokeError("docker CLI is required for hermes runtime checks")
 
-    hermes_comp = manifest["components"]["hermes"]
-    image_tag = f"openlia-hermes:v{manifest['openliaVersion']}"
+    components = manifest.get("components", manifest)
+    hermes_comp = components["hermes"]
+    openlia_ver = manifest.get("openliaVersion") or manifest["openlia"]
+    image_tag = f"openlia-hermes:v{openlia_ver}"
 
     if ctx.args.build_image:
         run_command(
@@ -493,7 +511,7 @@ def check_backup_flow(ctx: SmokeContext) -> None:
     base_args = ["--json", "--config", str(ctx.config_file)]
     status_proc = run_command([*cmd_prefix, "backup", "status", *base_args])
     status_payload = json.loads(status_proc.stdout)
-    create_proc = run_command([*cmd_prefix, "backup", "create", *base_args])
+    create_proc = run_command([*cmd_prefix, "backup", "create", "--wait", *base_args])
     create_payload = json.loads(create_proc.stdout)
     if not create_payload.get("ok"):
         raise SmokeError(f"openlia backup create failed: {create_payload}")

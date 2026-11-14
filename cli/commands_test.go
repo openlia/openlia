@@ -440,3 +440,31 @@ func TestCommandAuthOIDCUpdatesOIDCCredentialsInSecretSource(t *testing.T) {
 		t.Fatalf("expected basic auth keys to be removed when switching to OIDC, got:\n%s", text)
 	}
 }
+
+func TestSplitCommonFlagsParsesWaitAsyncLive(t *testing.T) {
+	options, remaining, err := splitCommonFlags([]string{"--wait", "--async", "--live", "status"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !options.Wait || !options.Async || !options.Live || strings.Join(remaining, " ") != "status" {
+		t.Fatalf("options=%+v remaining=%v", options, remaining)
+	}
+}
+
+func TestTargetOperatorConfigBundleFileProducesValidOperatorConfig(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.InstallRoot = "/srv/openlia"
+	cfg.Project = "openlia_prod"
+	cfg.OutputLanguage = "vi"
+
+	bf, err := targetOperatorConfigBundleFile(cfg)
+	if err != nil {
+		t.Fatalf("targetOperatorConfigBundleFile failed: %v", err)
+	}
+	if bf.RelativePath != "runtime/meta/operator-config.json" || bf.Mode != 0o600 {
+		t.Fatalf("unexpected bundleFile metadata: %+v", bf)
+	}
+	if !strings.Contains(string(bf.Data), `"ProjectName": "openlia_prod"`) || !strings.Contains(string(bf.Data), `"OutputLanguage": "vi"`) {
+		t.Fatalf("unexpected operator-config.json content:\n%s", string(bf.Data))
+	}
+}

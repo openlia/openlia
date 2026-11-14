@@ -242,22 +242,26 @@ Raw Playwright MCP listens on `127.0.0.1:8931`; `openlia-browser` listens on `12
 
 ```bash
 # Provision an uninitialized target, or sync config/secrets/attachments on an existing target
-openlia deploy [--config <path>]
+openlia deploy [--wait] [--config <path>]
 
 # Publish and activate a newly built CLI/operator release bundle on an existing target
-openlia deploy --release [--config <path>]
+openlia deploy --release [--wait] [--config <path>]
 ```
+
+By default, `openlia deploy` stages the desired-state bundle in a single pass and starts a detached operation job on the target, returning immediately with `job_id` and `status` so SSH disconnects cannot interrupt container image builds or rollouts. Pass `--wait` to block and poll until the job finishes, or inspect progress anytime with `openlia job` / `openlia status`.
 
 On first deployment to a clean target (`installed_before == ""`), `openlia deploy` automatically uploads and activates the bundled release, bootstraps the runtime directory structure (`0700`), seeds base `SOUL.md` and `AGENTS.md` if missing, reconciles `/opt/data/config.yaml`, creates the operator Age backup identity (`backup-identity.txt`) if needed, stages secrets and Locho relays, builds the container images, and starts the Compose stack.
 
 ### Service Lifecycle Controls & Health Checks
 ```bash
-openlia status [--check-providers] [--json] [--config <path>]
+openlia status [--live] [--check-providers] [--json] [--config <path>]
+openlia job [status|logs [JOB_ID]] [--json] [--config <path>]
 openlia logs [--follow] [--config <path>]
 openlia stop [--config <path>]
 openlia start [--config <path>]
 openlia restart [--config <path>]
 ```
+`openlia status` reads the target's cached health snapshot (`runtime/meta/health.json`) and active/latest job status (`runtime/meta/current-job.json`) by default for an immediate response; pass `--live` or `--check-providers` to run live container and provider checks. Use `openlia job logs [JOB_ID]` to inspect secret-redacted diagnostic output captured during detached target jobs. When the stack is in the `running` state, `openlia-operator reconcile --daemon` runs as a singleton background daemon on the target host to keep `runtime/meta/health.json` fresh and self-heal stopped services or stale `locho-host` upstreams.
 
 ### Uninstalling (`openlia uninstall`)
 ```bash
@@ -281,8 +285,8 @@ OpenLia uses client-side [Age](https://age-encryption.org/) encryption for durab
 # Generate an operator recovery key (also created automatically by `openlia deploy`)
 openlia backup keygen
 
-# Create a consistent encrypted archive (briefly stops Hermes during capture)
-openlia backup create
+# Create a consistent encrypted archive (dispatches an async target job; pass --wait to block)
+openlia backup create [--wait]
 
 # Inspect local retention, budget usage, and remote upload status
 openlia backup status
@@ -290,8 +294,8 @@ openlia backup status
 # List archives in remote destinations
 openlia backup list
 
-# Retry uploading the latest or a specific encrypted archive
-openlia backup push [--archive FILENAME.age]
+# Retry uploading the latest or a specific encrypted archive (async by default; pass --wait to block)
+openlia backup push [--archive FILENAME.age] [--wait]
 
 # Manage the live Compose backup-scheduler sidecar
 openlia backup schedule install
