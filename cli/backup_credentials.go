@@ -92,32 +92,21 @@ func writerCredentialTarget(config Config, name string) string {
 	return filepath.Join(config.InstallRoot, "runtime", "backup-credentials", name, "credentials")
 }
 
-func syncBackupWriterCredentials(ctx context.Context, deployment deployment, config Config) error {
-	type upload struct {
-		name      string
-		temporary string
-		target    string
-	}
-	var uploads []upload
-	defer func() {
-		for _, item := range uploads {
-			_ = os.Remove(item.temporary)
-		}
-	}()
+func collectBackupWriterCredentialBundle(config Config) ([]bundleFile, []string, error) {
+	var files []bundleFile
+	var removals []string
 	for _, destination := range config.BackupDestinations {
 		if destination.Type != "s3" {
 			continue
 		}
-		target := writerCredentialTarget(config, destination.Name)
+		relTarget := filepath.ToSlash(filepath.Join("runtime", "backup-credentials", destination.Name, "credentials"))
 		if destination.WriterCredentialsFile == "" {
-			if err := deployment.removeFile(ctx, target); err != nil {
-				return fmt.Errorf("remove stale writer credentials for destination %s: %w", destination.Name, err)
-			}
+			removals = append(removals, relTarget)
 			continue
 		}
 		source := resolveBackupCredentialPath(destination.WriterCredentialsFile)
 		if err := validateBackupCredentialFile(source, "writer credentials for destination "+destination.Name); err != nil {
-			return err
+			return nil, nil, err
 		}
 		profile := destination.WriterAWSProfile
 		if profile == "" {
@@ -125,32 +114,23 @@ func syncBackupWriterCredentials(ctx context.Context, deployment deployment, con
 		}
 		contents, err := filteredAWSProfile(source, profile)
 		if err != nil {
-			return fmt.Errorf("prepare writer credentials for destination %s: %w", destination.Name, err)
+			return nil, nil, fmt.Errorf("prepare writer credentials for destination %s: %w", destination.Name, err)
 		}
-		temporary, err := os.CreateTemp("", ".openlia-writer-credentials-")
-		if err != nil {
-			return fmt.Errorf("stage writer credentials for destination %s: %w", destination.Name, err)
-		}
-		temporaryName := temporary.Name()
-		if err := temporary.Chmod(0o600); err == nil {
-			_, err = temporary.Write(contents)
-		}
-		closeErr := temporary.Close()
-		if err != nil || closeErr != nil {
-			_ = os.Remove(temporaryName)
-			if err != nil {
-				return fmt.Errorf("stage writer credentials for destination %s: %w", destination.Name, err)
-			}
-			return fmt.Errorf("stage writer credentials for destination %s: %w", destination.Name, closeErr)
-		}
-		uploads = append(uploads, upload{name: destination.Name, temporary: temporaryName, target: target})
+		files = append(files, bundleFile{
+			RelativePath: relTarget,
+			Data:         contents,
+			Mode:         0o600,
+		})
 	}
-	for _, item := range uploads {
-		if err := deployment.uploadFile(ctx, item.temporary, item.target, 0o600); err != nil {
-			return fmt.Errorf("deploy writer credentials for destination %s: %w", item.name, err)
-		}
+	return files, removals, nil
+}
+
+func syncBackupWriterCredentials(ctx context.Context, deployment deployment, config Config) error {
+	files, removals, err := collectBackupWriterCredentialBundle(config)
+	if err != nil {
+		return err
 	}
-	return nil
+	return deployment.syncBundle(ctx, files, removals)
 }
 
 func filteredAWSProfile(path, profile string) ([]byte, error) {

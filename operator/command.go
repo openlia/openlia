@@ -72,7 +72,12 @@ func RunContext(ctx context.Context, args []string, input io.Reader, output, err
 	case "auth":
 		return runAuth(ctx, config, args, output, errorOutput, jsonOutput, now)
 	case "deploy":
+		_ = WriteOperatorConfig(config)
 		return runDeploy(ctx, config, args, output, errorOutput, jsonOutput, now)
+	case "job":
+		return runJob(ctx, config, args, output, errorOutput, jsonOutput, now)
+	case "reconcile":
+		return runReconcile(ctx, config, args, output, errorOutput, jsonOutput, now)
 	case "healthcheck":
 		return runHealthcheck(ctx, config, args, output, errorOutput, jsonOutput)
 	case "uninstall":
@@ -391,22 +396,163 @@ func runDeploy(ctx context.Context, config Config, args []string, output, errorO
 func runHealthcheck(ctx context.Context, config Config, args []string, output, errorOutput io.Writer, jsonOutput bool) int {
 	allowStopped, args := removeFlag(args, "--allow-stopped")
 	providerCheck, args := removeFlag(args, "--provider-check")
+	cached, args := removeFlag(args, "--cached")
 	if len(args) != 0 {
 		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("unknown healthcheck option %s", args[0]))
 	}
-	result, err := Healthcheck(ctx, config, NewCompose(config, nil), allowStopped, providerCheck)
+	compose := NewCompose(config, nil)
+	var (
+		result HealthResult
+		err    error
+	)
+	if cached {
+		result, err = HealthcheckCached(ctx, config, compose, allowStopped, providerCheck, true)
+	} else {
+		result, err = Healthcheck(ctx, config, compose, allowStopped, providerCheck)
+		if err == nil {
+			if job, jobErr := ReadCurrentJob(config); jobErr == nil && job != nil {
+				result.Job = job
+			}
+		}
+	}
 	if err != nil {
 		return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 	}
 	if jsonOutput {
 		_ = WriteJSON(output, result)
 	} else {
-		fmt.Fprintf(output, "openlia health: state=%s result=%s\n", result.State, map[bool]string{true: "ok", false: "failed"}[result.OK])
+		jobSuffix := ""
+		if result.Job != nil {
+			jobSuffix = fmt.Sprintf(" job=%s(%s:%s)", result.Job.ID, result.Job.Kind, result.Job.Status)
+		}
+		fmt.Fprintf(output, "openlia health: state=%s result=%s%s\n", result.State, map[bool]string{true: "ok", false: "failed"}[result.OK], jobSuffix)
 	}
 	if !result.OK {
 		return ExitFailure
 	}
 	return ExitOK
+}
+
+func runJob(ctx context.Context, config Config, args []string, output, errorOutput io.Writer, jsonOutput bool, now time.Time) int {
+	action := "status"
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		action, args = args[0], args[1:]
+	}
+	switch action {
+	case "start":
+		if len(args) == 0 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("job start requires KIND [ARGS...]"))
+		}
+		kind := args[0]
+		jobArgs := args[1:]
+		result, err := StartJob(ctx, config, kind, jobArgs, now)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, result, jsonOutput, fmt.Sprintf("openlia job: id=%s kind=%s status=%s", result.JobID, result.Kind, result.Status))
+	case "run":
+		if len(args) < 2 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("job run requires ID KIND [ARGS...]"))
+		}
+		jobID := args[0]
+		kind := args[1]
+		jobArgs := args[2:]
+		if err := ExecuteJob(ctx, config, jobID, kind, jobArgs, now); err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		record, err := ReadJob(config, jobID)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return emit(output, record, jsonOutput, fmt.Sprintf("openlia job: id=%s kind=%s status=%s", record.ID, record.Kind, record.Status))
+	case "status":
+		if len(args) > 1 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("job status accepts at most one JOB_ID"))
+		}
+		var (
+			record *JobRecord
+			err    error
+		)
+		if len(args) == 1 {
+			record, err = ReadJob(config, args[0])
+		} else {
+			record, err = ReadCurrentJob(config)
+		}
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		if record == nil {
+			return emit(output, map[string]any{"schema": 1, "ok": true, "status": "idle"}, jsonOutput, "openlia job: status=idle")
+		}
+		human := fmt.Sprintf("openlia job: id=%s kind=%s status=%s", record.ID, record.Kind, record.Status)
+		if record.Error != "" {
+			human += " error=" + record.Error
+		}
+		if record.LogTail != "" {
+			human += "\n" + record.LogTail
+		}
+		if jsonOutput {
+			_ = WriteJSON(output, record)
+		} else {
+			fmt.Fprintln(output, human)
+		}
+		if record.Status == JobStatusFailed {
+			return ExitFailure
+		}
+		return ExitOK
+	case "logs":
+		if len(args) > 1 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("job logs accepts at most one JOB_ID"))
+		}
+		jobID := ""
+		if len(args) == 1 {
+			jobID = args[0]
+		} else {
+			record, err := ReadCurrentJob(config)
+			if err != nil {
+				return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+			}
+			if record == nil {
+				return emit(output, map[string]any{"schema": 1, "ok": true, "job_id": "", "logs": ""}, jsonOutput, "openlia job: no active or recent job")
+			}
+			jobID = record.ID
+		}
+		logs, err := ReadJobLog(config, jobID)
+		if err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		if jsonOutput {
+			_ = WriteJSON(output, map[string]any{"schema": 1, "ok": true, "job_id": jobID, "logs": logs})
+			return ExitOK
+		}
+		if logs != "" {
+			if !strings.HasSuffix(logs, "\n") {
+				logs += "\n"
+			}
+			_, _ = io.WriteString(output, logs)
+		}
+		return ExitOK
+	default:
+		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("job requires start, run, status, or logs"))
+	}
+}
+
+func runReconcile(ctx context.Context, config Config, args []string, output, errorOutput io.Writer, jsonOutput bool, now time.Time) int {
+	daemon, args := removeFlag(args, "--daemon")
+	if len(args) != 0 {
+		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("reconcile accepts only --daemon"))
+	}
+	if daemon {
+		if err := RunReconcilerDaemon(ctx, config, 60*time.Second); err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return ExitOK
+	}
+	result, err := ReconcileTick(ctx, config, NewCompose(config, nil), now)
+	if err != nil {
+		return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+	}
+	return emit(output, result, jsonOutput, fmt.Sprintf("openlia reconcile: state=%s restarted=%d ok=%t", result.State, len(result.RestartedServices), result.OK))
 }
 
 func emit(output io.Writer, value any, jsonOutput bool, human string) int {
@@ -482,5 +628,5 @@ Usage:
   openlia-operator <subcommand> [--json]
 
 Subcommands:
-  bootstrap profile backup attachments locho-host auth deploy healthcheck uninstall`)
+  bootstrap profile backup attachments locho-host auth deploy job reconcile healthcheck uninstall`)
 }

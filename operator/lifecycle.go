@@ -70,6 +70,7 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 		if err := WriteState(config, stateStopped); err != nil {
 			return DeployResult{}, err
 		}
+		_ = StopReconcilerDaemon(config)
 		if err := RecordChange(config, "stop", "ok", "", "explicit stop recorded", now); err != nil {
 			return DeployResult{}, err
 		}
@@ -211,6 +212,9 @@ func Deploy(ctx context.Context, config Config, compose Compose, options DeployO
 	if err != nil {
 		return DeployResult{}, err
 	}
+	if state == stateRunning {
+		_ = EnsureReconcilerDaemon(config)
+	}
 	if err := RecordChange(config, options.Action, "ok", backup, "state="+state, now); err != nil {
 		return DeployResult{}, err
 	}
@@ -297,9 +301,12 @@ type HealthResult struct {
 	Schema       int            `json:"schema"`
 	OK           bool           `json:"ok"`
 	State        string         `json:"state"`
+	Cached       bool           `json:"cached,omitempty"`
+	CachedAt     string         `json:"cached_at,omitempty"`
 	Checks       []RuntimeCheck `json:"checks"`
 	Secrets      string         `json:"secrets"`
 	Capabilities string         `json:"capabilities"`
+	Job          *JobRecord     `json:"job,omitempty"`
 }
 
 func Healthcheck(ctx context.Context, config Config, compose Compose, allowStopped, providerCheck bool) (HealthResult, error) {
@@ -506,5 +513,6 @@ func Healthcheck(ctx context.Context, config Config, compose Compose, allowStopp
 			add("services_registry", false, "missing")
 		}
 	}
+	_ = WriteHealthSnapshot(config, result, time.Now().UTC())
 	return result, nil
 }

@@ -27,17 +27,24 @@ type Remote struct {
 	Config Config
 }
 
+type bundleFile struct {
+	RelativePath string
+	Data         []byte
+	Mode         os.FileMode
+}
+
 type deployment interface {
 	rootPath(parts ...string) string
 	uploadFile(ctx context.Context, source, destination string, mode os.FileMode) error
 	downloadFile(ctx context.Context, source, destination string) error
 	removeFile(ctx context.Context, destination string) error
+	syncBundle(ctx context.Context, files []bundleFile, removals []string) error
 	uploadRelease(ctx context.Context, archive []byte, digest string) error
 	activateRelease(ctx context.Context) error
 	releaseDigest(ctx context.Context) (string, error)
 	bootstrap(ctx context.Context) ([]byte, error)
 	deploy(ctx context.Context, action string, start bool, component string) ([]byte, error)
-	health(ctx context.Context, allowStopped, providerCheck bool) ([]byte, error)
+	health(ctx context.Context, allowStopped, providerCheck, cached bool) ([]byte, error)
 	operation(ctx context.Context, script string, input []byte, args ...string) ([]byte, error)
 	uninstall(ctx context.Context) ([]byte, error)
 	composeLogs(ctx context.Context, follow bool) ([]byte, error)
@@ -226,7 +233,7 @@ func (remote Remote) operation(ctx context.Context, script string, input []byte,
 
 func remoteOperationReadOnly(script string, args []string) bool {
 	switch filepath.ToSlash(script) {
-	case "healthcheck", "locho-host":
+	case "healthcheck", "locho-host", "job":
 		return true
 	default:
 		return false
@@ -298,6 +305,10 @@ func operatorArguments(operation string, args []string) ([]string, bool) {
 		command = "healthcheck"
 	case "uninstall", "ops/uninstall.sh":
 		command = "uninstall"
+	case "job":
+		command = "job"
+	case "reconcile":
+		command = "reconcile"
 	default:
 		return nil, false
 	}
@@ -305,7 +316,12 @@ func operatorArguments(operation string, args []string) ([]string, bool) {
 }
 
 func operatorOnlyOperation(operation string) bool {
-	return false
+	switch filepath.ToSlash(operation) {
+	case "job", "reconcile":
+		return true
+	default:
+		return false
+	}
 }
 
 func legacyOperationScript(operation string) string {
@@ -410,13 +426,16 @@ func (remote Remote) deploy(ctx context.Context, action string, start bool, comp
 	return remote.operation(ctx, "deploy", nil, args...)
 }
 
-func (remote Remote) health(ctx context.Context, allowStopped, providerCheck bool) ([]byte, error) {
+func (remote Remote) health(ctx context.Context, allowStopped, providerCheck, cached bool) ([]byte, error) {
 	args := []string{"--json"}
 	if allowStopped {
 		args = append(args, "--allow-stopped")
 	}
 	if providerCheck {
 		args = append(args, "--provider-check")
+	}
+	if cached {
+		args = append(args, "--cached")
 	}
 	return remote.operation(ctx, "healthcheck", nil, args...)
 }
@@ -852,13 +871,16 @@ func (local Local) deploy(ctx context.Context, action string, start bool, compon
 	return local.operation(ctx, "deploy", nil, args...)
 }
 
-func (local Local) health(ctx context.Context, allowStopped, providerCheck bool) ([]byte, error) {
+func (local Local) health(ctx context.Context, allowStopped, providerCheck, cached bool) ([]byte, error) {
 	args := []string{"--json"}
 	if allowStopped {
 		args = append(args, "--allow-stopped")
 	}
 	if providerCheck {
 		args = append(args, "--provider-check")
+	}
+	if cached {
+		args = append(args, "--cached")
 	}
 	return local.operation(ctx, "healthcheck", nil, args...)
 }
@@ -1046,6 +1068,206 @@ func (remote Remote) removeFile(ctx context.Context, destination string) error {
 	command := "if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then sudo -n rm -f -- " + shellQuote(destination) + "; else rm -f -- " + shellQuote(destination) + "; fi"
 	_, err := remote.lockedSSH(ctx, command, nil)
 	return err
+}
+
+func cleanBundleRelativePath(rel string) (string, error) {
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if clean == "." || clean == "" || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid bundle relative path %q", rel)
+	}
+	return clean, nil
+}
+
+func targetOperatorConfigBundleFile(config Config) (bundleFile, error) {
+	operationRoot := filepath.Join(config.InstallRoot, "releases", config.Version)
+	envMap := make(map[string]string)
+	for _, item := range operationEnvironment(config, operationRoot) {
+		k, v, ok := strings.Cut(item, "=")
+		if ok {
+			envMap[k] = v
+		}
+	}
+	if config.Mode != "local" {
+		envMap["OPENLIA_LOCAL_MODE"] = "false"
+		envMap["OPENLIA_RUNTIME_UID"] = "10000"
+		envMap["OPENLIA_RUNTIME_GID"] = "10000"
+		knownHosts := config.BackupKnownHosts
+		if knownHosts == "" {
+			knownHosts = "/root/.ssh/known_hosts"
+		}
+		envMap["OPENLIA_BACKUP_KNOWN_HOSTS_SOURCE"] = knownHosts
+	}
+	opCfg, err := operator.LoadConfigFromEnv(envMap)
+	if err != nil {
+		return bundleFile{}, fmt.Errorf("build target operator config: %w", err)
+	}
+	opCfg.OperatorConfigFile = filepath.Join(config.InstallRoot, "runtime", "meta", "operator-config.json")
+	data, err := json.MarshalIndent(opCfg, "", "  ")
+	if err != nil {
+		return bundleFile{}, fmt.Errorf("marshal target operator config: %w", err)
+	}
+	return bundleFile{
+		RelativePath: "runtime/meta/operator-config.json",
+		Data:         append(data, '\n'),
+		Mode:         0o600,
+	}, nil
+}
+
+func packBundleArchive(files []bundleFile) ([]byte, error) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	now := time.Unix(0, 0)
+	for _, f := range files {
+		clean, err := cleanBundleRelativePath(f.RelativePath)
+		if err != nil {
+			return nil, err
+		}
+		mode := f.Mode.Perm()
+		if mode == 0 {
+			mode = 0o600
+		}
+		header := &tar.Header{
+			Name:     filepath.ToSlash(clean),
+			Mode:     int64(mode),
+			Size:     int64(len(f.Data)),
+			ModTime:  now,
+			Typeflag: tar.TypeReg,
+		}
+		if err := tw.WriteHeader(header); err != nil {
+			return nil, err
+		}
+		if _, err := tw.Write(f.Data); err != nil {
+			return nil, err
+		}
+	}
+	if err := tw.Close(); err != nil {
+		return nil, err
+	}
+	if err := gz.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func (remote Remote) syncBundle(ctx context.Context, files []bundleFile, removals []string) error {
+	if len(files) == 0 && len(removals) == 0 {
+		return nil
+	}
+	if err := validateAbsoluteRoot(remote.Config.InstallRoot, "install root"); err != nil {
+		return err
+	}
+	var statements []string
+	statements = append(statements, "set -eu", "umask 077")
+	for _, rem := range removals {
+		clean, err := cleanBundleRelativePath(rem)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(remote.Config.InstallRoot, clean)
+		statements = append(statements, "rm -f -- "+shellQuote(target))
+	}
+	var archive []byte
+	if len(files) > 0 {
+		var err error
+		archive, err = packBundleArchive(files)
+		if err != nil {
+			return err
+		}
+		seenDirs := map[string]bool{}
+		var dirArgs []string
+		var chmodCmds []string
+		for _, f := range files {
+			clean, err := cleanBundleRelativePath(f.RelativePath)
+			if err != nil {
+				return err
+			}
+			target := filepath.Join(remote.Config.InstallRoot, clean)
+			dir := filepath.Dir(target)
+			if !seenDirs[dir] {
+				seenDirs[dir] = true
+				dirArgs = append(dirArgs, shellQuote(dir))
+			}
+			mode := f.Mode.Perm()
+			if mode == 0 {
+				mode = 0o600
+			}
+			chmodCmds = append(chmodCmds, fmt.Sprintf("chmod %o %s", mode, shellQuote(target)))
+		}
+		if len(dirArgs) > 0 {
+			statements = append(statements, "mkdir -p -m 700 "+strings.Join(dirArgs, " "))
+		}
+		statements = append(statements, "tar -xzf - -m -C "+shellQuote(remote.Config.InstallRoot))
+		statements = append(statements, chmodCmds...)
+	}
+	rootCommand := strings.Join(statements, "; ")
+	_, err := remote.lockedSSHReader(ctx, rootCommand, bytes.NewReader(archive))
+	return err
+}
+
+func (local Local) syncBundle(ctx context.Context, files []bundleFile, removals []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(files) == 0 && len(removals) == 0 {
+		return nil
+	}
+	if err := validateAbsoluteRoot(local.Config.InstallRoot, "install root"); err != nil {
+		return err
+	}
+	for _, rem := range removals {
+		clean, err := cleanBundleRelativePath(rem)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(local.Config.InstallRoot, clean)
+		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	for _, f := range files {
+		clean, err := cleanBundleRelativePath(f.RelativePath)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(local.Config.InstallRoot, clean)
+		mode := f.Mode.Perm()
+		if mode == 0 {
+			mode = 0o600
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return err
+		}
+		tmp, err := os.CreateTemp(filepath.Dir(target), ".openlia-bundle-*")
+		if err != nil {
+			return err
+		}
+		tmpName := tmp.Name()
+		if err := tmp.Chmod(mode); err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpName)
+			return err
+		}
+		if _, err := tmp.Write(f.Data); err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpName)
+			return err
+		}
+		if err := tmp.Sync(); err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpName)
+			return err
+		}
+		if err := tmp.Close(); err != nil {
+			_ = os.Remove(tmpName)
+			return err
+		}
+		if err := os.Rename(tmpName, target); err != nil {
+			_ = os.Remove(tmpName)
+			return err
+		}
+	}
+	return nil
 }
 
 func remoteContext() (context.Context, context.CancelFunc) {

@@ -266,3 +266,90 @@ func TestLegacyUninstallFallbackIsRootAware(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalSyncBundleWritesFilesAtomicallyAndRemovesStalePaths(t *testing.T) {
+	installRoot := filepath.Join(t.TempDir(), "openlia")
+	staleFile := filepath.Join(installRoot, "runtime", "locho", "relay.toml")
+	if err := os.MkdirAll(filepath.Dir(staleFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staleFile, []byte("stale\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	config := defaultConfig()
+	config.Mode = "local"
+	config.InstallRoot = installRoot
+	local := Local{Config: config}
+
+	files := []bundleFile{
+		{RelativePath: "runtime/meta/.incoming/secrets.env", Data: []byte("COPILOT_GITHUB_TOKEN=gho_test\n"), Mode: 0o600},
+		{RelativePath: "runtime/meta/.incoming/attachments/laptop.toml", Data: []byte("host_id = \"h1\"\n"), Mode: 0o600},
+	}
+	removals := []string{"runtime/locho/relay.toml"}
+
+	if err := local.syncBundle(context.Background(), files, removals); err != nil {
+		t.Fatalf("Local.syncBundle failed: %v", err)
+	}
+	if _, err := os.Stat(staleFile); !os.IsNotExist(err) {
+		t.Fatalf("stale file was not removed: %v", err)
+	}
+	for _, f := range files {
+		target := filepath.Join(installRoot, filepath.FromSlash(f.RelativePath))
+		got, err := os.ReadFile(target)
+		if err != nil || string(got) != string(f.Data) {
+			t.Fatalf("synced file %s = %q, err = %v", f.RelativePath, got, err)
+		}
+		info, err := os.Stat(target)
+		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("synced file %s mode = %v, err = %v", f.RelativePath, info, err)
+		}
+	}
+}
+
+func TestRemoteSyncBundleStreamsSingleArchiveOverSSH(t *testing.T) {
+	bin := t.TempDir()
+	archiveOut := filepath.Join(t.TempDir(), "bundle.tar.gz")
+	cmdOut := filepath.Join(t.TempDir(), "ssh-cmd.txt")
+	ssh := filepath.Join(bin, "ssh")
+	script := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$*\" > \"$SSH_CMD_OUT\"\n" +
+		"cat > \"$BUNDLE_ARCHIVE_OUT\"\n"
+	if err := os.WriteFile(ssh, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SSH_CMD_OUT", cmdOut)
+	t.Setenv("BUNDLE_ARCHIVE_OUT", archiveOut)
+
+	config := defaultConfig()
+	config.Target = "operator@example.test"
+	config.InstallRoot = "/srv/openlia"
+	remote := Remote{Config: config}
+
+	files := []bundleFile{
+		{RelativePath: "runtime/meta/.incoming/secrets.env", Data: []byte("COPILOT_GITHUB_TOKEN=gho_test\n"), Mode: 0o600},
+	}
+	removals := []string{"runtime/locho/relay.toml"}
+	if err := remote.syncBundle(context.Background(), files, removals); err != nil {
+		t.Fatalf("Remote.syncBundle failed: %v", err)
+	}
+
+	cmdText, err := os.ReadFile(cmdOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"rm -f -- '/srv/openlia/runtime/locho/relay.toml'",
+		"tar -xzf - -m -C '/srv/openlia'",
+		"chmod 600 '/srv/openlia/runtime/meta/.incoming/secrets.env'",
+	} {
+		if !strings.Contains(string(cmdText), expected) {
+			t.Fatalf("Remote.syncBundle SSH command missing %q:\n%s", expected, string(cmdText))
+		}
+	}
+	archiveStat, err := os.Stat(archiveOut)
+	if err != nil || archiveStat.Size() == 0 {
+		t.Fatalf("expected non-empty tar.gz bundle streamed to SSH stdin, stat=%v err=%v", archiveStat, err)
+	}
+}

@@ -36,9 +36,28 @@ func commandBackup(options Options, args []string) int {
 		if err := validateBackupIdentity(config.BackupIdentityFile, config.BackupRecipient); err != nil {
 			return fail(options, ExitPrereq, "operator recovery identity is not ready: "+err.Error(), nil)
 		}
-		raw, err := deployment.operation(ctx, "backup", nil, "create", "--json")
+		if err := syncBackupWriterCredentials(ctx, deployment, config); err != nil {
+			return fail(options, ExitFailure, "could not stage backup writer credentials: "+err.Error(), nil)
+		}
+		raw, err := deployment.operation(ctx, "job", nil, "start", "backup-create", "--json")
 		if err != nil {
 			return fail(options, ExitFailure, err.Error(), nil)
+		}
+		if options.Wait {
+			var startRes operator.JobStartResult
+			if json.Unmarshal(raw, &startRes) == nil && startRes.JobID != "" {
+				record, waitErr := waitForJob(ctx, deployment, startRes.JobID)
+				if waitErr != nil {
+					return fail(options, ExitFailure, waitErr.Error(), map[string]any{"job_id": startRes.JobID})
+				}
+				if record.Result != nil {
+					record.Result["job_id"] = record.ID
+					record.Result["status"] = record.Status
+					if encoded, mErr := json.Marshal(record.Result); mErr == nil {
+						raw = encoded
+					}
+				}
+			}
 		}
 		return renderRemote(options, raw, redact(string(raw)))
 	case "restore":
@@ -80,13 +99,29 @@ func commandBackup(options Options, args []string) int {
 		if archiveName != "" && (filepath.Base(archiveName) != archiveName || !strings.HasPrefix(archiveName, "openlia-") || !strings.HasSuffix(archiveName, ".tar.gz.age")) {
 			return fail(options, ExitUsage, "backup push archive must be an encrypted durable filename", nil)
 		}
-		operatorArgs := []string{"push", "--json"}
+		operatorArgs := []string{"start", "backup-push", "--json"}
 		if archiveName != "" {
 			operatorArgs = append(operatorArgs, "--archive", deployment.rootPath("runtime", "backups", archiveName))
 		}
-		raw, err := deployment.operation(ctx, "backup", nil, operatorArgs...)
+		raw, err := deployment.operation(ctx, "job", nil, operatorArgs...)
 		if err != nil {
 			return fail(options, ExitFailure, err.Error(), nil)
+		}
+		if options.Wait {
+			var startRes operator.JobStartResult
+			if json.Unmarshal(raw, &startRes) == nil && startRes.JobID != "" {
+				record, waitErr := waitForJob(ctx, deployment, startRes.JobID)
+				if waitErr != nil {
+					return fail(options, ExitFailure, waitErr.Error(), map[string]any{"job_id": startRes.JobID})
+				}
+				if record.Result != nil {
+					record.Result["job_id"] = record.ID
+					record.Result["status"] = record.Status
+					if encoded, mErr := json.Marshal(record.Result); mErr == nil {
+						raw = encoded
+					}
+				}
+			}
 		}
 		return renderRemote(options, raw, redact(string(raw)))
 	case "keygen":
