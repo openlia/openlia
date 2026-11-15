@@ -8,12 +8,12 @@ We value changes that are **small, reviewable, deterministic to test, and explic
 
 ## 1. Where to Start
 
-| If you want to work on... | Read this first | Key directories |
-| :--- | :--- | :--- |
-| **Overall system & codebase layout** | [System Architecture (`docs/architecture.md`)](docs/architecture.md) | Root, `cli/`, `operator/`, `packages/openlia-browser/`, `profile/` |
-| **Go CLI & target operator** | [System Architecture (`docs/architecture.md`)](docs/architecture.md) | `main.go`, `cli/`, `operator/`, `cmd/`, `internal/` |
-| **Playwright MCP Browser Relay** | [`packages/openlia-browser/README.md`](packages/openlia-browser/README.md) | `packages/openlia-browser/` |
-| **End-to-end & smoke verification** | [`tests/README.md`](tests/README.md) & [E2E Drills (`docs/e2e-drills.md`)](docs/e2e-drills.md) | `tests/`, `examples/profiles/dev/` |
+| If you want to work on...            | Read this first                                                                                | Key directories                                                    |
+| :----------------------------------- | :--------------------------------------------------------------------------------------------- | :----------------------------------------------------------------- |
+| **Overall system & codebase layout** | [System Architecture (`docs/architecture.md`)](docs/architecture.md)                           | Root, `cli/`, `operator/`, `packages/openlia-browser/`, `profile/` |
+| **Go CLI & target operator**         | [System Architecture (`docs/architecture.md`)](docs/architecture.md)                           | `main.go`, `cli/`, `operator/`, `cmd/`, `internal/`                |
+| **Playwright MCP Browser Relay**     | [`packages/openlia-browser/README.md`](packages/openlia-browser/README.md)                     | `packages/openlia-browser/`                                        |
+| **End-to-end & smoke verification**  | [`tests/README.md`](tests/README.md) & [E2E Drills (`docs/e2e-drills.md`)](docs/e2e-drills.md) | `tests/`, `examples/profiles/dev/`                                 |
 
 ---
 
@@ -56,35 +56,56 @@ Note: Clean-checkout builds and Go tests require `make build` (or `bun run verif
 ## 4. Component Development Workflows
 
 ### A. Go CLI & Operator (`cli/`, `operator/`, `cmd/`, `internal/`)
+
 ```bash
 go test ./...     # Run all Go unit tests
 make format       # Format TS/JS with Biome and Go files with `gofmt -w`
 make lint         # Check formatting, `go vet`, TypeScript, and shell scripts
 ```
+
 - Keep unit tests fast, hermetic, and offline using `fstest.MapFS{}` and `recordedRunner`.
 - Always sanitize file and archive paths to prevent path traversal outside workspace or backup roots.
 
 ### B. OpenLia Browser Relay (`packages/openlia-browser/`)
+
 ```bash
 bun run build:openlia-browser  # Bundle packages/openlia-browser/dist/server.js
 bun run test                   # Run Playwright MCP relay & lease unit tests
 bun run typecheck              # TypeScript typechecking
 ```
+
 See [`packages/openlia-browser/README.md`](packages/openlia-browser/README.md) for lease and idempotency semantics.
 
 ### C. Release Manifest & Version Pins (`release/manifest.json`)
+
 Runtime component pins have a single source of truth in [`release/manifest.json`](release/manifest.json).
+
 - After editing `release/manifest.json`, synchronize the managed Docker/Compose files and verify:
+
   ```bash
   go run ./cmd/release-manifest sync
   go run ./cmd/release-manifest check
   ```
+
 - For local experiments with a custom Hermes image tag/digest, use a local `config.toml` override instead of editing `release/manifest.json`:
+
   ```toml
   [components]
   hermes_tag = "v2026.9.14"
   hermes_digest = "sha256:<Hermes image digest>"
   ```
+
+### D. Documentation (`docs/`, `*.md`)
+
+```bash
+bun run docs:format     # Format all Markdown files with Prettier
+bun run docs:lint       # Lint Markdown with markdownlint-cli2
+bun run docs:lint:fix   # Auto-fix fixable Markdown lint issues
+bun run docs:check      # Check Markdown formatting and linting
+```
+
+- Documentation linting and formatting is integrated into `make fmt` and `make lint`.
+- The git pre-commit hook automatically formats and lints staged `*.md` files.
 
 ---
 
@@ -109,6 +130,7 @@ make smoke-local-live \
   OPENLIA_SMOKE_ATTACHMENTS_FILE="$HOME/.config/openlia/dev/locho-attachments.toml" \
   OPENLIA_SMOKE_LOCHO_HOST=genai
 ```
+
 See [`tests/README.md`](tests/README.md) and [`docs/e2e-drills.md`](docs/e2e-drills.md) for complete verification procedures.
 
 ---
@@ -116,6 +138,7 @@ See [`tests/README.md`](tests/README.md) and [`docs/e2e-drills.md`](docs/e2e-dri
 ## 6. Pull Request & Commit Guidelines
 
 ### Checklist Before Submitting
+
 - [ ] Approval boundaries and secret-handling safeguards are preserved.
 - [ ] Automated tests are added or updated for any behavior change.
 - [ ] `make test`, `make lint`, and `make smoke` pass locally.
@@ -123,6 +146,7 @@ See [`tests/README.md`](tests/README.md) and [`docs/e2e-drills.md`](docs/e2e-dri
 - [ ] `git status` and `git diff --staged` are reviewed to confirm no local configs, secrets, or generated test artifacts are staged.
 
 ### Commit Message Convention
+
 Use concise [Conventional Commits](https://www.conventionalcommits.org/) for repository changes:
 
 ```text

@@ -56,6 +56,7 @@ name = "<another-host>"
 ```
 
 Supported roles:
+
 - `openlia-browser`: Host-local Playwright supervisor and MCP proxy. Wires `OPENLIA_BROWSER_MCP_URL`, registers the attached proxy's Streamable HTTP `/mcp` endpoint directly with Hermes, and disables Hermes' native browser toolset. Legacy `/sse` and `/messages` requests are rejected.
 - `openai-gateway`: OpenAI-compatible local model/gateway (e.g. Ollama, vLLM, GenAI). Declare its explicit `/v1` URL in the matching `fallback_providers` entry.
 

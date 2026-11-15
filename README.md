@@ -48,17 +48,20 @@ Operator Machine (macOS / Linux Workstation)
 All CLI commands accept `--config <path>` (or the `OPENLIA_CONFIG=<path>` environment variable) to select an operator configuration file (default: `~/.config/openlia/config.toml`).
 
 ### Lifecycle Commands
-- `openlia deploy [--release]` — Provision and bootstrap uninitialized targets, sync configuration/secrets, and start or update the Compose stack (`--release` uploads and activates the bundled release on existing targets).
-- `openlia start` / `openlia stop` / `openlia restart` — Control the deployed Compose stack.
-- `openlia status [--check-providers]` — Inspect container health, secret permissions, runtime directories, and optional live provider reachability (`--check-providers`).
+
+- `openlia deploy [--release] [--wait]` — Provision and bootstrap uninitialized targets, sync configuration/secrets, and start or update the Compose stack asynchronously (`--release` uploads and activates the bundled release on existing targets; `--wait` waits for consolidation to finish).
+- `openlia start [--wait]` / `openlia stop [--wait]` / `openlia restart [--wait]` — Control the deployed Compose stack via the single target consolidation runner.
+- `openlia status [--live] [--check-providers]` — Inspect container health, active/last consolidation state, secret permissions, runtime directories, and optional live provider reachability (`--check-providers`).
 - `openlia logs [--follow]` — Tail or stream container logs.
 - `openlia uninstall` — Tear down containers and remove the installation root while preserving remote backups and local Age recovery keys.
 
 ### Authentication & Capability Commands
-- `openlia auth [--oidc | rotate]` — Configure Hermes Dashboard Basic Auth (`openlia auth`) or OIDC / GCP OAuth / Auth0 (`openlia auth --oidc`) in your mode-`0600` secret source, or rotate deployed runtime secrets (`openlia auth rotate`).
-- `openlia locho-host <share|rotate>` — Export a mode-`0600` client attachment file (`share --output <file>`) or rotate `hermes-api` (`:8642`) and `hermes-dashboard` (`:9119`) capabilities (`rotate --service <all|hermes-api|hermes-dashboard>`).
-- `openlia attachments <list|rotate|map>` — Inspect attached Locho hosts, rotate a host's `attachments.toml`, or map discovered services to roles (`openlia-browser`, `openai-gateway`).
-- `openlia backup <keygen|create|status|list|push|restore|rollback-restore|schedule>` — Manage Age-encrypted backups, off-box S3/rsync replication, and automated cron schedules.
+
+- `openlia auth [--oidc]` — Configure Hermes Dashboard Basic Auth (`openlia auth`) or OIDC / GCP OAuth / Auth0 (`openlia auth --oidc`) in your mode-`0600` secret source (run `openlia deploy` to apply).
+- `openlia auth api-key-rotate` — Generate and store a new Hermes API key in your mode-`0600` secret source without printing it (run `openlia deploy` to apply).
+- `openlia locho-host share --output <file>` — Export a mode-`0600` client attachment file for `hermes-api` (`:8642`) and `hermes-dashboard` (`:9119`).
+- `openlia attachments <list|map>` — Inspect attached Locho hosts or map discovered services to roles (`openlia-browser`, `openai-gateway`) in `config.toml` (run `openlia deploy` to apply).
+- `openlia backup <keygen|create|status|list|push|restore>` — Manage Age-encrypted backups and off-box S3/rsync replication.
 - `openlia browser <configure|install|start|stop|restart|status|logs|uninstall>` — Manage the `openlia-browser` Playwright MCP relay service.
 
 ---
@@ -72,6 +75,7 @@ make install
 ```
 
 Ensure `~/.local/bin` is on your `PATH`:
+
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 ```
@@ -94,11 +98,13 @@ chmod 600 ~/.config/openlia/secrets.env
 ### 3. Configure Hermes Dashboard Authentication
 
 Configure Basic Auth (username & password):
+
 ```bash
 openlia auth --config ~/.config/openlia/config.toml
 ```
 
 Or configure OIDC (GCP OAuth or Auth0):
+
 ```bash
 openlia auth --oidc --config ~/.config/openlia/config.toml
 ```
@@ -117,8 +123,8 @@ When `[locho-host] enabled = true` is set in `config.toml`, export client capabi
 ```bash
 openlia locho-host share --output ~/.config/openlia/locho-attachments.toml --config ~/.config/openlia/config.toml
 locho attach --config ~/.config/openlia/locho-attachments.toml
-# Hermes Dashboard: http://127.0.0.1:19119
-# Hermes API Server: http://127.0.0.1:18642
+# Hermes Dashboard: http://127.0.0.1:9119
+# Hermes API Server: http://127.0.0.1:8642
 ```
 
 ---

@@ -298,15 +298,15 @@ func composeServices(ctx context.Context, compose Compose) []string {
 }
 
 type HealthResult struct {
-	Schema       int            `json:"schema"`
-	OK           bool           `json:"ok"`
-	State        string         `json:"state"`
-	Cached       bool           `json:"cached,omitempty"`
-	CachedAt     string         `json:"cached_at,omitempty"`
-	Checks       []RuntimeCheck `json:"checks"`
-	Secrets      string         `json:"secrets"`
-	Capabilities string         `json:"capabilities"`
-	Job          *JobRecord     `json:"job,omitempty"`
+	Schema        int                  `json:"schema"`
+	OK            bool                 `json:"ok"`
+	State         string               `json:"state"`
+	Cached        bool                 `json:"cached,omitempty"`
+	CachedAt      string               `json:"cached_at,omitempty"`
+	Checks        []RuntimeCheck       `json:"checks"`
+	Secrets       string               `json:"secrets"`
+	Capabilities  string               `json:"capabilities"`
+	Consolidation *ConsolidationRecord `json:"consolidation,omitempty"`
 }
 
 func Healthcheck(ctx context.Context, config Config, compose Compose, allowStopped, providerCheck bool) (HealthResult, error) {

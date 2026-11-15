@@ -1,0 +1,8 @@
+**/node_modules/
+**/.venv/
+**/.pytest_cache/
+**/.artifacts/
+**/dist/
+local/
+.playwright-mcp/
+bun.lock

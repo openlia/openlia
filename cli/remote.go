@@ -208,19 +208,15 @@ func (remote Remote) operationCommandForRoot(operationRoot, operation string, ar
 		"OPENLIA_SERVICE_ROLES=" + shellQuote(renderServicesJSON(remote.Config.Services)),
 		"OPENLIA_CONFIGURED_HOSTS=" + shellQuote(configuredHosts(remote.Config.Services)),
 	}
-	legacyScript := legacyOperationScript(operation)
-	scriptCommand := shellQuote(filepath.Join(operationRoot, legacyScript))
-	if operatorArgs, ok := operatorArguments(operation, args); ok {
-		operatorPaths := map[string]string{
-			"amd64": filepath.Join(operationRoot, "operator", "linux-amd64", "openlia-operator"),
-			"arm64": filepath.Join(operationRoot, "operator", "linux-arm64", "openlia-operator"),
-		}
-		if operatorOnlyOperation(operation) {
-			return "operator_path=''; case \"$(uname -m)\" in x86_64|amd64) operator_path=" + shellQuote(operatorPaths["amd64"]) + ";; aarch64|arm64) operator_path=" + shellQuote(operatorPaths["arm64"]) + ";; esac; if [ -n \"$operator_path\" ] && { [ -x \"$operator_path\" ] || (command -v sudo >/dev/null 2>&1 && sudo -n test -x \"$operator_path\"); }; then " + privilegedEnvironmentCommand(environment, "\"$operator_path\"", operatorArgs...) + "; else printf '%s\\n' 'OpenLia Go operator is required for this operation' >&2; exit 3; fi"
-		}
-		return "operator_path=''; case \"$(uname -m)\" in x86_64|amd64) operator_path=" + shellQuote(operatorPaths["amd64"]) + ";; aarch64|arm64) operator_path=" + shellQuote(operatorPaths["arm64"]) + ";; esac; if [ -n \"$operator_path\" ] && { [ -x \"$operator_path\" ] || (command -v sudo >/dev/null 2>&1 && sudo -n test -x \"$operator_path\"); }; then " + privilegedEnvironmentCommand(environment, "\"$operator_path\"", operatorArgs...) + "; else " + privilegedEnvironmentCommand(environment, scriptCommand, args...) + "; fi"
+	operatorArgs, ok := operatorArguments(operation, args)
+	if !ok {
+		operatorArgs = append([]string{operation}, args...)
 	}
-	return privilegedEnvironmentCommand(environment, scriptCommand, args...)
+	operatorPaths := map[string]string{
+		"amd64": filepath.Join(operationRoot, "operator", "linux-amd64", "openlia-operator"),
+		"arm64": filepath.Join(operationRoot, "operator", "linux-arm64", "openlia-operator"),
+	}
+	return "operator_path=''; case \"$(uname -m)\" in x86_64|amd64) operator_path=" + shellQuote(operatorPaths["amd64"]) + ";; aarch64|arm64) operator_path=" + shellQuote(operatorPaths["arm64"]) + ";; esac; if [ -n \"$operator_path\" ] && { [ -x \"$operator_path\" ] || (command -v sudo >/dev/null 2>&1 && sudo -n test -x \"$operator_path\"); }; then " + privilegedEnvironmentCommand(environment, "\"$operator_path\"", operatorArgs...) + "; else printf '%s\\n' 'OpenLia Go operator is required for this operation' >&2; exit 3; fi"
 }
 
 func (remote Remote) operation(ctx context.Context, script string, input []byte, args ...string) ([]byte, error) {
@@ -233,7 +229,7 @@ func (remote Remote) operation(ctx context.Context, script string, input []byte,
 
 func remoteOperationReadOnly(script string, args []string) bool {
 	switch filepath.ToSlash(script) {
-	case "healthcheck", "locho-host", "job":
+	case "healthcheck", "status", "locho-host", "reconcile":
 		return true
 	default:
 		return false
@@ -287,26 +283,26 @@ func unprivilegedEnvironment(environment []string) []string {
 func operatorArguments(operation string, args []string) ([]string, bool) {
 	var command string
 	switch filepath.ToSlash(operation) {
-	case "bootstrap", "ops/bootstrap.sh":
+	case "bootstrap":
 		command = "bootstrap"
-	case "profile", "ops/profile.sh":
+	case "profile":
 		command = "profile"
-	case "backup", "ops/backup.sh":
+	case "backup":
 		command = "backup"
-	case "attachments", "ops/attachments.sh":
+	case "attachments":
 		command = "attachments"
 	case "locho-host":
 		command = "locho-host"
-	case "auth", "ops/auth.sh":
+	case "auth":
 		command = "auth"
-	case "deploy", "ops/deploy.sh":
+	case "deploy":
 		command = "deploy"
-	case "healthcheck", "ops/healthcheck.sh":
+	case "healthcheck":
 		command = "healthcheck"
-	case "uninstall", "ops/uninstall.sh":
+	case "status":
+		command = "status"
+	case "uninstall":
 		command = "uninstall"
-	case "job":
-		command = "job"
 	case "reconcile":
 		command = "reconcile"
 	default:
@@ -315,44 +311,11 @@ func operatorArguments(operation string, args []string) ([]string, bool) {
 	return append([]string{command}, args...), true
 }
 
-func operatorOnlyOperation(operation string) bool {
-	switch filepath.ToSlash(operation) {
-	case "job", "reconcile":
-		return true
-	default:
-		return false
-	}
-}
-
-func legacyOperationScript(operation string) string {
-	switch operation {
-	case "bootstrap", "ops/bootstrap.sh":
-		return "ops/bootstrap.sh"
-	case "profile", "ops/profile.sh":
-		return "ops/profile.sh"
-	case "backup", "ops/backup.sh":
-		return "ops/backup.sh"
-	case "attachments", "ops/attachments.sh":
-		return "ops/attachments.sh"
-	case "auth", "ops/auth.sh":
-		return "ops/auth.sh"
-	case "deploy", "ops/deploy.sh":
-		return "ops/deploy.sh"
-	case "healthcheck", "ops/healthcheck.sh":
-		return "ops/healthcheck.sh"
-	case "uninstall", "ops/uninstall.sh":
-		return "ops/uninstall.sh"
-	default:
-		return operation
-	}
-}
-
 func (remote Remote) uninstall(ctx context.Context) ([]byte, error) {
 	current := remote.rootPath("current")
-	script := filepath.Join(current, "ops", "uninstall.sh")
 	operatorAMD64 := filepath.Join(current, "operator", "linux-amd64", "openlia-operator")
 	operatorARM64 := filepath.Join(current, "operator", "linux-arm64", "openlia-operator")
-	command := "if [ -x " + shellQuote(operatorAMD64) + " ] || [ -x " + shellQuote(operatorARM64) + " ] || [ -x " + shellQuote(script) + " ]; then " +
+	command := "if [ -x " + shellQuote(operatorAMD64) + " ] || [ -x " + shellQuote(operatorARM64) + " ]; then " +
 		remote.operationCommandForRoot(current, "uninstall", "--json") +
 		"; else " + privilegedCommand(remote.legacyUninstallCommand(current)) + "; fi"
 	result, err := remote.lockedSSH(ctx, command, nil)

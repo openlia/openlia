@@ -455,6 +455,9 @@ func ensureAPIServerEnv(config Config, path string) error {
 	if err := ensureSecretDirectory(config); err != nil {
 		return err
 	}
+	if err := syncHermesAPIKey(config, apiKey); err != nil {
+		return fmt.Errorf("persist Hermes API credential: %w", err)
+	}
 	lines := []string{"API_SERVER_KEY=" + apiKey}
 	if config.LochoHostEnabled {
 		oidcIssuer, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_OIDC_ISSUER")
@@ -919,30 +922,58 @@ func ensureHermesAPIKey(config Config) (string, error) {
 		}
 	}
 
-	if apiKey != "" && config.DataRoot != "" {
-		if _, statErr := os.Stat(config.DataRoot); statErr == nil {
-			hermesKey, _ := readSecretValue(hermesDotEnv, "API_SERVER_KEY")
-			if hermesKey != apiKey {
-				currentDotEnv, readErr := os.ReadFile(hermesDotEnv)
-				if os.IsNotExist(readErr) {
-					currentDotEnv = []byte{}
-				} else if readErr != nil {
-					return "", fmt.Errorf("read Hermes environment: %w", readErr)
-				}
-				dotEnvText := string(currentDotEnv)
-				if !strings.HasSuffix(dotEnvText, "\n") && len(dotEnvText) > 0 {
-					dotEnvText += "\n"
-				}
-				dotEnvText += fmt.Sprintf("API_SERVER_KEY=%s\n", apiKey)
-				if writeErr := AtomicWriteFile(hermesDotEnv, []byte(dotEnvText), 0o600); writeErr != nil {
-					return "", writeErr
-				}
-				if ownerErr := ensureRuntimeOwner(hermesDotEnv, config.RuntimeUID, config.RuntimeGID, 0o600); ownerErr != nil {
-					return "", ownerErr
-				}
-			}
-		}
+	if err := syncHermesAPIKey(config, apiKey); err != nil {
+		return "", err
 	}
 
 	return apiKey, nil
+}
+
+func syncHermesAPIKey(config Config, apiKey string) error {
+	if apiKey == "" || config.DataRoot == "" {
+		return nil
+	}
+	if info, err := os.Stat(config.DataRoot); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect Hermes data directory: %w", err)
+	} else if !info.IsDir() {
+		return fmt.Errorf("Hermes data path is not a directory")
+	}
+
+	hermesDotEnv := filepath.Join(config.DataRoot, ".env")
+	currentData, err := os.ReadFile(hermesDotEnv)
+	if os.IsNotExist(err) {
+		currentData = nil
+	} else if err != nil {
+		return fmt.Errorf("read Hermes environment: %w", err)
+	}
+
+	lines := strings.Split(string(currentData), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	updated := false
+	filtered := make([]string, 0, len(lines)+1)
+	for _, line := range lines {
+		key, _, ok := strings.Cut(strings.TrimSuffix(line, "\r"), "=")
+		if ok && strings.TrimSpace(key) == "API_SERVER_KEY" {
+			if !updated {
+				filtered = append(filtered, "API_SERVER_KEY="+apiKey)
+				updated = true
+			}
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	if !updated {
+		filtered = append(filtered, "API_SERVER_KEY="+apiKey)
+	}
+	updatedData := strings.Join(filtered, "\n") + "\n"
+	if updatedData != string(currentData) {
+		if err := AtomicWriteFile(hermesDotEnv, []byte(updatedData), 0o600); err != nil {
+			return fmt.Errorf("write Hermes environment: %w", err)
+		}
+	}
+	return ensureRuntimeOwner(hermesDotEnv, config.RuntimeUID, config.RuntimeGID, 0o600)
 }

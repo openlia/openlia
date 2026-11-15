@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +38,7 @@ func TestRunRejectsRetiredCommands(t *testing.T) {
 		"telegram",
 		"update",
 		"doctor",
+		"job",
 	} {
 		if code := Run([]string{cmd}, fstest.MapFS{}); code != ExitUsage {
 			t.Fatalf("retired %s command exit code = %d, want %d", cmd, code, ExitUsage)
@@ -388,6 +391,151 @@ func TestCommandAuthUpdatesDashboardCredentialsInSecretSource(t *testing.T) {
 	}
 }
 
+func TestCommandAuthAPIKeyRotateUpdatesLocalSecretSourceWithoutDisplayingKey(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.toml")
+	secretPath := filepath.Join(tmp, "openlia_dev.env")
+	originalSource := []byte("# Keep this comment\nCOPILOT_GITHUB_TOKEN=gho_testtoken123456\nAPI_SERVER_KEY=previous-key\n")
+	if err := os.WriteFile(secretPath, originalSource, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	cfg.Mode = "local"
+	cfg.InstallRoot = filepath.Join(tmp, "install")
+	cfg.APIEnabled = true
+	cfg.SecretSource = secretPath
+	if err := os.WriteFile(cfgPath, []byte(renderConfig(cfg)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPENLIA_CONFIG", cfgPath)
+
+	run := func(options Options) (int, string) {
+		t.Helper()
+		originalStdout := os.Stdout
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stdout = writer
+		code := commandAuthAPIKeyRotate(options, nil)
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		os.Stdout = originalStdout
+		output, err := io.ReadAll(reader)
+		_ = reader.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return code, string(output)
+	}
+
+	code, output := run(Options{JSON: true})
+	if code != ExitOK {
+		t.Fatalf("openlia auth api-key-rotate exited with %d", code)
+	}
+	apiKey := readSecretEnvValue(secretPath, "API_SERVER_KEY")
+	if !strings.HasPrefix(apiKey, "sk-openlia-") || len(apiKey) != len("sk-openlia-")+64 {
+		t.Fatalf("generated API_SERVER_KEY has unexpected shape")
+	}
+	if strings.Contains(output, apiKey) || strings.Contains(output, "sk-openlia-") {
+		t.Fatal("API key rotation output leaked API_SERVER_KEY")
+	}
+	updatedSecretSource := string(mustReadAuthTestFile(t, secretPath))
+	if !strings.Contains(updatedSecretSource, "# Keep this comment\n") || !strings.Contains(updatedSecretSource, "COPILOT_GITHUB_TOKEN=gho_testtoken123456") {
+		t.Fatal("API key rotation did not preserve unrelated secret-source content")
+	}
+	info, err := os.Stat(secretPath)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("secret source mode = %v, err=%v; want 0600", info, err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("could not parse command result: %v", err)
+	}
+	if result["application"] != "deploy_required" || result["secret_values"] != "redacted" {
+		t.Fatalf("unexpected local rotation result: %#v", result)
+	}
+	if !strings.Contains(updatedSecretSource, "API_SERVER_KEY="+apiKey) || strings.Contains(updatedSecretSource, "API_SERVER_KEY=previous-key") {
+		t.Fatal("generated API_SERVER_KEY did not replace the previous key")
+	}
+	if strings.Contains(output, "previous-key") {
+		t.Fatal("command output leaked the previous API_SERVER_KEY")
+	}
+
+	code, _ = run(Options{JSON: true, Wait: true})
+	if code != ExitUsage {
+		t.Fatalf("auth api-key-rotate --wait exit code = %d, want %d", code, ExitUsage)
+	}
+	if got := string(mustReadAuthTestFile(t, secretPath)); got != updatedSecretSource {
+		t.Fatal("--wait rejection changed the API key")
+	}
+}
+
+func TestRetiredAuthKeygenAndRotateCommandsAreRejected(t *testing.T) {
+	for _, action := range []string{"keygen", "rotate"} {
+		if code := Run([]string{"auth", action}, fstest.MapFS{}); code != ExitUsage {
+			t.Errorf("openlia auth %s exit code = %d, want %d", action, code, ExitUsage)
+		}
+	}
+	if code := Run([]string{"auth", "api-key-rotate", "--wait"}, fstest.MapFS{}); code != ExitUsage {
+		t.Errorf("openlia auth api-key-rotate --wait exit code = %d, want %d", code, ExitUsage)
+	}
+}
+
+func TestRetiredAttachmentsAndBackupSubcommandsAreRejected(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.toml")
+	t.Setenv("OPENLIA_CONFIG", cfgPath)
+	if err := saveConfig(defaultConfig()); err != nil {
+		t.Fatal(err)
+	}
+	if code := Run([]string{"attachments", "rotate", "laptop"}, fstest.MapFS{}); code != ExitUsage {
+		t.Fatalf("attachments rotate exit code = %d, want %d", code, ExitUsage)
+	}
+	for _, args := range [][]string{
+		{"backup", "schedule", "install"},
+		{"backup", "schedule", "remove"},
+		{"backup", "rollback-restore", "/tmp/archive.tar.gz"},
+		{"backup", "tick"},
+	} {
+		if code := Run(args, fstest.MapFS{}); code != ExitUsage {
+			t.Fatalf("%v exit code = %d, want %d", args, code, ExitUsage)
+		}
+	}
+}
+
+func TestAttachmentsMapUpdatesLocalConfigWithoutRemoteExecution(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.toml")
+	t.Setenv("OPENLIA_CONFIG", cfgPath)
+	cfg := defaultConfig()
+	cfg.Services = []ServiceHostConfig{{Name: "laptop"}}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	code := commandAttachments(Options{JSON: true}, []string{"map", "ollama", "--role", "openai-gateway"})
+	if code != ExitOK {
+		t.Fatalf("attachments map exit code = %d, want %d", code, ExitOK)
+	}
+	loaded, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Services) != 1 || loaded.Services[0].Roles["ollama"] != "openai-gateway" {
+		t.Fatalf("unexpected services after map: %+v", loaded.Services)
+	}
+}
+
+func mustReadAuthTestFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
 func TestCommandAuthOIDCUpdatesOIDCCredentialsInSecretSource(t *testing.T) {
 	tmp := t.TempDir()
 	cfgPath := filepath.Join(tmp, "config.toml")
@@ -441,12 +589,12 @@ func TestCommandAuthOIDCUpdatesOIDCCredentialsInSecretSource(t *testing.T) {
 	}
 }
 
-func TestSplitCommonFlagsParsesWaitAsyncLive(t *testing.T) {
-	options, remaining, err := splitCommonFlags([]string{"--wait", "--async", "--live", "status"})
+func TestSplitCommonFlagsParsesWaitLive(t *testing.T) {
+	options, remaining, err := splitCommonFlags([]string{"--wait", "--live", "status"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !options.Wait || !options.Async || !options.Live || strings.Join(remaining, " ") != "status" {
+	if !options.Wait || !options.Live || strings.Join(remaining, " ") != "status" {
 		t.Fatalf("options=%+v remaining=%v", options, remaining)
 	}
 }

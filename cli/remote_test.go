@@ -75,6 +75,8 @@ func TestRemoteOperationLockingLeavesReadsAvailable(t *testing.T) {
 		read   bool
 	}{
 		{script: "healthcheck", args: []string{"--json"}, read: true},
+		{script: "status", args: []string{"--json"}, read: true},
+		{script: "reconcile", args: []string{"--action", "deploy", "--json"}, read: true},
 		{script: "locho-host", args: []string{"share"}, read: true},
 		{script: "deploy", args: []string{"deploy", "--json"}, read: false},
 		{script: "attachments", args: []string{"rotate", "laptop"}, read: false},
@@ -114,32 +116,36 @@ func TestOperationCommandUsesInternalHermesImageByDefault(t *testing.T) {
 	}
 }
 
-func TestOperationCommandPrefersTargetOperatorWithLegacyFallback(t *testing.T) {
+func TestOperationCommandPrefersTargetOperator(t *testing.T) {
 	config := defaultConfig()
 	config.Target = "operator@example.test"
-	command := (Remote{Config: config}).operationCommand("ops/deploy.sh", "deploy", "--json")
+	command := (Remote{Config: config}).operationCommand("deploy", "deploy", "--json")
 	for _, expected := range []string{
 		"operator/linux-amd64/openlia-operator",
 		"operator/linux-arm64/openlia-operator",
 		"uname -m",
-		"ops/deploy.sh",
 	} {
 		if !strings.Contains(command, expected) {
 			t.Fatalf("operator command missing %q: %s", expected, command)
 		}
 	}
+	if strings.Contains(command, "ops/deploy.sh") {
+		t.Fatalf("operator command unexpectedly retained legacy ops/deploy.sh fallback: %s", command)
+	}
 }
 
 func TestOperatorArgumentsMapAllOperationScripts(t *testing.T) {
 	for _, script := range []string{
-		"ops/bootstrap.sh",
-		"ops/profile.sh",
-		"ops/backup.sh",
-		"ops/attachments.sh",
-		"ops/auth.sh",
-		"ops/deploy.sh",
-		"ops/healthcheck.sh",
-		"ops/uninstall.sh",
+		"bootstrap",
+		"profile",
+		"backup",
+		"attachments",
+		"auth",
+		"deploy",
+		"healthcheck",
+		"uninstall",
+		"status",
+		"reconcile",
 		"locho-host",
 	} {
 		if _, ok := operatorArguments(script, []string{"--json"}); !ok {
@@ -243,8 +249,8 @@ func TestUninstallCommandUsesCurrentReleaseAndInstallRoot(t *testing.T) {
 	if !strings.Contains(command, "OPENLIA_INSTALL_ROOT='/home/operator/openlia_dev'") {
 		t.Fatalf("uninstall command does not include install root: %s", command)
 	}
-	if !strings.Contains(command, "/home/operator/openlia_dev/current/ops/uninstall.sh") {
-		t.Fatalf("uninstall command does not use current release: %s", command)
+	if !strings.Contains(command, "/home/operator/openlia_dev/current/operator/linux-") {
+		t.Fatalf("uninstall command does not use current release operator: %s", command)
 	}
 }
 

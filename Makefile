@@ -10,7 +10,7 @@ PREFIX ?= $(HOME)/.local
 BIN_DIR ?= $(PREFIX)/bin
 OPENLIA_INSTALL_CONFIG ?= $(HOME)/.config/openlia/config.toml
 
-.PHONY: build build-ui build-cli build-operator install venv lint fmt test smoke deploy-prod clean versions-generate versions-check
+.PHONY: build build-ui build-cli build-operator install venv lint fmt docs-fmt docs-lint test smoke deploy-prod clean versions-generate versions-check
 
 build-ui:
 	$(BUN) run verify-dist
@@ -46,11 +46,18 @@ versions-generate:
 versions-check:
 	$(GO) run ./cmd/release-manifest check
 
-fmt:
+docs-fmt:
+	$(BUN) run docs:lint:fix
+	$(BUN) run docs:format
+
+docs-lint:
+	$(BUN) run docs:check
+
+fmt: docs-fmt
 	$(BUN) run format
 	gofmt -w main.go main_test.go cli cmd internal operator
 
-lint: versions-check
+lint: versions-check docs-lint
 	$(BUN) run check
 	test -z "$$(gofmt -l main.go main_test.go cli cmd internal operator)"
 	$(GO) vet ./...

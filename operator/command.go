@@ -74,11 +74,9 @@ func RunContext(ctx context.Context, args []string, input io.Reader, output, err
 	case "deploy":
 		_ = WriteOperatorConfig(config)
 		return runDeploy(ctx, config, args, output, errorOutput, jsonOutput, now)
-	case "job":
-		return runJob(ctx, config, args, output, errorOutput, jsonOutput, now)
 	case "reconcile":
 		return runReconcile(ctx, config, args, output, errorOutput, jsonOutput, now)
-	case "healthcheck":
+	case "status", "healthcheck":
 		return runHealthcheck(ctx, config, args, output, errorOutput, jsonOutput)
 	case "uninstall":
 		if len(args) != 0 {
@@ -410,8 +408,8 @@ func runHealthcheck(ctx context.Context, config Config, args []string, output, e
 	} else {
 		result, err = Healthcheck(ctx, config, compose, allowStopped, providerCheck)
 		if err == nil {
-			if job, jobErr := ReadCurrentJob(config); jobErr == nil && job != nil {
-				result.Job = job
+			if consolidation, consErr := ReadConsolidation(config); consErr == nil && consolidation != nil {
+				result.Consolidation = consolidation
 			}
 		}
 	}
@@ -421,11 +419,23 @@ func runHealthcheck(ctx context.Context, config Config, args []string, output, e
 	if jsonOutput {
 		_ = WriteJSON(output, result)
 	} else {
-		jobSuffix := ""
-		if result.Job != nil {
-			jobSuffix = fmt.Sprintf(" job=%s(%s:%s)", result.Job.ID, result.Job.Kind, result.Job.Status)
+		consSuffix := ""
+		if result.Consolidation != nil {
+			if result.Consolidation.Phase != "" {
+				consSuffix = fmt.Sprintf(" consolidation=%s(%s:%s)", result.Consolidation.Action, result.Consolidation.Status, result.Consolidation.Phase)
+			} else {
+				consSuffix = fmt.Sprintf(" consolidation=%s(%s)", result.Consolidation.Action, result.Consolidation.Status)
+			}
 		}
-		fmt.Fprintf(output, "openlia health: state=%s result=%s%s\n", result.State, map[bool]string{true: "ok", false: "failed"}[result.OK], jobSuffix)
+		fmt.Fprintf(output, "openlia health: state=%s result=%s%s\n", result.State, map[bool]string{true: "ok", false: "failed"}[result.OK], consSuffix)
+		if result.Consolidation != nil {
+			if result.Consolidation.Error != "" {
+				fmt.Fprintf(output, "consolidation_error=%s\n", result.Consolidation.Error)
+			}
+			if result.Consolidation.LogTail != "" {
+				fmt.Fprintln(output, result.Consolidation.LogTail)
+			}
+		}
 	}
 	if !result.OK {
 		return ExitFailure
@@ -433,58 +443,33 @@ func runHealthcheck(ctx context.Context, config Config, args []string, output, e
 	return ExitOK
 }
 
-func runJob(ctx context.Context, config Config, args []string, output, errorOutput io.Writer, jsonOutput bool, now time.Time) int {
-	action := "status"
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		action, args = args[0], args[1:]
+func runReconcile(ctx context.Context, config Config, args []string, output, errorOutput io.Writer, jsonOutput bool, now time.Time) int {
+	daemon, args := removeFlag(args, "--daemon")
+	if daemon {
+		if len(args) != 0 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("reconcile --daemon accepts no additional arguments"))
+		}
+		if err := RunReconcilerDaemon(ctx, config, 60*time.Second); err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
+		}
+		return ExitOK
 	}
-	switch action {
-	case "start":
-		if len(args) == 0 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("job start requires KIND [ARGS...]"))
+	statusMode, args := removeFlag(args, "--status")
+	if statusMode {
+		if len(args) != 0 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("reconcile --status accepts no additional arguments"))
 		}
-		kind := args[0]
-		jobArgs := args[1:]
-		result, err := StartJob(ctx, config, kind, jobArgs, now)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, result, jsonOutput, fmt.Sprintf("openlia job: id=%s kind=%s status=%s", result.JobID, result.Kind, result.Status))
-	case "run":
-		if len(args) < 2 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("job run requires ID KIND [ARGS...]"))
-		}
-		jobID := args[0]
-		kind := args[1]
-		jobArgs := args[2:]
-		if err := ExecuteJob(ctx, config, jobID, kind, jobArgs, now); err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		record, err := ReadJob(config, jobID)
-		if err != nil {
-			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-		}
-		return emit(output, record, jsonOutput, fmt.Sprintf("openlia job: id=%s kind=%s status=%s", record.ID, record.Kind, record.Status))
-	case "status":
-		if len(args) > 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("job status accepts at most one JOB_ID"))
-		}
-		var (
-			record *JobRecord
-			err    error
-		)
-		if len(args) == 1 {
-			record, err = ReadJob(config, args[0])
-		} else {
-			record, err = ReadCurrentJob(config)
-		}
+		record, err := ReadConsolidation(config)
 		if err != nil {
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
 		if record == nil {
-			return emit(output, map[string]any{"schema": 1, "ok": true, "status": "idle"}, jsonOutput, "openlia job: status=idle")
+			return emit(output, map[string]any{"schema": 1, "ok": true, "status": "idle"}, jsonOutput, "openlia reconcile: status=idle")
 		}
-		human := fmt.Sprintf("openlia job: id=%s kind=%s status=%s", record.ID, record.Kind, record.Status)
+		human := fmt.Sprintf("openlia reconcile: action=%s status=%s", record.Action, record.Status)
+		if record.Phase != "" {
+			human += " phase=" + record.Phase
+		}
 		if record.Error != "" {
 			human += " error=" + record.Error
 		}
@@ -496,57 +481,40 @@ func runJob(ctx context.Context, config Config, args []string, output, errorOutp
 		} else {
 			fmt.Fprintln(output, human)
 		}
-		if record.Status == JobStatusFailed {
+		if record.Status == ConsolidationStatusFailed {
 			return ExitFailure
 		}
 		return ExitOK
-	case "logs":
-		if len(args) > 1 {
-			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("job logs accepts at most one JOB_ID"))
+	}
+	if len(args) > 0 && args[0] == "--run" {
+		if len(args) < 2 {
+			return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("reconcile --run requires ACTION [ARGS...]"))
 		}
-		jobID := ""
-		if len(args) == 1 {
-			jobID = args[0]
-		} else {
-			record, err := ReadCurrentJob(config)
-			if err != nil {
-				return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
-			}
-			if record == nil {
-				return emit(output, map[string]any{"schema": 1, "ok": true, "job_id": "", "logs": ""}, jsonOutput, "openlia job: no active or recent job")
-			}
-			jobID = record.ID
+		action := args[1]
+		runArgs := args[2:]
+		if err := ExecuteConsolidation(ctx, config, action, runArgs, now); err != nil {
+			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
-		logs, err := ReadJobLog(config, jobID)
+		record, err := ReadConsolidation(config)
 		if err != nil {
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
-		if jsonOutput {
-			_ = WriteJSON(output, map[string]any{"schema": 1, "ok": true, "job_id": jobID, "logs": logs})
-			return ExitOK
-		}
-		if logs != "" {
-			if !strings.HasSuffix(logs, "\n") {
-				logs += "\n"
-			}
-			_, _ = io.WriteString(output, logs)
-		}
-		return ExitOK
-	default:
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("job requires start, run, status, or logs"))
+		return emit(output, record, jsonOutput, fmt.Sprintf("openlia reconcile: action=%s status=%s", record.Action, record.Status))
 	}
-}
-
-func runReconcile(ctx context.Context, config Config, args []string, output, errorOutput io.Writer, jsonOutput bool, now time.Time) int {
-	daemon, args := removeFlag(args, "--daemon")
-	if len(args) != 0 {
-		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("reconcile accepts only --daemon"))
+	action, remaining, err := stringFlag(args, "--action")
+	if err != nil {
+		return commandError(output, errorOutput, jsonOutput, ExitUsage, err)
 	}
-	if daemon {
-		if err := RunReconcilerDaemon(ctx, config, 60*time.Second); err != nil {
+	if action != "" {
+		result, err := StartConsolidation(ctx, config, action, remaining, now)
+		if err != nil {
 			return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 		}
-		return ExitOK
+		return emit(output, result, jsonOutput, fmt.Sprintf("openlia reconcile: action=%s status=%s", result.Action, result.Status))
+	}
+	_, args = removeFlag(args, "--tick")
+	if len(args) != 0 {
+		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("reconcile accepts --action ACTION, --status, --daemon, or --tick"))
 	}
 	result, err := ReconcileTick(ctx, config, NewCompose(config, nil), now)
 	if err != nil {
@@ -628,5 +596,5 @@ Usage:
   openlia-operator <subcommand> [--json]
 
 Subcommands:
-  bootstrap profile backup attachments locho-host auth deploy job reconcile healthcheck uninstall`)
+  reconcile status healthcheck backup attachments locho-host auth profile bootstrap deploy uninstall`)
 }

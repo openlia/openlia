@@ -42,10 +42,10 @@ flowchart TD
 1. **Workstation Control Plane (`cli/`)**:
    - The `openlia` binary run by the operator on macOS or Linux.
    - Embeds the compiled `openlia-browser` bundle, Dockerfiles, base `profile/SOUL.md` & `profile/AGENTS.md`, and cross-compiled Linux operator binaries (`dist/openlia-operator-linux-{amd64,arm64}`) via `//go:embed` in [`main.go`](../main.go).
-   - Manages `~/.config/openlia/config.toml` (selectable globally via `--config <path>` or `OPENLIA_CONFIG`), protected mode-`0600` secret files (`openlia auth` / `openlia auth --oidc`), and the private Age recovery key (`backup-identity.txt`).
-   - Keeps CLI commands short and deterministic: stages desired configuration (`runtime/meta/operator-config.json`), secrets, attachments, and credentials in a **single-pass bundle** (`syncBundle`), and dispatches long-running mutating operations (`deploy`, `backup create`, `backup push`, `auth rotate`, `attachments rotate`) as **detached background jobs** (`openlia-operator job start`) on the target (with optional `--wait` to poll until completion).
+   - Manages `~/.config/openlia/config.toml` (selectable globally via `--config <path>` or `OPENLIA_CONFIG`), protected mode-`0600` secret files (`openlia auth` / `openlia auth --oidc` / `openlia auth api-key-rotate`), service-role mappings (`openlia attachments map`), and the private Age recovery key (`backup-identity.txt`).
+   - Keeps CLI commands short and deterministic: local configuration helpers update `config.toml` or `secrets.source` locally, while lifecycle and backup commands stage desired configuration (`runtime/meta/operator-config.json`), secrets, attachments, and credentials in a **single-pass bundle** (`syncBundle`) and dispatch mutating operations (`deploy`, `start`, `stop`, `restart`, `backup create`, `backup push`) via the target's **single consolidation runner** (`openlia-operator reconcile --action <action>`, with optional `--wait` to poll until completion).
 2. **Agent Runtime Plane (`operator/` + `docker/`)**:
-   - **`openlia-operator`**: Standalone Linux binary that persists desired target configuration (`runtime/meta/operator-config.json`), executes detached operation jobs (`runtime/meta/jobs/<id>.json`, `runtime/meta/jobs/<id>.log`, and `runtime/meta/current-job.json`) serialized via `<InstallRoot>.operation.lock` (with automatic pruning beyond 20 completed jobs), reconciles `/opt/data/SOUL.md` and `/opt/data/AGENTS.md`, merges OpenLia's managed runtime block into `/opt/data/config.yaml`, syncs secrets and propagates Hermes API/Dashboard auth (`runtime/secrets/api-server.env`), generates Locho attachment Compose overrides, runs Age-encrypted backups and off-box S3/rsync replication, runs a singleton background host reconciler daemon (`openlia-operator reconcile --daemon`, guarded by `runtime/meta/reconciler.lock`) while the stack is running to self-heal stopped services and stale `locho-host` upstreams, and caches health snapshots (`runtime/meta/health.json`) for fast `openlia status` queries.
+   - **`openlia-operator`**: Standalone Linux binary that persists desired target configuration (`runtime/meta/operator-config.json`), executes a single serialized target consolidation (`runtime/meta/reconcile.json` and `runtime/meta/reconcile.log`) guarded by `<InstallRoot>.operation.lock` (rejecting concurrent mutating requests while busy), reconciles `/opt/data/SOUL.md` and `/opt/data/AGENTS.md`, merges OpenLia's managed runtime block into `/opt/data/config.yaml`, syncs secrets and propagates Hermes API/Dashboard auth (`runtime/secrets/api-server.env`), generates Locho attachment Compose overrides, runs Age-encrypted backups and off-box S3/rsync replication, runs a singleton background host reconciler daemon (`openlia-operator reconcile --daemon`, guarded by `runtime/meta/reconciler.lock`) while the stack is running to self-heal stopped services and stale `locho-host` upstreams, and caches health snapshots (`runtime/meta/health.json`) for fast `openlia status` queries.
    - **Hermes Container ([`docker/Dockerfile`](../docker/Dockerfile))**: Thin wrapper over pinned upstream `nousresearch/hermes-agent` that adds pinned `bun` and `uv` runtimes plus `/usr/local/bin/openlia-secret-source` ([`docker/secret-source.sh`](../docker/secret-source.sh)), keeping upstream's s6 supervision tree (`gateway`, `api-server`, `dashboard`) intact.
    - **Locho Sidecars ([`docker/locho.Dockerfile`](../docker/locho.Dockerfile))**:
      - `locho-host`: Exposes `hermes-api` (`hermes:8642`) and `hermes-dashboard` (`hermes:9119`) to an outbound Locho relay.
@@ -57,20 +57,20 @@ flowchart TD
 
 ## 2. Repository Directory Map
 
-| Path | Language / Tech | Purpose |
-| :--- | :--- | :--- |
-| [`main.go`](../main.go) | Go | Root entrypoint; embeds release assets (`//go:embed`) and calls `cli.Run`. |
-| [`cli/`](../cli) | Go | Workstation CLI commands, `--config` & flag parsing, `openlia auth`, SSH/local dispatch. |
-| [`cmd/operator/`](../cmd/operator) | Go | Entrypoint for the cross-compiled Linux `openlia-operator` target binary. |
-| [`cmd/release-manifest/`](../cmd/release-manifest) | Go | Validator and synchronizer for `release/manifest.json` pins across Docker and Compose files. |
-| [`operator/`](../operator) | Go | Target runtime orchestration: Compose lifecycle, config reconciliation, Locho attachments, Age backups. |
-| [`internal/`](../internal) | Go | Shared internal packages: `awscredentials`, `errors`, `releaseinfo`. |
-| [`packages/openlia-browser/`](../packages/openlia-browser) | TypeScript / Node / Bun | Playwright MCP supervisor and lease-enforcing Streamable HTTP `/mcp` relay. |
-| [`profile/`](../profile) | Markdown | Base `SOUL.md` and `AGENTS.md` templates seeded into `/opt/data/` on initialization. |
-| [`docker/`](../docker) | Dockerfile / Shell / YAML | Thin Hermes wrapper Dockerfile, Locho Dockerfile, backup-scheduler Dockerfile, secret-source wrapper, and Compose stack. |
-| [`examples/`](../examples) | TOML / Env | Example profile configs (`examples/profiles/dev/`) and Locho attachment/relay templates (`examples/locho/`). |
-| [`release/manifest.json`](../release/manifest.json) | JSON | Single source of truth for OpenLia, Hermes Agent, Locho, and Bun version/digest pins. |
-| [`tests/smoke.py`](../tests/smoke.py) | Python | Operator CLI, Compose, Hermes container, and backup smoke test harness. |
+| Path                                                       | Language / Tech           | Purpose                                                                                                                  |
+| :--------------------------------------------------------- | :------------------------ | :----------------------------------------------------------------------------------------------------------------------- |
+| [`main.go`](../main.go)                                    | Go                        | Root entrypoint; embeds release assets (`//go:embed`) and calls `cli.Run`.                                               |
+| [`cli/`](../cli)                                           | Go                        | Workstation CLI commands, `--config` & flag parsing, `openlia auth`, SSH/local dispatch.                                 |
+| [`cmd/operator/`](../cmd/operator)                         | Go                        | Entrypoint for the cross-compiled Linux `openlia-operator` target binary.                                                |
+| [`cmd/release-manifest/`](../cmd/release-manifest)         | Go                        | Validator and synchronizer for `release/manifest.json` pins across Docker and Compose files.                             |
+| [`operator/`](../operator)                                 | Go                        | Target runtime orchestration: Compose lifecycle, config reconciliation, Locho attachments, Age backups.                  |
+| [`internal/`](../internal)                                 | Go                        | Shared internal packages: `awscredentials`, `errors`, `releaseinfo`.                                                     |
+| [`packages/openlia-browser/`](../packages/openlia-browser) | TypeScript / Node / Bun   | Playwright MCP supervisor and lease-enforcing Streamable HTTP `/mcp` relay.                                              |
+| [`profile/`](../profile)                                   | Markdown                  | Base `SOUL.md` and `AGENTS.md` templates seeded into `/opt/data/` on initialization.                                     |
+| [`docker/`](../docker)                                     | Dockerfile / Shell / YAML | Thin Hermes wrapper Dockerfile, Locho Dockerfile, backup-scheduler Dockerfile, secret-source wrapper, and Compose stack. |
+| [`examples/`](../examples)                                 | TOML / Env                | Example profile configs (`examples/profiles/dev/`) and Locho attachment/relay templates (`examples/locho/`).             |
+| [`release/manifest.json`](../release/manifest.json)        | JSON                      | Single source of truth for OpenLia, Hermes Agent, Locho, and Bun version/digest pins.                                    |
+| [`tests/smoke.py`](../tests/smoke.py)                      | Python                    | Operator CLI, Compose, Hermes container, and backup smoke test harness.                                                  |
 
 ---
 
@@ -91,6 +91,7 @@ flowchart TD
 ## 4. Release Engineering & Version Pinning
 
 All pinned component versions and digests live in [`release/manifest.json`](../release/manifest.json):
+
 - `openlia`
 - `hermes` (`nousresearch/hermes-agent` tag & digest)
 - `locho` (`trchopan/locho` version & checksums)

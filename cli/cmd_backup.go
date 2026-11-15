@@ -17,7 +17,7 @@ import (
 
 func commandBackup(options Options, args []string) int {
 	if len(args) == 0 {
-		return fail(options, ExitUsage, "backup requires create, push, status, list, restore, rollback-restore, keygen, or schedule", nil)
+		return fail(options, ExitUsage, "backup requires create, push, status, list, restore, or keygen", nil)
 	}
 	action := args[0]
 	args = args[1:]
@@ -39,19 +39,18 @@ func commandBackup(options Options, args []string) int {
 		if err := syncBackupWriterCredentials(ctx, deployment, config); err != nil {
 			return fail(options, ExitFailure, "could not stage backup writer credentials: "+err.Error(), nil)
 		}
-		raw, err := deployment.operation(ctx, "job", nil, "start", "backup-create", "--json")
+		raw, err := deployment.operation(ctx, "reconcile", nil, "--action", "backup-create", "--json")
 		if err != nil {
 			return fail(options, ExitFailure, err.Error(), nil)
 		}
 		if options.Wait {
-			var startRes operator.JobStartResult
-			if json.Unmarshal(raw, &startRes) == nil && startRes.JobID != "" {
-				record, waitErr := waitForJob(ctx, deployment, startRes.JobID)
+			var startRes operator.ConsolidationStartResult
+			if json.Unmarshal(raw, &startRes) == nil && startRes.OK {
+				record, waitErr := waitForConsolidation(ctx, deployment)
 				if waitErr != nil {
-					return fail(options, ExitFailure, waitErr.Error(), map[string]any{"job_id": startRes.JobID})
+					return fail(options, ExitFailure, waitErr.Error(), map[string]any{"action": "backup-create"})
 				}
 				if record.Result != nil {
-					record.Result["job_id"] = record.ID
 					record.Result["status"] = record.Status
 					if encoded, mErr := json.Marshal(record.Result); mErr == nil {
 						raw = encoded
@@ -61,9 +60,7 @@ func commandBackup(options Options, args []string) int {
 		}
 		return renderRemote(options, raw, redact(string(raw)))
 	case "restore":
-		return commandRemoteBackupRestore(options, args, deployment, ctx, config, "restore")
-	case "rollback-restore":
-		return commandRemoteBackupRestore(options, args, deployment, ctx, config, "rollback-restore")
+		return commandRemoteBackupRestore(options, args, deployment, ctx, config)
 	case "list":
 		if len(args) != 0 {
 			return fail(options, ExitUsage, "backup list takes no arguments", nil)
@@ -73,22 +70,9 @@ func commandBackup(options Options, args []string) int {
 			return failWithPayload(options, ExitFailure, err.Error(), map[string]any{"archives": archives})
 		}
 		return writeResult(options, map[string]any{"schema": 1, "ok": true, "archives": archives}, formatRemoteBackupList(archives))
-	case "push", "tick":
+	case "push":
 		if err := syncBackupWriterCredentials(ctx, deployment, config); err != nil {
 			return fail(options, ExitFailure, "could not stage backup writer credentials: "+err.Error(), nil)
-		}
-		if action == "tick" {
-			if len(args) != 0 {
-				return fail(options, ExitUsage, "backup tick takes no arguments", nil)
-			}
-			if err := validateBackupIdentity(config.BackupIdentityFile, config.BackupRecipient); err != nil {
-				return fail(options, ExitPrereq, "operator recovery identity is not ready: "+err.Error(), nil)
-			}
-			raw, err := deployment.operation(ctx, "backup", nil, "tick", "--json")
-			if err != nil {
-				return fail(options, ExitFailure, err.Error(), nil)
-			}
-			return renderRemote(options, raw, redact(string(raw)))
 		}
 		archiveName := ""
 		if len(args) == 2 && args[0] == "--archive" {
@@ -99,23 +83,22 @@ func commandBackup(options Options, args []string) int {
 		if archiveName != "" && (filepath.Base(archiveName) != archiveName || !strings.HasPrefix(archiveName, "openlia-") || !strings.HasSuffix(archiveName, ".tar.gz.age")) {
 			return fail(options, ExitUsage, "backup push archive must be an encrypted durable filename", nil)
 		}
-		operatorArgs := []string{"start", "backup-push", "--json"}
+		operatorArgs := []string{"--action", "backup-push", "--json"}
 		if archiveName != "" {
 			operatorArgs = append(operatorArgs, "--archive", deployment.rootPath("runtime", "backups", archiveName))
 		}
-		raw, err := deployment.operation(ctx, "job", nil, operatorArgs...)
+		raw, err := deployment.operation(ctx, "reconcile", nil, operatorArgs...)
 		if err != nil {
 			return fail(options, ExitFailure, err.Error(), nil)
 		}
 		if options.Wait {
-			var startRes operator.JobStartResult
-			if json.Unmarshal(raw, &startRes) == nil && startRes.JobID != "" {
-				record, waitErr := waitForJob(ctx, deployment, startRes.JobID)
+			var startRes operator.ConsolidationStartResult
+			if json.Unmarshal(raw, &startRes) == nil && startRes.OK {
+				record, waitErr := waitForConsolidation(ctx, deployment)
 				if waitErr != nil {
-					return fail(options, ExitFailure, waitErr.Error(), map[string]any{"job_id": startRes.JobID})
+					return fail(options, ExitFailure, waitErr.Error(), map[string]any{"action": "backup-push"})
 				}
 				if record.Result != nil {
-					record.Result["job_id"] = record.ID
 					record.Result["status"] = record.Status
 					if encoded, mErr := json.Marshal(record.Result); mErr == nil {
 						raw = encoded
@@ -134,17 +117,13 @@ func commandBackup(options Options, args []string) int {
 		if err := saveConfig(config); err != nil {
 			return fail(options, ExitFailure, err.Error(), nil)
 		}
-		if config.BackupScheduleEnabled {
-			if err := syncBackupWriterCredentials(ctx, deployment, config); err != nil {
-				return fail(options, ExitFailure, "backup key saved but writer credentials could not be staged: "+err.Error(), nil)
-			}
-			if _, err := deployment.operation(ctx, "backup", nil, "schedule-install", "--json"); err != nil {
-				return fail(options, ExitFailure, "backup key saved but schedule installation failed: "+err.Error(), nil)
-			}
-		}
-		return writeResult(options, map[string]any{"schema": 1, "ok": true, "identity_file": config.BackupIdentityFile, "recipient": config.BackupRecipient}, "openlia backup: operator recovery key is ready; keep the identity file in a separate safe place")
-	case "schedule":
-		return commandBackupSchedule(options, args, config, ctx)
+		return writeResult(options, map[string]any{
+			"schema":        1,
+			"ok":            true,
+			"identity_file": config.BackupIdentityFile,
+			"recipient":     config.BackupRecipient,
+			"application":   "deploy_required",
+		}, "openlia backup: operator recovery key is ready; keep the identity file in a separate safe place; run `openlia deploy` to apply")
 	case "status":
 		if len(args) != 0 {
 			return fail(options, ExitUsage, "backup status takes no arguments", nil)
@@ -155,41 +134,8 @@ func commandBackup(options Options, args []string) int {
 		}
 		return renderRemote(options, raw, redact(string(raw)))
 	default:
-		return fail(options, ExitUsage, "unknown backup action "+action, nil)
+		return fail(options, ExitUsage, "backup requires create, push, status, list, restore, or keygen", nil)
 	}
-}
-
-func commandBackupSchedule(options Options, args []string, config Config, ctx context.Context) int {
-	if len(args) != 1 || (args[0] != "install" && args[0] != "remove") {
-		return fail(options, ExitUsage, "backup schedule requires install or remove", nil)
-	}
-	action := "schedule-install"
-	if args[0] == "remove" {
-		action = "schedule-remove"
-		config.BackupScheduleEnabled = false
-	} else {
-		if err := validateBackupIdentity(config.BackupIdentityFile, config.BackupRecipient); err != nil {
-			return fail(options, ExitPrereq, "operator recovery identity is not ready: "+err.Error(), nil)
-		}
-		config.BackupScheduleEnabled = true
-	}
-	deployment := newDeployment(config)
-	if action == "schedule-install" {
-		if err := syncBackupWriterCredentials(ctx, deployment, config); err != nil {
-			return fail(options, ExitFailure, "could not stage backup writer credentials: "+err.Error(), nil)
-		}
-		if _, err := deployment.operation(ctx, "attachments", nil, "generate", "--json"); err != nil {
-			return fail(options, ExitFailure, "backup scheduler mount generation failed: "+err.Error(), nil)
-		}
-	}
-	raw, err := deployment.operation(ctx, "backup", nil, action, "--json")
-	if err != nil {
-		return fail(options, ExitFailure, err.Error(), nil)
-	}
-	if err := saveConfig(config); err != nil {
-		return fail(options, ExitFailure, "backup schedule changed but operator config could not be saved: "+err.Error(), nil)
-	}
-	return renderRemote(options, raw, redact(string(raw)))
 }
 
 func ensureBackupIdentity(config *Config) error {
@@ -278,30 +224,24 @@ func validateBackupIdentity(path, recipient string) error {
 	return nil
 }
 
-func commandRemoteBackupRestore(options Options, args []string, deployment deployment, ctx context.Context, config Config, action string) int {
+func commandRemoteBackupRestore(options Options, args []string, deployment deployment, ctx context.Context, config Config) int {
 	archive, sourceDestination, remoteObject, err := backupRestoreSelection(args)
 	if err != nil {
 		return fail(options, ExitUsage, err.Error(), nil)
 	}
 	if !options.NonInteractive {
 		prompt := "Restore the selected OpenLia backup and stop the stack? Type 'yes' to continue: "
-		if action == "rollback-restore" {
-			prompt = "Restore the selected OpenLia operation rollback? Type 'yes' to continue: "
-		}
 		fmt.Fprint(os.Stderr, prompt)
 		answer, readErr := bufio.NewReader(os.Stdin).ReadString('\n')
 		if readErr != nil || strings.TrimSpace(strings.ToLower(answer)) != "yes" {
 			return fail(options, ExitFailure, "backup restore cancelled", nil)
 		}
 	}
-	if action == "rollback-restore" && (archive == "" || sourceDestination != "") {
-		return fail(options, ExitUsage, "rollback restore requires an archive path", nil)
-	}
 	if sourceDestination != "" && archive != "" {
 		return fail(options, ExitUsage, "choose either a local archive or a remote destination", nil)
 	}
-	if archive != "" && (!filepath.IsAbs(archive) || filepath.Base(archive) == "." || (action == "restore" && !strings.HasSuffix(archive, ".tar.gz.age")) || (action == "rollback-restore" && !strings.HasSuffix(archive, ".tar.gz"))) {
-		return fail(options, ExitUsage, "durable restore requires an absolute .tar.gz.age archive; rollback restore requires .tar.gz", nil)
+	if archive != "" && (!filepath.IsAbs(archive) || filepath.Base(archive) == "." || !strings.HasSuffix(archive, ".tar.gz.age")) {
+		return fail(options, ExitUsage, "durable restore requires an absolute .tar.gz.age archive", nil)
 	}
 	if archive != "" && isInsideWorkingTree(archive) {
 		return fail(options, ExitUsage, "backup archive must be outside the OpenLia checkout", nil)
@@ -366,41 +306,19 @@ func commandRemoteBackupRestore(options Options, args []string, deployment deplo
 		}
 		archive = localEncrypted
 	}
-	plainArchive := archive
-	if encryptedBackupPath(archive) {
-		if action != "restore" {
-			return fail(options, ExitUsage, "encrypted durable archives can only be restored with `backup restore`", nil)
-		}
-		plainArchive, err = decryptBackupArchive(config, archive, temporaryDirectory)
-		if err != nil {
-			return fail(options, ExitFailure, err.Error(), nil)
-		}
-	} else {
-		if action == "restore" {
-			return fail(options, ExitUsage, "durable backup restore accepts encrypted .tar.gz.age archives only", nil)
-		}
-		if err := verifyRollbackMetadata(archive); err != nil {
-			return fail(options, ExitFailure, err.Error(), nil)
-		}
+	if !encryptedBackupPath(archive) {
+		return fail(options, ExitUsage, "durable backup restore accepts encrypted .tar.gz.age archives only", nil)
+	}
+	plainArchive, err := decryptBackupArchive(config, archive, temporaryDirectory)
+	if err != nil {
+		return fail(options, ExitFailure, err.Error(), nil)
 	}
 	remoteArchive := deployment.rootPath("runtime", "backups", fmt.Sprintf(".openlia-restore-%d-%s", os.Getpid(), filepath.Base(plainArchive)))
 	if err := deployment.uploadFile(ctx, plainArchive, remoteArchive, 0o600); err != nil {
 		return fail(options, ExitFailure, err.Error(), nil)
 	}
 	defer deployment.removeFile(context.Background(), remoteArchive)
-	localMetadata := plainArchive + ".json"
-	remoteMetadata := remoteArchive + ".json"
-	if !encryptedBackupPath(archive) {
-		if info, statErr := os.Stat(localMetadata); statErr == nil && info.Mode().IsRegular() {
-			if err := deployment.uploadFile(ctx, localMetadata, remoteMetadata, 0o600); err != nil {
-				return fail(options, ExitFailure, err.Error(), nil)
-			}
-			defer deployment.removeFile(context.Background(), remoteMetadata)
-		} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-			return fail(options, ExitFailure, "could not inspect backup metadata: "+statErr.Error(), nil)
-		}
-	}
-	raw, err := deployment.operation(ctx, "backup", nil, action, "--archive", remoteArchive, "--json")
+	raw, err := deployment.operation(ctx, "backup", nil, "restore", "--archive", remoteArchive, "--json")
 	if err != nil {
 		return fail(options, ExitFailure, err.Error(), nil)
 	}

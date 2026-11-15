@@ -3,6 +3,8 @@ package cli
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -60,8 +62,6 @@ func Run(args []string, assets fs.FS) int {
 		return commandHealth(options, remaining[1:], false)
 	case "deploy", "start", "stop", "restart":
 		return commandLifecycle(options, remaining[0], remaining[1:], assets)
-	case "job":
-		return commandJob(options, remaining[1:])
 	case "uninstall":
 		return commandUninstall(options, remaining[1:])
 	case "logs":
@@ -93,8 +93,6 @@ func splitCommonFlags(args []string) (Options, []string, error) {
 			options.Release = true
 		case arg == "--wait":
 			options.Wait = true
-		case arg == "--async":
-			options.Async = true
 		case arg == "--live":
 			options.Live = true
 		case arg == "--follow":
@@ -245,40 +243,9 @@ func commandLifecycle(options Options, action string, args []string, assets fs.F
 		return code
 	}
 	if action == "deploy" {
-		if config.SecretSource != "" {
-			if err := validateProtectedSourcePath(config.SecretSource, "secret source"); err != nil {
-				return fail(options, ExitUsage, err.Error(), nil)
-			}
-		}
-		for path, label := range map[string]string{
-			config.LochoRelayConfigSource:  "Locho relay configuration",
-			config.LochoRelaySecretsSource: "Locho relay secrets",
-		} {
-			if path != "" {
-				if err := validateProtectedSourcePath(path, label); err != nil {
-					return fail(options, ExitUsage, err.Error(), nil)
-				}
-			}
-		}
-		for _, host := range config.Services {
-			if host.Source != "" && host.Name != "" {
-				if err := validateProtectedSourcePath(host.Source, "attachment source"); err != nil {
-					return fail(options, ExitUsage, err.Error(), nil)
-				}
-			}
-		}
-		origRecipient := config.BackupRecipient
-		origIdentityFile := config.BackupIdentityFile
-		if err := ensureBackupIdentity(&config); err != nil {
-			return fail(options, ExitFailure, "backup encryption key setup failed: "+err.Error(), nil)
-		}
-		if config.BackupRecipient != origRecipient || config.BackupIdentityFile != origIdentityFile {
-			if err := saveConfig(config); err != nil {
-				return fail(options, ExitInternal, "could not save operator config: "+err.Error(), nil)
-			}
-		}
-		if err := validateConfig(config); err != nil {
-			return fail(options, ExitUsage, err.Error(), nil)
+		config, code = validateDeployConfig(options, config)
+		if code != ExitOK {
+			return code
 		}
 	}
 
@@ -316,87 +283,97 @@ func commandLifecycle(options Options, action string, args []string, assets fs.F
 		}
 	}
 
-	if action == "deploy" || action == "start" || action == "restart" {
-		bundleFiles, bundleRemovals, bundleErr := collectLifecycleBundle(ctx, deployment, &config, action)
-		if bundleErr != nil {
-			return fail(options, ExitFailure, bundleErr.Error(), nil)
-		}
-		if err := deployment.syncBundle(ctx, bundleFiles, bundleRemovals); err != nil {
-			return fail(options, ExitFailure, "could not stage runtime bundle: "+err.Error(), nil)
-		}
+	bundleFiles, bundleRemovals, bundleErr := collectLifecycleBundle(ctx, deployment, &config, action)
+	if bundleErr != nil {
+		return fail(options, ExitFailure, bundleErr.Error(), nil)
+	}
+	if err := deployment.syncBundle(ctx, bundleFiles, bundleRemovals); err != nil {
+		return fail(options, ExitFailure, "could not stage runtime bundle: "+err.Error(), nil)
 	}
 
-	useJob := action == "deploy" || options.Async
-
-	if useJob {
-		jobArgs := []string{"start", "deploy", action, "--component", "all", "--json"}
-		if shouldPublish {
-			jobArgs = append(jobArgs, "--bootstrap")
-		}
-		raw, err := deployment.operation(ctx, "job", nil, jobArgs...)
-		if err != nil {
-			return fail(options, ExitFailure, err.Error(), map[string]any{"action": action})
-		}
-		var startRes operator.JobStartResult
-		_ = json.Unmarshal(raw, &startRes)
-
-		if options.Wait && startRes.JobID != "" {
-			record, waitErr := waitForJob(ctx, deployment, startRes.JobID)
-			if waitErr != nil {
-				return fail(options, ExitFailure, waitErr.Error(), map[string]any{"action": action, "job_id": startRes.JobID})
-			}
-			if record.Result != nil {
-				record.Result["job_id"] = record.ID
-				record.Result["status"] = record.Status
-				if encoded, mErr := json.Marshal(record.Result); mErr == nil {
-					raw = encoded
-				}
-			}
-		}
-
-		if action != "deploy" {
-			return renderRemote(options, raw, fmt.Sprintf("openlia %s: job=%s status=%s", action, startRes.JobID, startRes.Status))
-		}
-
-		releaseReport, verifyErr := collectDeploymentReleaseReport(ctx, deployment, config, bundled.SHA256, installedBefore, shouldPublish)
-		if verifyErr != nil {
-			return fail(options, ExitFailure, "deployment started but release verification failed: "+verifyErr.Error(), releaseReport.fields())
-		}
-		human := "openlia deploy: release=" + releaseReport.InstalledAfter
-		if !options.Wait && startRes.JobID != "" {
-			human = fmt.Sprintf("openlia deploy: job=%s status=%s release=%s", startRes.JobID, startRes.Status, releaseReport.InstalledAfter)
-		}
-		if !shouldPublish && !releaseReport.BundledActive {
-			human += "; local bundled release is not active, use `openlia deploy --release` to publish it"
-		} else {
-			human += "; release verified"
-		}
-		return renderLifecycleResult(options, raw, releaseReport.fields(), human)
+	reconcileArgs := []string{"--action", action, "--component", "all", "--json"}
+	if shouldPublish {
+		reconcileArgs = append(reconcileArgs, "--bootstrap")
 	}
-
-	if action == "start" || action == "restart" {
-		if _, err := deployment.operation(ctx, "attachments", nil, "generate", "--json"); err != nil {
-			return fail(options, ExitFailure, "attachment Compose generation failed: "+err.Error(), nil)
-		}
-	}
-	if action == "restart" {
-		if _, err := deployment.operation(ctx, "profile", nil, "sync", "--json"); err != nil {
-			return fail(options, ExitFailure, "profile synchronization failed: "+err.Error(), map[string]any{"action": action})
-		}
-	}
-	start := action == "start" || action == "restart"
-	raw, err := deployment.deploy(ctx, action, start, "all")
+	raw, err := deployment.operation(ctx, "reconcile", nil, reconcileArgs...)
 	if err != nil {
 		return fail(options, ExitFailure, err.Error(), map[string]any{"action": action})
 	}
-	scheduleAction := "schedule-install"
-	if action == "stop" || !config.BackupScheduleEnabled {
-		scheduleAction = "schedule-remove"
+	var startRes operator.ConsolidationStartResult
+	_ = json.Unmarshal(raw, &startRes)
+	finalStatus := startRes.Status
+	if finalStatus == "" {
+		finalStatus = operator.ConsolidationStatusRunning
 	}
-	if _, err := deployment.operation(ctx, "backup", nil, scheduleAction, "--json"); err != nil {
-		return fail(options, ExitFailure, "backup scheduler reconciliation failed: "+err.Error(), map[string]any{"action": action})
+
+	if options.Wait && startRes.OK {
+		record, waitErr := waitForConsolidation(ctx, deployment)
+		if waitErr != nil {
+			return fail(options, ExitFailure, waitErr.Error(), map[string]any{"action": action})
+		}
+		finalStatus = record.Status
+		if record.Result != nil {
+			record.Result["status"] = record.Status
+			if encoded, mErr := json.Marshal(record.Result); mErr == nil {
+				raw = encoded
+			}
+		}
 	}
-	return renderRemote(options, raw, "openlia "+action+": "+redact(string(raw)))
+
+	if action != "deploy" {
+		return renderRemote(options, raw, fmt.Sprintf("openlia %s: status=%s", action, finalStatus))
+	}
+
+	releaseReport, verifyErr := collectDeploymentReleaseReport(ctx, deployment, config, bundled.SHA256, installedBefore, shouldPublish)
+	if verifyErr != nil {
+		return fail(options, ExitFailure, "deployment started but release verification failed: "+verifyErr.Error(), releaseReport.fields())
+	}
+	human := fmt.Sprintf("openlia deploy: status=%s release=%s", finalStatus, releaseReport.InstalledAfter)
+	if !shouldPublish && !releaseReport.BundledActive {
+		human += "; local bundled release is not active, use `openlia deploy --release` to publish it"
+	} else {
+		human += "; release verified"
+	}
+	return renderLifecycleResult(options, raw, releaseReport.fields(), human)
+}
+
+func validateDeployConfig(options Options, config Config) (Config, int) {
+	if config.SecretSource != "" {
+		if err := validateProtectedSourcePath(config.SecretSource, "secret source"); err != nil {
+			return config, fail(options, ExitUsage, err.Error(), nil)
+		}
+	}
+	for path, label := range map[string]string{
+		config.LochoRelayConfigSource:  "Locho relay configuration",
+		config.LochoRelaySecretsSource: "Locho relay secrets",
+	} {
+		if path != "" {
+			if err := validateProtectedSourcePath(path, label); err != nil {
+				return config, fail(options, ExitUsage, err.Error(), nil)
+			}
+		}
+	}
+	for _, host := range config.Services {
+		if host.Source != "" && host.Name != "" {
+			if err := validateProtectedSourcePath(host.Source, "attachment source"); err != nil {
+				return config, fail(options, ExitUsage, err.Error(), nil)
+			}
+		}
+	}
+	origRecipient := config.BackupRecipient
+	origIdentityFile := config.BackupIdentityFile
+	if err := ensureBackupIdentity(&config); err != nil {
+		return config, fail(options, ExitFailure, "backup encryption key setup failed: "+err.Error(), nil)
+	}
+	if config.BackupRecipient != origRecipient || config.BackupIdentityFile != origIdentityFile {
+		if err := saveConfig(config); err != nil {
+			return config, fail(options, ExitInternal, "could not save operator config: "+err.Error(), nil)
+		}
+	}
+	if err := validateConfig(config); err != nil {
+		return config, fail(options, ExitUsage, err.Error(), nil)
+	}
+	return config, ExitOK
 }
 
 func collectLifecycleBundle(ctx context.Context, deployment deployment, config *Config, action string) ([]bundleFile, []string, error) {
@@ -457,13 +434,13 @@ func collectLifecycleBundle(ctx context.Context, deployment deployment, config *
 		}
 		files = append(files, credFiles...)
 		removals = append(removals, credRemovals...)
-
-		cfgBundleFile, err := targetOperatorConfigBundleFile(*config)
-		if err != nil {
-			return nil, nil, err
-		}
-		files = append(files, cfgBundleFile)
 	}
+
+	cfgBundleFile, err := targetOperatorConfigBundleFile(*config)
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, cfgBundleFile)
 
 	return files, removals, nil
 }
@@ -525,89 +502,31 @@ func collectLochoBundle(ctx context.Context, deployment deployment, config *Conf
 	return files, removals, nil
 }
 
-func waitForJob(ctx context.Context, deployment deployment, jobID string) (operator.JobRecord, error) {
+func waitForConsolidation(ctx context.Context, deployment deployment) (operator.ConsolidationRecord, error) {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		raw, err := deployment.operation(ctx, "job", nil, "status", jobID, "--json")
-		var record operator.JobRecord
-		if unmarshalErr := json.Unmarshal(raw, &record); unmarshalErr == nil && record.ID != "" {
+		raw, err := deployment.operation(ctx, "reconcile", nil, "--status", "--json")
+		var record operator.ConsolidationRecord
+		if unmarshalErr := json.Unmarshal(raw, &record); unmarshalErr == nil && record.Status != "" {
 			switch record.Status {
-			case operator.JobStatusSucceeded:
+			case operator.ConsolidationStatusSucceeded:
 				return record, nil
-			case operator.JobStatusFailed:
+			case operator.ConsolidationStatusFailed:
 				if record.Error != "" {
 					return record, errors.New(record.Error)
 				}
-				return record, fmt.Errorf("job %s failed", jobID)
+				return record, fmt.Errorf("consolidation (%s) failed", record.Action)
 			}
 		} else if err != nil {
-			return operator.JobRecord{}, err
+			return operator.ConsolidationRecord{}, err
 		}
 		select {
 		case <-ctx.Done():
-			return operator.JobRecord{}, ctx.Err()
+			return operator.ConsolidationRecord{}, ctx.Err()
 		case <-ticker.C:
 		}
 	}
-}
-
-func commandJob(options Options, args []string) int {
-	sub := "status"
-	if len(args) > 0 && (args[0] == "status" || args[0] == "logs") {
-		sub = args[0]
-		args = args[1:]
-	}
-	if len(args) > 1 {
-		return fail(options, ExitUsage, "job accepts optional [status|logs] [JOB_ID]", nil)
-	}
-	config, code := configOrError(options)
-	if code != ExitOK {
-		return code
-	}
-	ctx, cancel := remoteContext()
-	defer cancel()
-	deployment := newDeployment(config)
-	opArgs := []string{sub}
-	opArgs = append(opArgs, args...)
-	opArgs = append(opArgs, "--json")
-	raw, err := deployment.operation(ctx, "job", nil, opArgs...)
-	if err != nil && len(raw) == 0 {
-		return fail(options, ExitFailure, err.Error(), nil)
-	}
-	if sub == "logs" {
-		if err != nil {
-			return fail(options, ExitFailure, err.Error(), nil)
-		}
-		var logPayload struct {
-			Schema int    `json:"schema"`
-			OK     bool   `json:"ok"`
-			JobID  string `json:"job_id"`
-			Logs   string `json:"logs"`
-		}
-		if json.Unmarshal(raw, &logPayload) == nil {
-			logPayload.Logs = redact(logPayload.Logs)
-			if options.JSON {
-				return writeResult(options, logPayload, "")
-			}
-			if logPayload.Logs != "" {
-				fmt.Fprint(os.Stdout, logPayload.Logs)
-				if !strings.HasSuffix(logPayload.Logs, "\n") {
-					fmt.Fprintln(os.Stdout)
-				}
-			}
-			return ExitOK
-		}
-		return renderRemote(options, raw, redact(string(raw)))
-	}
-	if err != nil {
-		var record operator.JobRecord
-		if json.Unmarshal(raw, &record) == nil && record.Error != "" {
-			return failWithPayload(options, ExitFailure, record.Error, map[string]any{"job": record})
-		}
-		return fail(options, ExitFailure, err.Error(), nil)
-	}
-	return renderRemote(options, raw, redact(string(raw)))
 }
 
 func publishOpenLiaRelease(ctx context.Context, deployment deployment, assets fs.FS) (releaseIdentity, error) {
@@ -803,7 +722,7 @@ func commandLogs(options Options, args []string) int {
 
 func commandAttachments(options Options, args []string) int {
 	if len(args) == 0 {
-		return fail(options, ExitUsage, "attachments requires list, map, or rotate", nil)
+		return fail(options, ExitUsage, "attachments requires list or map", nil)
 	}
 	action := args[0]
 	args = args[1:]
@@ -811,13 +730,13 @@ func commandAttachments(options Options, args []string) int {
 	if code != ExitOK {
 		return code
 	}
-	ctx, cancel := remoteContext()
-	defer cancel()
-	deployment := newDeployment(config)
 	if action == "list" {
 		if len(args) != 0 {
 			return fail(options, ExitUsage, "attachments list takes no positional arguments", nil)
 		}
+		ctx, cancel := remoteContext()
+		defer cancel()
+		deployment := newDeployment(config)
 		raw, err := deployment.operation(ctx, "attachments", nil, "list", "--json")
 		if err != nil {
 			return fail(options, ExitFailure, err.Error(), nil)
@@ -880,55 +799,17 @@ func commandAttachments(options Options, args []string) int {
 		if err := saveConfig(config); err != nil {
 			return fail(options, ExitFailure, err.Error(), nil)
 		}
-		deployment = newDeployment(config)
-		raw, err := deployment.operation(ctx, "attachments", nil, "generate", "--json")
-		if err != nil {
-			return fail(options, ExitFailure, fmt.Sprintf("service role saved, but attachment generation failed: %s", err.Error()), nil)
-		}
-		return renderRemote(options, raw, fmt.Sprintf("openlia attachments: mapped %s.%s to %s", host, service, role))
+		return writeResult(options, map[string]any{
+			"schema":      1,
+			"ok":          true,
+			"action":      "attachments-map",
+			"host":        host,
+			"service":     service,
+			"role":        role,
+			"application": "deploy_required",
+		}, fmt.Sprintf("openlia attachments: mapped %s.%s to %s; run `openlia deploy` to apply", host, service, role))
 	}
-	if action == "rotate" {
-		host := ""
-		source := ""
-		sourceVal, remaining, err := extractFlag(args, "--source")
-		if err != nil {
-			return fail(options, ExitUsage, err.Error(), nil)
-		}
-		if len(remaining) == 0 {
-			if len(config.Services) == 1 && config.Services[0].Name != "" {
-				host = config.Services[0].Name
-				source = config.Services[0].Source
-			} else if len(config.Services) == 0 {
-				return fail(options, ExitUsage, "attachments rotate requires HOST --source PATH", nil)
-			} else {
-				return fail(options, ExitUsage, "multiple service hosts configured; specify HOST: attachments rotate HOST --source PATH", nil)
-			}
-		} else if len(remaining) == 1 {
-			host = remaining[0]
-			if !safeComponent(host) {
-				return fail(options, ExitUsage, "invalid host name", nil)
-			}
-			source = sourceVal
-			if source == "" {
-				for _, h := range config.Services {
-					if h.Name == host && h.Source != "" {
-						source = h.Source
-						break
-					}
-				}
-			}
-		} else {
-			return fail(options, ExitUsage, "attachments rotate requires [HOST] [--source PATH]", nil)
-		}
-		if sourceVal != "" {
-			source = sourceVal
-		}
-		if source == "" {
-			return fail(options, ExitUsage, "attachments rotate requires --source PATH or source configured in config.toml", nil)
-		}
-		return rotateRemoteFile(options, "attachments:"+host, source)
-	}
-	return fail(options, ExitUsage, "attachments requires list, map, or rotate", nil)
+	return fail(options, ExitUsage, "attachments requires list or map", nil)
 }
 
 func commandLochoHost(options Options, args []string) int {
@@ -1033,82 +914,6 @@ func writeExclusiveFile(path string, contents []byte, mode os.FileMode) error {
 	return nil
 }
 
-func syncSecretSource(ctx context.Context, deployment deployment, source string) error {
-	if err := validateProtectedSourcePath(source, "secret source"); err != nil {
-		return err
-	}
-	remotePath := deployment.rootPath("runtime", "meta", ".openlia-incoming")
-	if err := deployment.uploadFile(ctx, source, remotePath, 0o600); err != nil {
-		return err
-	}
-	defer deployment.removeFile(context.Background(), remotePath)
-	_, err := deployment.operation(ctx, "auth", nil, "rotate", "--source", remotePath, "--json")
-	return err
-}
-
-func rotateRemoteFile(options Options, kind, source string) int {
-	if err := validateProtectedSourcePath(source, "source"); err != nil {
-		return fail(options, ExitUsage, err.Error(), nil)
-	}
-	data, err := os.ReadFile(source)
-	if err != nil {
-		return fail(options, ExitFailure, fmt.Sprintf("read source: %v", err), nil)
-	}
-	config, code := configOrError(options)
-	if code != ExitOK {
-		return code
-	}
-	ctx, cancel := remoteContext()
-	defer cancel()
-	deployment := newDeployment(config)
-	cfgBundleFile, err := targetOperatorConfigBundleFile(config)
-	if err != nil {
-		return fail(options, ExitFailure, err.Error(), nil)
-	}
-	files := []bundleFile{cfgBundleFile}
-	var jobArgs []string
-	if strings.HasPrefix(kind, "attachments:") {
-		host := strings.TrimPrefix(kind, "attachments:")
-		files = append(files, bundleFile{
-			RelativePath: filepath.ToSlash(filepath.Join("runtime", "meta", ".incoming", "attachments", host+".toml")),
-			Data:         data,
-			Mode:         0o600,
-		})
-		jobArgs = []string{"start", "attachment-rotate", host, "--json"}
-	} else {
-		files = append(files, bundleFile{
-			RelativePath: "runtime/meta/.incoming/secrets.env",
-			Data:         data,
-			Mode:         0o600,
-		})
-		jobArgs = []string{"start", "auth-rotate", "--json"}
-	}
-	if err := deployment.syncBundle(ctx, files, nil); err != nil {
-		return fail(options, ExitFailure, err.Error(), nil)
-	}
-	raw, err := deployment.operation(ctx, "job", nil, jobArgs...)
-	if err != nil {
-		return fail(options, ExitFailure, err.Error(), nil)
-	}
-	var startRes operator.JobStartResult
-	_ = json.Unmarshal(raw, &startRes)
-	if options.Wait && startRes.JobID != "" {
-		record, waitErr := waitForJob(ctx, deployment, startRes.JobID)
-		if waitErr != nil {
-			return fail(options, ExitFailure, waitErr.Error(), map[string]any{"job_id": startRes.JobID})
-		}
-		if record.Result != nil {
-			record.Result["job_id"] = record.ID
-			record.Result["status"] = record.Status
-			if encoded, mErr := json.Marshal(record.Result); mErr == nil {
-				raw = encoded
-			}
-		}
-		return renderRemote(options, raw, kind+" rotation completed; values were not displayed")
-	}
-	return renderRemote(options, raw, fmt.Sprintf("openlia %s: job=%s status=%s; values were not displayed", kind, startRes.JobID, startRes.Status))
-}
-
 func validateProtectedSourcePath(path, label string) error {
 	if !filepath.IsAbs(path) || isInsideWorkingTree(path) {
 		return fmt.Errorf("%s must be an absolute file outside the OpenLia checkout", label)
@@ -1116,41 +921,6 @@ func validateProtectedSourcePath(path, label string) error {
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
 		return fmt.Errorf("%s must be a regular mode-0600 file", label)
-	}
-	return nil
-}
-
-func syncLochoSources(ctx context.Context, deployment deployment, config Config) error {
-	files := []struct {
-		source string
-		target string
-		label  string
-	}{
-		{config.LochoRelayConfigSource, deployment.rootPath("runtime", "locho", "relay.toml"), "Locho relay configuration"},
-		{config.LochoRelaySecretsSource, deployment.rootPath("runtime", "locho-relay-secrets", "relay.env"), "Locho relay secrets"},
-	}
-	for _, file := range files {
-		if file.source == "" {
-			if err := deployment.removeFile(ctx, file.target); err != nil {
-				return fmt.Errorf("remove stale %s: %w", file.label, err)
-			}
-			continue
-		}
-		if err := validateProtectedSourcePath(file.source, file.label); err != nil {
-			return err
-		}
-		if err := deployment.uploadFile(ctx, file.source, file.target, 0o600); err != nil {
-			return fmt.Errorf("upload %s: %w", file.label, err)
-		}
-	}
-	// Remove the pre-isolation location so upgrades cannot leave relay tokens
-	// inside Hermes' mounted secrets directory.
-	legacySecrets := deployment.rootPath("runtime", "secrets", "locho-relay.env")
-	if err := deployment.removeFile(ctx, legacySecrets); err != nil {
-		return fmt.Errorf("remove legacy Locho relay secrets: %w", err)
-	}
-	if err := syncLochoHostState(ctx, deployment, &config); err != nil {
-		return err
 	}
 	return nil
 }
@@ -1180,19 +950,6 @@ func contains(values []string, target string) bool {
 	return false
 }
 
-func syncAttachmentSource(ctx context.Context, deployment deployment, host, source string) error {
-	if err := validateProtectedSourcePath(source, "attachment source"); err != nil {
-		return err
-	}
-	remotePath := deployment.rootPath("runtime", "meta", ".openlia-incoming")
-	if err := deployment.uploadFile(ctx, source, remotePath, 0o600); err != nil {
-		return err
-	}
-	defer deployment.removeFile(context.Background(), remotePath)
-	_, err := deployment.operation(ctx, "attachments", nil, "rotate", host, "--source", remotePath, "--json")
-	return err
-}
-
 func extractFlag(args []string, name string) (string, []string, error) {
 	for i := 0; i < len(args); i++ {
 		if args[i] == name {
@@ -1209,6 +966,15 @@ func extractFlag(args []string, name string) (string, []string, error) {
 }
 
 func commandAuth(options Options, args []string) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "api-key-rotate":
+			return commandAuthAPIKeyRotate(options, args[1:])
+		case "keygen", "rotate":
+			return fail(options, ExitUsage, "use `openlia auth api-key-rotate` for API key rotation; use `openlia deploy` to apply other secret-source changes", nil)
+		}
+	}
+
 	set := newFlagSet("auth")
 	oidcMode := set.Bool("oidc", false, "configure OpenID Connect (GCP OAuth / Auth0) instead of Basic Auth")
 	usernameFlag := set.String("username", "", "Hermes Dashboard Basic Auth username")
@@ -1310,7 +1076,57 @@ func commandAuth(options Options, args []string) int {
 			"HERMES_DASHBOARD_BASIC_AUTH_USERNAME",
 			"HERMES_DASHBOARD_BASIC_AUTH_PASSWORD",
 		},
-	}, fmt.Sprintf("openlia auth: updated HERMES_DASHBOARD_BASIC_AUTH_USERNAME (%s) and HERMES_DASHBOARD_BASIC_AUTH_PASSWORD in %s", username, secretPath))
+		"application": "deploy_required",
+	}, fmt.Sprintf("openlia auth: updated HERMES_DASHBOARD_BASIC_AUTH_USERNAME (%s) and HERMES_DASHBOARD_BASIC_AUTH_PASSWORD in %s; run `openlia deploy` to apply", username, secretPath))
+}
+
+func commandAuthAPIKeyRotate(options Options, args []string) int {
+	if len(args) != 0 {
+		return fail(options, ExitUsage, "auth api-key-rotate accepts no command-specific arguments", nil)
+	}
+	if options.Wait {
+		return fail(options, ExitUsage, "auth api-key-rotate updates local secret source only; run `openlia deploy --wait` to apply", nil)
+	}
+	config, code := configOrError(options)
+	if code != ExitOK {
+		return code
+	}
+	if !config.APIEnabled && !config.LochoHostEnabled {
+		return fail(options, ExitPrereq, "Hermes API is disabled; enable [api] or [locho-host] before rotating its key", nil)
+	}
+	secretPath := expandTilde(strings.TrimSpace(config.SecretSource))
+	if secretPath == "" {
+		return fail(options, ExitUsage, "secrets.source is not configured in config.toml", map[string]any{"config": configPath()})
+	}
+	if err := validateProtectedSourcePath(secretPath, "secret source"); err != nil {
+		return fail(options, ExitUsage, err.Error(), nil)
+	}
+	apiKey, err := generateAPIKey()
+	if err != nil {
+		return fail(options, ExitFailure, "could not generate API_SERVER_KEY", nil)
+	}
+	if err := mutateSecretSourceVars(secretPath, []struct{ key, value string }{
+		{"API_SERVER_KEY", apiKey},
+	}, nil); err != nil {
+		return fail(options, ExitFailure, "could not update secret source: "+err.Error(), nil)
+	}
+	return writeResult(options, map[string]any{
+		"schema":        1,
+		"ok":            true,
+		"action":        "auth-api-key-rotate",
+		"key":           "API_SERVER_KEY",
+		"secret_values": "redacted",
+		"secret_source": secretPath,
+		"application":   "deploy_required",
+	}, fmt.Sprintf("openlia auth api-key-rotate: updated API_SERVER_KEY in %s; key value was not displayed; run `openlia deploy` to apply", secretPath))
+}
+
+func generateAPIKey() (string, error) {
+	keyBytes := make([]byte, 32)
+	if _, err := rand.Read(keyBytes); err != nil {
+		return "", err
+	}
+	return "sk-openlia-" + hex.EncodeToString(keyBytes), nil
 }
 
 func configureOIDCAuth(options Options, secretPath string, reader *bufio.Reader, issuer, clientID string, secretStdin bool, scopes, publicURL string) int {
@@ -1442,7 +1258,8 @@ func configureOIDCAuth(options Options, secretPath string, reader *bufio.Reader,
 		"client_id":     clientID,
 		"callback_url":  callbackURL,
 		"keys":          keys,
-	}, fmt.Sprintf("openlia auth: configured OIDC (issuer=%s, client_id=%s, callback=%s) in %s", issuer, clientID, callbackURL, secretPath))
+		"application":   "deploy_required",
+	}, fmt.Sprintf("openlia auth: configured OIDC (issuer=%s, client_id=%s, callback=%s) in %s; run `openlia deploy` to apply", issuer, clientID, callbackURL, secretPath))
 }
 
 func readConfirmedDashboardPassword(reader *bufio.Reader) (string, error) {
