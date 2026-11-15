@@ -8,31 +8,11 @@ import { formatFileSize } from "./DocumentPane";
 
 export function ArtifactInspector({
   artifact,
-  onClose,
 }: {
   artifact: WorkspaceFileMetadata;
-  onClose?: () => void;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-auto p-4">
-      <div className="mb-5 flex items-start justify-between gap-2">
-        <div>
-          <p className="workspace-eyebrow">ARTIFACT</p>
-          <h2 className="mt-1 text-xl font-bold tracking-tight">Details</h2>
-        </div>
-        {onClose && (
-          <button
-            aria-label="Close details"
-            className="btn btn-ghost btn-xs btn-square text-base-content/60 hover:text-base-content"
-            onClick={onClose}
-            title="Close details"
-            type="button"
-          >
-            ✕
-          </button>
-        )}
-      </div>
-
       <dl className="grid gap-3 text-sm">
         <div>
           <dt className="text-xs uppercase tracking-wide text-base-content/50">

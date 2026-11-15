@@ -293,7 +293,7 @@ describe("Workspace UI App", () => {
 
     // Close Details drawer via Close button (✕)
     fireEvent.click(
-      within(drawer).getByRole("button", { name: "Close details" }),
+      within(drawer).getByRole("button", { name: "Close Artifact Details" }),
     );
     expect(screen.queryByText("Saved revision")).not.toBeInTheDocument();
 

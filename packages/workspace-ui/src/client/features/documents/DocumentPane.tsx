@@ -276,10 +276,7 @@ function ArtifactPane({
             open={detailsOpen}
             title="Artifact Details"
           >
-            <ArtifactInspector
-              artifact={artifact}
-              onClose={() => setDetailsOpen(false)}
-            />
+            <ArtifactInspector artifact={artifact} />
           </ResponsiveDrawer>
         )}
       </div>
