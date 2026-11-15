@@ -51,7 +51,7 @@ The document-focused **Workspace UI** is the primary web interface for day-to-da
 
 - **Access**: Served at your configured `[workspace-ui].public_origin` domain (behind an HTTPS reverse proxy attached to `workspace-ui`) or privately at <http://127.0.0.1:8089> via `locho attach`.
 - **Capabilities**: Browses, previews, edits, creates, uploads, moves, renames, and deletes files in `/opt/data/workspace`, with direct deep-linking (`/files/<path>`) from Telegram messages.
-- **Authentication**: Reuses the configured Basic Auth or OIDC credentials (with optional `OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS` allowlist enforcement, configured with `openlia auth --oidc --allowed-emails ...` and removed with `--clear-allowed-emails`).
+- **Authentication**: Reuses the configured Basic Auth or OIDC credentials (with optional email allowlist enforcement for Hermes Dashboard and Workspace UI, configured with `openlia auth --oidc --allowed-emails ...` and removed with `--clear-allowed-emails`).
 
 ### C. Hermes Web Dashboard (`:9119` via Locho — Advanced User / Operator)
 

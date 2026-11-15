@@ -187,6 +187,7 @@ func TestEnsureAPIServerEnvForwardsOIDCWithoutFallbackBasicAuth(t *testing.T) {
 		"HERMES_DASHBOARD_OIDC_CLIENT_SECRET=GOCSPX-secretvalue",
 		"HERMES_DASHBOARD_PUBLIC_URL=http://127.0.0.1:9119",
 		"OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS=user@example.com,admin@example.com",
+		"HERMES_DASHBOARD_ALLOWED_EMAILS=user@example.com,admin@example.com",
 	}, "\n") + "\n"
 	if err := os.WriteFile(config.SecretFile, []byte(secretContent), 0o600); err != nil {
 		t.Fatal(err)
@@ -207,6 +208,7 @@ func TestEnsureAPIServerEnvForwardsOIDCWithoutFallbackBasicAuth(t *testing.T) {
 		"HERMES_DASHBOARD_OIDC_CLIENT_SECRET=GOCSPX-secretvalue",
 		"HERMES_DASHBOARD_PUBLIC_URL=http://127.0.0.1:9119",
 		"OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS=user@example.com,admin@example.com",
+		"HERMES_DASHBOARD_ALLOWED_EMAILS=user@example.com,admin@example.com",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("api-server.env missing %q, got:\n%s", want, text)

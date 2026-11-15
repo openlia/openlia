@@ -83,6 +83,8 @@ RUN sed -i \
 COPY --chmod=0755 docker/secret-source.sh /usr/local/bin/openlia-secret-source
 COPY --chmod=0644 docker/openlia_link_rewriter.py /tmp/openlia_link_rewriter.py
 COPY --chmod=0644 docker/openlia_link_rewriter.pth /tmp/openlia_link_rewriter.pth
+COPY --chmod=0644 docker/openlia_dashboard_auth.py /tmp/openlia_dashboard_auth.py
+COPY --chmod=0644 docker/openlia_dashboard_auth.pth /tmp/openlia_dashboard_auth.pth
 RUN /opt/hermes/.venv/bin/python - <<'PY'
 import pathlib
 import shutil
@@ -90,7 +92,12 @@ import site
 
 target = pathlib.Path(site.getsitepackages()[0])
 target.mkdir(parents=True, exist_ok=True)
-for name in ("openlia_link_rewriter.py", "openlia_link_rewriter.pth"):
+for name in (
+    "openlia_link_rewriter.py",
+    "openlia_link_rewriter.pth",
+    "openlia_dashboard_auth.py",
+    "openlia_dashboard_auth.pth",
+):
     src = pathlib.Path("/tmp") / name
     dst = target / name
     shutil.copy2(src, dst)

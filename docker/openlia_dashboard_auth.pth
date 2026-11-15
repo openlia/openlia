@@ -1,0 +1,1 @@
+import openlia_dashboard_auth; openlia_dashboard_auth.install_auth_filter()
