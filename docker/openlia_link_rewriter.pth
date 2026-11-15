@@ -1,0 +1,1 @@
+import openlia_link_rewriter; openlia_link_rewriter.install_gateway_rewriter()

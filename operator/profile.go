@@ -21,6 +21,8 @@ const (
 	runtimeConfigBlockEnd    = "# END OPENLIA MANAGED RUNTIME CONFIG"
 	outputLanguageBlockStart = "<!-- BEGIN OPENLIA MANAGED OUTPUT LANGUAGE -->"
 	outputLanguageBlockEnd   = "<!-- END OPENLIA MANAGED OUTPUT LANGUAGE -->"
+	workspaceLinksBlockStart = "<!-- BEGIN OPENLIA MANAGED WORKSPACE LINKS -->"
+	workspaceLinksBlockEnd   = "<!-- END OPENLIA MANAGED WORKSPACE LINKS -->"
 )
 
 type ProfileOperator struct {
@@ -91,6 +93,20 @@ func (p *ProfileOperator) seedInstructions() error {
 		if name == "SOUL.md" {
 			if data, err := os.ReadFile(destination); err == nil {
 				updated, renderErr := renderOutputLanguageBlock(data, p.Config.OutputLanguage)
+				if renderErr != nil {
+					return renderErr
+				}
+				if string(updated) != string(data) {
+					if err := AtomicWriteFile(destination, updated, 0o600); err != nil {
+						return err
+					}
+				}
+			}
+		}
+
+		if name == "AGENTS.md" && (workspaceUIEnabled(p.Config) || p.Config.WorkspaceUIPublicOrigin != "") {
+			if data, err := os.ReadFile(destination); err == nil {
+				updated, renderErr := renderWorkspaceLinksBlock(data)
 				if renderErr != nil {
 					return renderErr
 				}
@@ -262,6 +278,49 @@ func renderOutputLanguageBlock(data []byte, language string) ([]byte, error) {
 		updated = append(updated, block...)
 		updated = append(updated, lines[end+1:]...)
 		return []byte(strings.Join(updated, "\n")), nil
+	}
+	if len(lines) > 0 && lines[len(lines)-1] != "" {
+		lines = append(lines, "")
+	}
+	lines = append(lines, block...)
+	return []byte(strings.Join(lines, "\n")), nil
+}
+
+func renderWorkspaceLinksBlock(data []byte) ([]byte, error) {
+	lines := strings.Split(string(data), "\n")
+	block := []string{
+		workspaceLinksBlockStart,
+		"## Workspace links",
+		"",
+		"- Link workspace documents using canonical URIs (`openlia://workspace/<path>`). Inside workspace Markdown files, document-relative paths (`./sub.md`) are also supported. Never embed environment-specific HTTP origins in workspace files.",
+		workspaceLinksBlockEnd,
+	}
+	start, end := -1, -1
+	for index, line := range lines {
+		switch strings.TrimSpace(line) {
+		case workspaceLinksBlockStart:
+			if start >= 0 {
+				return nil, fmt.Errorf("AGENTS.md contains duplicate managed workspace links blocks")
+			}
+			start = index
+		case workspaceLinksBlockEnd:
+			if start < 0 || end >= 0 {
+				return nil, fmt.Errorf("AGENTS.md contains an invalid managed workspace links block")
+			}
+			end = index
+		}
+	}
+	if start >= 0 && end < 0 {
+		return nil, fmt.Errorf("AGENTS.md contains an incomplete managed workspace links block")
+	}
+	if start >= 0 {
+		updated := append([]string{}, lines[:start]...)
+		updated = append(updated, block...)
+		updated = append(updated, lines[end+1:]...)
+		return []byte(strings.Join(updated, "\n")), nil
+	}
+	if strings.Contains(string(data), "openlia://workspace/") {
+		return data, nil
 	}
 	if len(lines) > 0 && lines[len(lines)-1] != "" {
 		lines = append(lines, "")

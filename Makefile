@@ -69,6 +69,7 @@ lint: versions-check docs-lint
 
 test: build-operator
 	$(GO) run ./cmd/release-manifest check
+	$(TEST_PYTHON) tests/test_link_rewriter.py
 	$(BUN) run test
 	$(GO) test ./...
 

@@ -105,3 +105,8 @@ jobs:
             -t openlia-hermes:ci \
             .
           docker run --rm --entrypoint /bin/sh openlia-hermes:ci -lc 'test -x /usr/local/bin/openlia-secret-source'
+          docker run --rm \
+            -e OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN=https://workspace.example.test \
+            --entrypoint /opt/hermes/.venv/bin/python \
+            openlia-hermes:ci \
+            -c 'from gateway.platforms.base import BasePlatformAdapter; assert getattr(BasePlatformAdapter.send, "_openlia_patched", False); from openlia_link_rewriter import rewrite_openlia_links; assert rewrite_openlia_links("openlia://workspace/docs/start.md") == "https://workspace.example.test/files/docs/start.md"'
