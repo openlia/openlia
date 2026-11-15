@@ -152,6 +152,10 @@ textarea {
     min-width: 44px;
     min-height: 44px;
   }
+  .responsive-drawer.responsive-drawer-right > .responsive-drawer-surface {
+    margin-left: auto;
+    box-shadow: -12px 0 32px #0005;
+  }
 }
 
 @media (max-width: 639px) {
@@ -192,6 +196,12 @@ textarea {
   }
   .workspace-document-toolbar {
     gap: 0.375rem;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .workspace-document-toolbar::-webkit-scrollbar {
+    display: none;
   }
   .workspace-document {
     padding-bottom: env(safe-area-inset-bottom);
@@ -233,6 +243,7 @@ textarea {
 
 .workspace-layout {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   flex: 1 1 0%;
   min-height: 0;
   min-width: 0;
@@ -240,8 +251,15 @@ textarea {
   overflow: hidden;
 }
 
+@media (min-width: 1280px) {
+  .workspace-layout.has-sidebar {
+    grid-template-columns: minmax(16rem, 20rem) minmax(0, 1fr);
+  }
+}
+
 .workspace-navigator,
-.workspace-inspector {
+.workspace-inspector,
+.workspace-inspector-drawer {
   min-width: 0;
   min-height: 0;
   background: var(--color-base-100);
@@ -250,6 +268,13 @@ textarea {
 .workspace-navigator {
   flex-direction: column;
   border-right: 1px solid
+    color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  isolation: isolate;
+}
+
+.workspace-inspector-drawer {
+  flex-direction: column;
+  border-left: 1px solid
     color-mix(in oklab, var(--color-base-content) 10%, transparent);
   isolation: isolate;
 }
@@ -761,6 +786,25 @@ textarea {
   .document-workspace iframe {
     height: 65dvh;
     min-height: 12rem;
+  }
+  .document-workspace.document-workspace-artifact {
+    overflow-y: hidden;
+  }
+  .document-workspace.document-workspace-artifact .workspace-artifact-pane {
+    display: flex;
+    flex: 1 1 0%;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+  .document-workspace.document-workspace-artifact .workspace-preview-pane {
+    flex: 1 1 0%;
+    height: 100%;
+    overflow: auto;
+  }
+  .document-workspace.document-workspace-artifact iframe {
+    height: 100%;
+    min-height: 0;
   }
   .workspace-mobile-page .workspace-editor-pane,
   .workspace-mobile-page .workspace-editor-frame {

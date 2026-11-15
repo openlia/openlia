@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type {
   AuthLoginResponse,
@@ -267,5 +273,86 @@ describe("Workspace UI App", () => {
     });
     expect(await screen.findByText("View only artifact")).toBeInTheDocument();
     expect(screen.getByTitle("Preview of docs/manual.pdf")).toBeInTheDocument();
+
+    // Verify metadata block is not in main view by default
+    expect(screen.queryByText("Saved revision")).not.toBeInTheDocument();
+    const detailsToggle = screen.getByRole("button", { name: "Details" });
+    expect(detailsToggle).toHaveAttribute("aria-pressed", "false");
+
+    // Toggle Details drawer open
+    fireEvent.click(detailsToggle);
+    expect(detailsToggle).toHaveAttribute("aria-pressed", "true");
+    const drawer = await screen.findByLabelText("Artifact details");
+    expect(within(drawer).getByText("Saved revision")).toBeInTheDocument();
+    expect(within(drawer).getByText("rev-pdf-1")).toBeInTheDocument();
+    expect(within(drawer).getByText("10 KB")).toBeInTheDocument();
+    expect(within(drawer).getByText("manual.pdf")).toBeInTheDocument();
+
+    // Close Details drawer via toggle button
+    fireEvent.click(detailsToggle);
+    expect(detailsToggle).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByText("Saved revision")).not.toBeInTheDocument();
+
+    // Reopen and close via Close button (✕)
+    fireEvent.click(detailsToggle);
+    const reopenedDrawer = await screen.findByLabelText("Artifact details");
+    expect(
+      within(reopenedDrawer).getByText("Saved revision"),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(reopenedDrawer).getByRole("button", { name: "Close details" }),
+    );
+    expect(detailsToggle).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByText("Saved revision")).not.toBeInTheDocument();
+  });
+
+  it("auto-closes the mobile files drawer when a document is opened on mobile viewports", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes("max-width"),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    try {
+      window.history.replaceState(null, "", "/files/notes/welcome.md");
+      const api = createTestApi();
+      render(<App api={api} />);
+
+      expect(
+        await screen.findByRole("heading", { name: "Welcome" }),
+      ).toBeInTheDocument();
+
+      const filesButton = screen.getByRole("button", {
+        name: /show files|hide files/i,
+      });
+      // Open files drawer on mobile
+      fireEvent.click(filesButton);
+
+      const fileNavigator = screen.getByLabelText("Workspace files");
+      expect(fileNavigator).toHaveClass("is-open");
+
+      // Click on settings.yaml in mobile navigator
+      fireEvent.click(
+        within(fileNavigator).getByTestId("workspace-directory-config"),
+      );
+      fireEvent.click(
+        within(fileNavigator).getByRole("button", { name: "settings.yaml" }),
+      );
+
+      await waitFor(() => {
+        expect(api.loadFile).toHaveBeenCalledWith("config/settings.yaml");
+      });
+
+      // Mobile drawer should be closed automatically
+      expect(fileNavigator).not.toHaveClass("is-open");
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
   });
 });

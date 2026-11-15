@@ -704,14 +704,7 @@ export function App({ api }: { api: WorkspaceApi }) {
         }}
       />
 
-      <main
-        className="workspace-layout"
-        style={{
-          gridTemplateColumns: filesOpen
-            ? "minmax(16rem, 20rem) minmax(0, 1fr)"
-            : "minmax(0, 1fr)",
-        }}
-      >
+      <main className={`workspace-layout ${filesOpen ? "has-sidebar" : ""}`}>
         {filesOpen && (
           <FileNavigator
             downloadUrl={(p) => api.downloadUrl(p)}
@@ -733,6 +726,7 @@ export function App({ api }: { api: WorkspaceApi }) {
             }}
             onOpenFile={(path) => {
               guardDirtyNavigation("switching files", () => {
+                setMobileFilesOpen(false);
                 void openPath(path);
               });
             }}
