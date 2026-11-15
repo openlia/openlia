@@ -1,6 +1,6 @@
 # OpenLia Documentation
 
-Welcome to the OpenLia documentation hub. OpenLia is a **lean, self-hosted deployment and connectivity control plane** on top of [Hermes Agent](https://hermes-agent.nousresearch.com/). It provisions Hermes Agent locally or over SSH, wires private [Locho](https://github.com/trchopan/locho) tunnels for the Hermes API Server (`:8642`), Hermes Web Dashboard (`:9119`), and attached services, manages Age-encrypted local and S3/rsync backups, and provides the `openlia-browser` Playwright MCP relay.
+Welcome to the OpenLia documentation hub. OpenLia is a **lean, self-hosted deployment and connectivity control plane** on top of [Hermes Agent](https://hermes-agent.nousresearch.com/). It provisions Hermes Agent locally or over SSH, provides a private browser UI for the agent workspace, wires [Locho](https://github.com/trchopan/locho) tunnels for the Workspace UI (`:8089`), Hermes API Server (`:8642`), Hermes Web Dashboard (`:9119`), and attached services, manages Age-encrypted local and S3/rsync backups, and provides the `openlia-browser` Playwright MCP relay.
 
 Choose a guide below based on your role or what you want to accomplish.
 
@@ -12,7 +12,7 @@ Choose a guide below based on your role or what you want to accomplish.
 
 Use this guide when interacting with your deployed Hermes Agent day-to-day over Telegram, the Hermes Web Dashboard, or the Hermes API Server.
 
-- **[End User Guide](user-guide.md)**: Interacting via Telegram, the Hermes Web Dashboard (`:9119` via Locho, authenticated with Basic Auth or Google/Auth0 OIDC), the Hermes API Server (`:8642`), managing `/opt/data/workspace` and `/opt/data/memories`, and approval boundaries.
+- **[End User Guide](user-guide.md)**: Interacting via Telegram, the Hermes Web Dashboard (`:9119` via Locho), Workspace UI (`:8089` via Locho), the Hermes API Server (`:8642`), managing `/opt/data/workspace` and `/opt/data/memories`, and approval boundaries.
 
 ### 🛠️ For Operators (Self-Hosters & System Administrators)
 
@@ -23,10 +23,10 @@ Use these guides when deploying, configuring authentication, tunneling, backing 
 
 ### 💻 For Developers & Contributors
 
-Use these guides when onboarding to the codebase, building from source, or contributing changes to the CLI, operator, or browser relay.
+Use these guides when onboarding to the codebase, building from source, or contributing changes to the CLI, operator, Workspace UI, or browser relay.
 
 - **[Contributing & Onboarding Guide](../CONTRIBUTING.md)**: Development prerequisites, 5-minute local setup, component workflows, test suites, and pull request conventions.
-- **[System Architecture & Codebase Tour](architecture.md)**: Full-stack architectural overview covering the Go CLI (`cli/`), target operator (`operator/`), `openlia-browser` Playwright MCP relay (`packages/openlia-browser/`), Docker images (`docker/`), and release manifest pinning (`release/manifest.json`).
+- **[System Architecture & Codebase Tour](architecture.md)**: Full-stack architectural overview covering the Go CLI (`cli/`), target operator (`operator/`), Workspace UI (`packages/workspace-ui/`), `openlia-browser` Playwright MCP relay (`packages/openlia-browser/`), Docker images (`docker/`), and release manifest pinning (`release/manifest.json`).
 
 ---
 

@@ -57,7 +57,11 @@ Hermes Agent includes a full-featured Web Dashboard running on `127.0.0.1:9119` 
   - **Skills & Memory**: Browse installed Hermes skills (`/opt/data/skills`) and persistent memory entries (`memories/MEMORY.md` and `memories/USER.md`).
   - **Configuration**: Inspect runtime settings in `/opt/data/config.yaml`.
 
-### C. Hermes API Server (`:8642` via Locho)
+### C. Workspace UI (`:8089` via Locho)
+
+When `locho-host` is enabled, the document-focused Workspace UI is available privately at <http://127.0.0.1:8089> while the Locho attachment is running. It operates on `/opt/data/workspace` and supports browsing, Markdown preview and editing, file creation, upload, move, rename, and delete. It uses the Hermes Dashboard Basic Auth or OIDC credentials when those are configured; otherwise, keep it reachable only through a trusted private tunnel.
+
+### D. Hermes API Server (`:8642` via Locho)
 
 Hermes Agent provides an OpenAI-compatible HTTP API server on `127.0.0.1:8642` (exposed privately via `locho-host` as `hermes-api`, bound to `http://127.0.0.1:8642` on your client machine):
 

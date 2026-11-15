@@ -2,7 +2,7 @@
 
 > A lean, self-hosted deployment and connectivity control plane on top of [Hermes Agent](https://hermes-agent.nousresearch.com/).
 
-OpenLia deploys and manages **Hermes Agent** on a local machine or a remote Linux host over SSH, wires private connectivity through **[Locho](https://github.com/trchopan/locho)** tunnels (for the Hermes API server, Hermes Dashboard, and external browser/service hosts), automates **Age-encrypted backups** (local + S3 or rsync), and provides the **`openlia-browser` Playwright MCP relay** for safe shared-profile browser automation.
+OpenLia deploys and manages **Hermes Agent** on a local machine or a remote Linux host over SSH, provides a browser-based workspace for files under `/opt/data/workspace`, wires private connectivity through **[Locho](https://github.com/trchopan/locho)** tunnels, automates **Age-encrypted backups** (local + S3 or rsync), and provides the **`openlia-browser` Playwright MCP relay** for safe shared-profile browser automation.
 
 ---
 
@@ -12,13 +12,15 @@ OpenLia deploys and manages **Hermes Agent** on a local machine or a remote Linu
    - Runs the official upstream `nousresearch/hermes-agent` container image with an injected mode-`0600` secret source wrapper (`/usr/local/bin/openlia-secret-source`).
    - Seeds a clean base `SOUL.md` and `AGENTS.md` on deployment, while letting upstream Hermes Agent manage its own `/opt/data/config.yaml` and native features.
 2. **Locho Tunneling (`locho-host` & `attachments`)**:
-   - **`locho-host`**: Exposes Hermes' built-in API Server (`127.0.0.1:8642` -> service `hermes-api`) and built-in Web Dashboard (`127.0.0.1:9119` -> service `hermes-dashboard`) over an outbound encrypted Locho relay—with zero public ports opened on the agent machine.
+   - **`locho-host`**: Exposes Hermes' built-in API Server (`127.0.0.1:8642` -> service `hermes-api`), built-in Web Dashboard (`127.0.0.1:9119` -> service `hermes-dashboard`), and Workspace UI (`127.0.0.1:8089` -> service `workspace-ui`) over an outbound encrypted Locho relay. Host-port publishing is disabled by default.
    - **`attachments`**: Connects Hermes to remote services (`openlia-browser`, private OpenAI-compatible gateways) through dedicated `locho-<host>` sidecar containers.
-3. **Hermes Dashboard & API Authentication (`auth`)**:
+3. **Workspace UI**:
+   - Browses, previews, edits, creates, moves, renames, uploads, and deletes files in `/opt/data/workspace`; it is available through the private Locho tunnel and can reuse configured Hermes Dashboard Basic Auth or OIDC credentials.
+4. **Hermes Dashboard & API Authentication (`auth`)**:
    - Configures Hermes Dashboard Basic Auth (`openlia auth`) or OIDC / GCP OAuth / Auth0 (`openlia auth --oidc`) inside your protected mode-`0600` secret source file and propagates credentials to the runtime.
-4. **Age-Encrypted Backups (`backup`)**:
+5. **Age-Encrypted Backups (`backup`)**:
    - Creates compressed, Age-encrypted snapshots of `/opt/data`, retaining the private Age recovery key strictly on the operator workstation while pushing encrypted archives to S3-compatible object storage or an SSH/rsync target.
-5. **Playwright MCP Relay (`browser`)**:
+6. **Playwright MCP Relay (`browser`)**:
    - Supervises a host-local Playwright MCP server (`127.0.0.1:8931`) and exposes a Streamable HTTP `/mcp` relay (`127.0.0.1:8932`) with single-owner FIFO workflow leases and mutating-call idempotency.
 
 ---
@@ -33,6 +35,7 @@ Operator Machine (macOS / Linux Workstation)
       |
       +-- Remote Mode -> SSH -> Agent Machine (Linux VM, no checkout/Go needed)
       |                           |-- Hermes Agent container (:8642 API, :9119 Dashboard)
+      |                           |-- Workspace UI (:8089, /opt/data/workspace)
       |                           |-- Locho sidecars (locho-host & locho-<host> attachments)
       |                           |-- Backup scheduler sidecar
       |                           `-- /opt/data (Hermes state, SOUL.md, AGENTS.md, config.yaml)
@@ -59,7 +62,7 @@ All CLI commands accept `--config <path>` (or the `OPENLIA_CONFIG=<path>` enviro
 
 - `openlia auth [--oidc]` — Configure Hermes Dashboard Basic Auth (`openlia auth`) or OIDC / GCP OAuth / Auth0 (`openlia auth --oidc`) in your mode-`0600` secret source (run `openlia deploy` to apply).
 - `openlia auth api-key-rotate` — Generate and store a new Hermes API key in your mode-`0600` secret source without printing it (run `openlia deploy` to apply).
-- `openlia locho-host share --output <file>` — Export a mode-`0600` client attachment file for `hermes-api` (`:8642`) and `hermes-dashboard` (`:9119`).
+- `openlia locho-host share --output <file>` — Export a mode-`0600` client attachment file for `hermes-api` (`:8642`), `hermes-dashboard` (`:9119`), and `workspace-ui` (`:8089`).
 - `openlia attachments <list|map>` — Inspect attached Locho hosts or map discovered services to roles (`openlia-browser`, `openai-gateway`) in `config.toml` (run `openlia deploy` to apply).
 - `openlia backup <keygen|create|status|list|push|restore>` — Manage Age-encrypted backups and off-box S3/rsync replication.
 - `openlia browser <configure|install|start|stop|restart|status|logs|uninstall>` — Manage the `openlia-browser` Playwright MCP relay service.

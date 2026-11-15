@@ -49,6 +49,15 @@ jobs:
       - name: Build and verify embedded Bun bundles
         run: bun run verify-dist
 
+      - name: Build and health-check Workspace UI container image
+        run: |
+          docker build -f docker/workspace-ui.Dockerfile -t openlia-workspace-ui:ci .
+          docker run --rm --read-only --tmpfs /tmp \
+            -e OPENLIA_WORKSPACE_UI_BIND=0.0.0.0 \
+            --entrypoint bun \
+            openlia-workspace-ui:ci \
+            -e 'const { server } = await import("/opt/openlia/workspace-ui/server.js"); const response = await fetch(`http://127.0.0.1:${server.port}/health`); if (!response.ok) throw new Error(`health returned ${response.status}`); server.stop();'
+
       - name: Check Go formatting
         run: |
           unformatted="$(gofmt -l main.go main_test.go cli cmd internal operator)"

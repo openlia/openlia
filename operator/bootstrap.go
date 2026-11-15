@@ -86,6 +86,7 @@ func BootstrapContext(ctx context.Context, config Config, checkOnly bool, now ti
 		filepath.Join(config.DataRoot, "memories"),
 		filepath.Join(config.DataRoot, "workspace"),
 		filepath.Join(config.DataRoot, "skills"),
+		filepath.Join(config.RuntimeRoot, "workspace-ui"),
 	} {
 		if err := EnsureDir(dir, 0o700); err != nil {
 			return BootstrapResult{}, err

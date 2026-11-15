@@ -81,6 +81,14 @@ relay_secrets = "/Users/username/.config/openlia/locho/relay.env"
 enabled = false
 host = "127.0.0.1"
 
+# Workspace UI listens on port 8089 inside the private Compose network.
+# Leave host empty to avoid publishing a host port; Locho access still works.
+[workspace-ui]
+host = ""
+port = 8089
+# Set only when accessed through an HTTPS reverse proxy with a stable public origin.
+public_origin = ""
+
 # Path to protected mode-0600 dotenv file on the operator machine
 [secrets]
 source = "/Users/username/.config/openlia/prod/secrets.env"
@@ -102,7 +110,7 @@ model = "gpt-4o"
 
 ### Hermes Dashboard & API Authentication (`openlia auth`)
 
-Hermes Agent includes a built-in Web Dashboard (`127.0.0.1:9119`, exposed via Locho as `hermes-dashboard`) and an OpenAI-compatible API Server (`127.0.0.1:8642`, exposed via Locho as `hermes-api`). All credentials are stored exclusively in your mode-`0600` `secrets.source` file—never in `config.toml`.
+Hermes Agent includes a built-in Web Dashboard (`127.0.0.1:9119`, exposed via Locho as `hermes-dashboard`) and an OpenAI-compatible API Server (`127.0.0.1:8642`, exposed via Locho as `hermes-api`). The Workspace UI reuses the configured Dashboard Basic Auth or OIDC credentials. All credentials are stored exclusively in your mode-`0600` `secrets.source` file—never in `config.toml`.
 
 Generate a new API bearer key in the local secret source:
 
@@ -210,10 +218,11 @@ To access the Hermes API Server (`:8642`) and Hermes Web Dashboard (`:9119`) pri
 enabled = true
 ```
 
-Then run `openlia deploy`. This starts a private `locho-host` sidecar that exports two services over an outbound encrypted Locho tunnel:
+Then run `openlia deploy`. This starts the private `locho-host` sidecar and Workspace UI, exporting three services over an outbound encrypted Locho tunnel:
 
 - `hermes-api` -> `hermes:8642` (default client local port: `8642`)
 - `hermes-dashboard` -> `hermes:9119` (default client local port: `9119`)
+- `workspace-ui` -> `workspace-ui:8089` (default client local port: `8089`)
 
 After deployment, export a mode-`0600` client attachment file on the operator machine:
 
@@ -226,6 +235,8 @@ Install [Locho `1.3.0`](https://github.com/trchopan/locho/releases/tag/v1.3.0) o
 ```bash
 locho attach --config openlia-attachments.toml
 ```
+
+With the attachment active, open <http://127.0.0.1:8089> to browse and edit files in `/opt/data/workspace`. The UI service is not published on a host port by default; leave `[workspace-ui].host` empty to keep access on the private Locho tunnel. Set `host = "127.0.0.1"` only if you also want a local host port, or `host = "0.0.0.0"` to publish it on all host interfaces. Configure `public_origin` only when the UI is served through a stable HTTPS reverse-proxy origin (for example, for OIDC callbacks and secure cookies).
 
 Configure `relay_config` and optional `relay_secrets` (mode `0600`) under `[locho]` in `config.toml`. See [`examples/locho/hosts/example/README.md`](../examples/locho/hosts/example/README.md) for relay templates and service-role mapping (`openlia attachments map|list`).
 

@@ -12,6 +12,7 @@ func TestEmbeddedReleaseAssetsPresent(t *testing.T) {
 		"docker/compose.yaml",
 		"docker/Dockerfile",
 		"docker/locho.Dockerfile",
+		"docker/workspace-ui.Dockerfile",
 		"docker/secret-source.sh",
 		"profile/SOUL.md",
 		"profile/AGENTS.md",
@@ -33,6 +34,8 @@ func TestEmbeddedReleaseAssetsPresent(t *testing.T) {
 func TestEmbeddedBunRuntimeAssets(t *testing.T) {
 	required := []string{
 		"packages/openlia-browser/dist/server.js",
+		"packages/workspace-ui/dist/server.js",
+		"packages/workspace-ui/dist/client/index.html",
 	}
 	for _, relPath := range required {
 		data, err := fs.ReadFile(releaseAssets, relPath)

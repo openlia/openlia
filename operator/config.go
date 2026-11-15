@@ -64,6 +64,9 @@ type Config struct {
 	BackupRemoteRetentionDays int
 	APIEnabled                bool
 	APIHost                   string
+	WorkspaceUIHost           string
+	WorkspaceUIPort           int
+	WorkspaceUIPublicOrigin   string
 	LochoHostEnabled          bool
 	LochoHostRoot             string
 	LochoHostConfig           string
@@ -254,6 +257,9 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 		LochoRelaySecrets:         values["OPENLIA_LOCHO_RELAY_SECRETS"],
 		ExternalNetwork:           values["OPENLIA_EXTERNAL_NETWORK"],
 		APIHost:                   getOr(values, "OPENLIA_API_HOST", "127.0.0.1"),
+		WorkspaceUIHost:           values["OPENLIA_WORKSPACE_UI_HOST"],
+		WorkspaceUIPort:           8089,
+		WorkspaceUIPublicOrigin:   values["OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN"],
 		RuntimeUID:                runtimeUID,
 		RuntimeGID:                runtimeGID,
 		LochoHostRoot:             filepath.Join(runtimeRoot, "locho-host"),
@@ -304,6 +310,19 @@ func LoadConfigFromEnv(values map[string]string) (Config, error) {
 	if config.APIEnabled, err = boolValue(values, "OPENLIA_API_ENABLED", false); err != nil {
 		return Config{}, err
 	}
+	if rawPort := values["OPENLIA_WORKSPACE_UI_PORT"]; rawPort != "" {
+		parsedPort, parseErr := strconv.Atoi(rawPort)
+		if parseErr != nil || parsedPort < 1 || parsedPort > 65535 {
+			return Config{}, fmt.Errorf("OPENLIA_WORKSPACE_UI_PORT must be between 1 and 65535")
+		}
+		config.WorkspaceUIPort = parsedPort
+	}
+	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort); err != nil {
+		return Config{}, err
+	}
+	if err := validateWorkspaceUIPublicOrigin(config.WorkspaceUIPublicOrigin); err != nil {
+		return Config{}, err
+	}
 	if config.LochoHostEnabled, err = boolValue(values, "OPENLIA_LOCHO_HOST_ENABLED", false); err != nil {
 		return Config{}, err
 	}
@@ -347,6 +366,27 @@ func validateOutputLanguage(value string) error {
 				return fmt.Errorf("must be a BCP 47 language tag")
 			}
 		}
+	}
+	return nil
+}
+
+func validateWorkspaceUI(host string, port int) error {
+	if host != "" && host != "127.0.0.1" && host != "0.0.0.0" {
+		return fmt.Errorf("workspace-ui.host must be 127.0.0.1 or 0.0.0.0")
+	}
+	if port != 0 && (port < 1 || port > 65535) {
+		return fmt.Errorf("workspace-ui.port must be between 1 and 65535")
+	}
+	return nil
+}
+
+func validateWorkspaceUIPublicOrigin(value string) error {
+	if value == "" {
+		return nil
+	}
+	origin, err := url.Parse(value)
+	if err != nil || (origin.Scheme != "http" && origin.Scheme != "https") || origin.Host == "" || origin.User != nil || origin.Opaque != "" || origin.RawQuery != "" || origin.Fragment != "" || (origin.Path != "" && origin.Path != "/") {
+		return fmt.Errorf("workspace-ui.public_origin must be an absolute http(s) origin")
 	}
 	return nil
 }
@@ -456,6 +496,12 @@ func (c Config) ValidatePaths() error {
 	}
 	if c.APIHost != "127.0.0.1" {
 		return fmt.Errorf("API host must remain 127.0.0.1")
+	}
+	if err := validateWorkspaceUI(c.WorkspaceUIHost, c.WorkspaceUIPort); err != nil {
+		return err
+	}
+	if err := validateWorkspaceUIPublicOrigin(c.WorkspaceUIPublicOrigin); err != nil {
+		return err
 	}
 	if c.LochoRelaySecrets != "" && c.LochoRelayConfig == "" {
 		return fmt.Errorf("Locho relay secrets require a relay configuration")

@@ -83,6 +83,21 @@ var (
 			pattern: regexp.MustCompile(`ARG BUN_LINUX_ARM64_SHA256=[0-9a-f]{64}`),
 			value:   func(m manifest) string { return "ARG BUN_LINUX_ARM64_SHA256=" + m.Bun.LinuxARM64SHA },
 		},
+		{
+			file:    "docker/workspace-ui.Dockerfile",
+			pattern: regexp.MustCompile(`ARG BUN_VERSION=[0-9]+\.[0-9]+\.[0-9]+`),
+			value:   func(m manifest) string { return "ARG BUN_VERSION=" + m.Bun.Version },
+		},
+		{
+			file:    "docker/workspace-ui.Dockerfile",
+			pattern: regexp.MustCompile(`ARG BUN_LINUX_X64_SHA256=[0-9a-f]{64}`),
+			value:   func(m manifest) string { return "ARG BUN_LINUX_X64_SHA256=" + m.Bun.LinuxX64SHA },
+		},
+		{
+			file:    "docker/workspace-ui.Dockerfile",
+			pattern: regexp.MustCompile(`ARG BUN_LINUX_ARM64_SHA256=[0-9a-f]{64}`),
+			value:   func(m manifest) string { return "ARG BUN_LINUX_ARM64_SHA256=" + m.Bun.LinuxARM64SHA },
+		},
 	}
 )
 

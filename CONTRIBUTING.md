@@ -8,19 +8,19 @@ We value changes that are **small, reviewable, deterministic to test, and explic
 
 ## 1. Where to Start
 
-| If you want to work on...            | Read this first                                                                                | Key directories                                                    |
-| :----------------------------------- | :--------------------------------------------------------------------------------------------- | :----------------------------------------------------------------- |
-| **Overall system & codebase layout** | [System Architecture (`docs/architecture.md`)](docs/architecture.md)                           | Root, `cli/`, `operator/`, `packages/openlia-browser/`, `profile/` |
-| **Go CLI & target operator**         | [System Architecture (`docs/architecture.md`)](docs/architecture.md)                           | `main.go`, `cli/`, `operator/`, `cmd/`, `internal/`                |
-| **Playwright MCP Browser Relay**     | [`packages/openlia-browser/README.md`](packages/openlia-browser/README.md)                     | `packages/openlia-browser/`                                        |
-| **End-to-end & smoke verification**  | [`tests/README.md`](tests/README.md) & [E2E Drills (`docs/e2e-drills.md`)](docs/e2e-drills.md) | `tests/`, `examples/profiles/dev/`                                 |
+| If you want to work on...            | Read this first                                                                                | Key directories                                     |
+| :----------------------------------- | :--------------------------------------------------------------------------------------------- | :-------------------------------------------------- |
+| **Overall system & codebase layout** | [System Architecture (`docs/architecture.md`)](docs/architecture.md)                           | Root, `cli/`, `operator/`, `packages/`, `profile/`  |
+| **Go CLI & target operator**         | [System Architecture (`docs/architecture.md`)](docs/architecture.md)                           | `main.go`, `cli/`, `operator/`, `cmd/`, `internal/` |
+| **Playwright MCP Browser Relay**     | [`packages/openlia-browser/README.md`](packages/openlia-browser/README.md)                     | `packages/openlia-browser/`                         |
+| **End-to-end & smoke verification**  | [`tests/README.md`](tests/README.md) & [E2E Drills (`docs/e2e-drills.md`)](docs/e2e-drills.md) | `tests/`, `examples/profiles/dev/`                  |
 
 ---
 
 ## 2. Development Prerequisites
 
 - **Go**: `1.26` or newer
-- **Bun**: `1.2.22` or newer (for `packages/openlia-browser`)
+- **Bun**: `1.2.22` or newer (for the packages under `packages/`)
 - **Python**: `3.9` or newer (for `tests/smoke.py`)
 - **Docker & Compose v2**: Required for `make compose-config` and local deployment smoke tests
 - **Bash & ShellCheck**: Required for container script linting (`make lint`)
@@ -49,7 +49,7 @@ make lint
 make smoke
 ```
 
-Note: Clean-checkout builds and Go tests require `make build` (or `bun run verify-dist`) first because `main.go` embeds `packages/openlia-browser/dist/server.js` via `//go:embed`.
+Note: Clean-checkout builds and Go tests require `make build` (or `bun run verify-dist`) first because `main.go` embeds the generated Bun bundles via `//go:embed`.
 
 ---
 
@@ -76,7 +76,18 @@ bun run typecheck              # TypeScript typechecking
 
 See [`packages/openlia-browser/README.md`](packages/openlia-browser/README.md) for lease and idempotency semantics.
 
-### C. Release Manifest & Version Pins (`release/manifest.json`)
+### C. Workspace UI (`packages/workspace-ui/`)
+
+```bash
+bun run build:ui
+bun run test:ui:server
+bun run test:ui:client
+bun run typecheck:ui
+```
+
+The Workspace UI is bundled into the release and runs in its own Compose service. Its workspace root and authentication settings are supplied by the operator; see the [Operator Guide](docs/operator-guide.md).
+
+### D. Release Manifest & Version Pins (`release/manifest.json`)
 
 Runtime component pins have a single source of truth in [`release/manifest.json`](release/manifest.json).
 

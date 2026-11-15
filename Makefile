@@ -79,4 +79,4 @@ deploy-prod: build
 	./openlia deploy --config "$(OPENLIA_INSTALL_CONFIG)" --release --non-interactive
 
 clean:
-	rm -rf openlia dist packages/openlia-browser/dist
+	rm -rf openlia dist packages/openlia-browser/dist packages/workspace-ui/dist

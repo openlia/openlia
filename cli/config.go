@@ -26,6 +26,7 @@ const (
 	defaultProject               = "openlia"
 	defaultOutputLanguage        = "en"
 	defaultTimezone              = "Asia/Ho_Chi_Minh"
+	defaultWorkspaceUIPort       = 8089
 	maxBackupRemoteRetentionDays = (1<<63 - 1) / int64(24*time.Hour)
 )
 
@@ -75,6 +76,9 @@ type Config struct {
 	LochoARM64SHA256          string
 	APIEnabled                bool
 	APIHost                   string
+	WorkspaceUIHost           string
+	WorkspaceUIPort           int
+	WorkspaceUIPublicOrigin   string
 	LochoHostEnabled          bool
 	LochoHostStateDir         string
 	LochoRelayConfigSource    string
@@ -163,6 +167,8 @@ func defaultConfig() Config {
 		LochoX8664SHA256:          releaseinfo.Default.Locho.LinuxX8664SHA,
 		LochoARM64SHA256:          releaseinfo.Default.Locho.LinuxARM64SHA,
 		APIHost:                   "127.0.0.1",
+		WorkspaceUIHost:           "",
+		WorkspaceUIPort:           defaultWorkspaceUIPort,
 		LochoHostEnabled:          false,
 		BackupSchedule:            "20 4 * * *",
 		BackupScheduleEnabled:     true,
@@ -452,6 +458,12 @@ func parseConfigUnchecked(data string) (Config, error) {
 				config.APIEnabled, err = parseBool(value)
 			case "api.host":
 				config.APIHost, err = parseString(value)
+			case "workspace-ui.host":
+				config.WorkspaceUIHost, err = parseString(value)
+			case "workspace-ui.port":
+				config.WorkspaceUIPort, err = parseInt(value)
+			case "workspace-ui.public_origin":
+				config.WorkspaceUIPublicOrigin, err = parseString(value)
 			case "secrets.source":
 				config.SecretSource, err = parseString(value)
 			case "backup.identity_file":
@@ -697,6 +709,18 @@ func validateConfig(config Config) error {
 	}
 	if config.APIHost != "127.0.0.1" {
 		return errors.New("API host must remain 127.0.0.1; use SSH or a private network for access")
+	}
+	if config.WorkspaceUIHost != "" && config.WorkspaceUIHost != "127.0.0.1" && config.WorkspaceUIHost != "0.0.0.0" {
+		return errors.New("workspace-ui.host must be 127.0.0.1 or 0.0.0.0")
+	}
+	if config.WorkspaceUIPort < 1 || config.WorkspaceUIPort > 65535 {
+		return errors.New("workspace-ui.port must be between 1 and 65535")
+	}
+	if config.WorkspaceUIPublicOrigin != "" {
+		origin, err := url.Parse(config.WorkspaceUIPublicOrigin)
+		if err != nil || (origin.Scheme != "http" && origin.Scheme != "https") || origin.Host == "" || origin.User != nil || origin.Opaque != "" || origin.RawQuery != "" || origin.Fragment != "" || (origin.Path != "" && origin.Path != "/") {
+			return errors.New("workspace-ui.public_origin must be an absolute http(s) origin")
+		}
 	}
 	if config.LochoHostStateDir != "" {
 		if err := validateAbsoluteRoot(config.LochoHostStateDir, "locho-host.state_dir"); err != nil {
@@ -1107,6 +1131,13 @@ func renderConfig(config Config) string {
 	fmt.Fprintf(&builder, "[release]\nsource = %q\n\n", config.ReleaseSource)
 	fmt.Fprintf(&builder, "[components]\nhermes_image = %q\nhermes_tag = %q\nhermes_digest = %q\nlocho_image = %q\nlocho_version = %q\nlocho_x86_64_sha256 = %q\nlocho_arm64_sha256 = %q\n\n", config.HermesImage, config.HermesTag, config.HermesDigest, config.LochoImage, config.LochoVersion, config.LochoX8664SHA256, config.LochoARM64SHA256)
 	fmt.Fprintf(&builder, "[api]\nenabled = %t\nhost = %q\n\n", config.APIEnabled, config.APIHost)
+	if config.WorkspaceUIHost != "" || config.WorkspaceUIPort != defaultWorkspaceUIPort || config.WorkspaceUIPublicOrigin != "" {
+		fmt.Fprintf(&builder, "[workspace-ui]\nhost = %q\nport = %d\n", config.WorkspaceUIHost, config.WorkspaceUIPort)
+		if config.WorkspaceUIPublicOrigin != "" {
+			fmt.Fprintf(&builder, "public_origin = %q\n", config.WorkspaceUIPublicOrigin)
+		}
+		builder.WriteString("\n")
+	}
 	fmt.Fprintf(&builder, "[secrets]\nsource = %q\n", config.SecretSource)
 	fmt.Fprintf(&builder, "\n[backup]\nschedule = %q\nschedule_enabled = %t\nlocal_retention = %d\nlocal_max_size = %q\nremote_retention_days = %d\n", config.BackupSchedule, config.BackupScheduleEnabled, config.BackupLocalRetention, formatBackupSize(config.BackupLocalMaxBytes), config.BackupRemoteRetentionDays)
 	if config.BackupKnownHosts != "" {
