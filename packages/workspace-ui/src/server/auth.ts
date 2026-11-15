@@ -626,11 +626,24 @@ export class Authenticator {
     request: Request,
     publicOrigin?: string | undefined,
   ): string {
+    const forwardedProto = request.headers
+      .get("x-forwarded-proto")
+      ?.split(",")[0]
+      ?.trim();
+    const forwardedHost = request.headers
+      .get("x-forwarded-host")
+      ?.split(",")[0]
+      ?.trim();
+    const forwardedOrigin =
+      forwardedProto && forwardedHost
+        ? `${forwardedProto}://${forwardedHost}`
+        : undefined;
     const base =
       this.oidcConfig?.publicUrl?.trim() ||
       publicOrigin?.trim() ||
+      forwardedOrigin ||
       new URL(request.url).origin;
-    return `${base.replace(/\/+$/, "")}/api/auth/oidc/callback`;
+    return `${base.replace(/\/+$/, "")}/auth/callback`;
   }
 
   private async fetchOidcDiscovery(): Promise<OidcDiscoveryDocument> {

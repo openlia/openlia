@@ -149,12 +149,12 @@ This sets `HERMES_DASHBOARD_OIDC_ISSUER`, `HERMES_DASHBOARD_OIDC_CLIENT_ID`, `HE
 
 - **Google Cloud (GCP OAuth)**:
   - **Issuer**: `https://accounts.google.com`
-  - **Authorized Redirect URI**: `<your-dashboard-url>/auth/callback` (e.g., `http://127.0.0.1:9119/auth/callback` for local Locho attach, or `https://dashboard.example.com/auth/callback` behind a reverse proxy).
+  - **Authorized Redirect URI**: `<your-dashboard-url>/auth/callback` and `<your-workspace-ui-url>/auth/callback` (e.g., `http://127.0.0.1:9119/auth/callback` and `http://127.0.0.1:8089/auth/callback` for local Locho attach, or `https://dashboard.example.com/auth/callback` behind a reverse proxy).
   - **Client Secret**: Required for Google Web Application OAuth clients even with PKCE.
   - **User Access Control**: Keep your Google Auth Platform OAuth consent screen in **Testing** mode and add only your email under **Audience → Test users** (or set Audience to **Internal** on Google Workspace). Do not publish a consumer `@gmail.com` app to **In production**, or any Google account would be able to sign in.
 - **Auth0**:
   - **Issuer**: `https://<your-tenant>.<region>.auth0.com`
-  - **Allowed Callback URL**: `<your-dashboard-url>/auth/callback`
+  - **Allowed Callback URL**: `<your-dashboard-url>/auth/callback` and `<your-workspace-ui-url>/auth/callback`
   - **User Access Control**: Disable Public Signups on the Auth0 database connection or add an Auth0 Post-Login Action that checks `event.user.email` against an allowlist.
 
 ### Protected Secrets (`secrets.env`)

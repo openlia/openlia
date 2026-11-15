@@ -231,7 +231,7 @@ describe("Workspace UI App", () => {
     });
     expect(ssoLink).toHaveAttribute(
       "href",
-      expect.stringContaining("/api/auth/oidc/login"),
+      expect.stringContaining("/auth/oidc/login"),
     );
   });
 

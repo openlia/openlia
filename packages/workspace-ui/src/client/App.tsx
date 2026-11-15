@@ -600,7 +600,7 @@ export function App({ api }: { api: WorkspaceApi }) {
       typeof window !== "undefined"
         ? `${window.location.pathname}${window.location.search}`
         : "/";
-    const oidcLoginHref = `/api/auth/oidc/login?${new URLSearchParams({ return_to: returnTo })}`;
+    const oidcLoginHref = `/auth/oidc/login?${new URLSearchParams({ return_to: returnTo })}`;
 
     return (
       <main

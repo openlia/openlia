@@ -52,9 +52,7 @@ export function createConfiguredWorkspaceHandler() {
     "openid profile email"
   ).trim();
   const publicOrigin = (
-    process.env.OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN ??
-    process.env.HERMES_DASHBOARD_PUBLIC_URL ??
-    ""
+    process.env.OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN ?? ""
   ).trim();
 
   const username = (
