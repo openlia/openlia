@@ -2,7 +2,7 @@
   "$schema": "https://biomejs.dev/schemas/2.6.7/schema.json",
   "files": {
     "includes": [
-      "packages/**/*.{js,ts,json,jsonc}",
+      "packages/**/*.{js,jsx,ts,tsx,json,jsonc}",
       "!packages/**/dist",
       "package.json",
       "tsconfig*.json"

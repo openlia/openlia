@@ -164,6 +164,10 @@ func generateLochoHostState(endpointID string) (lochoPersistedHostState, error) 
 	if err != nil {
 		return lochoPersistedHostState{}, err
 	}
+	workspaceSecret, err := generateLochoSecretHex()
+	if err != nil {
+		return lochoPersistedHostState{}, err
+	}
 	return lochoPersistedHostState{
 		SchemaVersion: lochoHostStateSchemaVersion,
 		EndpointID:    endpointID,
@@ -171,6 +175,7 @@ func generateLochoHostState(endpointID string) (lochoPersistedHostState, error) 
 		ServiceSecrets: map[string]string{
 			"hermes-api":       apiSecret,
 			"hermes-dashboard": dashboardSecret,
+			"workspace-ui":     workspaceSecret,
 		},
 	}, nil
 }
@@ -252,13 +257,13 @@ func parseAndRepairLochoHostState(raw []byte, expectedEndpointID string) (lochoP
 		state.ServiceSecrets = make(map[string]string)
 		changed = true
 	}
-	for _, legacy := range []string{"workspace-ui", "open-webui"} {
+	for _, legacy := range []string{"open-webui"} {
 		if _, exists := state.ServiceSecrets[legacy]; exists {
 			delete(state.ServiceSecrets, legacy)
 			changed = true
 		}
 	}
-	for _, svc := range []string{"hermes-api", "hermes-dashboard"} {
+	for _, svc := range []string{"hermes-api", "hermes-dashboard", "workspace-ui"} {
 		if !validLochoHexSecret(state.ServiceSecrets[svc]) {
 			secret, err := generateLochoSecretHex()
 			if err != nil {

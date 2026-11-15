@@ -197,7 +197,24 @@ func generateAttachmentsWithCompose(ctx context.Context, config Config, compose 
 	return RecordChange(config, "attachments-generate", "ok", "", "Compose sidecars regenerated", time.Now().UTC())
 }
 
+func workspaceUIEnabled(config Config) bool {
+	return config.WorkspaceUIHost != "" || config.LochoHostEnabled
+}
+
+func workspaceUIPort(config Config) int {
+	if config.WorkspaceUIPort > 0 {
+		return config.WorkspaceUIPort
+	}
+	return WorkspaceUIPort
+}
+
 func generateAttachmentsFile(config Config) error {
+	if err := validateWorkspaceUI(config.WorkspaceUIHost, config.WorkspaceUIPort); err != nil {
+		return err
+	}
+	if err := validateWorkspaceUIPublicOrigin(config.WorkspaceUIPublicOrigin); err != nil {
+		return err
+	}
 	if config.LochoHostEnabled {
 		if err := writeLochoHostConfig(config); err != nil {
 			return err
@@ -208,8 +225,17 @@ func generateAttachmentsFile(config Config) error {
 		lochoImage = releaseinfo.InternalImage("openlia-locho", releaseinfo.Default.Locho.Version)
 	}
 	apiEnvPath := filepath.Join(config.SecretDir, "api-server.env")
-	if config.APIEnabled || config.LochoHostEnabled {
+	if config.APIEnabled || config.LochoHostEnabled || config.WorkspaceUIHost != "" {
 		if err := ensureAPIServerEnv(config, apiEnvPath); err != nil {
+			return err
+		}
+	}
+	if workspaceUIEnabled(config) {
+		sessionDir := filepath.Join(config.RuntimeRoot, "workspace-ui")
+		if err := EnsureDir(sessionDir, 0o700); err != nil {
+			return err
+		}
+		if err := ensureRuntimeOwner(sessionDir, config.RuntimeUID, config.RuntimeGID, 0o700); err != nil {
 			return err
 		}
 	}
@@ -258,9 +284,11 @@ func generateAttachmentsFile(config Config) error {
 	}
 
 	var builder strings.Builder
-	hasHermesEnv := config.APIEnabled || config.LochoHostEnabled || config.ExternalNetwork != "" || browserURL != "" || len(allServices) > 0
+	uiEnabled := workspaceUIEnabled(config)
+	uiPort := workspaceUIPort(config)
+	hasHermesEnv := config.APIEnabled || config.LochoHostEnabled || config.WorkspaceUIPublicOrigin != "" || config.ExternalNetwork != "" || browserURL != "" || len(allServices) > 0
 	schedulerVolumes := append(backupSchedulerIdentityVolumes(config), backupSchedulerCredentialVolumes(config)...)
-	hasGeneratedServices := hasHermesEnv || config.LochoHostEnabled || len(hosts.Hosts) > 0 || len(schedulerVolumes) > 0
+	hasGeneratedServices := hasHermesEnv || uiEnabled || config.LochoHostEnabled || len(hosts.Hosts) > 0 || len(schedulerVolumes) > 0
 	if !hasGeneratedServices {
 		builder.WriteString("services: {}\n")
 	} else {
@@ -276,6 +304,9 @@ func generateAttachmentsFile(config Config) error {
 			}
 			if config.LochoHostEnabled {
 				builder.WriteString("      HERMES_DASHBOARD: \"1\"\n      HERMES_DASHBOARD_HOST: \"0.0.0.0\"\n      HERMES_DASHBOARD_PORT: \"9119\"\n")
+			}
+			if config.WorkspaceUIPublicOrigin != "" {
+				fmt.Fprintf(&builder, "      OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN: %q\n", config.WorkspaceUIPublicOrigin)
 			}
 			if browserURL != "" {
 				fmt.Fprintf(&builder, "      OPENLIA_BROWSER_MCP_URL: %q\n", browserURL)
@@ -297,9 +328,35 @@ func generateAttachmentsFile(config Config) error {
 			}
 		}
 	}
+	if uiEnabled {
+		workspace, _ := json.Marshal(filepath.Join(config.DataRoot, "workspace"))
+		sessionDir, _ := json.Marshal(filepath.Join(config.RuntimeRoot, "workspace-ui"))
+		quotedAPIEnvPath, _ := json.Marshal(apiEnvPath)
+		quotedPublicOrigin, _ := json.Marshal(config.WorkspaceUIPublicOrigin)
+		builder.WriteString("  workspace-ui:\n    image: \"${OPENLIA_WORKSPACE_UI_IMAGE:-openlia-workspace-ui:v0.1.0}\"\n")
+		builder.WriteString("    build:\n      context: ..\n      dockerfile: docker/workspace-ui.Dockerfile\n")
+		if config.OpenLiaReleaseSHA256 != "" {
+			fmt.Fprintf(&builder, "      args:\n        OPENLIA_RELEASE_SHA256: %q\n", config.OpenLiaReleaseSHA256)
+		}
+		fmt.Fprintf(&builder, "    command: [\"bun\", \"/opt/openlia/workspace-ui/server.js\"]\n    restart: unless-stopped\n    user: \"%d:%d\"\n    read_only: true\n    tmpfs:\n      - /tmp:rw,noexec,nosuid,size=32m\n    security_opt:\n      - no-new-privileges:true\n    cap_drop: [ALL]\n    environment:\n      OPENLIA_WORKSPACE_ROOT: /workspace\n      OPENLIA_WORKSPACE_UI_BIND: \"0.0.0.0\"\n      OPENLIA_WORKSPACE_UI_PORT: \"%d\"\n      OPENLIA_WORKSPACE_UI_STATIC_ROOT: /opt/openlia/workspace-ui/client\n      OPENLIA_WORKSPACE_UI_SESSION_DB: /var/lib/openlia/sessions.sqlite\n      OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN: %s\n", config.RuntimeUID, config.RuntimeGID, uiPort, quotedPublicOrigin)
+		if config.Timezone != "" {
+			fmt.Fprintf(&builder, "      TZ: %q\n", config.Timezone)
+		}
+		builder.WriteString("    env_file:\n      - ")
+		builder.Write(quotedAPIEnvPath)
+		builder.WriteString("\n    volumes:\n      - type: bind\n        source: ")
+		builder.Write(workspace)
+		builder.WriteString("\n        target: /workspace\n      - type: bind\n        source: ")
+		builder.Write(sessionDir)
+		builder.WriteString("\n        target: /var/lib/openlia\n")
+		if config.WorkspaceUIHost != "" {
+			fmt.Fprintf(&builder, "    ports:\n      - %q\n", fmt.Sprintf("%s:%d:%d", config.WorkspaceUIHost, uiPort, uiPort))
+		}
+		fmt.Fprintf(&builder, "    networks:\n      - openlia-private\n    healthcheck:\n      test: [\"CMD\", \"bun\", \"-e\", \"fetch('http://127.0.0.1:%d/health').then(r => { if (!r.ok) process.exit(1) })\"]\n      interval: 10s\n      timeout: 3s\n      retries: 5\n    deploy:\n      resources:\n        limits:\n          cpus: \"0.5\"\n          memory: 256M\n    logging:\n      driver: \"json-file\"\n      options:\n        max-size: \"20m\"\n        max-file: \"5\"\n", uiPort)
+	}
 	if config.LochoHostEnabled {
 		lochoRoot, _ := json.Marshal(config.LochoHostRoot)
-		lochoCommand := "set -eu; set -- $(getent ahostsv4 hermes); hermes_ip=\"$$1\"; config=/var/lib/openlia-locho-host/locho.toml; temporary=\"$$config.tmp\"; trap 'rm -f \"$$temporary\"' EXIT; printf '" + lochoHostConfigFormat() + "' \"$$hermes_ip\" \"$$hermes_ip\" > \"$$temporary\"; chmod 600 \"$$temporary\"; mv -f \"$$temporary\" \"$$config\"; trap - EXIT; exec locho host --config \"$$config\""
+		lochoCommand := "set -eu; set -- $(getent ahostsv4 hermes); hermes_ip=\"$$1\"; set -- $(getent ahostsv4 workspace-ui); workspace_ip=\"$$1\"; config=/var/lib/openlia-locho-host/locho.toml; temporary=\"$$config.tmp\"; trap 'rm -f \"$$temporary\"' EXIT; printf '" + lochoHostConfigFormat(uiPort) + "' \"$$hermes_ip\" \"$$hermes_ip\" \"$$workspace_ip\" > \"$$temporary\"; chmod 600 \"$$temporary\"; mv -f \"$$temporary\" \"$$config\"; trap - EXIT; exec locho host --config \"$$config\""
 		if config.LochoRelayConfig != "" {
 			lochoCommand += " --relay-config /etc/locho/relay.toml"
 		}
@@ -314,7 +371,7 @@ func generateAttachmentsFile(config Config) error {
 		if config.LochoRelaySecrets != "" {
 			fmt.Fprintf(&builder, "    env_file:\n      - %q\n", config.LochoRelaySecrets)
 		}
-		builder.WriteString("    depends_on:\n      - hermes\n    networks:\n      - openlia-private\n    deploy:\n      resources:\n        limits:\n          cpus: \"0.5\"\n          memory: 512M\n    logging:\n      driver: \"json-file\"\n      options:\n        max-size: \"20m\"\n        max-file: \"5\"\n")
+		builder.WriteString("    depends_on:\n      - hermes\n      - workspace-ui\n    networks:\n      - openlia-private\n    deploy:\n      resources:\n        limits:\n          cpus: \"0.5\"\n          memory: 512M\n    logging:\n      driver: \"json-file\"\n      options:\n        max-size: \"20m\"\n        max-file: \"5\"\n")
 	}
 	for _, host := range hosts.Hosts {
 		configPath := filepath.Join(config.LochoRoot, host.Host, "attachments.toml")
@@ -412,8 +469,12 @@ func backupSchedulerCredentialVolumes(config Config) []backupSchedulerIdentityVo
 	return volumes
 }
 
-func lochoHostConfigFormat() string {
-	return fmt.Sprintf("[[services]]\\nname = %q\\ntype = \"tcp\"\\nendpoint = \"%%s:%d\"\\n\\n[[services]]\\nname = %q\\ntype = \"tcp\"\\nendpoint = \"%%s:%d\"\\n", LochoHostServiceAPI, HermesAPIPort, LochoHostServiceDashboard, HermesDashboardPort)
+func lochoHostConfigFormat(workspacePort ...int) string {
+	port := WorkspaceUIPort
+	if len(workspacePort) > 0 && workspacePort[0] > 0 {
+		port = workspacePort[0]
+	}
+	return fmt.Sprintf("[[services]]\\nname = %q\\ntype = \"tcp\"\\nendpoint = \"%%s:%d\"\\n\\n[[services]]\\nname = %q\\ntype = \"tcp\"\\nendpoint = \"%%s:%d\"\\n\\n[[services]]\\nname = %q\\ntype = \"tcp\"\\nendpoint = \"%%s:%d\"\\n", LochoHostServiceAPI, HermesAPIPort, LochoHostServiceDashboard, HermesDashboardPort, LochoHostServiceWorkspace, port)
 }
 
 func writeLochoHostConfig(config Config) error {
@@ -434,7 +495,7 @@ func writeLochoHostConfig(config Config) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	contents := fmt.Sprintf("[[services]]\nname = %q\ntype = \"tcp\"\nendpoint = \"127.0.0.1:%d\"\n\n[[services]]\nname = %q\ntype = \"tcp\"\nendpoint = \"127.0.0.1:%d\"\n", LochoHostServiceAPI, HermesAPIPort, LochoHostServiceDashboard, HermesDashboardPort)
+	contents := fmt.Sprintf("[[services]]\nname = %q\ntype = \"tcp\"\nendpoint = \"127.0.0.1:%d\"\n\n[[services]]\nname = %q\ntype = \"tcp\"\nendpoint = \"127.0.0.1:%d\"\n\n[[services]]\nname = %q\ntype = \"tcp\"\nendpoint = \"127.0.0.1:%d\"\n", LochoHostServiceAPI, HermesAPIPort, LochoHostServiceDashboard, HermesDashboardPort, LochoHostServiceWorkspace, workspaceUIPort(config))
 	if err := AtomicWriteFile(config.LochoHostConfig, []byte(contents), 0o600); err != nil {
 		return err
 	}
@@ -443,7 +504,7 @@ func writeLochoHostConfig(config Config) error {
 
 func ensureAPIServerEnv(config Config, path string) error {
 	apiKey, err := readSecretValue(config.SecretFile, "API_SERVER_KEY")
-	if config.LochoHostEnabled && (err != nil || apiKey == "") {
+	if (config.LochoHostEnabled || config.WorkspaceUIHost != "") && (err != nil || apiKey == "") {
 		apiKey, err = ensureHermesAPIKey(config)
 	}
 	if err != nil {
@@ -459,7 +520,7 @@ func ensureAPIServerEnv(config Config, path string) error {
 		return fmt.Errorf("persist Hermes API credential: %w", err)
 	}
 	lines := []string{"API_SERVER_KEY=" + apiKey}
-	if config.LochoHostEnabled {
+	if config.LochoHostEnabled || config.WorkspaceUIHost != "" {
 		oidcIssuer, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_OIDC_ISSUER")
 		oidcClientID, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_OIDC_CLIENT_ID")
 		oidcClientSecret, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_OIDC_CLIENT_SECRET")

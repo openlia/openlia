@@ -849,7 +849,7 @@ func commandLochoHost(options Options, args []string) int {
 	}
 	attachmentConfig := string(raw)
 	hostID, err := attachmentHostID(attachmentConfig)
-	if err != nil || !strings.Contains(attachmentConfig, "capability = \"hermes-api:tcp:") || !strings.Contains(attachmentConfig, "capability = \"hermes-dashboard:tcp:") {
+	if err != nil || !strings.Contains(attachmentConfig, "capability = \"hermes-api:tcp:") || !strings.Contains(attachmentConfig, "capability = \"hermes-dashboard:tcp:") || !strings.Contains(attachmentConfig, "capability = \"workspace-ui:tcp:") {
 		return fail(options, ExitFailure, "Locho returned an invalid attachment configuration", nil)
 	}
 	if err := writeExclusiveFile(*output, []byte(attachmentConfig), 0o600); err != nil {
@@ -861,7 +861,7 @@ func commandLochoHost(options Options, args []string) int {
 		"action":   "locho-host-share",
 		"output":   *output,
 		"host_id":  hostID,
-		"services": []string{"hermes-api", "hermes-dashboard"},
+		"services": []string{"hermes-api", "hermes-dashboard", "workspace-ui"},
 	}
 	command := fmt.Sprintf("locho attach --config %s", *output)
 	if config.LochoRelayConfigSource != "" {

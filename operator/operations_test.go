@@ -759,6 +759,12 @@ func TestGeneratedLochoHostHasOneRelayEnvFile(t *testing.T) {
 	config.LochoHostStateRoot = filepath.Join(config.LochoHostRoot, "state")
 	config.LochoRelayConfig = filepath.Join(runtimeRoot, "locho", "relay.toml")
 	config.LochoRelaySecrets = filepath.Join(runtimeRoot, "locho-relay-secrets", "relay.env")
+	if err := os.MkdirAll(config.SecretDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.SecretFile, []byte("COPILOT_GITHUB_TOKEN=gho_testtoken\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Dir(config.LochoRelayConfig), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -839,6 +845,8 @@ func TestGeneratedAttachmentsContainLochoHostForHermesServices(t *testing.T) {
 		"endpoint = \"127.0.0.1:8642\"",
 		"name = \"hermes-dashboard\"",
 		"endpoint = \"127.0.0.1:9119\"",
+		"name = \"workspace-ui\"",
+		"endpoint = \"127.0.0.1:8089\"",
 	} {
 		if !strings.Contains(string(lochoConfig), expected) {
 			t.Fatalf("Locho host config missing %q:\n%s", expected, lochoConfig)
@@ -850,6 +858,11 @@ func TestGeneratedAttachmentsContainLochoHostForHermesServices(t *testing.T) {
 	}
 	text := string(data)
 	for _, expected := range []string{
+		"workspace-ui:",
+		"docker/workspace-ui.Dockerfile",
+		"OPENLIA_WORKSPACE_ROOT: /workspace",
+		"OPENLIA_WORKSPACE_UI_BIND: \"0.0.0.0\"",
+		"OPENLIA_WORKSPACE_UI_PORT: \"8089\"",
 		"locho-host:",
 		"entrypoint: [\"sh\", \"-c\"]",
 		"exec locho host --config",
@@ -858,6 +871,7 @@ func TestGeneratedAttachmentsContainLochoHostForHermesServices(t *testing.T) {
 		"- openlia-private",
 		"depends_on:",
 		"- hermes",
+		"- workspace-ui",
 		"API_SERVER_HOST: \"0.0.0.0\"",
 		"HERMES_DASHBOARD: \"1\"",
 		"HERMES_DASHBOARD_HOST: \"0.0.0.0\"",
@@ -897,6 +911,7 @@ func TestLochoHostRuntimeConfigIsValidTOML(t *testing.T) {
 		strings.ReplaceAll(lochoHostConfigFormat(), `\n`, "\n"),
 		"172.30.0.2",
 		"172.30.0.2",
+		"172.30.0.3",
 	)
 	if strings.Contains(contents, `\"`) {
 		t.Fatalf("Locho host config contains escaped quotes:\n%s", contents)
@@ -920,6 +935,7 @@ func TestLochoHostRuntimeConfigIsValidTOML(t *testing.T) {
 	}{
 		{name: "hermes-api", typeName: "tcp", endpoint: "172.30.0.2:8642"},
 		{name: "hermes-dashboard", typeName: "tcp", endpoint: "172.30.0.2:9119"},
+		{name: "workspace-ui", typeName: "tcp", endpoint: "172.30.0.3:8089"},
 	}
 	if len(config.Services) != len(expected) {
 		t.Fatalf("Locho host config has %d services, want %d", len(config.Services), len(expected))
@@ -1511,5 +1527,56 @@ listen_port = 2222
 	}
 	if strings.Contains(composeText, "OPENAI_BASE_URL") {
 		t.Fatalf("generated Compose must not configure OPENAI_BASE_URL:\n%s", composeText)
+	}
+}
+
+func TestGeneratedAttachmentsContainWorkspaceUIWhenEnabled(t *testing.T) {
+	repo := t.TempDir()
+	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
+	config := testConfig(repo, runtimeRoot)
+	config.WorkspaceUIHost = "127.0.0.1"
+	config.WorkspaceUIPort = 8089
+	config.WorkspaceUIPublicOrigin = "https://workspace.example.test"
+	config.OpenLiaReleaseSHA256 = strings.Repeat("a", 64)
+	if err := os.MkdirAll(filepath.Join(repo, "docker"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(config.SecretDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.SecretFile, []byte("COPILOT_GITHUB_TOKEN=gho_testtoken\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateAttachments(config); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(config.GeneratedCompose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, expected := range []string{
+		"workspace-ui:",
+		"docker/workspace-ui.Dockerfile",
+		"OPENLIA_RELEASE_SHA256: \"" + strings.Repeat("a", 64) + "\"",
+		"\"127.0.0.1:8089:8089\"",
+		"OPENLIA_WORKSPACE_ROOT: /workspace",
+		"OPENLIA_WORKSPACE_UI_PORT: \"8089\"",
+		"OPENLIA_WORKSPACE_UI_STATIC_ROOT: /opt/openlia/workspace-ui/client",
+		"OPENLIA_WORKSPACE_UI_SESSION_DB: /var/lib/openlia/sessions.sqlite",
+		"OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN: \"https://workspace.example.test\"",
+		"target: /workspace",
+		"target: /var/lib/openlia",
+		fmt.Sprintf("user: \"%d:%d\"", config.RuntimeUID, config.RuntimeGID),
+		"cap_drop: [ALL]",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("generated Compose missing %q:\n%s", expected, text)
+		}
+	}
+	for _, retired := range []string{"OPENLIA_SKILLS_ROOT", "OPENLIA_INGESTION_ROOT", "OPENLIA_CRON_ROOT", "OPENLIA_TEMPLATES_ROOT"} {
+		if strings.Contains(text, retired) {
+			t.Fatalf("generated Compose unexpectedly contains retired mount/env %q:\n%s", retired, text)
+		}
 	}
 }

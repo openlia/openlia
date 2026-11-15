@@ -30,6 +30,8 @@ func (r *lochoShareRunner) Run(_ context.Context, name string, args ...string) (
 		return CommandResult{Stdout: []byte("locho attach " + hostID + " hermes-api:tcp:api-secret\n")}, nil
 	case strings.Contains(call, "share hermes-dashboard"):
 		return CommandResult{Stdout: []byte("locho attach " + hostID + " hermes-dashboard:tcp:dashboard-secret\n")}, nil
+	case strings.Contains(call, "share workspace-ui"):
+		return CommandResult{Stdout: []byte("locho attach " + hostID + " workspace-ui:tcp:workspace-secret\n")}, nil
 	default:
 		return CommandResult{}, nil
 	}
@@ -48,7 +50,7 @@ func TestShareLochoHostBuildsHermesAttachmentConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.HostID != "test-host" || len(result.Services) != 2 || result.Services[0] != "hermes-api" || result.Services[1] != "hermes-dashboard" {
+	if result.HostID != "test-host" || len(result.Services) != 3 || result.Services[0] != "hermes-api" || result.Services[1] != "hermes-dashboard" || result.Services[2] != "workspace-ui" {
 		t.Fatalf("unexpected share result: %+v", result)
 	}
 	for _, expected := range []string{
@@ -58,6 +60,8 @@ func TestShareLochoHostBuildsHermesAttachmentConfig(t *testing.T) {
 		"listen_port = 8642",
 		"capability = \"hermes-dashboard:tcp:dashboard-secret\"",
 		"listen_port = 9119",
+		"capability = \"workspace-ui:tcp:workspace-secret\"",
+		"listen_port = 8089",
 	} {
 		if !strings.Contains(result.AttachmentConfig, expected) {
 			t.Fatalf("attachment config missing %q:\n%s", expected, result.AttachmentConfig)

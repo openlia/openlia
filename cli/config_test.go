@@ -321,7 +321,8 @@ func TestConfigRejectsRelativeSecretSource(t *testing.T) {
 
 func TestConfigRejectsRetiredSettings(t *testing.T) {
 	for _, text := range []string{
-		"[openlia]\nschema = 2\n\n[workspace-ui]\nhost = \"127.0.0.1\"\n",
+		"[openlia]\nschema = 2\n\n[workspace-ui]\nfirebase_project_id = \"legacy-project\"\n",
+		"[openlia]\nschema = 2\n\n[workspace-ui]\npassword_hash = \"legacy-hash\"\n",
 		"[openlia]\nschema = 2\n\n[workspace_git]\nenabled = true\n",
 		"[openlia]\nschema = 2\n\n[templates]\nrepo = \"openlia/minions\"\n",
 		"[openlia]\nschema = 2\n\n[skills]\nenabled = [\"calendar\"]\n",
@@ -329,6 +330,20 @@ func TestConfigRejectsRetiredSettings(t *testing.T) {
 		if _, err := parseConfig(text); err == nil {
 			t.Fatalf("retired config was accepted:\n%s", text)
 		}
+	}
+}
+
+func TestConfigWorkspaceUIRoundTrip(t *testing.T) {
+	want := defaultConfig()
+	want.WorkspaceUIHost = "127.0.0.1"
+	want.WorkspaceUIPort = 8089
+	want.WorkspaceUIPublicOrigin = "https://workspace.example.test"
+	parsed, err := parseConfig(renderConfig(want))
+	if err != nil {
+		t.Fatalf("parseConfig failed: %v", err)
+	}
+	if parsed.WorkspaceUIHost != want.WorkspaceUIHost || parsed.WorkspaceUIPort != want.WorkspaceUIPort || parsed.WorkspaceUIPublicOrigin != want.WorkspaceUIPublicOrigin {
+		t.Fatalf("workspace-ui round trip mismatch: got %+v, want %+v", parsed, want)
 	}
 }
 

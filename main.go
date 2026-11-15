@@ -8,7 +8,7 @@ import (
 	"openlia/internal/releaseinfo"
 )
 
-//go:embed all:docker all:profile all:examples/locho packages/openlia-browser/dist/server.js release/manifest.json
+//go:embed all:docker all:profile all:examples/locho packages/openlia-browser/dist/server.js all:packages/workspace-ui/dist release/manifest.json
 var releaseAssets embed.FS
 
 func main() {

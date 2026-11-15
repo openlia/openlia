@@ -39,6 +39,12 @@ locho_arm64_sha256 = "28a125314d193c1cc9d91fe65482716598d7644cfa61d359fd8f6f2801
 enabled = false
 host = "127.0.0.1"
 
+[workspace-ui]
+# Leave empty to expose the UI only through the private Locho tunnel.
+host = ""
+port = 8089
+public_origin = ""
+
 [secrets]
 source = "~/.config/openlia/dev/openlia_dev.env"
 

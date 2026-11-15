@@ -12,8 +12,10 @@ import (
 const (
 	LochoHostServiceAPI       = "hermes-api"
 	LochoHostServiceDashboard = "hermes-dashboard"
+	LochoHostServiceWorkspace = "workspace-ui"
 	HermesAPIPort             = 8642
 	HermesDashboardPort       = 9119
+	WorkspaceUIPort           = 8089
 )
 
 type LochoHostShareResult struct {
@@ -70,12 +72,14 @@ func ShareLochoHost(ctx context.Context, config Config, compose Compose) (LochoH
 		return LochoHostShareResult{}, fmt.Errorf("locho-host is not running; deploy the stack first")
 	}
 
+	workspacePort := workspaceUIPort(config)
 	hostedServices := []struct {
 		name string
 		port int
 	}{
 		{name: LochoHostServiceAPI, port: HermesAPIPort},
 		{name: LochoHostServiceDashboard, port: HermesDashboardPort},
+		{name: LochoHostServiceWorkspace, port: workspacePort},
 	}
 
 	var hostID string
