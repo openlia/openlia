@@ -23,7 +23,6 @@ type Options struct {
 	ProviderCheck  bool
 	Release        bool
 	Wait           bool
-	Async          bool
 	Live           bool
 	ConfigPath     string
 }
@@ -94,24 +93,21 @@ or on its selected SSH target.
 
 Usage:
   openlia deploy [--release] [--wait] | start [--wait] | stop [--wait] | restart [--wait]
-  openlia job [status|logs [JOB_ID]]
+  openlia status [--live] [--check-providers] [--json]
+  openlia logs [--follow]
   openlia auth [--config PATH] [--username USER] [--password-stdin]
   openlia auth --oidc [--config PATH] [--issuer URL] [--client-id ID] [--client-secret-stdin] [--public-url URL]
   openlia auth api-key-rotate [--config PATH]
-  openlia status [--live] [--check-providers] [--json]
-  openlia uninstall [--local|--target user@host] [--project NAME] [--root /path]
-  openlia logs [--follow]
   openlia attachments list
-  openlia attachments map <host> <service> --role <role>
-  openlia attachments rotate <host> --source PATH [--wait]
-  openlia backup create|push|status|list|keygen|schedule install|remove [--wait]
+  openlia attachments map [HOST] <service> --role <role>
+  openlia backup create [--wait] | push [--archive FILENAME.age] [--wait] | status | list | keygen
   openlia backup restore [--archive PATH.age|--from NAME --latest|--object NAME]
-  openlia backup rollback-restore --archive PATH
   openlia locho-host share [--output PATH]
   openlia browser configure --local|--target user@host --root PATH --extension-token-file PATH [--ssh-port PORT]
   openlia browser install|start|stop|restart|status|logs|uninstall
+  openlia uninstall [--local|--target user@host] [--project NAME] [--root /path]
 
-Global flags: --config PATH, --json, --non-interactive, --version, --help, --release, --wait, --async, --live, --check-providers
+Global flags: --config PATH, --json, --non-interactive, --version, --help, --release, --wait, --live, --check-providers
 
 openlia deploy provisions, bootstraps, and reconciles the deployment defined in
 config.toml (or specified with --config). Use openlia deploy --release to upload

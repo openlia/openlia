@@ -43,41 +43,64 @@ func TestWriteAndLoadOperatorConfig(t *testing.T) {
 	}
 }
 
-func TestReadCurrentJobRecoversStalePID(t *testing.T) {
+func TestReadConsolidationRecoversStalePID(t *testing.T) {
 	repo := t.TempDir()
 	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
 	config := testConfig(repo, runtimeRoot)
-	if err := EnsureDir(JobsDir(config), 0o700); err != nil {
+	if err := EnsureDir(config.MetaRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	stale := JobRecord{
+	stale := ConsolidationRecord{
 		Schema:    1,
-		ID:        "job-20261114T000000Z-1",
-		Kind:      "deploy",
 		Action:    "deploy",
-		Status:    JobStatusRunning,
+		Status:    ConsolidationStatusRunning,
 		Phase:     "compose-deploy",
 		PID:       99999999,
-		CreatedAt: "2026-11-14T00:00:00Z",
+		StartedAt: "2026-11-14T00:00:00Z",
 		UpdatedAt: "2026-11-14T00:00:00Z",
 	}
-	if err := writeJobRecord(config, stale); err != nil {
+	if err := writeConsolidationRecord(config, stale); err != nil {
 		t.Fatal(err)
 	}
-	got, err := ReadCurrentJob(config)
+	got, err := ReadConsolidation(config)
 	if err != nil || got == nil {
-		t.Fatalf("ReadCurrentJob = %+v, err = %v", got, err)
+		t.Fatalf("ReadConsolidation = %+v, err = %v", got, err)
 	}
-	if got.Status != JobStatusFailed || !strings.Contains(got.Error, "terminated unexpectedly") {
-		t.Fatalf("stale job was not marked failed: %+v", got)
+	if got.Status != ConsolidationStatusFailed || !strings.Contains(got.Error, "terminated unexpectedly") {
+		t.Fatalf("stale consolidation was not marked failed: %+v", got)
 	}
 }
 
-func TestHealthcheckCachedUsesSnapshotAndAttachesCurrentJob(t *testing.T) {
+func TestStartConsolidationRejectsWhileBusy(t *testing.T) {
 	repo := t.TempDir()
 	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
 	config := testConfig(repo, runtimeRoot)
-	for _, directory := range []string{config.DataRoot, config.BackupRoot, config.MetaRoot, config.LochoRoot, config.SecretDir, JobsDir(config)} {
+	if err := EnsureDir(config.MetaRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	active := ConsolidationRecord{
+		Schema:    1,
+		Action:    "deploy",
+		Status:    ConsolidationStatusRunning,
+		Phase:     "compose-deploy",
+		PID:       os.Getpid(),
+		StartedAt: "2026-11-14T00:00:00Z",
+		UpdatedAt: "2026-11-14T00:00:00Z",
+	}
+	if err := writeConsolidationRecord(config, active); err != nil {
+		t.Fatal(err)
+	}
+	_, err := StartConsolidation(context.Background(), config, "restart", []string{"--component", "all"}, time.Now().UTC())
+	if err == nil || !strings.Contains(err.Error(), "another OpenLia consolidation (deploy, phase=compose-deploy) is already running") {
+		t.Fatalf("expected busy rejection error, got: %v", err)
+	}
+}
+
+func TestHealthcheckCachedUsesSnapshotAndAttachesConsolidation(t *testing.T) {
+	repo := t.TempDir()
+	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
+	config := testConfig(repo, runtimeRoot)
+	for _, directory := range []string{config.DataRoot, config.BackupRoot, config.MetaRoot, config.LochoRoot, config.SecretDir} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -103,18 +126,16 @@ func TestHealthcheckCachedUsesSnapshotAndAttachesCurrentJob(t *testing.T) {
 	if err := WriteHealthSnapshot(config, snap, now); err != nil {
 		t.Fatalf("WriteHealthSnapshot failed: %v", err)
 	}
-	job := JobRecord{
+	cons := ConsolidationRecord{
 		Schema:      1,
-		ID:          "job-20261114T070000Z-2",
-		Kind:        "deploy",
 		Action:      "deploy",
-		Status:      JobStatusSucceeded,
+		Status:      ConsolidationStatusSucceeded,
 		Phase:       "completed",
-		CreatedAt:   utcTimestamp(now),
+		StartedAt:   utcTimestamp(now),
 		UpdatedAt:   utcTimestamp(now),
 		CompletedAt: utcTimestamp(now),
 	}
-	if err := writeJobRecord(config, job); err != nil {
+	if err := writeConsolidationRecord(config, cons); err != nil {
 		t.Fatal(err)
 	}
 
@@ -127,8 +148,8 @@ func TestHealthcheckCachedUsesSnapshotAndAttachesCurrentJob(t *testing.T) {
 	if !got.Cached || got.CachedAt == "" || !got.OK || got.State != stateRunning {
 		t.Fatalf("unexpected cached health result: %+v", got)
 	}
-	if got.Job == nil || got.Job.ID != job.ID {
-		t.Fatalf("expected attached job %q, got %+v", job.ID, got.Job)
+	if got.Consolidation == nil || got.Consolidation.Action != "deploy" || got.Consolidation.Status != ConsolidationStatusSucceeded {
+		t.Fatalf("expected attached consolidation, got %+v", got.Consolidation)
 	}
 	if len(runner.calls) != 0 {
 		t.Fatalf("cached healthcheck should not invoke Docker/Compose, got calls: %v", runner.calls)
@@ -183,7 +204,7 @@ func TestReconcileTickSelfHealsStoppedServicesAndStaleLochoHost(t *testing.T) {
 	_ = snap
 }
 
-func TestStartAndExecuteDeployJobStagesIncomingSecretsAndAttachments(t *testing.T) {
+func TestStartAndExecuteDeployConsolidationStagesIncomingSecretsAndAttachments(t *testing.T) {
 	repo := t.TempDir()
 	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
 	config := testConfig(repo, runtimeRoot)
@@ -240,27 +261,27 @@ func TestStartAndExecuteDeployJobStagesIncomingSecretsAndAttachments(t *testing.
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	now := time.Now().UTC()
-	startRes, err := StartJob(context.Background(), config, "deploy", []string{"deploy", "--component", "all"}, now)
+	startRes, err := StartConsolidation(context.Background(), config, "deploy", []string{"--component", "all"}, now)
 	if err != nil {
-		t.Fatalf("StartJob failed: %v", err)
+		t.Fatalf("StartConsolidation failed: %v", err)
 	}
-	if !startRes.OK || startRes.JobID == "" {
-		t.Fatalf("unexpected StartJob result: %+v", startRes)
+	if !startRes.OK || startRes.Action != "deploy" {
+		t.Fatalf("unexpected StartConsolidation result: %+v", startRes)
 	}
 
 	// Poll until the in-process test worker finishes.
 	deadline := time.Now().Add(5 * time.Second)
-	var finalRecord *JobRecord
+	var finalRecord *ConsolidationRecord
 	for time.Now().Before(deadline) {
-		rec, readErr := ReadJob(config, startRes.JobID)
-		if readErr == nil && rec != nil && (rec.Status == JobStatusSucceeded || rec.Status == JobStatusFailed) {
+		rec, readErr := ReadConsolidation(config)
+		if readErr == nil && rec != nil && (rec.Status == ConsolidationStatusSucceeded || rec.Status == ConsolidationStatusFailed) {
 			finalRecord = rec
 			break
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	if finalRecord == nil || finalRecord.Status != JobStatusSucceeded {
-		t.Fatalf("job did not succeed: %+v", finalRecord)
+	if finalRecord == nil || finalRecord.Status != ConsolidationStatusSucceeded {
+		t.Fatalf("consolidation did not succeed: %+v", finalRecord)
 	}
 
 	// Verify incoming secret and attachment were staged into their final locations and removed from .incoming.
@@ -275,19 +296,19 @@ func TestStartAndExecuteDeployJobStagesIncomingSecretsAndAttachments(t *testing.
 		t.Fatalf("laptop attachments.toml not staged: %v", err)
 	}
 
-	// Verify `job status --json` CLI output.
+	// Verify `reconcile --status --json` CLI output.
 	var stdout, stderr bytes.Buffer
 	t.Setenv("OPENLIA_OPERATOR_CONFIG_FILE", OperatorConfigPath(config.MetaRoot))
-	if code := Run([]string{"job", "status", startRes.JobID, "--json"}, strings.NewReader(""), &stdout, &stderr); code != ExitOK {
-		t.Fatalf("job status exit code = %d, stderr = %s", code, stderr.String())
+	if code := Run([]string{"reconcile", "--status", "--json"}, strings.NewReader(""), &stdout, &stderr); code != ExitOK {
+		t.Fatalf("reconcile --status exit code = %d, stderr = %s", code, stderr.String())
 	}
-	var statusPayload JobRecord
-	if err := json.Unmarshal(stdout.Bytes(), &statusPayload); err != nil || statusPayload.ID != startRes.JobID || statusPayload.Status != JobStatusSucceeded {
-		t.Fatalf("job status payload = %+v, err = %v", statusPayload, err)
+	var statusPayload ConsolidationRecord
+	if err := json.Unmarshal(stdout.Bytes(), &statusPayload); err != nil || statusPayload.Action != "deploy" || statusPayload.Status != ConsolidationStatusSucceeded {
+		t.Fatalf("reconcile --status payload = %+v, err = %v", statusPayload, err)
 	}
 }
 
-func TestJobLogCaptureAndFailureLogTail(t *testing.T) {
+func TestConsolidationLogCaptureAndFailureLogTail(t *testing.T) {
 	repo := t.TempDir()
 	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
 	config := testConfig(repo, runtimeRoot)
@@ -300,81 +321,24 @@ func TestJobLogCaptureAndFailureLogTail(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Execute a backup-create job without BackupRecipient so it fails and populates LogTail.
-	jobID := "job-20261114T080000Z-fail"
+	// Execute a backup-create consolidation without BackupRecipient so it fails and populates LogTail.
 	now := time.Date(2026, 11, 14, 8, 0, 0, 0, time.UTC)
-	_ = ExecuteJob(context.Background(), config, jobID, "backup-create", nil, now)
+	_ = ExecuteConsolidation(context.Background(), config, "backup-create", nil, now)
 
-	rec, err := ReadJob(config, jobID)
+	rec, err := ReadConsolidation(config)
 	if err != nil || rec == nil {
-		t.Fatalf("ReadJob = %+v, err = %v", rec, err)
+		t.Fatalf("ReadConsolidation = %+v, err = %v", rec, err)
 	}
-	if rec.Status != JobStatusFailed || rec.LogTail == "" {
-		t.Fatalf("expected failed job with LogTail, got: %+v", rec)
+	if rec.Status != ConsolidationStatusFailed || rec.LogTail == "" {
+		t.Fatalf("expected failed consolidation with LogTail, got: %+v", rec)
 	}
-	logText, err := ReadJobLog(config, jobID)
+	logText, err := ReadConsolidationLog(config)
 	if err != nil || !strings.Contains(logText, "phase=backup-create") || !strings.Contains(logText, "error=backup encryption recipient is required") {
-		t.Fatalf("ReadJobLog = %q, err = %v", logText, err)
+		t.Fatalf("ReadConsolidationLog = %q, err = %v", logText, err)
 	}
-	logInfo, err := os.Stat(JobLogPath(config, jobID))
+	logInfo, err := os.Stat(ConsolidationLogPath(config))
 	if err != nil || logInfo.Mode().Perm() != 0o600 {
-		t.Fatalf("job log mode = %v, err = %v", logInfo, err)
-	}
-}
-
-func TestPruneJobsKeepsRecentAndPreservesCurrent(t *testing.T) {
-	repo := t.TempDir()
-	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
-	config := testConfig(repo, runtimeRoot)
-	if err := EnsureDir(JobsDir(config), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	baseTime := time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC)
-	for i := 0; i < 25; i++ {
-		ts := utcTimestamp(baseTime.Add(time.Duration(i) * time.Minute))
-		id := "job-test-" + string(rune('a'+i))
-		rec := JobRecord{
-			Schema:      1,
-			ID:          id,
-			Kind:        "deploy",
-			Status:      JobStatusSucceeded,
-			CreatedAt:   ts,
-			StartedAt:   ts,
-			UpdatedAt:   ts,
-			CompletedAt: ts,
-		}
-		data, _ := json.Marshal(rec)
-		if err := os.WriteFile(JobFilePath(config, id), data, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(JobLogPath(config, id), []byte("log\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if i == 0 {
-			// Make the oldest job the current-job.json to verify it is preserved.
-			if err := os.WriteFile(CurrentJobPath(config), data, 0o600); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-
-	PruneJobs(config, 20)
-
-	// Oldest job (job-test-a) should be preserved because it's current-job.json.
-	if _, err := os.Stat(JobFilePath(config, "job-test-a")); err != nil {
-		t.Fatalf("expected current job job-test-a to be preserved: %v", err)
-	}
-	// Second oldest job (job-test-b) should be pruned along with its .log file.
-	if _, err := os.Stat(JobFilePath(config, "job-test-b")); !os.IsNotExist(err) {
-		t.Fatalf("expected old job job-test-b record to be pruned, err=%v", err)
-	}
-	if _, err := os.Stat(JobLogPath(config, "job-test-b")); !os.IsNotExist(err) {
-		t.Fatalf("expected old job job-test-b log to be pruned, err=%v", err)
-	}
-	// Newest job (job-test-y) should be kept.
-	if _, err := os.Stat(JobFilePath(config, "job-test-y")); err != nil {
-		t.Fatalf("expected recent job job-test-y to be kept: %v", err)
+		t.Fatalf("consolidation log mode = %v, err = %v", logInfo, err)
 	}
 }
 
@@ -453,65 +417,5 @@ func TestRunReconcilerDaemonSingletonAndAutoExitWhenStopped(t *testing.T) {
 	}
 	if _, err := os.Stat(pidPath); !os.IsNotExist(err) {
 		t.Fatalf("reconciler.pid was not removed on exit: %v", err)
-	}
-}
-
-func TestAuthRotateAndAttachmentRotateJobs(t *testing.T) {
-	repo := t.TempDir()
-	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
-	config := testConfig(repo, runtimeRoot)
-	for _, dir := range []string{
-		filepath.Join(repo, "profile"),
-		filepath.Join(repo, "docker"),
-		config.DataRoot,
-		config.BackupRoot,
-		config.MetaRoot,
-		config.LochoRoot,
-		config.SecretDir,
-		filepath.Join(config.MetaRoot, ".incoming", "attachments"),
-	} {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(config.ComposeFile, []byte("services: {}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteState(config, stateStopped); err != nil {
-		t.Fatal(err)
-	}
-
-	bin := t.TempDir()
-	docker := filepath.Join(bin, "docker")
-	if err := os.WriteFile(docker, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	incomingSecret := filepath.Join(config.MetaRoot, ".incoming", "secrets.env")
-	if err := os.WriteFile(incomingSecret, []byte("COPILOT_GITHUB_TOKEN=gho_rotatedtoken999\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-	if err := ExecuteJob(context.Background(), config, "job-auth-1", "auth-rotate", nil, now); err != nil {
-		t.Fatalf("auth-rotate job failed: %v", err)
-	}
-	authRec, err := ReadJob(config, "job-auth-1")
-	if err != nil || authRec == nil || authRec.Status != JobStatusSucceeded {
-		t.Fatalf("unexpected auth-rotate job record: %+v, err=%v", authRec, err)
-	}
-
-	incomingAttachment := filepath.Join(config.MetaRoot, ".incoming", "attachments", "laptop.toml")
-	attachmentContent := "host_id = \"host-1\"\nlisten_host = \"0.0.0.0\"\n\n[[services]]\ncapability = \"ollama:http:cap123\"\nlisten_port = 11434\n"
-	if err := os.WriteFile(incomingAttachment, []byte(attachmentContent), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := ExecuteJob(context.Background(), config, "job-att-1", "attachment-rotate", []string{"laptop"}, now); err != nil {
-		t.Fatalf("attachment-rotate job failed: %v", err)
-	}
-	attRec, err := ReadJob(config, "job-att-1")
-	if err != nil || attRec == nil || attRec.Status != JobStatusSucceeded {
-		t.Fatalf("unexpected attachment-rotate job record: %+v, err=%v", attRec, err)
 	}
 }

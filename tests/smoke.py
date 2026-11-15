@@ -23,7 +23,6 @@ REQUIRED_CLI_TOPICS = {
     "auth",
     "status",
     "deploy",
-    "job",
     "start",
     "stop",
     "restart",
@@ -284,24 +283,15 @@ enabled = true
     cfg_args = ["--config", str(ctx.config_file), "--json"]
     status_proc = run_command([*cmd_prefix, "status", *cfg_args], env=cli_env)
     status_payload = json.loads(status_proc.stdout)
+    health_payload = status_payload.get("health") if isinstance(status_payload.get("health"), dict) else {}
+    consolidation = health_payload.get("consolidation") if isinstance(health_payload.get("consolidation"), dict) else {}
     ctx.results.append(
         CheckResult(
             name="cli-status",
             details={
                 "config_file": str(ctx.config_file),
                 "ok": bool(status_payload.get("ok")),
-            },
-        )
-    )
-
-    job_proc = run_command([*cmd_prefix, "job", "status", *cfg_args], env=cli_env)
-    job_payload = json.loads(job_proc.stdout)
-    ctx.results.append(
-        CheckResult(
-            name="cli-job-status",
-            details={
-                "config_file": str(ctx.config_file),
-                "status": job_payload.get("status", ""),
+                "consolidation_status": consolidation.get("status", ""),
             },
         )
     )
