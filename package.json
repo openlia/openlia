@@ -13,6 +13,11 @@
     "test": "bun run test:openlia-browser",
     "test:openlia-browser": "bun test packages/openlia-browser/src",
     "verify-dist": "bun run build && test -s packages/openlia-browser/dist/server.js",
+    "docs:format": "prettier --write \"**/*.md\"",
+    "docs:format:check": "prettier --check \"**/*.md\"",
+    "docs:lint": "markdownlint-cli2",
+    "docs:lint:fix": "markdownlint-cli2 --fix",
+    "docs:check": "bun run docs:format:check && bun run docs:lint",
     "check": "bun run lint && bun run typecheck"
   },
   "dependencies": {
@@ -22,6 +27,8 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",
     "@types/bun": "^1.2.22",
+    "markdownlint-cli2": "^0.24.1",
+    "prettier": "^3.10.1",
     "typescript": "^5.8.2"
   }
 }

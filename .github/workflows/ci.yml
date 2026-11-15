@@ -40,6 +40,9 @@ jobs:
       - name: Lint and typecheck Bun packages
         run: bun run check
 
+      - name: Lint and format-check documentation
+        run: bun run docs:check
+
       - name: Run Bun tests
         run: bun run test
 

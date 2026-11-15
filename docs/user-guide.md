@@ -37,13 +37,17 @@ When working with OpenLia, there are two complementary roles:
 ## 2. How You Interact With Your Agent
 
 ### A. Telegram (Mobile & Messaging Interface)
+
 Telegram is the primary mobile and desktop messaging channel:
+
 - **Direct Messages (DMs)**: Chat one-on-one with your private bot, share links and files, and run skills or workspace tasks.
 - **Home Channel / Group**: A dedicated Telegram channel (e.g., `"OpenLia Home"`) where the agent posts scheduled cron briefings and notifications.
 - **Interactive Approvals**: When a command or external action requires confirmation (`HERMES_EXEC_ASK=1`), the agent prompts you in chat before executing.
 
-### B. Hermes Web Dashboard (`:9119` / `:19119` via Locho)
-Hermes Agent includes a full-featured Web Dashboard running on `127.0.0.1:9119` inside the container (exposed privately via `locho-host` as `hermes-dashboard`, typically bound to `http://127.0.0.1:19119` on your client machine):
+### B. Hermes Web Dashboard (`:9119` via Locho)
+
+Hermes Agent includes a full-featured Web Dashboard running on `127.0.0.1:9119` inside the container (exposed privately via `locho-host` as `hermes-dashboard`, bound to `http://127.0.0.1:9119` on your client machine):
+
 - **Authentication**: Protected by Basic Auth (`openlia auth`) or Single Sign-On via GCP OAuth / Auth0 (`openlia auth --oidc`).
 - **Capabilities**:
   - **Status & Sessions**: Inspect active and historical chat sessions across Telegram and API clients.
@@ -53,8 +57,10 @@ Hermes Agent includes a full-featured Web Dashboard running on `127.0.0.1:9119` 
   - **Skills & Memory**: Browse installed Hermes skills (`/opt/data/skills`) and persistent memory entries (`memories/MEMORY.md` and `memories/USER.md`).
   - **Configuration**: Inspect runtime settings in `/opt/data/config.yaml`.
 
-### C. Hermes API Server (`:8642` / `:18642` via Locho)
-Hermes Agent provides an OpenAI-compatible HTTP API server on `127.0.0.1:8642` (exposed privately via `locho-host` as `hermes-api`, typically bound to `http://127.0.0.1:18642` on your client machine):
+### C. Hermes API Server (`:8642` via Locho)
+
+Hermes Agent provides an OpenAI-compatible HTTP API server on `127.0.0.1:8642` (exposed privately via `locho-host` as `hermes-api`, bound to `http://127.0.0.1:8642` on your client machine):
+
 - Authenticate requests with `Authorization: Bearer <API_SERVER_KEY>`.
 - Exposes `/v1/chat/completions`, `/v1/responses`, `/v1/models`, `/v1/runs`, and `/health`.
 
@@ -84,10 +90,10 @@ All persistent agent state lives under `/opt/data` on the agent machine and is c
 
 OpenLia configures Hermes Agent with conservative defaults (`profile/AGENTS.md` and `docker/compose.yaml`):
 
-| Boundary | Behavior |
-| :--- | :--- |
-| **Workspace Scope** | File writes default to `/opt/data/workspace` unless you explicitly ask otherwise. |
-| **Command Execution (`HERMES_EXEC_ASK=1`)** | Potentially consequential shell commands prompt for approval through the active session notifier. |
-| **Secret Isolation** | Credentials live in `/run/openlia-secrets/hermes.env` (`0600`) and are resolved via `/usr/local/bin/openlia-secret-source`; they are never written into workspace files or backups. |
-| **Shared Browser (`openlia-browser`)** | Browser automation requires an active FIFO workflow lease (`openlia_browser_session_request`) and filters out unsafe Playwright tools (such as arbitrary JS evaluation or file uploads) by default. |
-| **External Actions & Deletions** | Sending external messages, modifying external accounts, making purchases, or deleting user data requires explicit user confirmation. |
+| Boundary                                    | Behavior                                                                                                                                                                                            |
+| :------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Workspace Scope**                         | File writes default to `/opt/data/workspace` unless you explicitly ask otherwise.                                                                                                                   |
+| **Command Execution (`HERMES_EXEC_ASK=1`)** | Potentially consequential shell commands prompt for approval through the active session notifier.                                                                                                   |
+| **Secret Isolation**                        | Credentials live in `/run/openlia-secrets/hermes.env` (`0600`) and are resolved via `/usr/local/bin/openlia-secret-source`; they are never written into workspace files or backups.                 |
+| **Shared Browser (`openlia-browser`)**      | Browser automation requires an active FIFO workflow lease (`openlia_browser_session_request`) and filters out unsafe Playwright tools (such as arbitrary JS evaluation or file uploads) by default. |
+| **External Actions & Deletions**            | Sending external messages, modifying external accounts, making purchases, or deleting user data requires explicit user confirmation.                                                                |
