@@ -36,7 +36,7 @@ export function WorkspaceHeader({
       <div className="min-w-0 flex-1">
         <p className="workspace-eyebrow">OPENLIA / WORKSPACE</p>
         <div className="flex items-center gap-1 min-w-0">
-          <h1 className="workspace-title" title={file?.path}>
+          <h1 className="workspace-title truncate" title={file?.path}>
             {file?.path.split("/").at(-1) ?? "Workspace"}
           </h1>
           {currentLink && (

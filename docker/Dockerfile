@@ -81,6 +81,22 @@ RUN sed -i \
     rm -rf /tmp/bun /tmp/uv "${bun_archive}" "${uv_archive}"
 
 COPY --chmod=0755 docker/secret-source.sh /usr/local/bin/openlia-secret-source
+COPY --chmod=0644 docker/openlia_link_rewriter.py /tmp/openlia_link_rewriter.py
+COPY --chmod=0644 docker/openlia_link_rewriter.pth /tmp/openlia_link_rewriter.pth
+RUN /opt/hermes/.venv/bin/python - <<'PY'
+import pathlib
+import shutil
+import site
+
+target = pathlib.Path(site.getsitepackages()[0])
+target.mkdir(parents=True, exist_ok=True)
+for name in ("openlia_link_rewriter.py", "openlia_link_rewriter.pth"):
+    src = pathlib.Path("/tmp") / name
+    dst = target / name
+    shutil.copy2(src, dst)
+    dst.chmod(0o644)
+    src.unlink()
+PY
 
 # Keep the upstream default USER and ENTRYPOINT unchanged. s6 must start as
 # root so the upstream volume setup can drop supervised processes to hermes.

@@ -818,6 +818,7 @@ func commandLochoHost(options Options, args []string) int {
 	}
 	set := newFlagSet("locho-host share")
 	output := set.String("output", "openlia-attachments.toml", "local attachments.toml output path")
+	services := set.String("services", "", "comma-separated services to share (hermes-api,hermes-dashboard,workspace-ui; optional :PORT override)")
 	if err := set.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return ExitOK
@@ -825,11 +826,15 @@ func commandLochoHost(options Options, args []string) int {
 		return ExitUsage
 	}
 	if set.NArg() != 0 || *output == "" {
-		return fail(options, ExitUsage, "locho-host share accepts only --output PATH", nil)
+		return fail(options, ExitUsage, "locho-host share accepts only --output PATH [--services SERVICES]", nil)
 	}
 	config, code := configOrError(options)
 	if code != ExitOK {
 		return code
+	}
+	specs, err := operator.ParseLochoShareServices(*services, config.WorkspaceUIPort)
+	if err != nil {
+		return fail(options, ExitUsage, err.Error(), nil)
 	}
 	ctx, cancel := remoteContext()
 	defer cancel()
@@ -843,14 +848,25 @@ func commandLochoHost(options Options, args []string) int {
 			return fail(options, ExitFailure, "could not save Locho host state directory: "+err.Error(), nil)
 		}
 	}
-	raw, err := deployment.operation(ctx, "locho-host", nil, "share")
+	opArgs := []string{"share"}
+	if strings.TrimSpace(*services) != "" {
+		opArgs = append(opArgs, "--services", strings.TrimSpace(*services))
+	}
+	raw, err := deployment.operation(ctx, "locho-host", nil, opArgs...)
 	if err != nil {
 		return fail(options, ExitFailure, "could not generate Locho attachment configuration: "+err.Error(), nil)
 	}
 	attachmentConfig := string(raw)
 	hostID, err := attachmentHostID(attachmentConfig)
-	if err != nil || !strings.Contains(attachmentConfig, "capability = \"hermes-api:tcp:") || !strings.Contains(attachmentConfig, "capability = \"hermes-dashboard:tcp:") || !strings.Contains(attachmentConfig, "capability = \"workspace-ui:tcp:") {
+	if err != nil {
 		return fail(options, ExitFailure, "Locho returned an invalid attachment configuration", nil)
+	}
+	serviceNames := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		if !strings.Contains(attachmentConfig, "capability = \""+spec.Name+":tcp:") {
+			return fail(options, ExitFailure, "Locho returned an invalid attachment configuration", nil)
+		}
+		serviceNames = append(serviceNames, spec.Name)
 	}
 	if err := writeExclusiveFile(*output, []byte(attachmentConfig), 0o600); err != nil {
 		return fail(options, ExitFailure, "could not write attachment configuration: "+err.Error(), nil)
@@ -861,7 +877,7 @@ func commandLochoHost(options Options, args []string) int {
 		"action":   "locho-host-share",
 		"output":   *output,
 		"host_id":  hostID,
-		"services": []string{"hermes-api", "hermes-dashboard", "workspace-ui"},
+		"services": serviceNames,
 	}
 	command := fmt.Sprintf("locho attach --config %s", *output)
 	if config.LochoRelayConfigSource != "" {
@@ -984,6 +1000,8 @@ func commandAuth(options Options, args []string) int {
 	clientSecretStdin := set.Bool("client-secret-stdin", false, "read OIDC Client Secret from stdin")
 	scopesFlag := set.String("scopes", "", "OIDC scopes (default: openid profile email)")
 	publicURLFlag := set.String("public-url", "", "Hermes Dashboard external public URL (e.g. http://127.0.0.1:9119 or https://hermes.example.com)")
+	allowedEmailsFlag := set.String("allowed-emails", "", "comma-separated OIDC allowed email addresses for Workspace UI")
+	clearAllowedEmailsFlag := set.Bool("clear-allowed-emails", false, "remove the Workspace UI OIDC email allowlist")
 	if err := set.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return ExitOK
@@ -992,6 +1010,12 @@ func commandAuth(options Options, args []string) int {
 	}
 	if set.NArg() != 0 {
 		return fail(options, ExitUsage, "auth does not accept positional arguments", nil)
+	}
+	if !*oidcMode && (*allowedEmailsFlag != "" || *clearAllowedEmailsFlag) {
+		return fail(options, ExitUsage, "--allowed-emails and --clear-allowed-emails require --oidc", nil)
+	}
+	if *clearAllowedEmailsFlag && *allowedEmailsFlag != "" {
+		return fail(options, ExitUsage, "--allowed-emails and --clear-allowed-emails are mutually exclusive", nil)
 	}
 	config, code := configOrError(options)
 	if code != ExitOK {
@@ -1007,7 +1031,7 @@ func commandAuth(options Options, args []string) int {
 
 	reader := bufio.NewReader(os.Stdin)
 	if *oidcMode {
-		return configureOIDCAuth(options, secretPath, reader, strings.TrimSpace(*issuerFlag), strings.TrimSpace(*clientIDFlag), *clientSecretStdin, strings.TrimSpace(*scopesFlag), strings.TrimSpace(*publicURLFlag))
+		return configureOIDCAuth(options, secretPath, reader, strings.TrimSpace(*issuerFlag), strings.TrimSpace(*clientIDFlag), *clientSecretStdin, strings.TrimSpace(*scopesFlag), strings.TrimSpace(*publicURLFlag), strings.TrimSpace(*allowedEmailsFlag), *clearAllowedEmailsFlag)
 	}
 
 	defaultUser := readSecretEnvValue(secretPath, "HERMES_DASHBOARD_BASIC_AUTH_USERNAME")
@@ -1129,7 +1153,7 @@ func generateAPIKey() (string, error) {
 	return "sk-openlia-" + hex.EncodeToString(keyBytes), nil
 }
 
-func configureOIDCAuth(options Options, secretPath string, reader *bufio.Reader, issuer, clientID string, secretStdin bool, scopes, publicURL string) int {
+func configureOIDCAuth(options Options, secretPath string, reader *bufio.Reader, issuer, clientID string, secretStdin bool, scopes, publicURL, allowedEmails string, clearAllowedEmails bool) int {
 	defaultIssuer := readSecretEnvValue(secretPath, "HERMES_DASHBOARD_OIDC_ISSUER")
 	if defaultIssuer == "" {
 		defaultIssuer = "https://accounts.google.com"
@@ -1139,6 +1163,7 @@ func configureOIDCAuth(options Options, secretPath string, reader *bufio.Reader,
 	if defaultPublicURL == "" {
 		defaultPublicURL = "http://127.0.0.1:9119"
 	}
+	defaultAllowedEmails := readSecretEnvValue(secretPath, "OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS")
 
 	var clientSecret string
 	if secretStdin {
@@ -1213,6 +1238,12 @@ func configureOIDCAuth(options Options, secretPath string, reader *bufio.Reader,
 	if strings.ContainsAny(clientSecret, "\r\n\x00") {
 		return fail(options, ExitUsage, "OIDC client_secret must not contain newlines or null bytes", nil)
 	}
+	if strings.ContainsAny(allowedEmails, "\r\n\x00") {
+		return fail(options, ExitUsage, "allowed_emails must not contain newlines or null bytes", nil)
+	}
+	if !clearAllowedEmails && allowedEmails == "" && defaultAllowedEmails != "" {
+		allowedEmails = defaultAllowedEmails
+	}
 	publicURL = strings.TrimRight(strings.TrimSpace(publicURL), "/")
 
 	updates := []struct{ key, value string }{
@@ -1223,6 +1254,9 @@ func configureOIDCAuth(options Options, secretPath string, reader *bufio.Reader,
 	removals := []string{
 		"HERMES_DASHBOARD_BASIC_AUTH_USERNAME",
 		"HERMES_DASHBOARD_BASIC_AUTH_PASSWORD",
+	}
+	if clearAllowedEmails {
+		removals = append(removals, "OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS")
 	}
 	if clientSecret != "" {
 		updates = append(updates, struct{ key, value string }{"HERMES_DASHBOARD_OIDC_CLIENT_SECRET", clientSecret})
@@ -1239,6 +1273,10 @@ func configureOIDCAuth(options Options, secretPath string, reader *bufio.Reader,
 	if publicURL != "" {
 		updates = append(updates, struct{ key, value string }{"HERMES_DASHBOARD_PUBLIC_URL", publicURL})
 		keys = append(keys, "HERMES_DASHBOARD_PUBLIC_URL")
+	}
+	if allowedEmails != "" {
+		updates = append(updates, struct{ key, value string }{"OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS", allowedEmails})
+		keys = append(keys, "OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS")
 	}
 
 	if err := mutateSecretSourceVars(secretPath, updates, removals); err != nil {

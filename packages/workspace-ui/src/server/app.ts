@@ -228,6 +228,55 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
       });
     }
 
+    if (
+      method === "GET" &&
+      (pathname === "/auth/oidc/login" || pathname === "/api/auth/oidc/login")
+    ) {
+      try {
+        const { redirectUrl, stateCookie } = await auth.beginOidcLogin(
+          request,
+          options.publicOrigin,
+        );
+        return new Response(null, {
+          status: 302,
+          headers: {
+            ...securityHeaders(),
+            Location: redirectUrl,
+            "Set-Cookie": stateCookie,
+          },
+        });
+      } catch (err) {
+        return errorResponse(err);
+      }
+    }
+
+    if (
+      method === "GET" &&
+      (pathname === "/auth/callback" || pathname === "/api/auth/oidc/callback")
+    ) {
+      const callbackRes = await auth.completeOidcCallback(request);
+      if (callbackRes.kind === "error") {
+        return json(
+          {
+            schema: 1,
+            ok: false,
+            error: callbackRes.code,
+            message: callbackRes.message,
+          },
+          callbackRes.status,
+          { "Set-Cookie": callbackRes.clearStateCookie },
+        );
+      }
+      const headers = new Headers(securityHeaders());
+      headers.set("Location", "/");
+      headers.append("Set-Cookie", callbackRes.clearStateCookie);
+      headers.append("Set-Cookie", callbackRes.cookie);
+      return new Response(null, {
+        status: 302,
+        headers,
+      });
+    }
+
     if (pathname.startsWith("/api/")) {
       const isMutating =
         method === "POST" ||
@@ -319,49 +368,6 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
           200,
           { "Set-Cookie": clearCookie },
         );
-      }
-
-      if (method === "GET" && pathname === "/api/auth/oidc/login") {
-        try {
-          const { redirectUrl, stateCookie } = await auth.beginOidcLogin(
-            request,
-            options.publicOrigin,
-          );
-          return new Response(null, {
-            status: 302,
-            headers: {
-              ...securityHeaders(),
-              Location: redirectUrl,
-              "Set-Cookie": stateCookie,
-            },
-          });
-        } catch (err) {
-          return errorResponse(err);
-        }
-      }
-
-      if (method === "GET" && pathname === "/api/auth/oidc/callback") {
-        const callbackRes = await auth.completeOidcCallback(request);
-        if (callbackRes.kind === "error") {
-          return json(
-            {
-              schema: 1,
-              ok: false,
-              error: callbackRes.code,
-              message: callbackRes.message,
-            },
-            callbackRes.status,
-            { "Set-Cookie": callbackRes.clearStateCookie },
-          );
-        }
-        const headers = new Headers(securityHeaders());
-        headers.set("Location", "/");
-        headers.append("Set-Cookie", callbackRes.clearStateCookie);
-        headers.append("Set-Cookie", callbackRes.cookie);
-        return new Response(null, {
-          status: 302,
-          headers,
-        });
       }
 
       if (!auth.isAuthenticated(request)) {
@@ -502,7 +508,7 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
         }
 
         if (
-          method === "GET" &&
+          (method === "GET" || method === "HEAD") &&
           (pathname === "/api/workspace/raw" ||
             pathname === "/api/workspace/download")
         ) {
@@ -516,17 +522,20 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
             pathname === "/api/workspace/raw" && inlineContentTypes.has(mime);
           const disposition = `${isInline ? "inline" : "attachment"}; ${encodeContentDispositionFilename(fileName)}`;
 
-          return new Response(Bun.file(resolved.absolutePath), {
-            status: 200,
-            headers: {
-              "Cache-Control": "private, no-store",
-              "Content-Security-Policy":
-                "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox",
-              "Content-Type": mime,
-              "Content-Disposition": disposition,
-              "X-Content-Type-Options": "nosniff",
+          return new Response(
+            method === "HEAD" ? null : Bun.file(resolved.absolutePath),
+            {
+              status: 200,
+              headers: {
+                "Cache-Control": "private, no-store",
+                "Content-Security-Policy":
+                  "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+                "Content-Type": mime,
+                "Content-Disposition": disposition,
+                "X-Content-Type-Options": "nosniff",
+              },
             },
-          });
+          );
         }
 
         return json(

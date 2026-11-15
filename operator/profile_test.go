@@ -163,3 +163,37 @@ func TestProfileSyncUpdatesManagedOutputLanguage(t *testing.T) {
 		t.Fatalf("custom guidance or updated language was lost:\n%s", data)
 	}
 }
+
+func TestProfileSyncAddsManagedWorkspaceLinksWhenWorkspaceUIEnabled(t *testing.T) {
+	repo := t.TempDir()
+	runtime := filepath.Join(t.TempDir(), "runtime")
+	for path, contents := range map[string]string{
+		filepath.Join(repo, "profile", "SOUL.md"):       "# Soul\n",
+		filepath.Join(repo, "profile", "AGENTS.md"):     "# Legacy Agents\n\n- Keep workspace writes safe.\n",
+		filepath.Join(repo, "release", "manifest.json"): `{"openlia":"test"}`,
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	config := testConfig(repo, runtime)
+	config.LochoHostEnabled = true
+	config.LochoHostRoot = filepath.Join(config.RuntimeRoot, "locho-host")
+	config.LochoHostConfig = filepath.Join(config.LochoHostRoot, "locho.toml")
+	config.LochoHostStateRoot = filepath.Join(config.LochoHostRoot, "state")
+	if _, err := NewProfileOperator(config).Sync(); err != nil {
+		t.Fatal(err)
+	}
+	agentsPath := filepath.Join(config.DataRoot, "AGENTS.md")
+	data, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "# Legacy Agents") || !strings.Contains(text, workspaceLinksBlockStart) || !strings.Contains(text, "openlia://workspace/<path>") {
+		t.Fatalf("expected managed workspace links block in AGENTS.md:\n%s", text)
+	}
+}

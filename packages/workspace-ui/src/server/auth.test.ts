@@ -216,13 +216,16 @@ describe("Workspace UI Auth (Password & OIDC)", () => {
 
     // 2. Start OIDC login flow
     const loginRes = await handler(
-      new Request("http://127.0.0.1:8089/api/auth/oidc/login"),
+      new Request("http://127.0.0.1:8089/auth/oidc/login"),
     );
     expect(loginRes.status).toBe(302);
     const redirectLocation = new URL(
       loginRes.headers.get("location") ?? "http://localhost",
     );
     expect(redirectLocation.origin).toBe("https://idp.example.com");
+    expect(redirectLocation.searchParams.get("redirect_uri")).toBe(
+      "http://127.0.0.1:8089/auth/callback",
+    );
     expect(redirectLocation.searchParams.get("code_challenge_method")).toBe(
       "S256",
     );
@@ -234,7 +237,7 @@ describe("Workspace UI Auth (Password & OIDC)", () => {
     // 3. Complete OIDC callback
     const callbackRes = await handler(
       new Request(
-        `http://127.0.0.1:8089/api/auth/oidc/callback?code=auth-code-xyz&state=${encodeURIComponent(state)}`,
+        `http://127.0.0.1:8089/auth/callback?code=auth-code-xyz&state=${encodeURIComponent(state)}`,
         {
           headers: { Cookie: stateCookie },
         },

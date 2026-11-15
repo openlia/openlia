@@ -14,19 +14,20 @@ OpenLia separates its operator control plane from the agent runtime:
 - **Target Machine**: The machine where the Hermes Agent stack runs inside Docker containers (`/opt/<project>/`), managed over SSH (or locally with `mode = "local"`).
 - **Secure Communication**:
   - Outbound commands and chat arrive via messaging platforms (e.g., Telegram).
-  - Hermes Web Dashboard (`:9119`) and Hermes API Server (`:8642`) are accessible privately over encrypted tunnels via [Locho](https://github.com/trchopan/locho).
+  - Hermes Web Dashboard (`:9119`), Hermes API Server (`:8642`), and OpenLia Workspace UI (`:8089`) are accessible privately over encrypted tunnels via [Locho](https://github.com/trchopan/locho).
 
 ```text
 Operator Workstation                       Target Host (e.g. root@test-host)
 ┌─────────────────────────┐               ┌─────────────────────────────────┐
 │ openlia CLI             │ ──(SSH)──────>│ /opt/openlia_dev/               │
 │ ~/.config/openlia/dev/  │               │   ├── hermes (:8642 & :9119)    │
-│   ├── config.toml       │               │   └── locho-host (Sidecar)      │
-│   └── openlia_dev.env   │               │                                 │
+│   ├── config.toml       │               │   ├── workspace-ui (:8089)      │
+│   └── openlia_dev.env   │               │   └── locho-host (Sidecar)      │
 │                         │               │                                 │
 │ locho attach            │ <──(Locho)───>│                                 │
 │  :8642  -> hermes-api   │               │                                 │
 │  :9119  -> dashboard    │               │                                 │
+│  :8089  -> workspace-ui │               │                                 │
 └─────────────────────────┘               └─────────────────────────────────┘
 ```
 
@@ -145,9 +146,9 @@ openlia --version
 
 ---
 
-### Drill 3: Locho Host, Hermes Dashboard & API Verification
+### Drill 3: Locho Host, Hermes Dashboard, Workspace UI & API Verification
 
-When `[locho-host] enabled = true` is configured, `locho-host` exposes `hermes-api` (`:8642`) and `hermes-dashboard` (`:9119`):
+When `[locho-host] enabled = true` is configured, `locho-host` exposes `hermes-api` (`:8642`), `hermes-dashboard` (`:9119`), and `workspace-ui` (`:8089`):
 
 1. Export client attachment credentials:
 
@@ -187,6 +188,22 @@ When `[locho-host] enabled = true` is configured, `locho-host` exposes `hermes-a
        ```
 
      - Open [http://127.0.0.1:9119](http://127.0.0.1:9119) in your browser and sign in via Basic Auth or your configured OIDC provider (Google / Auth0).
+
+   - **OpenLia Workspace UI (`http://127.0.0.1:8089`)**:
+     - Check health and authentication session status:
+
+       ```bash
+       curl -fsS http://127.0.0.1:8089/health
+       curl -fsS http://127.0.0.1:8089/api/auth/session
+       ```
+
+     - Verify unauthenticated workspace API requests are rejected (`401`):
+
+       ```bash
+       curl -i -s http://127.0.0.1:8089/api/workspace/tree
+       ```
+
+     - Open [http://127.0.0.1:8089](http://127.0.0.1:8089) in your browser and sign in via your configured Password or OIDC provider to view/edit text files and inspect view-only binary files in `/opt/data/workspace`.
 
 ---
 

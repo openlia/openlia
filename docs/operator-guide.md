@@ -149,12 +149,12 @@ This sets `HERMES_DASHBOARD_OIDC_ISSUER`, `HERMES_DASHBOARD_OIDC_CLIENT_ID`, `HE
 
 - **Google Cloud (GCP OAuth)**:
   - **Issuer**: `https://accounts.google.com`
-  - **Authorized Redirect URI**: `<your-dashboard-url>/auth/callback` (e.g., `http://127.0.0.1:9119/auth/callback` for local Locho attach, or `https://dashboard.example.com/auth/callback` behind a reverse proxy).
+  - **Authorized Redirect URI**: `<your-dashboard-url>/auth/callback` and `<your-workspace-ui-url>/auth/callback` (e.g., `http://127.0.0.1:9119/auth/callback` and `http://127.0.0.1:8089/auth/callback` for local Locho attach, or `https://dashboard.example.com/auth/callback` behind a reverse proxy).
   - **Client Secret**: Required for Google Web Application OAuth clients even with PKCE.
   - **User Access Control**: Keep your Google Auth Platform OAuth consent screen in **Testing** mode and add only your email under **Audience → Test users** (or set Audience to **Internal** on Google Workspace). Do not publish a consumer `@gmail.com` app to **In production**, or any Google account would be able to sign in.
 - **Auth0**:
   - **Issuer**: `https://<your-tenant>.<region>.auth0.com`
-  - **Allowed Callback URL**: `<your-dashboard-url>/auth/callback`
+  - **Allowed Callback URL**: `<your-dashboard-url>/auth/callback` and `<your-workspace-ui-url>/auth/callback`
   - **User Access Control**: Disable Public Signups on the Auth0 database connection or add an Auth0 Post-Login Action that checks `event.user.email` against an allowlist.
 
 ### Protected Secrets (`secrets.env`)
@@ -228,6 +228,16 @@ After deployment, export a mode-`0600` client attachment file on the operator ma
 
 ```bash
 openlia locho-host share --output openlia-attachments.toml
+```
+
+To export a least-privilege attachment containing only specific services (or custom local listen ports for a shared reverse-proxy host such as Caddy), pass `--services`:
+
+```bash
+# Export only Workspace UI on local port 19119 for a reverse proxy
+openlia locho-host share --services workspace-ui:19119 --output caddy-attachments.toml
+
+# Export only Hermes API for an external API client
+openlia locho-host share --services hermes-api --output api-attachments.toml
 ```
 
 Install [Locho `1.3.0`](https://github.com/trchopan/locho/releases/tag/v1.3.0) on your client machine, copy `openlia-attachments.toml` over a trusted channel, and start the local listener:

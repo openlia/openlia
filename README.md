@@ -60,9 +60,9 @@ All CLI commands accept `--config <path>` (or the `OPENLIA_CONFIG=<path>` enviro
 
 ### Authentication & Capability Commands
 
-- `openlia auth [--oidc]` — Configure Hermes Dashboard Basic Auth (`openlia auth`) or OIDC / GCP OAuth / Auth0 (`openlia auth --oidc`) in your mode-`0600` secret source (run `openlia deploy` to apply).
+- `openlia auth [--oidc]` — Configure Hermes Dashboard & Workspace UI Basic Auth (`openlia auth`) or OIDC / GCP OAuth / Auth0 (`openlia auth --oidc [--allowed-emails <emails>|--clear-allowed-emails]`) in your mode-`0600` secret source (run `openlia deploy` to apply).
 - `openlia auth api-key-rotate` — Generate and store a new Hermes API key in your mode-`0600` secret source without printing it (run `openlia deploy` to apply).
-- `openlia locho-host share --output <file>` — Export a mode-`0600` client attachment file for `hermes-api` (`:8642`), `hermes-dashboard` (`:9119`), and `workspace-ui` (`:8089`).
+- `openlia locho-host share --output <file> [--services <service[:port],...>]` — Export a mode-`0600` client attachment file for `hermes-api` (`:8642`), `hermes-dashboard` (`:9119`), and `workspace-ui` (`:8089`), or a filtered subset of services.
 - `openlia attachments <list|map>` — Inspect attached Locho hosts or map discovered services to roles (`openlia-browser`, `openai-gateway`) in `config.toml` (run `openlia deploy` to apply).
 - `openlia backup <keygen|create|status|list|push|restore>` — Manage Age-encrypted backups and off-box S3/rsync replication.
 - `openlia browser <configure|install|start|stop|restart|status|logs|uninstall>` — Manage the `openlia-browser` Playwright MCP relay service.

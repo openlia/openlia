@@ -42,11 +42,20 @@ Telegram is the primary mobile and desktop messaging channel:
 
 - **Direct Messages (DMs)**: Chat one-on-one with your private bot, share links and files, and run skills or workspace tasks.
 - **Home Channel / Group**: A dedicated Telegram channel (e.g., `"OpenLia Home"`) where the agent posts scheduled cron briefings and notifications.
+- **Workspace Links (`openlia://workspace/<path>`)**: The agent uses canonical workspace URIs when referencing files. When `[workspace-ui].public_origin` is configured, outbound messages rewrite them to `<public_origin>/files/<path>`; without a public origin, the canonical URI is preserved.
 - **Interactive Approvals**: When a command or external action requires confirmation (`HERMES_EXEC_ASK=1`), the agent prompts you in chat before executing.
 
-### B. Hermes Web Dashboard (`:9119` via Locho)
+### B. Workspace UI (Normal User Document Workspace)
 
-Hermes Agent includes a full-featured Web Dashboard running on `127.0.0.1:9119` inside the container (exposed privately via `locho-host` as `hermes-dashboard`, bound to `http://127.0.0.1:9119` on your client machine):
+The document-focused **Workspace UI** is the primary web interface for day-to-day users:
+
+- **Access**: Served at your configured `[workspace-ui].public_origin` domain (behind an HTTPS reverse proxy attached to `workspace-ui`) or privately at <http://127.0.0.1:8089> via `locho attach`.
+- **Capabilities**: Browses, previews, edits, creates, uploads, moves, renames, and deletes files in `/opt/data/workspace`, with direct deep-linking (`/files/<path>`) from Telegram messages.
+- **Authentication**: Reuses the configured Basic Auth or OIDC credentials (with optional `OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS` allowlist enforcement, configured with `openlia auth --oidc --allowed-emails ...` and removed with `--clear-allowed-emails`).
+
+### C. Hermes Web Dashboard (`:9119` via Locho — Advanced User / Operator)
+
+Hermes Agent includes a full-featured Web Dashboard running on `127.0.0.1:9119` inside the container (exposed privately via `locho-host` as `hermes-dashboard`, bound to `http://127.0.0.1:9119` on your operator machine):
 
 - **Authentication**: Protected by Basic Auth (`openlia auth`) or Single Sign-On via GCP OAuth / Auth0 (`openlia auth --oidc`).
 - **Capabilities**:
@@ -57,13 +66,9 @@ Hermes Agent includes a full-featured Web Dashboard running on `127.0.0.1:9119` 
   - **Skills & Memory**: Browse installed Hermes skills (`/opt/data/skills`) and persistent memory entries (`memories/MEMORY.md` and `memories/USER.md`).
   - **Configuration**: Inspect runtime settings in `/opt/data/config.yaml`.
 
-### C. Workspace UI (`:8089` via Locho)
+### D. Hermes API Server (`:8642` via Locho — Advanced User Integrations)
 
-When `locho-host` is enabled, the document-focused Workspace UI is available privately at <http://127.0.0.1:8089> while the Locho attachment is running. It operates on `/opt/data/workspace` and supports browsing, Markdown preview and editing, file creation, upload, move, rename, and delete. It uses the Hermes Dashboard Basic Auth or OIDC credentials when those are configured; otherwise, keep it reachable only through a trusted private tunnel.
-
-### D. Hermes API Server (`:8642` via Locho)
-
-Hermes Agent provides an OpenAI-compatible HTTP API server on `127.0.0.1:8642` (exposed privately via `locho-host` as `hermes-api`, bound to `http://127.0.0.1:8642` on your client machine):
+Hermes Agent provides an OpenAI-compatible HTTP API server on `127.0.0.1:8642` (exposed privately via `locho-host` as `hermes-api`, bound to `http://127.0.0.1:8642` on your client machine) for connecting external tools such as OpenWebUI:
 
 - Authenticate requests with `Authorization: Bearer <API_SERVER_KEY>`.
 - Exposes `/v1/chat/completions`, `/v1/responses`, `/v1/models`, `/v1/runs`, and `/health`.

@@ -1,13 +1,15 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { WorkspaceFile, WorkspaceFileMetadata } from "../../../shared/api";
 import { CodeEditor, isMarkdownPath } from "../../CodeEditor";
 import { ActionMenu } from "../../components/common/ActionMenu";
 import { CopyLinkButton } from "../../components/common/CopyLinkButton";
+import { ResponsiveDrawer } from "../../components/common/ResponsiveDrawer";
 import { MarkdownPreview } from "../../components/editor/MarkdownPreview";
 import {
   buildCanonicalWorkspaceUri,
   buildWorkspaceLink,
 } from "../../openliaLinks";
+import { ArtifactInspector } from "./ArtifactInspector";
 import { DocumentInspector } from "./DocumentInspector";
 
 export type WorkspaceView = "edit" | "preview" | "info";
@@ -63,7 +65,7 @@ function EditorPane({
   );
 }
 
-function formatFileSize(size: number): string {
+export function formatFileSize(size: number): string {
   if (size < 1024) return `${size} B`;
   const units = ["KB", "MB", "GB"];
   let value = size / 1024;
@@ -117,34 +119,58 @@ function ArtifactPane({
   onDownload: () => void;
   rawUrl?: ((path: string) => string) | undefined;
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const previewKind = artifactPreviewKind(artifact.path);
   const previewUrl = rawUrl?.(artifact.path) ?? "#";
 
   return (
     <section
       aria-label="Non-text artifact"
-      className="workspace-mobile-content flex min-h-0 flex-1 flex-col"
+      className="workspace-mobile-content workspace-artifact-pane relative flex min-h-0 flex-1 flex-col overflow-hidden"
     >
       <div className="workspace-document-toolbar">
         <div className="min-w-0 flex-1">
           <p
-            className="workspace-document-name hidden sm:block"
+            className="workspace-document-name truncate min-w-0"
             title={artifact.path}
           >
-            {artifact.path}
+            {artifact.path.split("/").at(-1) ?? artifact.path}
           </p>
-          <p className="text-xs text-base-content/60">View only artifact</p>
+          <p
+            className="text-xs text-base-content/60 truncate"
+            title={artifact.path}
+          >
+            View only artifact
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
           <a
-            className="btn btn-xs sm:btn-sm btn-primary"
+            className="btn btn-xs sm:btn-sm btn-primary shrink-0"
             href={previewUrl}
             rel="noreferrer"
             target="_blank"
           >
-            Open in New Tab ↗
+            <span className="sm:hidden">Open ↗</span>
+            <span className="hidden sm:inline">Open in New Tab ↗</span>
           </a>
+          <button
+            aria-label="Details"
+            aria-pressed={detailsOpen}
+            className={`btn btn-xs sm:btn-sm gap-1.5 shrink-0 ${detailsOpen ? "btn-secondary" : "btn-outline"}`}
+            onClick={() => setDetailsOpen((prev) => !prev)}
+            title="Details"
+            type="button"
+          >
+            <span>Details</span>
+          </button>
           <ActionMenu label="Artifact actions" className="btn-xs sm:btn-sm">
+            <button
+              className="btn btn-xs sm:btn-sm btn-ghost sm:hidden"
+              onClick={() => setDetailsOpen(true)}
+              type="button"
+            >
+              Details
+            </button>
             <CopyLinkButton
               className="btn btn-xs sm:btn-sm btn-ghost"
               label="Copy Link"
@@ -172,101 +198,74 @@ function ArtifactPane({
           </ActionMenu>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3 border-b border-base-content/10 bg-base-200/30 px-3 py-2.5 sm:grid-cols-3 sm:gap-4 sm:px-5 sm:py-4">
-        <div className="col-span-2 sm:col-span-1">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
-            Name
-          </p>
-          <p className="mt-1 break-all text-sm font-medium">
-            {artifact.path.split("/").at(-1) ?? artifact.path}
-          </p>
-        </div>
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
-            Size
-          </p>
-          <p className="mt-1 text-sm font-medium">
-            {formatFileSize(artifact.size)}
-          </p>
-        </div>
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
-            Modified
-          </p>
-          <p className="mt-1 text-sm font-medium">
-            {new Date(artifact.modified_at).toLocaleString()}
-          </p>
-        </div>
-        <div className="col-span-2 sm:col-span-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
-            Link
-          </p>
-          <div className="mt-1 flex items-center gap-2 break-all font-mono text-xs">
-            <span className="min-w-0 flex-1">
-              {buildWorkspaceLink(artifact.path)}
-            </span>
-            <CopyLinkButton
-              className="btn btn-ghost btn-xs btn-square shrink-0"
-              iconOnly
-              link={buildWorkspaceLink(artifact.path)}
-              size="xs"
-              title={`Copy link: ${buildWorkspaceLink(artifact.path)}`}
-            />
-          </div>
-        </div>
-      </div>
-      <div className="workspace-preview-pane min-h-0 flex-1 overflow-auto p-4">
-        {previewKind === "pdf" && (
-          <iframe
-            className="h-full min-h-[32rem] w-full rounded-lg border border-base-content/10 bg-base-100"
-            src={previewUrl}
-            title={`Preview of ${artifact.path}`}
-          />
-        )}
-        {previewKind === "image" && (
-          <div className="flex min-h-full items-center justify-center rounded-lg border border-base-content/10 bg-base-100 p-4">
-            <img
-              alt={artifact.path}
-              className="max-h-full max-w-full object-contain"
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        <div className="workspace-preview-pane min-h-0 flex-1 overflow-auto p-2 sm:p-4">
+          {previewKind === "pdf" && (
+            <iframe
+              className="h-full min-h-[16rem] w-full rounded-lg border border-base-content/10 bg-base-100"
               src={previewUrl}
+              title={`Preview of ${artifact.path}`}
             />
-          </div>
-        )}
-        {previewKind === "audio" && (
-          <div className="flex min-h-full items-center justify-center rounded-lg border border-base-content/10 bg-base-100 p-8">
-            {/* biome-ignore lint/a11y/useMediaCaption: No caption track is available in the source artifact. */}
-            <audio controls src={previewUrl} />
-          </div>
-        )}
-        {previewKind === "video" && (
-          <div className="flex min-h-full items-center justify-center rounded-lg border border-base-content/10 bg-base-100 p-4">
-            {/* biome-ignore lint/a11y/useMediaCaption: No caption track is available in the source artifact. */}
-            <video
-              className="max-h-full max-w-full"
-              controls
-              src={previewUrl}
+          )}
+          {previewKind === "image" && (
+            <div className="flex min-h-full items-center justify-center rounded-lg border border-base-content/10 bg-base-100 p-4">
+              <img
+                alt={artifact.path}
+                className="max-h-full max-w-full object-contain"
+                src={previewUrl}
+              />
+            </div>
+          )}
+          {previewKind === "audio" && (
+            <div className="flex min-h-full items-center justify-center rounded-lg border border-base-content/10 bg-base-100 p-8">
+              {/* biome-ignore lint/a11y/useMediaCaption: No caption track is available in the source artifact. */}
+              <audio controls src={previewUrl} />
+            </div>
+          )}
+          {previewKind === "video" && (
+            <div className="flex min-h-full items-center justify-center rounded-lg border border-base-content/10 bg-base-100 p-4">
+              {/* biome-ignore lint/a11y/useMediaCaption: No caption track is available in the source artifact. */}
+              <video
+                className="max-h-full max-w-full"
+                controls
+                src={previewUrl}
+              />
+            </div>
+          )}
+          {!previewKind && (
+            <div className="flex min-h-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-base-content/20 bg-base-100 p-8 text-center">
+              <p className="font-semibold">
+                This file cannot be previewed in the browser.
+              </p>
+              <p className="max-w-md text-sm text-base-content/60">
+                Open it in a new tab or download it to use an application that
+                supports this file type.
+              </p>
+              {downloadUrl && (
+                <a
+                  className="btn btn-sm btn-outline"
+                  download
+                  href={downloadUrl(artifact.path)}
+                >
+                  Download {artifact.path.split("/").at(-1) ?? "file"}
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+        {detailsOpen && (
+          <ResponsiveDrawer
+            className="responsive-drawer-right workspace-inspector-drawer w-80 shrink-0"
+            label="Artifact details"
+            onClose={() => setDetailsOpen(false)}
+            open={detailsOpen}
+            title="Artifact Details"
+          >
+            <ArtifactInspector
+              artifact={artifact}
+              onClose={() => setDetailsOpen(false)}
             />
-          </div>
-        )}
-        {!previewKind && (
-          <div className="flex min-h-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-base-content/20 bg-base-100 p-8 text-center">
-            <p className="font-semibold">
-              This file cannot be previewed in the browser.
-            </p>
-            <p className="max-w-md text-sm text-base-content/60">
-              Open it in a new tab or download it to use an application that
-              supports this file type.
-            </p>
-            {downloadUrl && (
-              <a
-                className="btn btn-sm btn-outline"
-                download
-                href={downloadUrl(artifact.path)}
-              >
-                Download {artifact.path.split("/").at(-1) ?? "file"}
-              </a>
-            )}
-          </div>
+          </ResponsiveDrawer>
         )}
       </div>
     </section>
@@ -333,7 +332,7 @@ export function DocumentPane({
   return (
     <section
       aria-label="Document workspace"
-      className="workspace-document workspace-mobile-page document-workspace"
+      className={`workspace-document workspace-mobile-page document-workspace ${artifact ? "document-workspace-artifact" : ""}`}
     >
       {artifact ? (
         <ArtifactPane

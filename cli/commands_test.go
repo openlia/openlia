@@ -563,7 +563,7 @@ func TestCommandAuthOIDCUpdatesOIDCCredentialsInSecretSource(t *testing.T) {
 	}
 	_ = w.Close()
 
-	code := Run([]string{"auth", "--oidc", "--config", cfgPath, "--json"}, fstest.MapFS{})
+	code := Run([]string{"auth", "--oidc", "--allowed-emails", "user@example.com", "--config", cfgPath, "--json"}, fstest.MapFS{})
 	if code != ExitOK {
 		t.Fatalf("openlia auth --oidc exited with %d", code)
 	}
@@ -579,6 +579,7 @@ func TestCommandAuthOIDCUpdatesOIDCCredentialsInSecretSource(t *testing.T) {
 		"HERMES_DASHBOARD_OIDC_CLIENT_ID=12345-abc.apps.googleusercontent.com",
 		"HERMES_DASHBOARD_OIDC_CLIENT_SECRET=GOCSPX-mysecret",
 		"HERMES_DASHBOARD_PUBLIC_URL=http://127.0.0.1:9119",
+		"OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS=user@example.com",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected %q in secret file, got:\n%s", want, text)
@@ -586,6 +587,56 @@ func TestCommandAuthOIDCUpdatesOIDCCredentialsInSecretSource(t *testing.T) {
 	}
 	if strings.Contains(text, "HERMES_DASHBOARD_BASIC_AUTH_") {
 		t.Fatalf("expected basic auth keys to be removed when switching to OIDC, got:\n%s", text)
+	}
+}
+
+func TestCommandAuthOIDCClearsWorkspaceUIEmailAllowlist(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.toml")
+	secretPath := filepath.Join(tmp, "openlia_dev.env")
+	if err := os.WriteFile(secretPath, []byte("COPILOT_GITHUB_TOKEN=gho_testtoken123456\nOPENLIA_WORKSPACE_UI_ALLOWED_EMAILS=user@example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	cfg.Mode = "local"
+	cfg.InstallRoot = filepath.Join(tmp, "install")
+	cfg.SecretSource = secretPath
+	if err := os.WriteFile(cfgPath, []byte(renderConfig(cfg)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	origStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+	if _, err := w.WriteString("GOCSPX-mysecret\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Close()
+
+	code := Run([]string{
+		"auth", "--oidc",
+		"--issuer", "https://accounts.google.com",
+		"--client-id", "12345-abc.apps.googleusercontent.com",
+		"--client-secret-stdin",
+		"--public-url", "http://127.0.0.1:9119",
+		"--clear-allowed-emails",
+		"--config", cfgPath,
+		"--json",
+	}, fstest.MapFS{})
+	if code != ExitOK {
+		t.Fatalf("openlia auth --clear-allowed-emails exited with %d", code)
+	}
+
+	updated, err := os.ReadFile(secretPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(updated), "OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS=") {
+		t.Fatalf("expected Workspace UI email allowlist to be removed, got:\n%s", updated)
 	}
 }
 

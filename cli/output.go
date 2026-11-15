@@ -96,13 +96,13 @@ Usage:
   openlia status [--live] [--check-providers] [--json]
   openlia logs [--follow]
   openlia auth [--config PATH] [--username USER] [--password-stdin]
-  openlia auth --oidc [--config PATH] [--issuer URL] [--client-id ID] [--client-secret-stdin] [--public-url URL]
+  openlia auth --oidc [--config PATH] [--issuer URL] [--client-id ID] [--client-secret-stdin] [--public-url URL] [--allowed-emails EMAILS|--clear-allowed-emails]
   openlia auth api-key-rotate [--config PATH]
   openlia attachments list
   openlia attachments map [HOST] <service> --role <role>
   openlia backup create [--wait] | push [--archive FILENAME.age] [--wait] | status | list | keygen
   openlia backup restore [--archive PATH.age|--from NAME --latest|--object NAME]
-  openlia locho-host share [--output PATH]
+  openlia locho-host share [--output PATH] [--services SERVICES]
   openlia browser configure --local|--target user@host --root PATH --extension-token-file PATH [--ssh-port PORT]
   openlia browser install|start|stop|restart|status|logs|uninstall
   openlia uninstall [--local|--target user@host] [--project NAME] [--root /path]
