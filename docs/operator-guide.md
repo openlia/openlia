@@ -139,23 +139,23 @@ This writes `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` and `HERMES_DASHBOARD_BASIC_A
 
 #### Option B: OIDC Single Sign-On (GCP OAuth or Auth0)
 
-Hermes Dashboard includes a built-in `SelfHostedOIDCProvider` (`Authorization Code + PKCE` at `/auth/callback`). Configure it interactively:
+Hermes Dashboard includes a built-in `SelfHostedOIDCProvider` (`Authorization Code + PKCE` at `/auth/callback`). Configure it interactively (or pass `--allowed-emails`):
 
 ```bash
-openlia auth --oidc --config ~/.config/openlia/prod/config.toml
+openlia auth --oidc --config ~/.config/openlia/prod/config.toml --allowed-emails "user@example.com,admin@example.com"
 ```
 
-This sets `HERMES_DASHBOARD_OIDC_ISSUER`, `HERMES_DASHBOARD_OIDC_CLIENT_ID`, `HERMES_DASHBOARD_OIDC_CLIENT_SECRET`, `HERMES_DASHBOARD_OIDC_SCOPES`, and `HERMES_DASHBOARD_PUBLIC_URL` in `secrets.source` (and removes Basic Auth credentials unless `--keep-basic-auth` is passed, so the Dashboard auto-redirects straight to your identity provider).
+This sets `HERMES_DASHBOARD_OIDC_ISSUER`, `HERMES_DASHBOARD_OIDC_CLIENT_ID`, `HERMES_DASHBOARD_OIDC_CLIENT_SECRET`, `HERMES_DASHBOARD_OIDC_SCOPES`, `HERMES_DASHBOARD_PUBLIC_URL`, and `OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS` in `secrets.source` (and removes Basic Auth credentials unless `--keep-basic-auth` is passed, so the Dashboard auto-redirects straight to your identity provider). When `--allowed-emails` is provided, OpenLia enforces this email whitelist on both Workspace UI (`:8089`) and Hermes Dashboard (`:9119`), rejecting any unlisted or unverified email with HTTP 403 Forbidden.
 
 - **Google Cloud (GCP OAuth)**:
   - **Issuer**: `https://accounts.google.com`
   - **Authorized Redirect URI**: `<your-dashboard-url>/auth/callback` and `<your-workspace-ui-url>/auth/callback` (e.g., `http://127.0.0.1:9119/auth/callback` and `http://127.0.0.1:8089/auth/callback` for local Locho attach, or `https://dashboard.example.com/auth/callback` behind a reverse proxy).
   - **Client Secret**: Required for Google Web Application OAuth clients even with PKCE.
-  - **User Access Control**: Keep your Google Auth Platform OAuth consent screen in **Testing** mode and add only your email under **Audience → Test users** (or set Audience to **Internal** on Google Workspace). Do not publish a consumer `@gmail.com` app to **In production**, or any Google account would be able to sign in.
+  - **User Access Control**: Whitelist allowed emails using `--allowed-emails`. For additional defense-in-depth, you can also keep your Google Auth Platform OAuth consent screen in **Testing** mode and add your email under **Audience → Test users** (or set Audience to **Internal** on Google Workspace).
 - **Auth0**:
   - **Issuer**: `https://<your-tenant>.<region>.auth0.com`
   - **Allowed Callback URL**: `<your-dashboard-url>/auth/callback` and `<your-workspace-ui-url>/auth/callback`
-  - **User Access Control**: Disable Public Signups on the Auth0 database connection or add an Auth0 Post-Login Action that checks `event.user.email` against an allowlist.
+  - **User Access Control**: Whitelist allowed emails using `--allowed-emails`. Optionally disable Public Signups on the Auth0 database connection or add an Auth0 Post-Login Action.
 
 ### Protected Secrets (`secrets.env`)
 

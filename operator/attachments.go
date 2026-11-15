@@ -546,6 +546,12 @@ func ensureAPIServerEnv(config Config, path string) error {
 		if allowedEmails != "" {
 			lines = append(lines, "OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS="+allowedEmails)
 		}
+		hermesAllowedEmails, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_ALLOWED_EMAILS")
+		if hermesAllowedEmails != "" {
+			lines = append(lines, "HERMES_DASHBOARD_ALLOWED_EMAILS="+hermesAllowedEmails)
+		} else if allowedEmails != "" {
+			lines = append(lines, "HERMES_DASHBOARD_ALLOWED_EMAILS="+allowedEmails)
+		}
 
 		user, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_BASIC_AUTH_USERNAME")
 		pass, _ := readSecretValue(config.SecretFile, "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD")

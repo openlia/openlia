@@ -1000,8 +1000,8 @@ func commandAuth(options Options, args []string) int {
 	clientSecretStdin := set.Bool("client-secret-stdin", false, "read OIDC Client Secret from stdin")
 	scopesFlag := set.String("scopes", "", "OIDC scopes (default: openid profile email)")
 	publicURLFlag := set.String("public-url", "", "Hermes Dashboard external public URL (e.g. http://127.0.0.1:9119 or https://hermes.example.com)")
-	allowedEmailsFlag := set.String("allowed-emails", "", "comma-separated OIDC allowed email addresses for Workspace UI")
-	clearAllowedEmailsFlag := set.Bool("clear-allowed-emails", false, "remove the Workspace UI OIDC email allowlist")
+	allowedEmailsFlag := set.String("allowed-emails", "", "comma-separated OIDC allowed email addresses for Hermes Dashboard and Workspace UI")
+	clearAllowedEmailsFlag := set.Bool("clear-allowed-emails", false, "remove the OIDC email allowlist")
 	if err := set.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return ExitOK
