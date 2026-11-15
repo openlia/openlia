@@ -1,6 +1,4 @@
 import type { WorkspaceFile, WorkspaceFileMetadata } from "../../../shared/api";
-import { buildWorkspaceLink } from "../../openliaLinks";
-import { CopyLinkButton } from "../common/CopyLinkButton";
 
 export interface WorkspaceHeaderProps {
   file: WorkspaceFile | WorkspaceFileMetadata | null;
@@ -19,8 +17,6 @@ export function WorkspaceHeader({
   onSignOut,
   userEmail,
 }: WorkspaceHeaderProps) {
-  const currentLink = file ? buildWorkspaceLink(file.path) : null;
-
   return (
     <header className="workspace-header">
       <button
@@ -39,15 +35,6 @@ export function WorkspaceHeader({
           <h1 className="workspace-title truncate" title={file?.path}>
             {file?.path.split("/").at(-1) ?? "Workspace"}
           </h1>
-          {currentLink && (
-            <CopyLinkButton
-              className="btn btn-ghost btn-xs btn-square shrink-0 text-base-content/60 hover:text-base-content"
-              iconOnly
-              link={currentLink}
-              size="xs"
-              title={`Copy link: ${currentLink}`}
-            />
-          )}
         </div>
         {file?.path?.includes("/") && (
           <p className="workspace-path hidden md:block" title={file.path}>

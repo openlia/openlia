@@ -274,35 +274,38 @@ describe("Workspace UI App", () => {
     expect(await screen.findByText("View only artifact")).toBeInTheDocument();
     expect(screen.getByTitle("Preview of docs/manual.pdf")).toBeInTheDocument();
 
-    // Verify metadata block is not in main view by default
+    // Verify standalone Details button is eliminated from toolbar and metadata is hidden
     expect(screen.queryByText("Saved revision")).not.toBeInTheDocument();
-    const detailsToggle = screen.getByRole("button", { name: "Details" });
-    expect(detailsToggle).toHaveAttribute("aria-pressed", "false");
+    expect(
+      screen.queryByRole("button", { name: "Details" }),
+    ).not.toBeInTheDocument();
 
-    // Toggle Details drawer open
-    fireEvent.click(detailsToggle);
-    expect(detailsToggle).toHaveAttribute("aria-pressed", "true");
+    // Open Details drawer via 3-dots dropdown menu
+    fireEvent.click(screen.getByRole("button", { name: "Artifact actions" }));
+    const detailsMenuItem = screen.getByRole("button", { name: "Details" });
+    fireEvent.click(detailsMenuItem);
+
     const drawer = await screen.findByLabelText("Artifact details");
     expect(within(drawer).getByText("Saved revision")).toBeInTheDocument();
     expect(within(drawer).getByText("rev-pdf-1")).toBeInTheDocument();
     expect(within(drawer).getByText("10 KB")).toBeInTheDocument();
     expect(within(drawer).getByText("manual.pdf")).toBeInTheDocument();
 
-    // Close Details drawer via toggle button
-    fireEvent.click(detailsToggle);
-    expect(detailsToggle).toHaveAttribute("aria-pressed", "false");
+    // Close Details drawer via Close button (✕)
+    fireEvent.click(
+      within(drawer).getByRole("button", { name: "Close details" }),
+    );
     expect(screen.queryByText("Saved revision")).not.toBeInTheDocument();
 
-    // Reopen and close via Close button (✕)
-    fireEvent.click(detailsToggle);
-    const reopenedDrawer = await screen.findByLabelText("Artifact details");
+    // Toggle Details drawer via 3-dots dropdown menu again
+    fireEvent.click(screen.getByRole("button", { name: "Artifact actions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
     expect(
-      within(reopenedDrawer).getByText("Saved revision"),
+      await screen.findByLabelText("Artifact details"),
     ).toBeInTheDocument();
-    fireEvent.click(
-      within(reopenedDrawer).getByRole("button", { name: "Close details" }),
-    );
-    expect(detailsToggle).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(screen.getByRole("button", { name: "Artifact actions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
     expect(screen.queryByText("Saved revision")).not.toBeInTheDocument();
   });
 

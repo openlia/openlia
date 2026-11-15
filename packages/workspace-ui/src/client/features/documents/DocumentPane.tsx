@@ -110,6 +110,7 @@ function ArtifactPane({
   downloadUrl,
   onDelete,
   onDownload,
+  onRevealInTree,
   rawUrl,
 }: {
   artifact: WorkspaceFileMetadata;
@@ -117,6 +118,7 @@ function ArtifactPane({
   downloadUrl?: ((path: string) => string) | undefined;
   onDelete?: (() => void) | undefined;
   onDownload: () => void;
+  onRevealInTree?: (() => void) | undefined;
   rawUrl?: ((path: string) => string) | undefined;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -153,48 +155,61 @@ function ArtifactPane({
             <span className="sm:hidden">Open ↗</span>
             <span className="hidden sm:inline">Open in New Tab ↗</span>
           </a>
-          <button
-            aria-label="Details"
-            aria-pressed={detailsOpen}
-            className={`btn btn-xs sm:btn-sm gap-1.5 shrink-0 ${detailsOpen ? "btn-secondary" : "btn-outline"}`}
-            onClick={() => setDetailsOpen((prev) => !prev)}
-            title="Details"
-            type="button"
-          >
-            <span>Details</span>
-          </button>
           <ActionMenu label="Artifact actions" className="btn-xs sm:btn-sm">
-            <button
-              className="btn btn-xs sm:btn-sm btn-ghost sm:hidden"
-              onClick={() => setDetailsOpen(true)}
-              type="button"
-            >
-              Details
-            </button>
-            <CopyLinkButton
-              className="btn btn-xs sm:btn-sm btn-ghost"
-              label="Copy Link"
-              link={buildWorkspaceLink(artifact.path)}
-              title="Copy link"
-            />
-            <button
-              className="btn btn-xs sm:btn-sm btn-ghost"
-              onClick={onDownload}
-              type="button"
-            >
-              Download
-            </button>
-            {onDelete && (
-              <button
-                aria-label="Delete file"
-                className="btn btn-xs sm:btn-sm btn-ghost text-error hover:bg-error/10 hover:text-error gap-1.5"
-                disabled={deleting}
-                onClick={onDelete}
-                type="button"
-              >
-                <span>Delete</span>
-              </button>
-            )}
+            <ul className="menu w-full p-0">
+              <li>
+                <button
+                  type="button"
+                  onClick={() => setDetailsOpen((prev) => !prev)}
+                >
+                  Details
+                </button>
+              </li>
+              {onRevealInTree && (
+                <li>
+                  <button
+                    aria-label="Reveal in tree"
+                    onClick={onRevealInTree}
+                    type="button"
+                  >
+                    <span>Reveal in Tree</span>
+                  </button>
+                </li>
+              )}
+              <li>
+                <CopyLinkButton
+                  className="flex w-full items-center gap-2 text-left font-normal"
+                  link={buildWorkspaceLink(artifact.path)}
+                  title={`Copy link (${buildWorkspaceLink(artifact.path)})`}
+                />
+              </li>
+              <li>
+                <CopyLinkButton
+                  className="flex w-full items-center gap-2 text-left font-normal"
+                  label="Copy URI"
+                  link={buildCanonicalWorkspaceUri(artifact.path)}
+                  title={`Copy URI (${buildCanonicalWorkspaceUri(artifact.path)})`}
+                />
+              </li>
+              <li>
+                <button onClick={onDownload} type="button">
+                  <span>Download</span>
+                </button>
+              </li>
+              {onDelete && (
+                <li className="border-t border-base-content/10 pt-1 mt-1">
+                  <button
+                    aria-label="Delete file"
+                    className="text-error hover:bg-error/10 hover:text-error"
+                    disabled={deleting}
+                    onClick={onDelete}
+                    type="button"
+                  >
+                    <span>Delete</span>
+                  </button>
+                </li>
+              )}
+            </ul>
           </ActionMenu>
         </div>
       </div>
@@ -275,7 +290,6 @@ function ArtifactPane({
 export function DocumentPane({
   artifact,
   conflict,
-  detailsOpen = false,
   diff,
   draft,
   documentError,
@@ -341,6 +355,7 @@ export function DocumentPane({
           downloadUrl={downloadUrl}
           onDelete={onDelete}
           onDownload={onDownload}
+          onRevealInTree={onRevealInTree}
           rawUrl={rawUrl}
         />
       ) : file ? (
@@ -428,19 +443,9 @@ export function DocumentPane({
                   </>
                 )}
               </button>
-              <button
-                aria-label="Details"
-                aria-pressed={detailsOpen}
-                className={`hidden sm:inline-flex btn btn-xs sm:btn-sm gap-1.5 ${detailsOpen ? "btn-secondary" : "btn-outline"}`}
-                onClick={onOpenDetails}
-                title="Details"
-                type="button"
-              >
-                <span className="hidden sm:inline">Details</span>
-              </button>
               <ActionMenu label="Document actions" className="btn-xs sm:btn-sm">
                 <ul className="menu w-full p-0">
-                  <li className="sm:hidden">
+                  <li>
                     <button type="button" onClick={onOpenDetails}>
                       Details
                     </button>
