@@ -75,6 +75,53 @@ func TestShareLochoHostBuildsHermesAttachmentConfig(t *testing.T) {
 	}
 }
 
+func TestShareLochoHostFiltersServicesAndOverridesPorts(t *testing.T) {
+	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
+	config.LochoHostEnabled = true
+	config.LochoHostRoot = filepath.Join(config.RuntimeRoot, "locho-host")
+	config.LochoHostConfig = filepath.Join(config.LochoHostRoot, "locho.toml")
+	config.LochoHostStateRoot = filepath.Join(config.LochoHostRoot, "state")
+
+	runner := &lochoShareRunner{}
+	result, err := ShareLochoHost(context.Background(), config, NewCompose(config, runner), "workspace-ui:19119")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Services) != 1 || result.Services[0] != "workspace-ui" {
+		t.Fatalf("unexpected filtered services: %+v", result.Services)
+	}
+	if !strings.Contains(result.AttachmentConfig, "capability = \"workspace-ui:tcp:workspace-secret\"") || !strings.Contains(result.AttachmentConfig, "listen_port = 19119") {
+		t.Fatalf("filtered attachment config missing workspace-ui:19119:\n%s", result.AttachmentConfig)
+	}
+	if strings.Contains(result.AttachmentConfig, "hermes-api") || strings.Contains(result.AttachmentConfig, "hermes-dashboard") {
+		t.Fatalf("filtered attachment config included unrequested services:\n%s", result.AttachmentConfig)
+	}
+	if _, err := ShareLochoHost(context.Background(), config, NewCompose(config, runner), "unknown-service"); err == nil {
+		t.Fatal("expected unknown service to be rejected")
+	}
+}
+
+func TestParseLochoShareServicesRejectsInvalidSelections(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		raw  string
+	}{
+		{name: "empty entry", raw: "hermes-api,,workspace-ui"},
+		{name: "unknown service", raw: "unknown-service"},
+		{name: "duplicate service", raw: "hermes-api,hermes-api"},
+		{name: "invalid port", raw: "workspace-ui:0"},
+		{name: "out of range port", raw: "workspace-ui:65536"},
+		{name: "duplicate listen port", raw: "hermes-api:8089,workspace-ui:8089"},
+		{name: "malformed port", raw: "workspace-ui:8089:extra"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := ParseLochoShareServices(test.raw, WorkspaceUIPort); err == nil {
+				t.Fatalf("expected %q to be rejected", test.raw)
+			}
+		})
+	}
+}
+
 func TestParseLochoShareOutputRejectsWrongService(t *testing.T) {
 	if _, _, err := parseLochoShareOutput("locho attach host other-service:tcp:secret", "hermes-api"); err == nil {
 		t.Fatal("wrong service capability was accepted")
@@ -139,6 +186,7 @@ func TestEnsureAPIServerEnvForwardsOIDCWithoutFallbackBasicAuth(t *testing.T) {
 		"HERMES_DASHBOARD_OIDC_CLIENT_ID=12345-abc.apps.googleusercontent.com",
 		"HERMES_DASHBOARD_OIDC_CLIENT_SECRET=GOCSPX-secretvalue",
 		"HERMES_DASHBOARD_PUBLIC_URL=http://127.0.0.1:9119",
+		"OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS=user@example.com,admin@example.com",
 	}, "\n") + "\n"
 	if err := os.WriteFile(config.SecretFile, []byte(secretContent), 0o600); err != nil {
 		t.Fatal(err)
@@ -158,6 +206,7 @@ func TestEnsureAPIServerEnvForwardsOIDCWithoutFallbackBasicAuth(t *testing.T) {
 		"HERMES_DASHBOARD_OIDC_CLIENT_ID=12345-abc.apps.googleusercontent.com",
 		"HERMES_DASHBOARD_OIDC_CLIENT_SECRET=GOCSPX-secretvalue",
 		"HERMES_DASHBOARD_PUBLIC_URL=http://127.0.0.1:9119",
+		"OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS=user@example.com,admin@example.com",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("api-server.env missing %q, got:\n%s", want, text)

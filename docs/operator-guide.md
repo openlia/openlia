@@ -230,6 +230,16 @@ After deployment, export a mode-`0600` client attachment file on the operator ma
 openlia locho-host share --output openlia-attachments.toml
 ```
 
+To export a least-privilege attachment containing only specific services (or custom local listen ports for a shared reverse-proxy host such as Caddy), pass `--services`:
+
+```bash
+# Export only Workspace UI on local port 19119 for a reverse proxy
+openlia locho-host share --services workspace-ui:19119 --output caddy-attachments.toml
+
+# Export only Hermes API for an external API client
+openlia locho-host share --services hermes-api --output api-attachments.toml
+```
+
 Install [Locho `1.3.0`](https://github.com/trchopan/locho/releases/tag/v1.3.0) on your client machine, copy `openlia-attachments.toml` over a trusted channel, and start the local listener:
 
 ```bash

@@ -250,13 +250,17 @@ func runBackup(ctx context.Context, config Config, args []string, _ io.Reader, o
 }
 
 func runLochoHost(ctx context.Context, config Config, args []string, output, errorOutput io.Writer, jsonOutput bool) int {
-	if len(args) == 0 || args[0] != "share" || len(args) != 1 {
+	if len(args) == 0 || args[0] != "share" {
 		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("locho-host requires share"))
+	}
+	servicesFilter, remaining, err := stringFlag(args[1:], "--services")
+	if err != nil || len(remaining) != 0 {
+		return commandError(output, errorOutput, jsonOutput, ExitUsage, fmt.Errorf("locho-host share accepts only [--services SERVICES]"))
 	}
 	if jsonOutput {
 		return commandError(output, errorOutput, true, ExitUsage, fmt.Errorf("locho-host share does not expose capabilities through JSON output"))
 	}
-	result, err := ShareLochoHost(ctx, config, NewCompose(config, nil))
+	result, err := ShareLochoHost(ctx, config, NewCompose(config, nil), servicesFilter)
 	if err != nil {
 		return commandError(output, errorOutput, jsonOutput, ExitFailure, err)
 	}
