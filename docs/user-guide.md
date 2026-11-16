@@ -42,15 +42,17 @@ Telegram is the primary mobile and desktop messaging channel:
 
 - **Direct Messages (DMs)**: Chat one-on-one with your private bot, share links and files, and run skills or workspace tasks.
 - **Home Channel / Group**: A dedicated Telegram channel (e.g., `"OpenLia Home"`) where the agent posts scheduled cron briefings and notifications.
-- **Workspace Links (`openlia://workspace/<path>`)**: The agent uses canonical workspace URIs when referencing files. When `[workspace-ui].public_origin` is configured, outbound messages rewrite them to `<public_origin>/files/<path>`; without a public origin, the canonical URI is preserved.
+- **Workspace and Skill Links**: The agent uses `openlia://workspace/<path>` for workspace documents and `openlia://skills/<path>` for Hermes skills. When `[workspace-ui].public_origin` is configured, outbound messages rewrite these to `/files/<path>` and `/skills/<path>` at that origin; without a public origin, canonical URIs are preserved.
 - **Interactive Approvals**: When a command or external action requires confirmation (`HERMES_EXEC_ASK=1`), the agent prompts you in chat before executing.
 
 ### B. Workspace UI (Normal User Document Workspace)
 
-The document-focused **Workspace UI** is the primary web interface for day-to-day users:
+The **Workspace UI** provides a browser interface for documents and Hermes skills:
 
 - **Access**: Served at your configured `[workspace-ui].public_origin` domain (behind an HTTPS reverse proxy attached to `workspace-ui`) or privately at <http://127.0.0.1:8089> via `locho attach`.
-- **Capabilities**: Browses, previews, edits, creates, uploads, moves, renames, and deletes files in `/opt/data/workspace`, with direct deep-linking (`/files/<path>`) from Telegram messages.
+- **Workspace**: Browse, preview, edit, create, upload, move, rename, and delete documents in `/opt/data/workspace`.
+- **Skills**: Browse and author files in `/opt/data/skills`; changes modify the instructions and resources Hermes uses for those skills. Skill and workspace links open in their corresponding UI scopes.
+- **Folder deletion**: Deleting a folder removes its contents after confirmation. Folders containing protected directories or symlinks are rejected to avoid deleting hidden runtime data.
 - **Authentication**: Reuses the configured Basic Auth or OIDC credentials (with optional email allowlist enforcement for Hermes Dashboard and Workspace UI, configured with `openlia auth --oidc --allowed-emails ...` and removed with `--clear-allowed-emails`).
 
 ### C. Hermes Web Dashboard (`:9119` via Locho — Advanced User / Operator)

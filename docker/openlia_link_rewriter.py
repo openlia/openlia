@@ -10,7 +10,7 @@ import re
 
 
 def rewrite_openlia_links(text: str) -> str:
-    """Rewrite canonical workspace URIs when a public Workspace UI origin exists."""
+    """Rewrite canonical workspace and skills URIs when a public Workspace UI origin exists."""
     if not text or not isinstance(text, str):
         return text
     if "openlia://" not in text:
@@ -29,7 +29,18 @@ def rewrite_openlia_links(text: str) -> str:
         replaced = f"{origin}/files/{raw_path}"
         return replaced + trailing
 
-    return re.sub(r"openlia://workspace/([^\s\)\]\"'`>]+)", repl_workspace, text)
+    def repl_skills(match: re.Match) -> str:
+        raw_path = match.group(1).lstrip("/")
+        trailing = ""
+        while raw_path and raw_path[-1] in ".,;:?!":
+            trailing = raw_path[-1] + trailing
+            raw_path = raw_path[:-1]
+        replaced = f"{origin}/skills/{raw_path}"
+        return replaced + trailing
+
+    text = re.sub(r"openlia://workspace/([^\s\)\]\"'`>]+)", repl_workspace, text)
+    text = re.sub(r"openlia://skills?/([^\s\)\]\"'`>]+)", repl_skills, text)
+    return text
 
 
 def patch_adapter_methods(adapter_cls: type) -> None:

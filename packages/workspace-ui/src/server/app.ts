@@ -5,7 +5,9 @@ import type {
   AuthLoginRequest,
   AuthLoginResponse,
   AuthProvider,
+  DocumentScope,
   WorkspaceCreateFileRequest,
+  WorkspaceDeleteDirectoryRequest,
   WorkspaceDeleteRequest,
   WorkspaceErrorResponse,
   WorkspaceMoveRequest,
@@ -17,6 +19,7 @@ import { WorkspaceError, WorkspaceService } from "./workspace";
 
 export interface WorkspaceHandlerOptions {
   workspaceRoot: string;
+  skillsRoot?: string | undefined;
   staticRoot?: string | undefined;
   maxEditableBytes?: number | undefined;
   maxDownloadBytes?: number | undefined;
@@ -186,6 +189,48 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
     maxDownloadBytes: options.maxDownloadBytes,
     maxTreeEntries: options.maxTreeEntries,
   });
+
+  const skills = options.skillsRoot
+    ? new WorkspaceService({
+        workspaceRoot: options.skillsRoot,
+        maxEditableBytes: options.maxEditableBytes,
+        maxDownloadBytes: options.maxDownloadBytes,
+        maxTreeEntries: options.maxTreeEntries,
+      })
+    : null;
+
+  function resolveService(
+    scope?: string | null,
+    isSkillsRoute?: boolean,
+  ): { service: WorkspaceService; scope: DocumentScope } {
+    if (
+      scope !== undefined &&
+      scope !== null &&
+      scope !== "workspace" &&
+      scope !== "skills"
+    ) {
+      throw new WorkspaceError("Unknown document scope", 400, "invalid_scope");
+    }
+    if (isSkillsRoute && scope && scope !== "skills") {
+      throw new WorkspaceError(
+        "Route and document scope do not match",
+        400,
+        "scope_mismatch",
+      );
+    }
+    const isSkills = isSkillsRoute || scope === "skills";
+    if (isSkills) {
+      if (!skills) {
+        throw new WorkspaceError(
+          "Skills service is not configured",
+          404,
+          "skills_unavailable",
+        );
+      }
+      return { service: skills, scope: "skills" };
+    }
+    return { service: workspace, scope: "workspace" };
+  }
 
   const authRequired = options.authRequired ?? false;
   const secureCookies =
@@ -383,159 +428,246 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
       }
 
       try {
-        if (method === "GET" && pathname === "/api/workspace/tree") {
-          return json(workspace.listTree());
-        }
+        const isSkillsPrefix =
+          pathname === "/api/skills" || pathname.startsWith("/api/skills/");
+        const isWorkspacePrefix =
+          pathname === "/api/workspace" ||
+          pathname.startsWith("/api/workspace/");
 
-        if (method === "GET" && pathname === "/api/workspace/file") {
-          const path = url.searchParams.get("path") ?? "";
-          return json(workspace.readFile(path));
-        }
+        if (isSkillsPrefix || isWorkspacePrefix) {
+          const apiSubpath = isSkillsPrefix
+            ? pathname.slice("/api/skills".length)
+            : pathname.slice("/api/workspace".length);
+          const queryScope = url.searchParams.get("scope");
 
-        if (method === "GET" && pathname === "/api/workspace/file-info") {
-          const path = url.searchParams.get("path") ?? "";
-          return json(workspace.readFileMetadata(path));
-        }
-
-        if (method === "PUT" && pathname === "/api/workspace/file") {
-          const body = await readJsonBody<WorkspaceWriteRequest>(
-            request,
-            (options.maxEditableBytes ?? 2 * 1024 * 1024) + 64 * 1024,
-          );
-          if (
-            typeof body.path !== "string" ||
-            typeof body.content !== "string" ||
-            typeof body.expected_revision !== "string"
-          ) {
-            throw new WorkspaceError(
-              "path, content, and expected_revision are required",
-              400,
-              "invalid_request",
+          if (method === "GET" && apiSubpath === "/tree") {
+            const { service, scope } = resolveService(
+              queryScope,
+              isSkillsPrefix,
             );
+            const tree = service.listTree();
+            return json({
+              ...tree,
+              scope,
+              entries: tree.entries.map((entry) => ({ ...entry, scope })),
+            });
           }
-          return json(
-            workspace.writeFile(
+
+          if (method === "GET" && apiSubpath === "/file") {
+            const { service, scope } = resolveService(
+              queryScope,
+              isSkillsPrefix,
+            );
+            const path = url.searchParams.get("path") ?? "";
+            const file = service.readFile(path);
+            return json({ ...file, scope });
+          }
+
+          if (method === "GET" && apiSubpath === "/file-info") {
+            const { service, scope } = resolveService(
+              queryScope,
+              isSkillsPrefix,
+            );
+            const path = url.searchParams.get("path") ?? "";
+            const meta = service.readFileMetadata(path);
+            return json({ ...meta, scope });
+          }
+
+          if (method === "PUT" && apiSubpath === "/file") {
+            const body = await readJsonBody<WorkspaceWriteRequest>(
+              request,
+              (options.maxEditableBytes ?? 2 * 1024 * 1024) + 64 * 1024,
+            );
+            if (
+              typeof body.path !== "string" ||
+              typeof body.content !== "string" ||
+              typeof body.expected_revision !== "string"
+            ) {
+              throw new WorkspaceError(
+                "path, content, and expected_revision are required",
+                400,
+                "invalid_request",
+              );
+            }
+            const { service, scope } = resolveService(
+              body.scope ?? queryScope,
+              isSkillsPrefix,
+            );
+            const written = service.writeFile(
               body.path,
               body.content,
               body.expected_revision,
-            ),
-          );
-        }
-
-        if (method === "POST" && pathname === "/api/workspace/file/create") {
-          const body = await readJsonBody<WorkspaceCreateFileRequest>(
-            request,
-            (options.maxEditableBytes ?? 2 * 1024 * 1024) + 64 * 1024,
-          );
-          if (typeof body.path !== "string") {
-            throw new WorkspaceError(
-              "path is required",
-              400,
-              "invalid_request",
             );
+            return json({ ...written, scope });
           }
-          return json(workspace.createFile(body.path, body.content ?? ""));
-        }
 
-        if (method === "POST" && pathname === "/api/workspace/file/upload") {
-          const form = await request.formData();
-          const fileEntry = form.get("file");
-          const pathEntry = form.get("path");
-          if (!(fileEntry instanceof File)) {
-            throw new WorkspaceError(
-              "Uploaded file is required",
-              400,
-              "invalid_request",
+          if (method === "POST" && apiSubpath === "/file/create") {
+            const body = await readJsonBody<WorkspaceCreateFileRequest>(
+              request,
+              (options.maxEditableBytes ?? 2 * 1024 * 1024) + 64 * 1024,
             );
+            if (typeof body.path !== "string") {
+              throw new WorkspaceError(
+                "path is required",
+                400,
+                "invalid_request",
+              );
+            }
+            const { service, scope } = resolveService(
+              body.scope ?? queryScope,
+              isSkillsPrefix,
+            );
+            const created = service.createFile(body.path, body.content ?? "");
+            return json({ ...created, scope });
           }
-          const targetPath =
-            typeof pathEntry === "string" && pathEntry.trim()
-              ? pathEntry.trim()
-              : fileEntry.name;
-          const bytes = new Uint8Array(await fileEntry.arrayBuffer());
-          return json(workspace.uploadFile(targetPath, bytes));
-        }
 
-        if (method === "POST" && pathname === "/api/workspace/file/rename") {
-          const body = await readJsonBody<WorkspaceRenameRequest>(
-            request,
-            maxSmallJsonBytes,
-          );
+          if (method === "POST" && apiSubpath === "/file/upload") {
+            const form = await request.formData();
+            const fileEntry = form.get("file");
+            const pathEntry = form.get("path");
+            const formScope = form.get("scope");
+            if (!(fileEntry instanceof File)) {
+              throw new WorkspaceError(
+                "Uploaded file is required",
+                400,
+                "invalid_request",
+              );
+            }
+            const targetPath =
+              typeof pathEntry === "string" && pathEntry.trim()
+                ? pathEntry.trim()
+                : fileEntry.name;
+            const { service, scope } = resolveService(
+              typeof formScope === "string" ? formScope : queryScope,
+              isSkillsPrefix,
+            );
+            const bytes = new Uint8Array(await fileEntry.arrayBuffer());
+            const uploaded = service.uploadFile(targetPath, bytes);
+            return json({ ...uploaded, scope });
+          }
+
+          if (method === "POST" && apiSubpath === "/file/rename") {
+            const body = await readJsonBody<WorkspaceRenameRequest>(
+              request,
+              maxSmallJsonBytes,
+            );
+            if (
+              typeof body.path !== "string" ||
+              typeof body.new_name !== "string"
+            ) {
+              throw new WorkspaceError(
+                "path and new_name are required",
+                400,
+                "invalid_request",
+              );
+            }
+            const { service, scope } = resolveService(
+              body.scope ?? queryScope,
+              isSkillsPrefix,
+            );
+            const renamed = service.renameFile(body.path, body.new_name);
+            return json({ ...renamed, scope });
+          }
+
+          if (method === "POST" && apiSubpath === "/file/move") {
+            const body = await readJsonBody<WorkspaceMoveRequest>(
+              request,
+              maxSmallJsonBytes,
+            );
+            if (
+              typeof body.path !== "string" ||
+              typeof body.destination_dir !== "string"
+            ) {
+              throw new WorkspaceError(
+                "path and destination_dir are required",
+                400,
+                "invalid_request",
+              );
+            }
+            const { service, scope } = resolveService(
+              body.scope ?? queryScope,
+              isSkillsPrefix,
+            );
+            const moved = service.moveFile(body.path, body.destination_dir);
+            return json({ ...moved, scope });
+          }
+
+          if (method === "DELETE" && apiSubpath === "/file") {
+            const body = await readJsonBody<WorkspaceDeleteRequest>(
+              request,
+              maxSmallJsonBytes,
+            );
+            if (typeof body.path !== "string") {
+              throw new WorkspaceError(
+                "path is required",
+                400,
+                "invalid_request",
+              );
+            }
+            const { service, scope } = resolveService(
+              body.scope ?? queryScope,
+              isSkillsPrefix,
+            );
+            const deleted = service.deleteFile(
+              body.path,
+              body.expected_revision,
+            );
+            return json({ ...deleted, scope });
+          }
+
           if (
-            typeof body.path !== "string" ||
-            typeof body.new_name !== "string"
+            method === "DELETE" &&
+            (apiSubpath === "/directory" || apiSubpath === "/folder")
           ) {
-            throw new WorkspaceError(
-              "path and new_name are required",
-              400,
-              "invalid_request",
+            const body = await readJsonBody<WorkspaceDeleteDirectoryRequest>(
+              request,
+              maxSmallJsonBytes,
             );
+            if (typeof body.path !== "string") {
+              throw new WorkspaceError(
+                "path is required",
+                400,
+                "invalid_request",
+              );
+            }
+            const { service, scope } = resolveService(
+              body.scope ?? queryScope,
+              isSkillsPrefix,
+            );
+            const deleted = service.deleteDirectory(body.path);
+            return json({ ...deleted, scope });
           }
-          return json(workspace.renameFile(body.path, body.new_name));
-        }
 
-        if (method === "POST" && pathname === "/api/workspace/file/move") {
-          const body = await readJsonBody<WorkspaceMoveRequest>(
-            request,
-            maxSmallJsonBytes,
-          );
           if (
-            typeof body.path !== "string" ||
-            typeof body.destination_dir !== "string"
+            (method === "GET" || method === "HEAD") &&
+            (apiSubpath === "/raw" || apiSubpath === "/download")
           ) {
-            throw new WorkspaceError(
-              "path and destination_dir are required",
-              400,
-              "invalid_request",
-            );
-          }
-          return json(workspace.moveFile(body.path, body.destination_dir));
-        }
+            const { service } = resolveService(queryScope, isSkillsPrefix);
+            const path = url.searchParams.get("path") ?? "";
+            const resolved = service.resolveDownloadFile(path);
+            const ext = extname(resolved.relativePath).toLowerCase();
+            const mime = contentTypes[ext] ?? "application/octet-stream";
+            const fileName =
+              resolved.relativePath.split("/").at(-1) ?? "download";
+            const isInline =
+              apiSubpath === "/raw" && inlineContentTypes.has(mime);
+            const disposition = `${isInline ? "inline" : "attachment"}; ${encodeContentDispositionFilename(fileName)}`;
 
-        if (method === "DELETE" && pathname === "/api/workspace/file") {
-          const body = await readJsonBody<WorkspaceDeleteRequest>(
-            request,
-            maxSmallJsonBytes,
-          );
-          if (typeof body.path !== "string") {
-            throw new WorkspaceError(
-              "path is required",
-              400,
-              "invalid_request",
-            );
-          }
-          return json(workspace.deleteFile(body.path, body.expected_revision));
-        }
-
-        if (
-          (method === "GET" || method === "HEAD") &&
-          (pathname === "/api/workspace/raw" ||
-            pathname === "/api/workspace/download")
-        ) {
-          const path = url.searchParams.get("path") ?? "";
-          const resolved = workspace.resolveDownloadFile(path);
-          const ext = extname(resolved.relativePath).toLowerCase();
-          const mime = contentTypes[ext] ?? "application/octet-stream";
-          const fileName =
-            resolved.relativePath.split("/").at(-1) ?? "download";
-          const isInline =
-            pathname === "/api/workspace/raw" && inlineContentTypes.has(mime);
-          const disposition = `${isInline ? "inline" : "attachment"}; ${encodeContentDispositionFilename(fileName)}`;
-
-          return new Response(
-            method === "HEAD" ? null : Bun.file(resolved.absolutePath),
-            {
-              status: 200,
-              headers: {
-                "Cache-Control": "private, no-store",
-                "Content-Security-Policy":
-                  "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox",
-                "Content-Type": mime,
-                "Content-Disposition": disposition,
-                "X-Content-Type-Options": "nosniff",
+            return new Response(
+              method === "HEAD" ? null : Bun.file(resolved.absolutePath),
+              {
+                status: 200,
+                headers: {
+                  "Cache-Control": "private, no-store",
+                  "Content-Security-Policy":
+                    "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+                  "Content-Type": mime,
+                  "Content-Disposition": disposition,
+                  "X-Content-Type-Options": "nosniff",
+                },
               },
-            },
-          );
+            );
+          }
         }
 
         return json(

@@ -1,6 +1,7 @@
 import type {
   AuthLoginResponse,
   AuthSessionResponse,
+  DocumentScope,
   WorkspaceCreateFileRequest,
   WorkspaceDeleteResponse,
   WorkspaceErrorResponse,
@@ -26,35 +27,51 @@ export class ApiError extends Error {
 }
 
 export interface WorkspaceApi {
-  loadTree(): Promise<WorkspaceTreeResponse>;
+  loadTree(scope?: DocumentScope): Promise<WorkspaceTreeResponse>;
   loadSession(): Promise<AuthSessionResponse>;
   login(password: string, username?: string): Promise<AuthLoginResponse>;
   logout(): Promise<{ schema: 1; ok: true; authenticated: boolean }>;
-  loadFile(path: string): Promise<WorkspaceFile>;
-  loadFileMetadata(path: string): Promise<WorkspaceFileMetadata>;
+  loadFile(path: string, scope?: DocumentScope): Promise<WorkspaceFile>;
+  loadFileMetadata(
+    path: string,
+    scope?: DocumentScope,
+  ): Promise<WorkspaceFileMetadata>;
   saveFile(
     path: string,
     content: string,
     expectedRevision: string,
+    scope?: DocumentScope,
   ): Promise<WorkspaceWriteResponse>;
   createFile(
     input: WorkspaceCreateFileRequest,
+    scope?: DocumentScope,
   ): Promise<WorkspaceWriteResponse>;
   uploadFile(
     destinationPath: string,
     file: File,
+    scope?: DocumentScope,
   ): Promise<WorkspaceUploadFileResponse>;
-  renameFile(path: string, newName: string): Promise<WorkspaceRenameResponse>;
+  renameFile(
+    path: string,
+    newName: string,
+    scope?: DocumentScope,
+  ): Promise<WorkspaceRenameResponse>;
   moveFile(
     sourcePath: string,
     destinationDir: string,
+    scope?: DocumentScope,
   ): Promise<WorkspaceMoveResponse>;
   deleteFile(
     path: string,
     expectedRevision?: string,
+    scope?: DocumentScope,
   ): Promise<WorkspaceDeleteResponse>;
-  rawUrl(path: string): string;
-  downloadUrl(path: string): string;
+  deleteDirectory(
+    path: string,
+    scope?: DocumentScope,
+  ): Promise<WorkspaceDeleteResponse>;
+  rawUrl(path: string, scope?: DocumentScope): string;
+  downloadUrl(path: string, scope?: DocumentScope): string;
 }
 
 async function requestJson<T>(input: string, init?: RequestInit): Promise<T> {
@@ -78,9 +95,13 @@ async function requestJson<T>(input: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+function apiBase(scope?: DocumentScope): string {
+  return scope === "skills" ? "/api/skills" : "/api/workspace";
+}
+
 export const httpWorkspaceApi: WorkspaceApi = {
-  loadTree() {
-    return requestJson<WorkspaceTreeResponse>("/api/workspace/tree");
+  loadTree(scope) {
+    return requestJson<WorkspaceTreeResponse>(`${apiBase(scope)}/tree`);
   },
   loadSession() {
     return requestJson<AuthSessionResponse>("/api/auth/session");
@@ -99,75 +120,101 @@ export const httpWorkspaceApi: WorkspaceApi = {
       },
     );
   },
-  loadFile(path) {
+  loadFile(path, scope) {
     const query = new URLSearchParams({ path });
-    return requestJson<WorkspaceFile>(`/api/workspace/file?${query}`);
+    return requestJson<WorkspaceFile>(`${apiBase(scope)}/file?${query}`);
   },
-  loadFileMetadata(path) {
+  loadFileMetadata(path, scope) {
     const query = new URLSearchParams({ path });
     return requestJson<WorkspaceFileMetadata>(
-      `/api/workspace/file-info?${query}`,
+      `${apiBase(scope)}/file-info?${query}`,
     );
   },
-  saveFile(path, content, expectedRevision) {
-    return requestJson<WorkspaceWriteResponse>("/api/workspace/file", {
+  saveFile(path, content, expectedRevision, scope) {
+    return requestJson<WorkspaceWriteResponse>(`${apiBase(scope)}/file`, {
       body: JSON.stringify({
         content,
         expected_revision: expectedRevision,
         path,
+        ...(scope ? { scope } : {}),
       }),
       method: "PUT",
     });
   },
-  createFile(input) {
-    return requestJson<WorkspaceWriteResponse>("/api/workspace/file/create", {
-      body: JSON.stringify(input),
-      method: "POST",
-    });
+  createFile(input, scope) {
+    const targetScope = scope ?? input.scope;
+    return requestJson<WorkspaceWriteResponse>(
+      `${apiBase(targetScope)}/file/create`,
+      {
+        body: JSON.stringify({
+          ...input,
+          ...(targetScope ? { scope: targetScope } : {}),
+        }),
+        method: "POST",
+      },
+    );
   },
-  uploadFile(destinationPath, file) {
+  uploadFile(destinationPath, file, scope) {
     const formData = new FormData();
     formData.set("path", destinationPath);
     formData.set("file", file);
+    if (scope) {
+      formData.set("scope", scope);
+    }
     return requestJson<WorkspaceUploadFileResponse>(
-      "/api/workspace/file/upload",
+      `${apiBase(scope)}/file/upload`,
       {
         body: formData,
         method: "POST",
       },
     );
   },
-  renameFile(path, newName) {
-    return requestJson<WorkspaceRenameResponse>("/api/workspace/file/rename", {
-      body: JSON.stringify({
-        new_name: newName,
-        path,
-      }),
-      method: "POST",
-    });
+  renameFile(path, newName, scope) {
+    return requestJson<WorkspaceRenameResponse>(
+      `${apiBase(scope)}/file/rename`,
+      {
+        body: JSON.stringify({
+          new_name: newName,
+          path,
+          ...(scope ? { scope } : {}),
+        }),
+        method: "POST",
+      },
+    );
   },
-  moveFile(sourcePath, destinationDir) {
-    return requestJson<WorkspaceMoveResponse>("/api/workspace/file/move", {
+  moveFile(sourcePath, destinationDir, scope) {
+    return requestJson<WorkspaceMoveResponse>(`${apiBase(scope)}/file/move`, {
       body: JSON.stringify({
         destination_dir: destinationDir,
         path: sourcePath,
+        ...(scope ? { scope } : {}),
       }),
       method: "POST",
     });
   },
-  deleteFile(path, expectedRevision) {
-    return requestJson<WorkspaceDeleteResponse>("/api/workspace/file", {
+  deleteFile(path, expectedRevision, scope) {
+    return requestJson<WorkspaceDeleteResponse>(`${apiBase(scope)}/file`, {
       body: JSON.stringify({
         ...(expectedRevision ? { expected_revision: expectedRevision } : {}),
         path,
+        ...(scope ? { scope } : {}),
       }),
       method: "DELETE",
     });
   },
-  rawUrl(path) {
-    return `/api/workspace/raw?${new URLSearchParams({ path })}`;
+  deleteDirectory(path, scope) {
+    return requestJson<WorkspaceDeleteResponse>(`${apiBase(scope)}/directory`, {
+      body: JSON.stringify({
+        path,
+        ...(scope ? { scope } : {}),
+      }),
+      method: "DELETE",
+    });
   },
-  downloadUrl(path) {
-    return `/api/workspace/download?${new URLSearchParams({ path })}`;
+  rawUrl(path, scope) {
+    return `${apiBase(scope)}/raw?${new URLSearchParams({ path })}`;
+  },
+  downloadUrl(path, scope) {
+    return `${apiBase(scope)}/download?${new URLSearchParams({ path })}`;
   },
 };

@@ -2,7 +2,7 @@
 
 > A lean, self-hosted deployment and connectivity control plane on top of [Hermes Agent](https://hermes-agent.nousresearch.com/).
 
-OpenLia deploys and manages **Hermes Agent** on a local machine or a remote Linux host over SSH, provides a browser-based workspace for files under `/opt/data/workspace`, wires private connectivity through **[Locho](https://github.com/trchopan/locho)** tunnels, automates **Age-encrypted backups** (local + S3 or rsync), and provides the **`openlia-browser` Playwright MCP relay** for safe shared-profile browser automation.
+OpenLia deploys and manages **Hermes Agent** on a local machine or a remote Linux host over SSH, provides a browser UI for workspace files and Hermes skills, wires private connectivity through **[Locho](https://github.com/trchopan/locho)** tunnels, automates **Age-encrypted backups** (local + S3 or rsync), and provides the **`openlia-browser` Playwright MCP relay** for safe shared-profile browser automation.
 
 ---
 
@@ -15,7 +15,7 @@ OpenLia deploys and manages **Hermes Agent** on a local machine or a remote Linu
    - **`locho-host`**: Exposes Hermes' built-in API Server (`127.0.0.1:8642` -> service `hermes-api`), built-in Web Dashboard (`127.0.0.1:9119` -> service `hermes-dashboard`), and Workspace UI (`127.0.0.1:8089` -> service `workspace-ui`) over an outbound encrypted Locho relay. Host-port publishing is disabled by default.
    - **`attachments`**: Connects Hermes to remote services (`openlia-browser`, private OpenAI-compatible gateways) through dedicated `locho-<host>` sidecar containers.
 3. **Workspace UI**:
-   - Browses, previews, edits, creates, moves, renames, uploads, and deletes files in `/opt/data/workspace`; it is available through the private Locho tunnel and can reuse configured Hermes Dashboard Basic Auth or OIDC credentials.
+   - Browses and edits documents in `/opt/data/workspace` and Hermes skills in `/opt/data/skills`, with scoped links, skill authoring, and confirmed folder deletion. It is available through the private Locho tunnel and reuses configured Hermes Dashboard Basic Auth or OIDC credentials.
 4. **Hermes Dashboard & API Authentication (`auth`)**:
    - Configures Hermes Dashboard Basic Auth (`openlia auth`) or OIDC / GCP OAuth / Auth0 (`openlia auth --oidc`) inside your protected mode-`0600` secret source file and propagates credentials to the runtime.
 5. **Age-Encrypted Backups (`backup`)**:

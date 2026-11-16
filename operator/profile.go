@@ -290,9 +290,9 @@ func renderWorkspaceLinksBlock(data []byte) ([]byte, error) {
 	lines := strings.Split(string(data), "\n")
 	block := []string{
 		workspaceLinksBlockStart,
-		"## Workspace links",
+		"## Workspace and skill links",
 		"",
-		"- Link workspace documents using canonical URIs (`openlia://workspace/<path>`). Inside workspace Markdown files, document-relative paths (`./sub.md`) are also supported. Never embed environment-specific HTTP origins in workspace files.",
+		"- Use canonical URIs for document links: `openlia://workspace/<path>` for workspace files and `openlia://skills/<path>` for Hermes skills. Relative Markdown links resolve within the current scope. Never embed environment-specific HTTP origins in workspace or skill files.",
 		workspaceLinksBlockEnd,
 	}
 	start, end := -1, -1

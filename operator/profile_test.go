@@ -193,7 +193,7 @@ func TestProfileSyncAddsManagedWorkspaceLinksWhenWorkspaceUIEnabled(t *testing.T
 		t.Fatal(err)
 	}
 	text := string(data)
-	if !strings.Contains(text, "# Legacy Agents") || !strings.Contains(text, workspaceLinksBlockStart) || !strings.Contains(text, "openlia://workspace/<path>") {
+	if !strings.Contains(text, "# Legacy Agents") || !strings.Contains(text, workspaceLinksBlockStart) || !strings.Contains(text, "openlia://workspace/<path>") || !strings.Contains(text, "openlia://skills/<path>") {
 		t.Fatalf("expected managed workspace links block in AGENTS.md:\n%s", text)
 	}
 }

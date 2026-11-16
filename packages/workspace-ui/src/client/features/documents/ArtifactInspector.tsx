@@ -1,16 +1,21 @@
-import type { WorkspaceFileMetadata } from "../../../shared/api";
+import type { DocumentScope, WorkspaceFileMetadata } from "../../../shared/api";
 import { CopyLinkButton } from "../../components/common/CopyLinkButton";
 import {
-  buildCanonicalWorkspaceUri,
-  buildWorkspaceLink,
+  buildCanonicalDocumentUri,
+  buildDocumentLink,
 } from "../../openliaLinks";
 import { formatFileSize } from "./DocumentPane";
 
 export function ArtifactInspector({
   artifact,
+  scope = "workspace",
 }: {
   artifact: WorkspaceFileMetadata;
+  scope?: DocumentScope | undefined;
 }) {
+  const webLink = buildDocumentLink(artifact.path, scope);
+  const canonicalUri = buildCanonicalDocumentUri(artifact.path, scope);
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-auto p-4">
       <dl className="grid gap-3 text-sm">
@@ -58,15 +63,13 @@ export function ArtifactInspector({
             Web Link
           </dt>
           <dd className="mt-1 flex items-center justify-between gap-2 break-all font-mono text-xs text-base-content/80">
-            <span className="min-w-0 flex-1">
-              {buildWorkspaceLink(artifact.path)}
-            </span>
+            <span className="min-w-0 flex-1">{webLink}</span>
             <CopyLinkButton
               className="btn btn-ghost btn-xs btn-square shrink-0 text-base-content/60 hover:text-base-content"
               iconOnly
-              link={buildWorkspaceLink(artifact.path)}
+              link={webLink}
               size="xs"
-              title={`Copy ${buildWorkspaceLink(artifact.path)}`}
+              title={`Copy ${webLink}`}
             />
           </dd>
         </div>
@@ -75,15 +78,13 @@ export function ArtifactInspector({
             Document URI (openlia://)
           </dt>
           <dd className="mt-1 flex items-center justify-between gap-2 break-all font-mono text-xs text-base-content/80">
-            <span className="min-w-0 flex-1">
-              {buildCanonicalWorkspaceUri(artifact.path)}
-            </span>
+            <span className="min-w-0 flex-1">{canonicalUri}</span>
             <CopyLinkButton
               className="btn btn-ghost btn-xs btn-square shrink-0 text-base-content/60 hover:text-base-content"
               iconOnly
-              link={buildCanonicalWorkspaceUri(artifact.path)}
+              link={canonicalUri}
               size="xs"
-              title={`Copy ${buildCanonicalWorkspaceUri(artifact.path)}`}
+              title={`Copy ${canonicalUri}`}
             />
           </dd>
         </div>

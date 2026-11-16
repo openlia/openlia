@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { WorkspaceTreeEntry } from "../../../shared/api";
+import type { DocumentScope, WorkspaceTreeEntry } from "../../../shared/api";
 import { ResponsiveDrawer } from "../../components/common/ResponsiveDrawer";
-import { buildWorkspaceLink, copyToClipboard } from "../../openliaLinks";
+import { buildDocumentLink, copyToClipboard } from "../../openliaLinks";
 
 export interface TreeNode {
   path: string;
@@ -98,6 +98,7 @@ export function FileNavigator({
   onRenameFile,
   onMoveFile,
   onDeleteFile,
+  onDeleteFolder,
   rawUrl,
   downloadUrl,
   onRetry,
@@ -105,6 +106,10 @@ export function FileNavigator({
   selectedPath,
   truncated,
   workspaceError,
+  scope = "workspace",
+  onScopeChange,
+  workspaceFileCount,
+  skillsFileCount,
 }: {
   entries: WorkspaceTreeEntry[];
   filter: string;
@@ -117,6 +122,7 @@ export function FileNavigator({
   onRenameFile?: ((path: string) => void) | undefined;
   onMoveFile?: ((path: string) => void) | undefined;
   onDeleteFile?: ((path: string) => void) | undefined;
+  onDeleteFolder?: ((path: string) => void) | undefined;
   rawUrl?: ((path: string) => string) | undefined;
   downloadUrl?: ((path: string) => string) | undefined;
   onRetry: () => void;
@@ -124,14 +130,23 @@ export function FileNavigator({
   selectedPath: string | undefined;
   truncated: boolean;
   workspaceError: string;
+  scope?: DocumentScope | undefined;
+  onScopeChange?: ((scope: DocumentScope) => void) | undefined;
+  workspaceFileCount?: number | undefined;
+  skillsFileCount?: number | undefined;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [highlightedPath, setHighlightedPath] = useState<string | null>(null);
   const nodes = useMemo(() => buildTree(entries), [entries]);
   const initializedTree = useRef(false);
+  const lastScope = useRef(scope);
   const fileButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   useEffect(() => {
+    if (lastScope.current !== scope) {
+      lastScope.current = scope;
+      initializedTree.current = false;
+    }
     if (initializedTree.current || nodes.length === 0) return;
     initializedTree.current = true;
     setCollapsed(
@@ -141,7 +156,7 @@ export function FileNavigator({
           .map((node) => node.path),
       ),
     );
-  }, [nodes]);
+  }, [nodes, scope]);
 
   useEffect(() => {
     if (!selectedPath) return;
@@ -203,6 +218,12 @@ export function FileNavigator({
           const hasChildren = isDirectory && node.children.length > 0;
           const childrenVisible = hasChildren && (!isCollapsed || forcedOpen);
           const directoryId = `workspace-directory-${encodeURIComponent(node.path)}`;
+          const directoryPaddingClass =
+            onCreateFile && onDeleteFolder
+              ? "pr-14"
+              : onCreateFile || onDeleteFolder
+                ? "pr-7"
+                : "";
           return (
             <li key={node.path}>
               {isDirectory ? (
@@ -212,7 +233,7 @@ export function FileNavigator({
                       <button
                         aria-controls={directoryId}
                         aria-expanded={childrenVisible}
-                        className={`workspace-tree-row workspace-tree-directory flex-1 ${onCreateFile ? "pr-7" : ""}`}
+                        className={`workspace-tree-row workspace-tree-directory flex-1 ${directoryPaddingClass}`}
                         data-testid={`workspace-directory-${node.path}`}
                         disabled={forcedOpen}
                         onClick={() => {
@@ -242,7 +263,7 @@ export function FileNavigator({
                     ) : (
                       <div
                         aria-label={`${node.name}, empty folder`}
-                        className={`workspace-tree-row workspace-tree-directory workspace-tree-empty-directory flex-1 ${onCreateFile ? "pr-7" : ""}`}
+                        className={`workspace-tree-row workspace-tree-directory workspace-tree-empty-directory flex-1 ${directoryPaddingClass}`}
                         data-testid={`workspace-directory-${node.path}`}
                         role="treeitem"
                         style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
@@ -259,7 +280,7 @@ export function FileNavigator({
                     {onCreateFile && (
                       <button
                         aria-label={`Create file in ${node.name}`}
-                        className="btn btn-ghost btn-xs btn-square absolute right-1 z-10 h-5 w-5 text-base-content/60 hover:text-base-content opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                        className={`btn btn-ghost btn-xs btn-square absolute ${onDeleteFolder ? "right-7" : "right-1"} z-10 h-5 w-5 text-base-content/60 hover:text-base-content opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity`}
                         onClick={(e) => {
                           e.stopPropagation();
                           onCreateFile(node.path);
@@ -283,6 +304,63 @@ export function FileNavigator({
                           />
                         </svg>
                       </button>
+                    )}
+                    {onDeleteFolder && (
+                      <div className="dropdown dropdown-end absolute right-1 z-10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                        <button
+                          aria-label={`Actions for ${node.name}`}
+                          className="btn btn-ghost btn-xs btn-square h-5 w-5 text-base-content/60 hover:text-base-content"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                          }}
+                          type="button"
+                        >
+                          <svg
+                            className="h-3 w-3"
+                            fill="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <title>Folder actions</title>
+                            <circle cx="12" cy="5" r="2" />
+                            <circle cx="12" cy="12" r="2" />
+                            <circle cx="12" cy="19" r="2" />
+                          </svg>
+                        </button>
+                        <ul className="dropdown-content menu z-30 rounded-box border border-base-content/10 bg-base-100 p-1 shadow-lg text-xs w-36">
+                          {onCreateFile && (
+                            <li>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  (
+                                    document.activeElement as HTMLElement
+                                  )?.blur();
+                                  onCreateFile(node.path);
+                                  if (mobileOpen) onClose();
+                                }}
+                                type="button"
+                              >
+                                New File...
+                              </button>
+                            </li>
+                          )}
+                          <li>
+                            <button
+                              className="text-error"
+                              data-testid={`delete-folder-${node.path}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                (document.activeElement as HTMLElement)?.blur();
+                                onDeleteFolder(node.path);
+                                if (mobileOpen) onClose();
+                              }}
+                              type="button"
+                            >
+                              Delete Folder...
+                            </button>
+                          </li>
+                        </ul>
+                      </div>
                     )}
                   </div>
                   {childrenVisible && (
@@ -404,7 +482,7 @@ export function FileNavigator({
                               e.stopPropagation();
                               (document.activeElement as HTMLElement)?.blur();
                               void copyToClipboard(
-                                buildWorkspaceLink(node.path),
+                                buildDocumentLink(node.path, scope),
                               );
                             }}
                             type="button"
@@ -442,16 +520,50 @@ export function FileNavigator({
 
   return (
     <ResponsiveDrawer
-      title="Files"
-      label="Workspace files"
+      title={scope === "skills" ? "Skills" : "Files"}
+      label={scope === "skills" ? "Hermes skills" : "Workspace files"}
       open={mobileOpen}
       onClose={onClose}
       className="workspace-navigator"
     >
       <div className="min-h-0 flex-1 overflow-auto p-4">
+        {onScopeChange && (
+          <div className="join mb-4 grid w-full grid-cols-2">
+            <button
+              className={`btn btn-xs join-item ${
+                scope === "workspace" ? "btn-active btn-neutral" : "btn-ghost"
+              }`}
+              onClick={() => onScopeChange("workspace")}
+              type="button"
+            >
+              Workspace
+              {typeof workspaceFileCount === "number" && (
+                <span className="badge badge-xs opacity-70 ml-1">
+                  {workspaceFileCount}
+                </span>
+              )}
+            </button>
+            <button
+              className={`btn btn-xs join-item ${
+                scope === "skills" ? "btn-active btn-neutral" : "btn-ghost"
+              }`}
+              onClick={() => onScopeChange("skills")}
+              type="button"
+            >
+              Skills
+              {typeof skillsFileCount === "number" && (
+                <span className="badge badge-xs opacity-70 ml-1">
+                  {skillsFileCount}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
         <div className="mb-4 flex items-end justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold">Files</h2>
+            <h2 className="text-sm font-semibold">
+              {scope === "skills" ? "Skills" : "Files"}
+            </h2>
             <p aria-live="polite" className="mt-1 text-xs text-base-content/50">
               {query ? `${visibleFiles} matching files` : `${totalFiles} files`}
             </p>
@@ -473,10 +585,14 @@ export function FileNavigator({
                   onCreateFile();
                   if (mobileOpen) onClose();
                 }}
-                title="Create new file"
+                title={
+                  scope === "skills"
+                    ? "Create new skill file"
+                    : "Create new file"
+                }
                 type="button"
               >
-                + New File
+                {scope === "skills" ? "+ New Skill" : "+ New File"}
               </button>
             )}
           </div>

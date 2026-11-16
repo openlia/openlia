@@ -10,6 +10,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   unlinkSync,
   writeSync,
 } from "node:fs";
@@ -329,8 +330,21 @@ export class WorkspaceService {
     const entries: WorkspaceTreeEntry[] = [];
     let truncated = false;
 
-    if (!existsSync(this.workspaceRoot)) {
-      return { schema: 1, ok: true, entries: [], truncated: false };
+    let rootStat: Stats;
+    try {
+      rootStat = lstatSync(this.workspaceRoot);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return { schema: 1, ok: true, entries: [], truncated: false };
+      }
+      throw error;
+    }
+    if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+      throw new WorkspaceError(
+        "Workspace root must be a real directory",
+        500,
+        "invalid_workspace_root",
+      );
     }
 
     const walk = (dirAbsolute: string) => {
@@ -764,6 +778,65 @@ export class WorkspaceService {
       }
     }
     unlinkSync(absolutePath);
+    return {
+      schema: 1,
+      ok: true,
+      path: relativePath,
+      deleted: true,
+    };
+  }
+
+  deleteDirectory(rawPath: string): WorkspaceDeleteResponse {
+    const { relativePath, absolutePath } = this.resolveSafePath(rawPath);
+    if (!existsSync(absolutePath)) {
+      throw new WorkspaceError("Directory not found", 404, "not_found");
+    }
+    const stat = lstatSync(absolutePath);
+    if (stat.isSymbolicLink()) {
+      throw new WorkspaceError(
+        "Symlinks are not permitted in workspace paths",
+        403,
+        "symlink_forbidden",
+      );
+    }
+    if (!stat.isDirectory()) {
+      throw new WorkspaceError(
+        "Target is not a directory",
+        400,
+        "not_directory",
+      );
+    }
+    if (absolutePath === this.workspaceRoot) {
+      throw new WorkspaceError(
+        "Cannot delete workspace root",
+        400,
+        "invalid_path",
+      );
+    }
+    const assertTreeIsSafeToDelete = (directoryPath: string): void => {
+      for (const entry of readdirSync(directoryPath, { withFileTypes: true })) {
+        const entryPath = join(directoryPath, entry.name);
+        const entryStat = lstatSync(entryPath);
+        if (entryStat.isSymbolicLink()) {
+          throw new WorkspaceError(
+            "Cannot recursively delete a folder containing symlinks",
+            403,
+            "symlink_forbidden",
+          );
+        }
+        if (!entryStat.isDirectory()) continue;
+        if (protectedDirectoryNames.has(entry.name.toLowerCase())) {
+          throw new WorkspaceError(
+            `Cannot delete a folder containing protected directory "${entry.name}"`,
+            403,
+            "forbidden_path",
+          );
+        }
+        assertTreeIsSafeToDelete(entryPath);
+      }
+    };
+    assertTreeIsSafeToDelete(absolutePath);
+    rmSync(absolutePath, { recursive: true, force: false });
     return {
       schema: 1,
       ok: true,
