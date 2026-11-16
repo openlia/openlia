@@ -1,4 +1,8 @@
-import type { WorkspaceFile, WorkspaceFileMetadata } from "../../../shared/api";
+import type {
+  DocumentScope,
+  WorkspaceFile,
+  WorkspaceFileMetadata,
+} from "../../../shared/api";
 
 export interface WorkspaceHeaderProps {
   file: WorkspaceFile | WorkspaceFileMetadata | null;
@@ -7,6 +11,7 @@ export interface WorkspaceHeaderProps {
   onOpenGoTo?: (() => void) | undefined;
   onSignOut?: (() => void) | undefined;
   userEmail?: string | undefined;
+  scope?: DocumentScope | undefined;
 }
 
 export function WorkspaceHeader({
@@ -16,6 +21,7 @@ export function WorkspaceHeader({
   onOpenGoTo,
   onSignOut,
   userEmail,
+  scope = "workspace",
 }: WorkspaceHeaderProps) {
   return (
     <header className="workspace-header">
@@ -30,10 +36,13 @@ export function WorkspaceHeader({
       </button>
 
       <div className="min-w-0 flex-1">
-        <p className="workspace-eyebrow">OPENLIA / WORKSPACE</p>
+        <p className="workspace-eyebrow">
+          OPENLIA / {scope === "skills" ? "SKILLS" : "WORKSPACE"}
+        </p>
         <div className="flex items-center gap-1 min-w-0">
           <h1 className="workspace-title truncate" title={file?.path}>
-            {file?.path.split("/").at(-1) ?? "Workspace"}
+            {file?.path.split("/").at(-1) ??
+              (scope === "skills" ? "Skills" : "Workspace")}
           </h1>
         </div>
         {file?.path?.includes("/") && (

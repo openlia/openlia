@@ -1,13 +1,17 @@
 import { type ReactNode, useState } from "react";
-import type { WorkspaceFile, WorkspaceFileMetadata } from "../../../shared/api";
+import type {
+  DocumentScope,
+  WorkspaceFile,
+  WorkspaceFileMetadata,
+} from "../../../shared/api";
 import { CodeEditor, isMarkdownPath } from "../../CodeEditor";
 import { ActionMenu } from "../../components/common/ActionMenu";
 import { CopyLinkButton } from "../../components/common/CopyLinkButton";
 import { ResponsiveDrawer } from "../../components/common/ResponsiveDrawer";
 import { MarkdownPreview } from "../../components/editor/MarkdownPreview";
 import {
-  buildCanonicalWorkspaceUri,
-  buildWorkspaceLink,
+  buildCanonicalDocumentUri,
+  buildDocumentLink,
 } from "../../openliaLinks";
 import { ArtifactInspector } from "./ArtifactInspector";
 import { DocumentInspector } from "./DocumentInspector";
@@ -112,6 +116,7 @@ function ArtifactPane({
   onDownload,
   onRevealInTree,
   rawUrl,
+  scope,
 }: {
   artifact: WorkspaceFileMetadata;
   deleting?: boolean | undefined;
@@ -119,11 +124,14 @@ function ArtifactPane({
   onDelete?: (() => void) | undefined;
   onDownload: () => void;
   onRevealInTree?: (() => void) | undefined;
-  rawUrl?: ((path: string) => string) | undefined;
+  rawUrl?: ((path: string, scope?: DocumentScope) => string) | undefined;
+  scope: DocumentScope;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const previewKind = artifactPreviewKind(artifact.path);
-  const previewUrl = rawUrl?.(artifact.path) ?? "#";
+  const previewUrl = rawUrl?.(artifact.path, scope) ?? "#";
+  const documentLink = buildDocumentLink(artifact.path, scope);
+  const canonicalUri = buildCanonicalDocumentUri(artifact.path, scope);
 
   return (
     <section
@@ -179,16 +187,16 @@ function ArtifactPane({
               <li>
                 <CopyLinkButton
                   className="flex w-full items-center gap-2 text-left font-normal"
-                  link={buildWorkspaceLink(artifact.path)}
-                  title={`Copy link (${buildWorkspaceLink(artifact.path)})`}
+                  link={documentLink}
+                  title={`Copy link (${documentLink})`}
                 />
               </li>
               <li>
                 <CopyLinkButton
                   className="flex w-full items-center gap-2 text-left font-normal"
                   label="Copy URI"
-                  link={buildCanonicalWorkspaceUri(artifact.path)}
-                  title={`Copy URI (${buildCanonicalWorkspaceUri(artifact.path)})`}
+                  link={canonicalUri}
+                  title={`Copy URI (${canonicalUri})`}
                 />
               </li>
               <li>
@@ -276,7 +284,7 @@ function ArtifactPane({
             open={detailsOpen}
             title="Artifact Details"
           >
-            <ArtifactInspector artifact={artifact} />
+            <ArtifactInspector artifact={artifact} scope={scope} />
           </ResponsiveDrawer>
         )}
       </div>
@@ -309,6 +317,7 @@ export function DocumentPane({
   rawUrl,
   downloadUrl,
   onCreateFile,
+  scope = "workspace",
 }: {
   conflict: string;
   detailsOpen?: boolean;
@@ -332,9 +341,10 @@ export function DocumentPane({
   view: WorkspaceView;
   onViewChange: (view: WorkspaceView) => void;
   onNavigateLink?: ((href: string) => void) | undefined;
-  rawUrl?: ((path: string) => string) | undefined;
+  rawUrl?: ((path: string, scope?: DocumentScope) => string) | undefined;
   downloadUrl?: ((path: string) => string) | undefined;
   onCreateFile?: (() => void) | undefined;
+  scope?: DocumentScope | undefined;
 }) {
   const dirty = file !== null && file.content !== draft;
   const canEdit = Boolean(file?.editable);
@@ -354,6 +364,7 @@ export function DocumentPane({
           onDownload={onDownload}
           onRevealInTree={onRevealInTree}
           rawUrl={rawUrl}
+          scope={scope}
         />
       ) : file ? (
         <>
@@ -461,16 +472,16 @@ export function DocumentPane({
                   <li>
                     <CopyLinkButton
                       className="flex w-full items-center gap-2 text-left font-normal"
-                      link={buildWorkspaceLink(file.path)}
-                      title={`Copy link (${buildWorkspaceLink(file.path)})`}
+                      link={buildDocumentLink(file.path, scope)}
+                      title={`Copy link (${buildDocumentLink(file.path, scope)})`}
                     />
                   </li>
                   <li>
                     <CopyLinkButton
                       className="flex w-full items-center gap-2 text-left font-normal"
                       label="Copy URI"
-                      link={buildCanonicalWorkspaceUri(file.path)}
-                      title={`Copy URI (${buildCanonicalWorkspaceUri(file.path)})`}
+                      link={buildCanonicalDocumentUri(file.path, scope)}
+                      title={`Copy URI (${buildCanonicalDocumentUri(file.path, scope)})`}
                     />
                   </li>
                   {onRename && file.editable && (
@@ -535,7 +546,12 @@ export function DocumentPane({
             </div>
           )}
           {view === "info" ? (
-            <DocumentInspector diff={diff} draft={draft} file={file} />
+            <DocumentInspector
+              diff={diff}
+              draft={draft}
+              file={file}
+              scope={scope}
+            />
           ) : !isMarkdown || view === "edit" ? (
             <EditorPane
               draft={draft}
@@ -554,6 +570,7 @@ export function DocumentPane({
                 currentFilePath={file.path}
                 onNavigateLink={onNavigateLink}
                 rawUrl={rawUrl}
+                scope={scope}
               />
             </section>
           )}

@@ -29,6 +29,10 @@ function createTestApi(overrides?: Partial<WorkspaceApi>): WorkspaceApi {
     { editable: false, kind: "file", path: "docs/manual.pdf" },
   ];
 
+  const skillEntries: WorkspaceTreeEntry[] = [
+    { editable: true, kind: "file", path: "weather/SKILL.md", scope: "skills" },
+  ];
+
   const files: Record<string, WorkspaceFile> = {
     "notes/welcome.md": {
       content: "# Welcome\n\nHello **OpenLia** workspace!",
@@ -49,6 +53,18 @@ function createTestApi(overrides?: Partial<WorkspaceApi>): WorkspaceApi {
       revision: "rev-yaml-1",
       schema: 1,
       size: 23,
+    },
+    "weather/SKILL.md": {
+      content:
+        "---\nname: weather\ndescription: Get weather reports\n---\n\n# Weather Skill\n\nInstructions here.",
+      editable: true,
+      modified_at: "2026-04-15T00:00:00.000Z",
+      ok: true,
+      path: "weather/SKILL.md",
+      revision: "rev-skill-1",
+      schema: 1,
+      scope: "skills",
+      size: 85,
     },
   };
 
@@ -91,6 +107,15 @@ function createTestApi(overrides?: Partial<WorkspaceApi>): WorkspaceApi {
         schema: 1,
       }),
     ),
+    deleteDirectory: vi.fn(
+      async (path, scope): Promise<WorkspaceDeleteResponse> => ({
+        deleted: true,
+        ok: true,
+        path,
+        schema: 1,
+        scope,
+      }),
+    ),
     downloadUrl: (path) =>
       `/api/workspace/download?path=${encodeURIComponent(path)}`,
     loadFile: vi.fn(async (path): Promise<WorkspaceFile> => {
@@ -105,10 +130,11 @@ function createTestApi(overrides?: Partial<WorkspaceApi>): WorkspaceApi {
     }),
     loadSession: vi.fn(async (): Promise<AuthSessionResponse> => session),
     loadTree: vi.fn(
-      async (): Promise<WorkspaceTreeResponse> => ({
-        entries,
+      async (scope): Promise<WorkspaceTreeResponse> => ({
+        entries: scope === "skills" ? skillEntries : entries,
         ok: true,
         schema: 1,
+        scope,
         truncated: false,
       }),
     ),
@@ -357,5 +383,133 @@ describe("Workspace UI App", () => {
     } finally {
       window.matchMedia = originalMatchMedia;
     }
+  });
+
+  it("navigates to /skills/weather/SKILL.md, renders FrontmatterBlock, and shows OPENLIA / SKILLS eyebrow", async () => {
+    window.history.replaceState(null, "", "/skills/weather/SKILL.md");
+    const api = createTestApi();
+    render(<App api={api} />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Weather Skill" }),
+    ).toBeInTheDocument();
+
+    expect(screen.getByText("OPENLIA / SKILLS")).toBeInTheDocument();
+    expect(screen.getAllByText("weather").length).toBeGreaterThan(0);
+    expect(screen.getByText("Get weather reports")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Document actions" }));
+    expect(
+      screen.getByTitle(/Copy link \(.*\/skills\/weather\/SKILL\.md\)/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTitle("Copy URI (openlia://skills/weather/SKILL.md)"),
+    ).toBeInTheDocument();
+  });
+
+  it("switches between Workspace and Skills tabs in FileNavigator", async () => {
+    window.history.replaceState(null, "", "/");
+    const api = createTestApi();
+    render(<App api={api} />);
+
+    // Default is Workspace
+    expect(await screen.findByText("OPENLIA / WORKSPACE")).toBeInTheDocument();
+
+    // Click Skills tab in FileNavigator
+    const skillsTab = screen.getByRole("button", { name: /^skills/i });
+    fireEvent.click(skillsTab);
+    expect(window.location.pathname).toBe("/skills/");
+    expect(window.location.pathname).toBe("/skills/");
+
+    // Skills navigator is active
+    expect(screen.getByLabelText("Hermes skills")).toBeInTheDocument();
+    expect(screen.getByText("+ New Skill")).toBeInTheDocument();
+
+    // Click weather directory and SKILL.md
+    fireEvent.click(screen.getByTestId("workspace-directory-weather"));
+    fireEvent.click(screen.getByRole("button", { name: "SKILL.md" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Weather Skill" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("OPENLIA / SKILLS")).toBeInTheDocument();
+  });
+
+  it("does not enter an infinite re-fetch loop on mount (flicker prevention)", async () => {
+    window.history.replaceState(null, "", "/");
+    const api = createTestApi();
+    render(<App api={api} />);
+
+    expect(await screen.findByText("OPENLIA / WORKSPACE")).toBeInTheDocument();
+
+    // Verify api.loadSession was only called once
+    expect(api.loadSession).toHaveBeenCalledTimes(1);
+    // Tree was called for both workspace and skills once
+    expect(api.loadTree).toHaveBeenCalledTimes(2);
+
+    // Give any potential microtask / re-render loops time to settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(api.loadSession).toHaveBeenCalledTimes(1);
+    expect(api.loadTree).toHaveBeenCalledTimes(2);
+  });
+
+  it("deletes folder in workspace scope and closes opened document inside it", async () => {
+    window.history.replaceState(null, "", "/files/notes/welcome.md");
+    const api = createTestApi();
+    render(<App api={api} />);
+
+    // Document is opened
+    expect(
+      await screen.findByRole("heading", { name: "Welcome" }),
+    ).toBeInTheDocument();
+
+    // Click delete folder button for notes
+    const deleteBtn = screen.getByTestId("delete-folder-notes");
+    fireEvent.click(deleteBtn);
+
+    // Verify confirmation modal appears
+    expect(
+      await screen.findByRole("heading", { name: "Delete folder?" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /permanently delete the folder "notes" and all of its contents/i,
+      ),
+    ).toBeInTheDocument();
+
+    // Confirm deletion
+    const confirmBtn = screen.getByRole("button", { name: "Delete folder" });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(api.deleteDirectory).toHaveBeenCalledWith("notes", "workspace");
+    });
+  });
+
+  it("deletes folder in skills scope", async () => {
+    window.history.replaceState(null, "", "/skills/weather/SKILL.md");
+    const api = createTestApi();
+    render(<App api={api} />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Weather Skill" }),
+    ).toBeInTheDocument();
+
+    // Click delete folder button for weather skill
+    const deleteBtn = screen.getByTestId("delete-folder-weather");
+    fireEvent.click(deleteBtn);
+
+    // Verify confirmation modal appears
+    expect(
+      await screen.findByRole("heading", { name: "Delete folder?" }),
+    ).toBeInTheDocument();
+
+    // Confirm deletion
+    const confirmBtn = screen.getByRole("button", { name: "Delete folder" });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(api.deleteDirectory).toHaveBeenCalledWith("weather", "skills");
+    });
   });
 });

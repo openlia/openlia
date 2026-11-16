@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { WorkspaceTreeEntry } from "../shared/api";
+import type { DocumentScope, WorkspaceTreeEntry } from "../shared/api";
 import {
   filterGoToSuggestions,
   type GoToSuggestion,
@@ -9,15 +9,19 @@ import {
 export interface GoToModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onNavigateWorkspace: (path: string) => void;
+  onNavigateWorkspace: (path: string, scope?: DocumentScope) => void;
+  scope?: DocumentScope | undefined;
   tree?: WorkspaceTreeEntry[] | undefined;
+  skillsTree?: WorkspaceTreeEntry[] | undefined;
 }
 
 export function GoToModal({
   isOpen,
   onClose,
   onNavigateWorkspace,
+  scope = "workspace",
   tree = [],
+  skillsTree = [],
 }: GoToModalProps) {
   const [input, setInput] = useState("");
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
@@ -37,24 +41,24 @@ export function GoToModal({
 
   const target = useMemo(() => {
     if (!input.trim()) return null;
-    return resolveLinkTarget(input, { tree });
-  }, [input, tree]);
+    return resolveLinkTarget(input, { currentScope: scope, skillsTree, tree });
+  }, [input, scope, skillsTree, tree]);
 
   const suggestions = useMemo(() => {
-    return filterGoToSuggestions(input, { limit: 8, tree });
-  }, [input, tree]);
+    return filterGoToSuggestions(input, { limit: 8, skillsTree, tree });
+  }, [input, tree, skillsTree]);
 
   if (!isOpen) return null;
 
   function executeNavigation(item: GoToSuggestion | null) {
     if (item) {
-      onNavigateWorkspace(item.id);
+      onNavigateWorkspace(item.id, item.scope);
       onClose();
       return;
     }
 
     if (target) {
-      onNavigateWorkspace(target.path);
+      onNavigateWorkspace(target.path, target.scope);
       onClose();
     }
   }

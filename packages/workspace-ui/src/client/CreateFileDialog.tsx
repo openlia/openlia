@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import type { DocumentScope } from "../shared/api";
 
 export type CreateFileDialogMode = "create" | "upload";
 
@@ -13,6 +14,7 @@ export interface CreateFileDialogProps {
   onCancel: () => void;
   onCreate: (path: string, content?: string) => void;
   onUpload?: ((destinationPath: string, file: File) => void) | undefined;
+  scope?: DocumentScope | undefined;
 }
 
 function formatUploadSize(size: number): string {
@@ -38,6 +40,7 @@ export function CreateFileDialog({
   onCancel,
   onCreate,
   onUpload,
+  scope = "workspace",
 }: CreateFileDialogProps) {
   const folderId = useId();
   const nameId = useId();
@@ -156,7 +159,18 @@ export function CreateFileDialog({
       return;
     }
     setValidationError("");
-    onCreate(targetPath);
+    let initialContent: string | undefined;
+    if (
+      scope === "skills" &&
+      (normalizedCreateName === "SKILL.md" ||
+        normalizedCreateName.endsWith("/SKILL.md"))
+    ) {
+      const skillName = targetCreateDir
+        ? (targetCreateDir.split("/").pop() ?? "my-skill")
+        : "my-skill";
+      initialContent = `---\nname: ${skillName}\ndescription: Description for ${skillName}\n---\n\n# ${skillName}\n\n`;
+    }
+    onCreate(targetPath, initialContent);
   }
 
   function handleUploadSubmit(event: React.FormEvent) {

@@ -2,6 +2,7 @@ import type { ComponentProps } from "react";
 import { useMemo } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { DocumentScope } from "../../../shared/api";
 import { FrontmatterBlock } from "../../FrontmatterBlock";
 import { parseMarkdownFrontmatter } from "../../frontmatter";
 import { extractOriginalMessage } from "../../markdown";
@@ -19,10 +20,11 @@ export function transformMarkdownUrl(url: string): string {
   return defaultUrlTransform(url);
 }
 
-function resolveWorkspaceImageSrc(
+export function resolveWorkspaceImageSrc(
   src: string | undefined,
   currentFilePath: string | undefined,
-  rawUrl?: ((path: string) => string) | undefined,
+  rawUrl?: ((path: string, scope?: DocumentScope) => string) | undefined,
+  currentScope: DocumentScope = "workspace",
 ): string | undefined {
   if (!src) return undefined;
   if (
@@ -33,22 +35,43 @@ function resolveWorkspaceImageSrc(
   ) {
     return src;
   }
-  const cleanTarget =
-    src.startsWith("./") || src.startsWith("../")
-      ? currentFilePath
-        ? resolveRelativePath(src, currentFilePath)
-        : src.replace(/^\.\//, "")
-      : src.startsWith("/files/")
-        ? src.replace(/^\/files\//, "")
-        : !src.startsWith("/")
-          ? currentFilePath
-            ? resolveRelativePath(src, currentFilePath)
-            : src
-          : src.replace(/^\/+/, "");
+  let targetScope = currentScope;
+  let cleanTarget: string;
+  if (src.startsWith("openlia://")) {
+    try {
+      const uri = new URL(src);
+      if (uri.host === "workspace") {
+        targetScope = "workspace";
+      } else if (uri.host === "skills" || uri.host === "skill") {
+        targetScope = "skills";
+      } else {
+        return src;
+      }
+      cleanTarget = decodeURIComponent(uri.pathname.replace(/^\/+/, ""));
+    } catch {
+      return src;
+    }
+  } else if (src.startsWith("/files/")) {
+    targetScope = "workspace";
+    cleanTarget = src.replace(/^\/files\//, "");
+  } else if (src.startsWith("/skills/")) {
+    targetScope = "skills";
+    cleanTarget = src.replace(/^\/skills\//, "");
+  } else if (src.startsWith("./") || src.startsWith("../")) {
+    cleanTarget = currentFilePath
+      ? resolveRelativePath(src, currentFilePath)
+      : src.replace(/^\.\//, "");
+  } else if (!src.startsWith("/")) {
+    cleanTarget = currentFilePath
+      ? resolveRelativePath(src, currentFilePath)
+      : src;
+  } else {
+    cleanTarget = src.replace(/^\/+/, "");
+  }
   if (!cleanTarget) return src;
   return rawUrl
-    ? rawUrl(cleanTarget)
-    : `/api/workspace/raw?${new URLSearchParams({ path: cleanTarget })}`;
+    ? rawUrl(cleanTarget, targetScope)
+    : `/api/${targetScope}/raw?${new URLSearchParams({ path: cleanTarget })}`;
 }
 
 export function MarkdownPreview({
@@ -56,11 +79,13 @@ export function MarkdownPreview({
   currentFilePath,
   onNavigateLink,
   rawUrl,
+  scope = "workspace",
 }: {
   content: string;
   currentFilePath?: string | undefined;
   onNavigateLink?: ((href: string) => void) | undefined;
-  rawUrl?: ((path: string) => string) | undefined;
+  rawUrl?: ((path: string, scope?: DocumentScope) => string) | undefined;
+  scope?: DocumentScope | undefined;
 }) {
   const {
     frontmatter,
@@ -89,8 +114,9 @@ export function MarkdownPreview({
           (isRelative ||
             href.startsWith("openlia://") ||
             href.startsWith("/files/") ||
+            href.startsWith("/skills/") ||
             ((href.startsWith("http://") || href.startsWith("https://")) &&
-              href.includes("/files/")));
+              (href.includes("/files/") || href.includes("/skills/"))));
 
         if (isInternal && onNavigateLink) {
           return (
@@ -126,6 +152,7 @@ export function MarkdownPreview({
           typeof src === "string" ? src : undefined,
           currentFilePath,
           rawUrl,
+          scope,
         );
         return <img {...props} alt={alt ?? ""} src={resolvedSrc} />;
       },
@@ -133,7 +160,7 @@ export function MarkdownPreview({
         <input {...props} checked={checked} disabled type="checkbox" />
       ),
     };
-  }, [currentFilePath, onNavigateLink, rawUrl]);
+  }, [currentFilePath, onNavigateLink, rawUrl, scope]);
 
   if (!content)
     return (

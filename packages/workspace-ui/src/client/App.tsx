@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AuthSessionResponse,
+  DocumentScope,
   WorkspaceFile,
   WorkspaceFileMetadata,
   WorkspaceTreeEntry,
@@ -26,11 +27,12 @@ import { RenameFileDialog } from "./RenameFileDialog";
 interface RouteState {
   path: string | undefined;
   view: WorkspaceView | undefined;
+  scope: DocumentScope;
 }
 
 function parseRouteFromLocation(): RouteState {
   if (typeof window === "undefined") {
-    return { path: undefined, view: undefined };
+    return { path: undefined, scope: "workspace", view: undefined };
   }
   const { pathname, search } = window.location;
   const params = new URLSearchParams(search);
@@ -40,30 +42,59 @@ function parseRouteFromLocation(): RouteState {
       ? rawView
       : undefined;
 
+  const rawScope = params.get("scope");
+  const queryScope: DocumentScope =
+    rawScope === "skills" ? "skills" : "workspace";
+
+  if (pathname === "/skills" || pathname.startsWith("/skills/")) {
+    const encoded = pathname.slice("/skills".length).replace(/^\/+/, "");
+    try {
+      const decoded = decodeURIComponent(encoded).replace(/^\/+/, "");
+      return { path: decoded || undefined, scope: "skills", view };
+    } catch {
+      return {
+        path: encoded.replace(/^\/+/, "") || undefined,
+        scope: "skills",
+        view,
+      };
+    }
+  }
+
   if (pathname.startsWith("/files/")) {
     const encoded = pathname.slice("/files/".length);
     try {
       const decoded = decodeURIComponent(encoded).replace(/^\/+/, "");
-      return { path: decoded || undefined, view };
+      return { path: decoded || undefined, scope: "workspace", view };
     } catch {
-      return { path: encoded.replace(/^\/+/, "") || undefined, view };
+      return {
+        path: encoded.replace(/^\/+/, "") || undefined,
+        scope: "workspace",
+        view,
+      };
     }
   }
 
   const queryPath = params.get("path")?.trim().replace(/^\/+/, "");
-  return { path: queryPath || undefined, view };
+  return { path: queryPath || undefined, scope: queryScope, view };
 }
 
 function pushRouteToHistory(
   path: string | undefined,
   view?: WorkspaceView | undefined,
   replace = false,
+  scope: DocumentScope = "workspace",
 ) {
   if (typeof window === "undefined") return;
   const cleanPath = path?.replace(/^\/+/, "");
-  const nextPathname = cleanPath ? `/files/${cleanPath}` : "/";
+  const prefix = scope === "skills" ? "/skills/" : "/files/";
+  const nextPathname = cleanPath
+    ? `${prefix}${cleanPath}`
+    : scope === "skills"
+      ? "/skills/"
+      : "/";
   const params = new URLSearchParams(window.location.search);
   params.delete("path");
+  params.delete("scope");
   if (view && view !== "preview") {
     params.set("view", view);
   } else {
@@ -90,11 +121,22 @@ export function App({ api }: { api: WorkspaceApi }) {
   const [loginPassword, setLoginPassword] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
 
-  const [entries, setEntries] = useState<WorkspaceTreeEntry[]>([]);
-  const [truncated, setTruncated] = useState(false);
+  const [activeScope, setActiveScope] = useState<DocumentScope>(
+    initialRoute.scope,
+  );
+  const [workspaceEntries, setWorkspaceEntries] = useState<
+    WorkspaceTreeEntry[]
+  >([]);
+  const [skillsEntries, setSkillsEntries] = useState<WorkspaceTreeEntry[]>([]);
+  const [workspaceTruncated, setWorkspaceTruncated] = useState(false);
+  const [skillsTruncated, setSkillsTruncated] = useState(false);
   const [treeLoading, setTreeLoading] = useState(true);
   const [workspaceError, setWorkspaceError] = useState("");
   const [filter, setFilter] = useState("");
+
+  const entries = activeScope === "skills" ? skillsEntries : workspaceEntries;
+  const truncated =
+    activeScope === "skills" ? skillsTruncated : workspaceTruncated;
 
   const [selectedPath, setSelectedPath] = useState<string | undefined>(
     initialRoute.path,
@@ -129,11 +171,21 @@ export function App({ api }: { api: WorkspaceApi }) {
   const [moveError, setMoveError] = useState("");
 
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState<string | null>(
+    null,
+  );
+  const [deletingFolder, setDeletingFolder] = useState(false);
   const [pendingAction, setPendingAction] = useState<{
     label: string;
     run: () => void;
   } | null>(null);
 
+  const activeScopeRef = useRef<DocumentScope>(activeScope);
+  activeScopeRef.current = activeScope;
+  const workspaceEntriesRef = useRef<WorkspaceTreeEntry[]>([]);
+  workspaceEntriesRef.current = workspaceEntries;
+  const skillsEntriesRef = useRef<WorkspaceTreeEntry[]>([]);
+  skillsEntriesRef.current = skillsEntries;
   const entriesRef = useRef<WorkspaceTreeEntry[]>([]);
   entriesRef.current = entries;
 
@@ -167,12 +219,20 @@ export function App({ api }: { api: WorkspaceApi }) {
     setTreeLoading(true);
     setWorkspaceError("");
     try {
-      const response = await api.loadTree();
-      setEntries(response.entries);
-      setTruncated(response.truncated);
-      return response.entries;
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
+      const [wsRes, skRes] = await Promise.allSettled([
+        api.loadTree(),
+        api.loadTree("skills"),
+      ]);
+
+      let wsEntries: WorkspaceTreeEntry[] = [];
+      if (wsRes.status === "fulfilled") {
+        wsEntries = wsRes.value.entries;
+        setWorkspaceEntries(wsEntries);
+        setWorkspaceTruncated(wsRes.value.truncated);
+      } else if (
+        wsRes.reason instanceof ApiError &&
+        wsRes.reason.status === 401
+      ) {
         setSession((prev) =>
           prev
             ? { ...prev, authenticated: false }
@@ -183,12 +243,26 @@ export function App({ api }: { api: WorkspaceApi }) {
                 schema: 1,
               },
         );
+        return [];
       } else {
         setWorkspaceError(
-          error instanceof Error ? error.message : "workspace_unavailable",
+          wsRes.reason instanceof Error
+            ? wsRes.reason.message
+            : "workspace_unavailable",
         );
       }
-      return [];
+
+      if (skRes.status === "fulfilled") {
+        setSkillsEntries(skRes.value.entries);
+        setSkillsTruncated(skRes.value.truncated);
+      } else {
+        setSkillsEntries([]);
+        setSkillsTruncated(false);
+      }
+
+      return activeScopeRef.current === "skills" && skRes.status === "fulfilled"
+        ? skRes.value.entries
+        : wsEntries;
     } finally {
       setTreeLoading(false);
     }
@@ -201,32 +275,53 @@ export function App({ api }: { api: WorkspaceApi }) {
         preferredView?: WorkspaceView | undefined;
         replaceUrl?: boolean | undefined;
         knownEntries?: WorkspaceTreeEntry[] | undefined;
+        scope?: DocumentScope | undefined;
       },
     ) => {
+      const currentScope = activeScopeRef.current;
+      const targetScope = options?.scope ?? currentScope;
       const cleanPath = path.replace(/^\/+/, "");
       if (!cleanPath) return;
 
+      if (targetScope !== currentScope) {
+        setActiveScope(targetScope);
+      }
       setSelectedPath(cleanPath);
       setFileLoading(true);
       setDocumentError("");
       setConflict("");
 
-      const treeList = options?.knownEntries ?? entriesRef.current;
+      const treeList =
+        options?.knownEntries ??
+        (targetScope === "skills"
+          ? skillsEntriesRef.current
+          : workspaceEntriesRef.current);
       const entry = treeList.find((item) => item.path === cleanPath);
       const isBinaryEntry = entry?.kind === "file" && entry.editable === false;
 
       try {
         if (isBinaryEntry) {
-          const meta = await api.loadFileMetadata(cleanPath);
+          const meta =
+            targetScope === "skills"
+              ? await api.loadFileMetadata(cleanPath, "skills")
+              : await api.loadFileMetadata(cleanPath);
           setFile(null);
           setArtifact(meta);
           setDraft("");
-          pushRouteToHistory(cleanPath, undefined, options?.replaceUrl);
+          pushRouteToHistory(
+            cleanPath,
+            undefined,
+            options?.replaceUrl,
+            targetScope,
+          );
           return;
         }
 
         try {
-          const loaded = await api.loadFile(cleanPath);
+          const loaded =
+            targetScope === "skills"
+              ? await api.loadFile(cleanPath, "skills")
+              : await api.loadFile(cleanPath);
           setArtifact(null);
           setFile(loaded);
           setDraft(loaded.content);
@@ -234,17 +329,30 @@ export function App({ api }: { api: WorkspaceApi }) {
             options?.preferredView ??
             (isMarkdownPath(loaded.path) ? "preview" : "edit");
           setView(nextView);
-          pushRouteToHistory(cleanPath, nextView, options?.replaceUrl);
+          pushRouteToHistory(
+            cleanPath,
+            nextView,
+            options?.replaceUrl,
+            targetScope,
+          );
         } catch (innerError) {
           if (
             innerError instanceof ApiError &&
             innerError.payload?.error === "binary_file"
           ) {
-            const meta = await api.loadFileMetadata(cleanPath);
+            const meta =
+              targetScope === "skills"
+                ? await api.loadFileMetadata(cleanPath, "skills")
+                : await api.loadFileMetadata(cleanPath);
             setFile(null);
             setArtifact(meta);
             setDraft("");
-            pushRouteToHistory(cleanPath, undefined, options?.replaceUrl);
+            pushRouteToHistory(
+              cleanPath,
+              undefined,
+              options?.replaceUrl,
+              targetScope,
+            );
             return;
           }
           throw innerError;
@@ -316,8 +424,10 @@ export function App({ api }: { api: WorkspaceApi }) {
         void openPath(route.path, {
           preferredView: route.view,
           replaceUrl: true,
+          scope: route.scope,
         });
       } else {
+        setActiveScope(route.scope);
         setSelectedPath(undefined);
         setFile(null);
         setArtifact(null);
@@ -334,7 +444,12 @@ export function App({ api }: { api: WorkspaceApi }) {
     setConflict("");
     setDocumentError("");
     try {
-      const written = await api.saveFile(file.path, draft, file.revision);
+      const written = await api.saveFile(
+        file.path,
+        draft,
+        file.revision,
+        activeScope,
+      );
       setFile({
         ...file,
         content: draft,
@@ -360,7 +475,7 @@ export function App({ api }: { api: WorkspaceApi }) {
     } finally {
       setSaving(false);
     }
-  }, [api, dirty, draft, file, saving]);
+  }, [activeScope, api, dirty, draft, file, saving]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -385,13 +500,31 @@ export function App({ api }: { api: WorkspaceApi }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [dirty, file, handleSave]);
 
-  function guardDirtyNavigation(label: string, action: () => void) {
-    if (dirty) {
-      setPendingAction({ label, run: action });
-      return;
-    }
-    action();
-  }
+  const guardDirtyNavigation = useCallback(
+    (label: string, action: () => void) => {
+      if (dirty) {
+        setPendingAction({ label, run: action });
+        return;
+      }
+      action();
+    },
+    [dirty],
+  );
+
+  const handleScopeChange = useCallback(
+    (newScope: DocumentScope) => {
+      if (newScope === activeScope) return;
+      guardDirtyNavigation(`switching to ${newScope}`, () => {
+        setActiveScope(newScope);
+        setSelectedPath(undefined);
+        setFile(null);
+        setArtifact(null);
+        setDraft("");
+        pushRouteToHistory(undefined, undefined, false, newScope);
+      });
+    },
+    [activeScope, guardDirtyNavigation],
+  );
 
   async function handleLoginSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -411,6 +544,7 @@ export function App({ api }: { api: WorkspaceApi }) {
             knownEntries: loadedEntries,
             preferredView: route.view,
             replaceUrl: true,
+            scope: route.scope,
           });
         }
       }
@@ -450,12 +584,16 @@ export function App({ api }: { api: WorkspaceApi }) {
     setCreatingFile(true);
     setCreateError("");
     try {
-      await api.createFile({ content, path: targetPath });
+      await api.createFile(
+        { content, path: targetPath, scope: activeScope },
+        activeScope,
+      );
       setCreateDialogOpen(false);
       const updatedEntries = await loadWorkspaceTree();
       await openPath(targetPath, {
         knownEntries: updatedEntries,
         preferredView: "edit",
+        scope: activeScope,
       });
     } catch (error) {
       setCreateError(
@@ -470,11 +608,16 @@ export function App({ api }: { api: WorkspaceApi }) {
     setCreatingFile(true);
     setCreateError("");
     try {
-      const uploaded = await api.uploadFile(destinationPath, uploadFile);
+      const uploaded = await api.uploadFile(
+        destinationPath,
+        uploadFile,
+        activeScope,
+      );
       setCreateDialogOpen(false);
       const updatedEntries = await loadWorkspaceTree();
       await openPath(uploaded.path, {
         knownEntries: updatedEntries,
+        scope: activeScope,
       });
     } catch (error) {
       setCreateError(
@@ -490,13 +633,14 @@ export function App({ api }: { api: WorkspaceApi }) {
     setRenamingFile(true);
     setRenameError("");
     try {
-      const result = await api.renameFile(renameTarget, newName);
+      const result = await api.renameFile(renameTarget, newName, activeScope);
       setRenameTarget(null);
       const updatedEntries = await loadWorkspaceTree();
       if (selectedPath === renameTarget) {
         await openPath(result.new_path, {
           knownEntries: updatedEntries,
           preferredView: view,
+          scope: activeScope,
         });
       }
     } catch (error) {
@@ -513,13 +657,18 @@ export function App({ api }: { api: WorkspaceApi }) {
     setMovingFile(true);
     setMoveError("");
     try {
-      const result = await api.moveFile(moveTarget, destinationDir);
+      const result = await api.moveFile(
+        moveTarget,
+        destinationDir,
+        activeScope,
+      );
       setMoveTarget(null);
       const updatedEntries = await loadWorkspaceTree();
       if (selectedPath === moveTarget) {
         await openPath(result.new_path, {
           knownEntries: updatedEntries,
           preferredView: view,
+          scope: activeScope,
         });
       }
     } catch (error) {
@@ -540,8 +689,8 @@ export function App({ api }: { api: WorkspaceApi }) {
           ? file.revision
           : artifact?.path === deleteTarget
             ? artifact.revision
-            : (await api.loadFileMetadata(deleteTarget)).revision;
-      await api.deleteFile(deleteTarget, revision);
+            : (await api.loadFileMetadata(deleteTarget, activeScope)).revision;
+      await api.deleteFile(deleteTarget, revision, activeScope);
       const deletedPath = deleteTarget;
       setDeleteTarget(null);
       await loadWorkspaceTree();
@@ -550,7 +699,7 @@ export function App({ api }: { api: WorkspaceApi }) {
         setFile(null);
         setArtifact(null);
         setDraft("");
-        pushRouteToHistory(undefined);
+        pushRouteToHistory(undefined, undefined, false, activeScope);
       }
     } catch (error) {
       setDocumentError(
@@ -562,20 +711,55 @@ export function App({ api }: { api: WorkspaceApi }) {
     }
   }
 
+  async function handleDeleteFolderConfirm() {
+    if (!deleteFolderTarget) return;
+    setDeletingFolder(true);
+    try {
+      await api.deleteDirectory(deleteFolderTarget, activeScope);
+      const deletedFolder = deleteFolderTarget;
+      setDeleteFolderTarget(null);
+      await loadWorkspaceTree();
+      if (
+        selectedPath &&
+        (selectedPath === deletedFolder ||
+          selectedPath.startsWith(`${deletedFolder}/`))
+      ) {
+        setSelectedPath(undefined);
+        setFile(null);
+        setArtifact(null);
+        setDraft("");
+        pushRouteToHistory(undefined, undefined, false, activeScope);
+      }
+    } catch (error) {
+      setWorkspaceError(
+        error instanceof Error ? error.message : "Failed to delete folder",
+      );
+      setDeleteFolderTarget(null);
+    } finally {
+      setDeletingFolder(false);
+    }
+  }
+
   function handleNavigateLink(href: string) {
     const resolved = resolveLinkTarget(href, {
       currentFilePath: file?.path ?? artifact?.path,
-      tree: entries,
+      currentScope: activeScope,
+      skillsTree: skillsEntries,
+      tree: workspaceEntries,
     });
-    if (resolved?.kind === "workspace") {
+    if (resolved?.kind === "workspace" || resolved?.kind === "skills") {
       guardDirtyNavigation("opening another document", () => {
-        void openPath(resolved.path);
+        void openPath(resolved.path, {
+          scope:
+            resolved.scope ??
+            (resolved.kind === "skills" ? "skills" : "workspace"),
+        });
       });
     }
   }
 
   function handleDownload(path: string) {
-    const url = api.downloadUrl(path);
+    const url = api.downloadUrl(path, activeScope);
     const link = document.createElement("a");
     link.href = url;
     link.download = path.split("/").at(-1) ?? "download";
@@ -702,12 +886,13 @@ export function App({ api }: { api: WorkspaceApi }) {
             setFilesOpen((prev) => !prev);
           }
         }}
+        scope={activeScope}
       />
 
       <main className={`workspace-layout ${filesOpen ? "has-sidebar" : ""}`}>
         {filesOpen && (
           <FileNavigator
-            downloadUrl={(p) => api.downloadUrl(p)}
+            downloadUrl={(p) => api.downloadUrl(p, activeScope)}
             entries={entries}
             filter={filter}
             loading={treeLoading}
@@ -719,6 +904,7 @@ export function App({ api }: { api: WorkspaceApi }) {
               setCreateDialogOpen(true);
             }}
             onDeleteFile={(path) => setDeleteTarget(path)}
+            onDeleteFolder={(path) => setDeleteFolderTarget(path)}
             onFilterChange={setFilter}
             onMoveFile={(path) => {
               setMoveError("");
@@ -727,7 +913,7 @@ export function App({ api }: { api: WorkspaceApi }) {
             onOpenFile={(path) => {
               guardDirtyNavigation("switching files", () => {
                 setMobileFilesOpen(false);
-                void openPath(path);
+                void openPath(path, { scope: activeScope });
               });
             }}
             onRenameFile={(path) => {
@@ -735,11 +921,19 @@ export function App({ api }: { api: WorkspaceApi }) {
               setRenameTarget(path);
             }}
             onRetry={() => void loadWorkspaceTree()}
-            rawUrl={(p) => api.rawUrl(p)}
+            onScopeChange={handleScopeChange}
+            rawUrl={(p) => api.rawUrl(p, activeScope)}
             revealToken={revealToken}
+            scope={activeScope}
             selectedPath={selectedPath}
+            skillsFileCount={
+              skillsEntries.filter((e) => e.kind === "file").length
+            }
             truncated={truncated}
             workspaceError={workspaceError}
+            workspaceFileCount={
+              workspaceEntries.filter((e) => e.kind === "file").length
+            }
           />
         )}
 
@@ -750,7 +944,7 @@ export function App({ api }: { api: WorkspaceApi }) {
           detailsOpen={view === "info"}
           diff={diff}
           documentError={documentError}
-          downloadUrl={(p) => api.downloadUrl(p)}
+          downloadUrl={(p) => api.downloadUrl(p, activeScope)}
           draft={draft}
           file={file}
           fileLoading={fileLoading}
@@ -785,7 +979,7 @@ export function App({ api }: { api: WorkspaceApi }) {
                   : "edit"
                 : "info";
             setView(nextView);
-            pushRouteToHistory(file?.path, nextView, true);
+            pushRouteToHistory(file?.path, nextView, true, activeScope);
           }}
           onRename={
             file?.editable
@@ -806,10 +1000,11 @@ export function App({ api }: { api: WorkspaceApi }) {
           onSave={() => void handleSave()}
           onViewChange={(nextView) => {
             setView(nextView);
-            pushRouteToHistory(file?.path, nextView, true);
+            pushRouteToHistory(file?.path, nextView, true, activeScope);
           }}
-          rawUrl={(p) => api.rawUrl(p)}
+          rawUrl={(p, scope) => api.rawUrl(p, scope ?? activeScope)}
           saving={saving}
+          scope={activeScope}
           view={view}
         />
       </main>
@@ -817,12 +1012,14 @@ export function App({ api }: { api: WorkspaceApi }) {
       <GoToModal
         isOpen={goToOpen}
         onClose={() => setGoToOpen(false)}
-        onNavigateWorkspace={(path) => {
+        onNavigateWorkspace={(path, targetScope) => {
           guardDirtyNavigation("opening another document", () => {
-            void openPath(path);
+            void openPath(path, { scope: targetScope ?? activeScope });
           });
         }}
-        tree={entries}
+        scope={activeScope}
+        skillsTree={skillsEntries}
+        tree={workspaceEntries}
       />
 
       <CreateFileDialog
@@ -837,6 +1034,7 @@ export function App({ api }: { api: WorkspaceApi }) {
         onUpload={(destinationPath, uploadedFile) =>
           void handleUploadFile(destinationPath, uploadedFile)
         }
+        scope={activeScope}
       />
 
       {renameTarget && (
@@ -867,6 +1065,24 @@ export function App({ api }: { api: WorkspaceApi }) {
           filePath={deleteTarget}
           onCancel={() => setDeleteTarget(null)}
           onConfirm={() => void handleDeleteConfirm()}
+        />
+      )}
+
+      {deleteFolderTarget && (
+        <DeleteFileDialog
+          deleting={deletingFolder}
+          dirty={
+            dirty &&
+            Boolean(
+              file?.path &&
+                (file.path === deleteFolderTarget ||
+                  file.path.startsWith(`${deleteFolderTarget}/`)),
+            )
+          }
+          filePath={deleteFolderTarget}
+          itemType="folder"
+          onCancel={() => setDeleteFolderTarget(null)}
+          onConfirm={() => void handleDeleteFolderConfirm()}
         />
       )}
 

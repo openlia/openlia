@@ -1,20 +1,24 @@
-import type { WorkspaceFile } from "../../../shared/api";
+import type { DocumentScope, WorkspaceFile } from "../../../shared/api";
 import { CopyLinkButton } from "../../components/common/CopyLinkButton";
 import {
-  buildCanonicalWorkspaceUri,
-  buildWorkspaceLink,
+  buildCanonicalDocumentUri,
+  buildDocumentLink,
 } from "../../openliaLinks";
 
 export function DocumentInspector({
   diff,
   draft,
   file,
+  scope = "workspace",
 }: {
   diff: string[];
   draft: string;
   file: WorkspaceFile | null;
+  scope?: DocumentScope | undefined;
 }) {
   const dirty = file !== null && file.content !== draft;
+  const webLink = file ? buildDocumentLink(file.path, scope) : "";
+  const canonicalUri = file ? buildCanonicalDocumentUri(file.path, scope) : "";
   return (
     <aside aria-label="Document details" className="workspace-inspector">
       <div className="mb-5">
@@ -68,13 +72,13 @@ export function DocumentInspector({
                 Web Link
               </dt>
               <dd className="mt-1 flex items-center justify-between gap-2 break-all font-mono text-xs text-base-content/80">
-                <span>{buildWorkspaceLink(file.path)}</span>
+                <span>{webLink}</span>
                 <CopyLinkButton
                   className="btn btn-ghost btn-xs btn-square shrink-0 text-base-content/60 hover:text-base-content"
                   iconOnly
-                  link={buildWorkspaceLink(file.path)}
+                  link={webLink}
                   size="xs"
-                  title={`Copy ${buildWorkspaceLink(file.path)}`}
+                  title={`Copy ${webLink}`}
                 />
               </dd>
             </div>
@@ -83,13 +87,13 @@ export function DocumentInspector({
                 Document URI (openlia://)
               </dt>
               <dd className="mt-1 flex items-center justify-between gap-2 break-all font-mono text-xs text-base-content/80">
-                <span>{buildCanonicalWorkspaceUri(file.path)}</span>
+                <span>{canonicalUri}</span>
                 <CopyLinkButton
                   className="btn btn-ghost btn-xs btn-square shrink-0 text-base-content/60 hover:text-base-content"
                   iconOnly
-                  link={buildCanonicalWorkspaceUri(file.path)}
+                  link={canonicalUri}
                   size="xs"
-                  title={`Copy ${buildCanonicalWorkspaceUri(file.path)}`}
+                  title={`Copy ${canonicalUri}`}
                 />
               </dd>
             </div>
