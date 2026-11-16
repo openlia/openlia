@@ -52,11 +52,16 @@ jobs:
       - name: Build and health-check Workspace UI container image
         run: |
           docker build -f docker/workspace-ui.Dockerfile -t openlia-workspace-ui:ci .
-          docker run --rm --read-only --tmpfs /tmp \
+          docker run --rm --read-only \
+            --tmpfs /tmp \
+            --tmpfs /workspace:rw,uid=10000,gid=10000,mode=0700 \
+            --tmpfs /skills:rw,uid=10000,gid=10000,mode=0700 \
+            -e OPENLIA_WORKSPACE_ROOT=/workspace \
+            -e OPENLIA_WORKSPACE_UI_SKILLS_ROOT=/skills \
             -e OPENLIA_WORKSPACE_UI_BIND=0.0.0.0 \
             --entrypoint bun \
             openlia-workspace-ui:ci \
-            -e 'const { server } = await import("/opt/openlia/workspace-ui/server.js"); const response = await fetch(`http://127.0.0.1:${server.port}/health`); if (!response.ok) throw new Error(`health returned ${response.status}`); server.stop();'
+            -e 'const { server } = await import("/opt/openlia/workspace-ui/server.js"); const base = `http://127.0.0.1:${server.port}`; const assert = (condition, message) => { if (!condition) throw new Error(message) }; const health = await fetch(`${base}/health`); assert(health.ok, "health failed"); const created = await fetch(`${base}/api/skills/file/create`, { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify({ path: "ci-check/SKILL.md", content: "---\\nname: ci-check\\n---\\n" }) }); assert(created.status === 200, `skill create failed: ${created.status}`); const skills = await (await fetch(`${base}/api/skills/tree`)).json(); assert(skills.entries.some((entry) => entry.path === "ci-check/SKILL.md"), "skill missing from skills scope"); const workspace = await (await fetch(`${base}/api/workspace/tree`)).json(); assert(!workspace.entries.some((entry) => entry.path === "ci-check/SKILL.md"), "skill leaked into workspace scope"); const removed = await fetch(`${base}/api/skills/directory`, { method: "DELETE", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify({ path: "ci-check", scope: "skills" }) }); assert(removed.ok, "skill folder delete failed"); server.stop();'
 
       - name: Check Go formatting
         run: |
@@ -109,4 +114,4 @@ jobs:
             -e OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN=https://workspace.example.test \
             --entrypoint /opt/hermes/.venv/bin/python \
             openlia-hermes:ci \
-            -c 'from gateway.platforms.base import BasePlatformAdapter; assert getattr(BasePlatformAdapter.send, "_openlia_patched", False); from openlia_link_rewriter import rewrite_openlia_links; assert rewrite_openlia_links("openlia://workspace/docs/start.md") == "https://workspace.example.test/files/docs/start.md"'
+            -c 'from gateway.platforms.base import BasePlatformAdapter; assert getattr(BasePlatformAdapter.send, "_openlia_patched", False); from openlia_link_rewriter import rewrite_openlia_links; assert rewrite_openlia_links("openlia://workspace/docs/start.md") == "https://workspace.example.test/files/docs/start.md"; assert rewrite_openlia_links("openlia://skills/weather/SKILL.md") == "https://workspace.example.test/skills/weather/SKILL.md"'

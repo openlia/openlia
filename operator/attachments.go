@@ -330,6 +330,7 @@ func generateAttachmentsFile(config Config) error {
 	}
 	if uiEnabled {
 		workspace, _ := json.Marshal(filepath.Join(config.DataRoot, "workspace"))
+		skills, _ := json.Marshal(filepath.Join(config.DataRoot, "skills"))
 		sessionDir, _ := json.Marshal(filepath.Join(config.RuntimeRoot, "workspace-ui"))
 		quotedAPIEnvPath, _ := json.Marshal(apiEnvPath)
 		quotedPublicOrigin, _ := json.Marshal(config.WorkspaceUIPublicOrigin)
@@ -338,7 +339,7 @@ func generateAttachmentsFile(config Config) error {
 		if config.OpenLiaReleaseSHA256 != "" {
 			fmt.Fprintf(&builder, "      args:\n        OPENLIA_RELEASE_SHA256: %q\n", config.OpenLiaReleaseSHA256)
 		}
-		fmt.Fprintf(&builder, "    command: [\"bun\", \"/opt/openlia/workspace-ui/server.js\"]\n    restart: unless-stopped\n    user: \"%d:%d\"\n    read_only: true\n    tmpfs:\n      - /tmp:rw,noexec,nosuid,size=32m\n    security_opt:\n      - no-new-privileges:true\n    cap_drop: [ALL]\n    environment:\n      OPENLIA_WORKSPACE_ROOT: /workspace\n      OPENLIA_WORKSPACE_UI_BIND: \"0.0.0.0\"\n      OPENLIA_WORKSPACE_UI_PORT: \"%d\"\n      OPENLIA_WORKSPACE_UI_STATIC_ROOT: /opt/openlia/workspace-ui/client\n      OPENLIA_WORKSPACE_UI_SESSION_DB: /var/lib/openlia/sessions.sqlite\n      OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN: %s\n", config.RuntimeUID, config.RuntimeGID, uiPort, quotedPublicOrigin)
+		fmt.Fprintf(&builder, "    command: [\"bun\", \"/opt/openlia/workspace-ui/server.js\"]\n    restart: unless-stopped\n    user: \"%d:%d\"\n    read_only: true\n    tmpfs:\n      - /tmp:rw,noexec,nosuid,size=32m\n    security_opt:\n      - no-new-privileges:true\n    cap_drop: [ALL]\n    environment:\n      OPENLIA_WORKSPACE_ROOT: /workspace\n      OPENLIA_WORKSPACE_UI_SKILLS_ROOT: /skills\n      OPENLIA_WORKSPACE_UI_BIND: \"0.0.0.0\"\n      OPENLIA_WORKSPACE_UI_PORT: \"%d\"\n      OPENLIA_WORKSPACE_UI_STATIC_ROOT: /opt/openlia/workspace-ui/client\n      OPENLIA_WORKSPACE_UI_SESSION_DB: /var/lib/openlia/sessions.sqlite\n      OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN: %s\n", config.RuntimeUID, config.RuntimeGID, uiPort, quotedPublicOrigin)
 		if config.Timezone != "" {
 			fmt.Fprintf(&builder, "      TZ: %q\n", config.Timezone)
 		}
@@ -347,6 +348,8 @@ func generateAttachmentsFile(config Config) error {
 		builder.WriteString("\n    volumes:\n      - type: bind\n        source: ")
 		builder.Write(workspace)
 		builder.WriteString("\n        target: /workspace\n      - type: bind\n        source: ")
+		builder.Write(skills)
+		builder.WriteString("\n        target: /skills\n      - type: bind\n        source: ")
 		builder.Write(sessionDir)
 		builder.WriteString("\n        target: /var/lib/openlia\n")
 		if config.WorkspaceUIHost != "" {

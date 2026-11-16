@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -8,6 +9,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type {
+  WorkspaceDeleteResponse,
+  WorkspaceErrorResponse,
+  WorkspaceFile,
+  WorkspaceTreeResponse,
+  WorkspaceWriteResponse,
+} from "../shared/api";
 import { createWorkspaceHandler } from "./app";
 import { WorkspaceError, WorkspaceService } from "./workspace";
 
@@ -125,6 +133,61 @@ describe("WorkspaceService & HTTP API", () => {
     const deleted = service.deleteFile("archive/2026/renamed.md");
     expect(deleted.deleted).toBe(true);
     expect(() => service.readFile("archive/2026/renamed.md")).toThrow();
+
+    // Create a directory with files for deleteDirectory tests
+    mkdirSync(join(root, "docs", "guides"), { recursive: true });
+    writeFileSync(join(root, "docs", "guides", "intro.md"), "# Intro");
+    writeFileSync(join(root, "docs", "faq.md"), "# FAQ");
+
+    // Rejects deleting a file as directory
+    expect(() => service.deleteDirectory("docs/faq.md")).toThrow(
+      WorkspaceError,
+    );
+
+    // Rejects deleting non-existent directory
+    expect(() => service.deleteDirectory("docs/nonexistent")).toThrow(
+      WorkspaceError,
+    );
+
+    // Recursively deletes folder and contents
+    const deletedDir = service.deleteDirectory("docs");
+    expect(deletedDir.deleted).toBe(true);
+    expect(deletedDir.path).toBe("docs");
+    expect(() => service.readFile("docs/faq.md")).toThrow();
+    expect(() => service.readFile("docs/guides/intro.md")).toThrow();
+  });
+
+  test("refuses recursive folder deletion when a subtree contains protected paths or symlinks", () => {
+    const protectedDirectory = join(root, "repository", ".git");
+    mkdirSync(protectedDirectory, { recursive: true });
+    writeFileSync(join(protectedDirectory, "config"), "keep");
+    expect(() => service.deleteDirectory("repository")).toThrow(WorkspaceError);
+    expect(existsSync(join(protectedDirectory, "config"))).toBe(true);
+
+    const outside = mkdtempSync(join(tmpdir(), "openlia-ws-delete-outside-"));
+    mkdirSync(join(root, "linked-folder"));
+    symlinkSync(outside, join(root, "linked-folder", "outside"), "dir");
+    try {
+      expect(() => service.deleteDirectory("linked-folder")).toThrow(
+        WorkspaceError,
+      );
+      expect(existsSync(join(root, "linked-folder"))).toBe(true);
+      expect(existsSync(outside)).toBe(true);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a symlink as the workspace root when listing the tree", () => {
+    const linkContainer = mkdtempSync(join(tmpdir(), "openlia-ws-root-link-"));
+    const linkedRoot = join(linkContainer, "workspace");
+    symlinkSync(root, linkedRoot, "dir");
+    try {
+      const linkedService = new WorkspaceService({ workspaceRoot: linkedRoot });
+      expect(() => linkedService.listTree()).toThrow(WorkspaceError);
+    } finally {
+      rmSync(linkContainer, { recursive: true, force: true });
+    }
   });
 
   test("rejects path traversal and symlinks", () => {
@@ -186,5 +249,129 @@ describe("WorkspaceService & HTTP API", () => {
       }),
     );
     expect(goodCreate.status).toBe(200);
+  });
+
+  test("manages skills in separate root via /api/skills and scope parameter", async () => {
+    const skillsDir = mkdtempSync(join(tmpdir(), "openlia-skills-test-"));
+    try {
+      mkdirSync(join(skillsDir, "weather"), { recursive: true });
+      writeFileSync(
+        join(skillsDir, "weather", "SKILL.md"),
+        "---\nname: weather\ndescription: Weather tool\n---\n# Weather\n",
+      );
+
+      const handler = createWorkspaceHandler({
+        workspaceRoot: root,
+        skillsRoot: skillsDir,
+        authRequired: false,
+      });
+
+      // GET /api/skills/tree returns skill files with scope: skills
+      const skillsTreeRes = await handler(
+        new Request("http://127.0.0.1:8089/api/skills/tree"),
+      );
+      expect(skillsTreeRes.status).toBe(200);
+      const skillsTree = (await skillsTreeRes.json()) as WorkspaceTreeResponse;
+      expect(skillsTree.ok).toBe(true);
+      expect(skillsTree.scope).toBe("skills");
+      expect(
+        skillsTree.entries.some((entry) => entry.path === "weather/SKILL.md"),
+      ).toBe(true);
+
+      // GET /api/workspace/tree?scope=skills also returns skills
+      const paramTreeRes = await handler(
+        new Request("http://127.0.0.1:8089/api/workspace/tree?scope=skills"),
+      );
+      expect(paramTreeRes.status).toBe(200);
+      const paramTree = (await paramTreeRes.json()) as WorkspaceTreeResponse;
+      expect(paramTree.scope).toBe("skills");
+
+      const invalidScopeRes = await handler(
+        new Request("http://127.0.0.1:8089/api/workspace/tree?scope=other"),
+      );
+      expect(invalidScopeRes.status).toBe(400);
+      const invalidScopeData =
+        (await invalidScopeRes.json()) as WorkspaceErrorResponse;
+      expect(invalidScopeData.error).toBe("invalid_scope");
+
+      const mismatchedScopeRes = await handler(
+        new Request("http://127.0.0.1:8089/api/skills/tree?scope=workspace"),
+      );
+      expect(mismatchedScopeRes.status).toBe(400);
+      const mismatchedScopeData =
+        (await mismatchedScopeRes.json()) as WorkspaceErrorResponse;
+      expect(mismatchedScopeData.error).toBe("scope_mismatch");
+
+      // Read skill file
+      const readRes = await handler(
+        new Request(
+          "http://127.0.0.1:8089/api/skills/file?path=weather/SKILL.md",
+        ),
+      );
+      expect(readRes.status).toBe(200);
+      const readData = (await readRes.json()) as WorkspaceFile;
+      expect(readData.scope).toBe("skills");
+      expect(readData.content).toContain("name: weather");
+
+      // Create new file in skills scope
+      const createRes = await handler(
+        new Request("http://127.0.0.1:8089/api/skills/file/create", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "http://127.0.0.1:8089",
+          },
+          body: JSON.stringify({
+            path: "weather/helper.py",
+            content: "def get_temp(): return 72\n",
+          }),
+        }),
+      );
+      expect(createRes.status).toBe(200);
+      const createdData = (await createRes.json()) as WorkspaceWriteResponse;
+      expect(createdData.scope).toBe("skills");
+
+      // Verify file was written to skillsDir and not to workspace root
+      expect(
+        require("node:fs").existsSync(join(skillsDir, "weather", "helper.py")),
+      ).toBe(true);
+      expect(
+        require("node:fs").existsSync(join(root, "weather", "helper.py")),
+      ).toBe(false);
+
+      // Delete directory in skills scope
+      const deleteDirRes = await handler(
+        new Request("http://127.0.0.1:8089/api/skills/directory", {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "http://127.0.0.1:8089",
+          },
+          body: JSON.stringify({
+            path: "weather",
+          }),
+        }),
+      );
+      expect(deleteDirRes.status).toBe(200);
+      const deleteDirData =
+        (await deleteDirRes.json()) as WorkspaceDeleteResponse;
+      expect(deleteDirData.scope).toBe("skills");
+      expect(deleteDirData.deleted).toBe(true);
+      expect(existsSync(join(skillsDir, "weather"))).toBe(false);
+
+      // When skillsRoot is not configured, requesting skills returns 404 skills_unavailable
+      const noSkillsHandler = createWorkspaceHandler({
+        workspaceRoot: root,
+        authRequired: false,
+      });
+      const unavailRes = await noSkillsHandler(
+        new Request("http://127.0.0.1:8089/api/skills/tree"),
+      );
+      expect(unavailRes.status).toBe(404);
+      const unavailData = (await unavailRes.json()) as WorkspaceErrorResponse;
+      expect(unavailData.error).toBe("skills_unavailable");
+    } finally {
+      rmSync(skillsDir, { recursive: true, force: true });
+    }
   });
 });

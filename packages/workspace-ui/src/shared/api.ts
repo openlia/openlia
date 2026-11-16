@@ -1,4 +1,5 @@
 export type AuthProvider = "password" | "oidc" | "none";
+export type DocumentScope = "workspace" | "skills";
 
 export interface AuthSessionResponse {
   schema: 1;
@@ -27,6 +28,7 @@ export interface WorkspaceTreeEntry {
   modified_at?: string | undefined;
   editable?: boolean | undefined;
   missing?: boolean | undefined;
+  scope?: DocumentScope | undefined;
 }
 
 export interface WorkspaceTreeResponse {
@@ -34,6 +36,7 @@ export interface WorkspaceTreeResponse {
   ok: true;
   entries: WorkspaceTreeEntry[];
   truncated: boolean;
+  scope?: DocumentScope | undefined;
 }
 
 export interface WorkspaceFile {
@@ -46,6 +49,7 @@ export interface WorkspaceFile {
   revision: string;
   editable: boolean;
   missing?: boolean | undefined;
+  scope?: DocumentScope | undefined;
 }
 
 export interface WorkspaceFileMetadata {
@@ -56,12 +60,14 @@ export interface WorkspaceFileMetadata {
   modified_at: string;
   revision: string;
   editable: boolean;
+  scope?: DocumentScope | undefined;
 }
 
 export interface WorkspaceWriteRequest {
   path: string;
   content: string;
   expected_revision: string;
+  scope?: DocumentScope | undefined;
 }
 
 export interface WorkspaceWriteResponse {
@@ -72,16 +78,19 @@ export interface WorkspaceWriteResponse {
   modified_at: string;
   revision: string;
   editable: boolean;
+  scope?: DocumentScope | undefined;
 }
 
 export interface WorkspaceCreateFileRequest {
   path: string;
   content?: string | undefined;
+  scope?: DocumentScope | undefined;
 }
 
 export interface WorkspaceRenameRequest {
   path: string;
   new_name: string;
+  scope?: DocumentScope | undefined;
 }
 
 export interface WorkspaceRenameResponse {
@@ -89,11 +98,13 @@ export interface WorkspaceRenameResponse {
   ok: true;
   old_path: string;
   new_path: string;
+  scope?: DocumentScope | undefined;
 }
 
 export interface WorkspaceMoveRequest {
   path: string;
   destination_dir: string;
+  scope?: DocumentScope | undefined;
 }
 
 export interface WorkspaceMoveResponse {
@@ -101,11 +112,18 @@ export interface WorkspaceMoveResponse {
   ok: true;
   old_path: string;
   new_path: string;
+  scope?: DocumentScope | undefined;
 }
 
 export interface WorkspaceDeleteRequest {
   path: string;
   expected_revision?: string | undefined;
+  scope?: DocumentScope | undefined;
+}
+
+export interface WorkspaceDeleteDirectoryRequest {
+  path: string;
+  scope?: DocumentScope | undefined;
 }
 
 export interface WorkspaceDeleteResponse {
@@ -113,6 +131,7 @@ export interface WorkspaceDeleteResponse {
   ok: true;
   path: string;
   deleted: true;
+  scope?: DocumentScope | undefined;
 }
 
 export interface WorkspaceUploadFileResponse {
@@ -123,6 +142,7 @@ export interface WorkspaceUploadFileResponse {
   modified_at: string;
   revision: string;
   editable: boolean;
+  scope?: DocumentScope | undefined;
 }
 
 export interface WorkspaceErrorResponse {
