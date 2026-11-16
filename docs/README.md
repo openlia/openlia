@@ -1,6 +1,6 @@
 # OpenLia Documentation
 
-Welcome to the OpenLia documentation hub. OpenLia is a **lean, self-hosted deployment and connectivity control plane** on top of [Hermes Agent](https://hermes-agent.nousresearch.com/). It provisions Hermes Agent locally or over SSH, provides a private browser UI for the agent workspace, wires [Locho](https://github.com/trchopan/locho) tunnels for the Workspace UI (`:8089`), Hermes API Server (`:8642`), Hermes Web Dashboard (`:9119`), and attached services, manages Age-encrypted local and S3/rsync backups, and provides the `openlia-browser` Playwright MCP relay.
+Welcome to the OpenLia documentation hub. OpenLia is a **lean, self-hosted deployment and connectivity control plane** on top of [Hermes Agent](https://hermes-agent.nousresearch.com/). It provisions Hermes Agent locally or over SSH, provides a private browser UI for workspace documents and Hermes skills, wires [Locho](https://github.com/trchopan/locho) tunnels for the Workspace UI (`:8089`), Hermes API Server (`:8642`), Hermes Web Dashboard (`:9119`), and attached services, manages Age-encrypted local and S3/rsync backups, and provides the `openlia-browser` Playwright MCP relay.
 
 Choose a guide below based on your role or what you want to accomplish.
 
@@ -12,7 +12,7 @@ Choose a guide below based on your role or what you want to accomplish.
 
 Use this guide when interacting with your deployed Hermes Agent day-to-day over Telegram, the Hermes Web Dashboard, or the Hermes API Server.
 
-- **[End User Guide](user-guide.md)**: Interacting via Telegram, the Hermes Web Dashboard (`:9119` via Locho), Workspace UI (`:8089` via Locho), the Hermes API Server (`:8642`), managing `/opt/data/workspace` and `/opt/data/memories`, and approval boundaries.
+- **[End User Guide](user-guide.md)**: Interacting via Telegram, the Hermes Web Dashboard (`:9119` via Locho), Workspace UI (`:8089` via Locho) for workspace files and skills, the Hermes API Server (`:8642`), `/opt/data/memories`, and approval boundaries.
 
 ### 🛠️ For Operators (Self-Hosters & System Administrators)
 
@@ -35,6 +35,7 @@ Use these guides when onboarding to the codebase, building from source, or contr
 | Component                  | Path                                                                                  | Description                                                                                                                                    |
 | :------------------------- | :------------------------------------------------------------------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------- |
 | **OpenLia Browser**        | [`packages/openlia-browser/README.md`](../packages/openlia-browser/README.md)         | Host-local Playwright MCP supervisor, Streamable HTTP `/mcp` relay, FIFO session leases, and Locho attachment setup.                           |
+| **Workspace UI**           | [`packages/workspace-ui/`](../packages/workspace-ui)                                  | Browser UI for scoped access to workspace documents and Hermes skills.                                                                         |
 | **Locho Host Attachments** | [`examples/locho/hosts/example/README.md`](../examples/locho/hosts/example/README.md) | Template and instructions for configuring per-host `attachments.toml`, relay configs, and service roles (`openlia-browser`, `openai-gateway`). |
 | **Dev Profile Templates**  | [`examples/profiles/dev/`](../examples/profiles/dev)                                  | Starter `config.toml.example` and `openlia_dev.env.example` templates for operator profiles.                                                   |
 | **Smoke Test Suite**       | [`tests/README.md`](../tests/README.md)                                               | Running synthetic (`--mode cli`), local Docker (`--mode local`), and credential-backed (`--mode live`) smoke tests.                            |

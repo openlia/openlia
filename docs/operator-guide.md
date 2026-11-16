@@ -246,7 +246,7 @@ Install [Locho `1.3.0`](https://github.com/trchopan/locho/releases/tag/v1.3.0) o
 locho attach --config openlia-attachments.toml
 ```
 
-With the attachment active, open <http://127.0.0.1:8089> to browse and edit files in `/opt/data/workspace`. The UI service is not published on a host port by default; leave `[workspace-ui].host` empty to keep access on the private Locho tunnel. Set `host = "127.0.0.1"` only if you also want a local host port, or `host = "0.0.0.0"` to publish it on all host interfaces. Configure `public_origin` only when the UI is served through a stable HTTPS reverse-proxy origin (for example, for OIDC callbacks and secure cookies).
+With the attachment active, open <http://127.0.0.1:8089> to browse and edit `/opt/data/workspace` and Hermes skills in `/opt/data/skills`. Skill edits change instructions and resources used by Hermes. Folder deletion is recursive and confirmed; it is refused if the target contains protected directories or symlinks. The UI service is not published on a host port by default; leave `[workspace-ui].host` empty to keep access on the private Locho tunnel. Set `host = "127.0.0.1"` only if you also want a local host port, or `host = "0.0.0.0"` to publish it on all host interfaces. Configure `public_origin` only when the UI is served through a stable HTTPS reverse-proxy origin (for example, for OIDC callbacks and secure cookies).
 
 Configure `relay_config` and optional `relay_secrets` (mode `0600`) under `[locho]` in `config.toml`. See [`examples/locho/hosts/example/README.md`](../examples/locho/hosts/example/README.md) for relay templates and service-role mapping (`openlia attachments map|list`).
 

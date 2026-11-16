@@ -201,9 +201,10 @@ When `[locho-host] enabled = true` is configured, `locho-host` exposes `hermes-a
 
        ```bash
        curl -i -s http://127.0.0.1:8089/api/workspace/tree
+       curl -i -s http://127.0.0.1:8089/api/skills/tree
        ```
 
-     - Open [http://127.0.0.1:8089](http://127.0.0.1:8089) in your browser and sign in via your configured Password or OIDC provider to view/edit text files and inspect view-only binary files in `/opt/data/workspace`.
+     - Open [http://127.0.0.1:8089](http://127.0.0.1:8089) in your browser and sign in via your configured Password or OIDC provider. Verify both scopes: browse/edit workspace files in `/opt/data/workspace`, then switch to Skills and inspect or author skill files in `/opt/data/skills`.
 
 ---
 

@@ -42,6 +42,18 @@ def test_rewrite_workspace_links_with_origin():
             rewrite_openlia_links(sample_multi)
             == "Files: https://workspace.example.test/files/tasks.md, https://workspace.example.test/files/notes.md;"
         )
+
+        sample_skills = "[Weather Skill](openlia://skills/weather/SKILL.md)"
+        assert (
+            rewrite_openlia_links(sample_skills)
+            == "[Weather Skill](https://workspace.example.test/skills/weather/SKILL.md)"
+        )
+
+        sample_single_skill = "See openlia://skill/review/helper.py."
+        assert (
+            rewrite_openlia_links(sample_single_skill)
+            == "See https://workspace.example.test/skills/review/helper.py."
+        )
     finally:
         os.environ.pop("OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN", None)
 
@@ -51,6 +63,10 @@ def test_preserve_canonical_links_without_origin():
     try:
         sample = "[Task](openlia://workspace/tasks.md)"
         assert rewrite_openlia_links(sample) == sample
+        skill_sample = "[Skill](openlia://skills/weather/SKILL.md)"
+        assert rewrite_openlia_links(skill_sample) == skill_sample
+        singular_skill_sample = "openlia://skill/weather/SKILL.md"
+        assert rewrite_openlia_links(singular_skill_sample) == singular_skill_sample
     finally:
         os.environ.pop("OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN", None)
 
