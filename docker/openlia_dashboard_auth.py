@@ -48,7 +48,7 @@ def install_auth_filter() -> None:
     def patched_session(self, id_token: str, refresh_token: str, claims: dict):
         allowed = get_allowed_emails()
         if allowed:
-            if claims.get("email_verified") is False:
+            if claims.get("email_verified") is not True:
                 logger.warning(
                     "dashboard-auth-whitelist: rejected session for unverified email %r",
                     claims.get("email"),

@@ -1567,6 +1567,7 @@ func TestGeneratedAttachmentsContainWorkspaceUIWhenEnabled(t *testing.T) {
 		"OPENLIA_WORKSPACE_UI_PORT: \"8089\"",
 		"OPENLIA_WORKSPACE_UI_STATIC_ROOT: /opt/openlia/workspace-ui/client",
 		"OPENLIA_WORKSPACE_UI_SESSION_DB: /var/lib/openlia/sessions.sqlite",
+		"OPENLIA_WORKSPACE_UI_AUTH_REQUIRED: \"true\"",
 		"OPENLIA_WORKSPACE_UI_PUBLIC_ORIGIN: \"https://workspace.example.test\"",
 		"target: /workspace",
 		"target: /skills",

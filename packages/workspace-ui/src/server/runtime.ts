@@ -79,15 +79,9 @@ export function createConfiguredWorkspaceHandler() {
   const passwordHashFile = process.env.OPENLIA_WORKSPACE_UI_PASSWORD_HASH_FILE;
 
   const hasOidc = Boolean(oidcIssuer && oidcClientId);
-  const hasPassword = Boolean(password || passwordHash || passwordHashFile);
 
   const explicitAuthRequired = process.env.OPENLIA_WORKSPACE_UI_AUTH_REQUIRED;
-  const authRequired =
-    explicitAuthRequired === "true"
-      ? true
-      : explicitAuthRequired === "false"
-        ? false
-        : hasOidc || hasPassword;
+  const authRequired = explicitAuthRequired !== "false";
 
   const authProvider: AuthProvider = !authRequired
     ? "none"
@@ -96,11 +90,23 @@ export function createConfiguredWorkspaceHandler() {
       : "password";
 
   const rawAllowedEmails =
-    process.env.OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS ?? "";
+    process.env.OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS ??
+    process.env.HERMES_DASHBOARD_ALLOWED_EMAILS ??
+    "";
   const allowedEmails = rawAllowedEmails
     .split(",")
     .map((e) => e.trim())
     .filter(Boolean);
+  const allowAnyOidcEmail =
+    process.env.OPENLIA_WORKSPACE_UI_ALLOW_ANY_OIDC_EMAIL === "true";
+
+  const explicitTrustProxy = process.env.OPENLIA_WORKSPACE_UI_TRUST_PROXY;
+  const trustProxy =
+    explicitTrustProxy === "true"
+      ? true
+      : explicitTrustProxy === "false"
+        ? false
+        : undefined;
 
   const defaultSessionDb = existsSync("/var/lib/openlia")
     ? "/var/lib/openlia/sessions.sqlite"
@@ -129,7 +135,9 @@ export function createConfiguredWorkspaceHandler() {
         }
       : {}),
     allowedEmails,
+    allowAnyOidcEmail,
     ...(publicOrigin ? { publicOrigin } : {}),
+    ...(trustProxy !== undefined ? { trustProxy } : {}),
     sessionDatabasePath:
       process.env.OPENLIA_WORKSPACE_UI_SESSION_DB ?? defaultSessionDb,
   });

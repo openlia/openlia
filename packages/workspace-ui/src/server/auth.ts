@@ -9,12 +9,15 @@ const oidcStateCookie = "openlia_workspace_oidc_state";
 const defaultIdleTimeoutMs = 7 * 24 * 60 * 60 * 1000;
 const defaultAbsoluteTimeoutMs = 30 * 24 * 60 * 60 * 1000;
 const oidcStateTimeoutMs = 10 * 60 * 1000;
+const oidcFetchTimeoutMs = 10 * 1000;
 const attemptWindowMs = 60 * 1000;
 const blockDurationMs = 30 * 1000;
 const maxFailures = 5;
+const maxOidcInitPerWindow = 15;
 const maxAttemptEntries = 10_000;
 const maxSessionEntries = 1_024;
 const maxPendingOidcStates = 512;
+const futureClockSkewSeconds = 300;
 
 interface SessionRow {
   created_at: number;
@@ -72,6 +75,7 @@ export interface AuthenticatorOptions {
   passwordHashFile?: string | undefined;
   oidcConfig?: OidcConfig | undefined;
   allowedEmails?: string[] | undefined;
+  allowAnyOidcEmail?: boolean | undefined;
   secureCookies?: boolean | undefined;
   sessionDatabasePath?: string | undefined;
   idleTimeoutMs?: number | undefined;
@@ -153,12 +157,14 @@ export class Authenticator {
   readonly username: string;
   readonly oidcConfig?: OidcConfig | undefined;
   readonly allowedEmails: ReadonlySet<string>;
+  readonly allowAnyOidcEmail: boolean;
   private readonly password: string;
   private readonly passwordHash: string;
   private readonly database: Database | undefined;
   private readonly idleTimeoutMs: number;
   private readonly absoluteTimeoutMs: number;
   private readonly attempts = new Map<string, Attempt>();
+  private readonly oidcInitAttempts = new Map<string, Attempt>();
   private readonly pendingOidcStates = new Map<string, PendingOidcState>();
   private readonly fetchImpl: typeof fetch;
   private discoveryCache: {
@@ -168,12 +174,14 @@ export class Authenticator {
   private jwksCache: {
     keys: Map<string, CryptoKey>;
     expiresAt: number;
+    refreshedOnMiss: boolean;
   } | null = null;
 
   constructor(options: AuthenticatorOptions) {
     this.required = options.required;
     this.secureCookies = options.secureCookies ?? false;
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.allowAnyOidcEmail = options.allowAnyOidcEmail ?? false;
 
     const emails = new Set<string>();
     if (options.allowedEmails) {
@@ -223,6 +231,11 @@ export class Authenticator {
           "workspace-ui OIDC authentication requires issuer and clientId",
         );
       }
+      if (!this.allowAnyOidcEmail && this.allowedEmails.size === 0) {
+        throw new Error(
+          "workspace-ui OIDC authentication requires at least one allowed email in OPENLIA_WORKSPACE_UI_ALLOWED_EMAILS",
+        );
+      }
     }
 
     if (this.required) {
@@ -255,9 +268,10 @@ export class Authenticator {
 
   private reconcileVerifier(): void {
     if (!this.database) return;
+    const sortedAllowedEmails = Array.from(this.allowedEmails).sort().join(",");
     const rawVerifier =
       this.authProvider === "oidc"
-        ? `oidc:${this.oidcConfig?.issuer ?? ""}:${this.oidcConfig?.clientId ?? ""}`
+        ? `oidc:${this.oidcConfig?.issuer ?? ""}:${this.oidcConfig?.clientId ?? ""}:${sortedAllowedEmails}`
         : `password:${this.username}:${this.password}:${this.passwordHash}`;
     const verifierHash = sha256Hex(rawVerifier);
     const existing = this.database
@@ -280,16 +294,19 @@ export class Authenticator {
   }
 
   sessionResponse(request: Request): AuthSessionResponse {
+    const authenticated = !this.required || this.isAuthenticated(request);
     return {
       schema: 1,
       auth_required: this.required,
-      authenticated: !this.required || this.isAuthenticated(request),
+      authenticated,
       auth_provider: this.authProvider,
-      ...(this.authProvider === "oidc" && this.oidcConfig?.issuer
+      ...(this.authProvider === "oidc" &&
+      authenticated &&
+      this.oidcConfig?.issuer
         ? { oidc_issuer: this.oidcConfig.issuer }
         : {}),
       ...(this.authProvider === "password" && this.username
-        ? { username_required: false }
+        ? { username_required: true }
         : {}),
     };
   }
@@ -343,14 +360,12 @@ export class Authenticator {
       this.recordFailure(clientAddress, now);
       return { kind: "invalid" };
     }
-    if (
-      this.username &&
-      usernameInput !== undefined &&
-      usernameInput.trim() !== "" &&
-      !constantTimeEquals(usernameInput.trim(), this.username)
-    ) {
-      this.recordFailure(clientAddress, now);
-      return { kind: "invalid" };
+    if (this.username) {
+      const candidateUser = (usernameInput ?? "").trim();
+      if (!candidateUser || !constantTimeEquals(candidateUser, this.username)) {
+        this.recordFailure(clientAddress, now);
+        return { kind: "invalid" };
+      }
     }
 
     let valid = false;
@@ -389,12 +404,21 @@ export class Authenticator {
   async beginOidcLogin(
     request: Request,
     publicOrigin?: string | undefined,
-  ): Promise<{ redirectUrl: string; stateCookie: string }> {
+    clientAddress = "global",
+  ): Promise<
+    | { kind: "ok"; redirectUrl: string; stateCookie: string }
+    | { kind: "rate_limited" }
+  > {
     if (!this.required || this.authProvider !== "oidc" || !this.oidcConfig) {
       throw new Error("OIDC authentication is not enabled");
     }
-    const discovery = await this.fetchOidcDiscovery();
     const now = Date.now();
+    if (this.isOidcInitRateLimited(clientAddress, now)) {
+      return { kind: "rate_limited" };
+    }
+    this.recordOidcInitAttempt(clientAddress, now);
+
+    const discovery = await this.fetchOidcDiscovery();
     this.prunePendingOidcStates(now);
 
     const state = base64UrlEncode(randomBytes(24));
@@ -431,6 +455,7 @@ export class Authenticator {
     authUrl.searchParams.set("code_challenge_method", "S256");
 
     return {
+      kind: "ok",
       redirectUrl: authUrl.toString(),
       stateCookie: this.serializeOidcStateCookie(
         state,
@@ -439,7 +464,10 @@ export class Authenticator {
     };
   }
 
-  async completeOidcCallback(request: Request): Promise<OidcCallbackResult> {
+  async completeOidcCallback(
+    request: Request,
+    clientAddress = "global",
+  ): Promise<OidcCallbackResult> {
     const clearStateCookie = this.serializeOidcStateCookie("", 0);
     if (!this.required || this.authProvider !== "oidc" || !this.oidcConfig) {
       return {
@@ -451,9 +479,21 @@ export class Authenticator {
       };
     }
 
+    const now = Date.now();
+    if (this.isRateLimited(clientAddress, now)) {
+      return {
+        kind: "error",
+        status: 429,
+        code: "rate_limited",
+        message: "Too many failed login attempts. Try again shortly.",
+        clearStateCookie,
+      };
+    }
+
     const url = new URL(request.url);
     const errorParam = url.searchParams.get("error");
     if (errorParam) {
+      this.recordFailure(clientAddress, now);
       return {
         kind: "error",
         status: 401,
@@ -469,7 +509,6 @@ export class Authenticator {
     const codeParam = url.searchParams.get("code") ?? "";
     const cookieState = parseCookie(request, oidcStateCookie) ?? "";
 
-    const now = Date.now();
     this.prunePendingOidcStates(now);
 
     if (
@@ -478,6 +517,7 @@ export class Authenticator {
       !cookieState ||
       !constantTimeEquals(stateParam, cookieState)
     ) {
+      this.recordFailure(clientAddress, now);
       return {
         kind: "error",
         status: 400,
@@ -490,6 +530,7 @@ export class Authenticator {
     const pending = this.pendingOidcStates.get(stateParam);
     this.pendingOidcStates.delete(stateParam);
     if (!pending || now - pending.createdAt > oidcStateTimeoutMs) {
+      this.recordFailure(clientAddress, now);
       return {
         kind: "error",
         status: 400,
@@ -525,7 +566,7 @@ export class Authenticator {
 
     let idToken = "";
     try {
-      const tokenRes = await this.fetchImpl(discovery.token_endpoint, {
+      const tokenRes = await this.fetchOidc(discovery.token_endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -534,6 +575,7 @@ export class Authenticator {
         body: tokenParams.toString(),
       });
       if (!tokenRes.ok) {
+        this.recordFailure(clientAddress, now);
         return {
           kind: "error",
           status: 401,
@@ -555,6 +597,7 @@ export class Authenticator {
     }
 
     if (!idToken) {
+      this.recordFailure(clientAddress, now);
       return {
         kind: "error",
         status: 401,
@@ -567,6 +610,7 @@ export class Authenticator {
     let claims: {
       iss?: string;
       aud?: string | string[];
+      azp?: string;
       exp?: number;
       iat?: number;
       sub?: string;
@@ -582,6 +626,7 @@ export class Authenticator {
         pending.nonce,
       );
     } catch (err) {
+      this.recordFailure(clientAddress, now);
       return {
         kind: "error",
         status: 401,
@@ -592,9 +637,10 @@ export class Authenticator {
       };
     }
 
-    if (this.allowedEmails.size > 0) {
+    if (!this.allowAnyOidcEmail || this.allowedEmails.size > 0) {
       const email = (claims.email ?? "").toLowerCase().trim();
       if (!email || !this.allowedEmails.has(email)) {
+        this.recordFailure(clientAddress, now);
         return {
           kind: "error",
           status: 403,
@@ -603,7 +649,8 @@ export class Authenticator {
           clearStateCookie,
         };
       }
-      if (claims.email_verified === false) {
+      if (claims.email_verified !== true) {
+        this.recordFailure(clientAddress, now);
         return {
           kind: "error",
           status: 403,
@@ -614,6 +661,8 @@ export class Authenticator {
       }
     }
 
+    this.attempts.delete(clientAddress);
+    this.oidcInitAttempts.delete(clientAddress);
     const sessionCookieHeader = this.createSessionCookie(now, "Lax");
     return {
       kind: "ok",
@@ -626,24 +675,20 @@ export class Authenticator {
     request: Request,
     publicOrigin?: string | undefined,
   ): string {
-    const forwardedProto = request.headers
-      .get("x-forwarded-proto")
-      ?.split(",")[0]
-      ?.trim();
-    const forwardedHost = request.headers
-      .get("x-forwarded-host")
-      ?.split(",")[0]
-      ?.trim();
-    const forwardedOrigin =
-      forwardedProto && forwardedHost
-        ? `${forwardedProto}://${forwardedHost}`
-        : undefined;
-    const base =
-      this.oidcConfig?.publicUrl?.trim() ||
-      publicOrigin?.trim() ||
-      forwardedOrigin ||
-      new URL(request.url).origin;
-    return `${base.replace(/\/+$/, "")}/auth/callback`;
+    const explicitBase =
+      this.oidcConfig?.publicUrl?.trim() || publicOrigin?.trim();
+    if (explicitBase) {
+      return `${explicitBase.replace(/\/+$/, "")}/auth/callback`;
+    }
+    const requestOrigin = new URL(request.url).origin;
+    return `${requestOrigin.replace(/\/+$/, "")}/auth/callback`;
+  }
+
+  private fetchOidc(url: string, init?: RequestInit): Promise<Response> {
+    return this.fetchImpl(url, {
+      ...init,
+      signal: AbortSignal.timeout(oidcFetchTimeoutMs),
+    });
   }
 
   private async fetchOidcDiscovery(): Promise<OidcDiscoveryDocument> {
@@ -653,7 +698,7 @@ export class Authenticator {
     }
     const issuer = (this.oidcConfig?.issuer ?? "").replace(/\/+$/, "");
     const url = `${issuer}/.well-known/openid-configuration`;
-    const response = await this.fetchImpl(url);
+    const response = await this.fetchOidc(url);
     if (!response.ok) {
       throw new Error(`OIDC discovery failed with status ${response.status}`);
     }
@@ -675,12 +720,13 @@ export class Authenticator {
 
   private async fetchJwksKeys(
     jwksUri: string,
+    forceRefresh = false,
   ): Promise<Map<string, CryptoKey>> {
     const now = Date.now();
-    if (this.jwksCache && now < this.jwksCache.expiresAt) {
+    if (!forceRefresh && this.jwksCache && now < this.jwksCache.expiresAt) {
       return this.jwksCache.keys;
     }
-    const response = await this.fetchImpl(jwksUri);
+    const response = await this.fetchOidc(jwksUri);
     if (!response.ok) {
       throw new Error(`JWKS fetch failed with status ${response.status}`);
     }
@@ -708,6 +754,7 @@ export class Authenticator {
     this.jwksCache = {
       keys: map,
       expiresAt: now + 3600 * 1000,
+      refreshedOnMiss: false,
     };
     return map;
   }
@@ -731,6 +778,7 @@ export class Authenticator {
     ) as {
       iss?: string;
       aud?: string | string[];
+      azp?: string;
       exp?: number;
       iat?: number;
       sub?: string;
@@ -742,8 +790,15 @@ export class Authenticator {
     if (header.alg !== "RS256" || !header.kid) {
       throw new Error("Unsupported ID token algorithm or missing kid");
     }
-    const keys = await this.fetchJwksKeys(discovery.jwks_uri);
-    const key = keys.get(header.kid);
+    let keys = await this.fetchJwksKeys(discovery.jwks_uri);
+    let key = keys.get(header.kid);
+    if (!key && !this.jwksCache?.refreshedOnMiss) {
+      keys = await this.fetchJwksKeys(discovery.jwks_uri, true);
+      if (this.jwksCache) {
+        this.jwksCache.refreshedOnMiss = true;
+      }
+      key = keys.get(header.kid);
+    }
     if (!key) {
       throw new Error("Signing key ID not found in OIDC JWKS");
     }
@@ -768,6 +823,12 @@ export class Authenticator {
     if (typeof payload.exp !== "number" || payload.exp <= nowSeconds) {
       throw new Error("ID token has expired");
     }
+    if (
+      typeof payload.iat === "number" &&
+      payload.iat > nowSeconds + futureClockSkewSeconds
+    ) {
+      throw new Error("ID token issued in the future");
+    }
 
     const normalizeIssuer = (iss: string) => iss.replace(/\/+$/, "");
     const configuredIssuer = normalizeIssuer(this.oidcConfig?.issuer ?? "");
@@ -784,6 +845,12 @@ export class Authenticator {
         : [];
     if (!audiences.includes(expectedClientId)) {
       throw new Error("ID token audience mismatch");
+    }
+    if (
+      (audiences.length > 1 || payload.azp !== undefined) &&
+      payload.azp !== expectedClientId
+    ) {
+      throw new Error("ID token authorized party (azp) mismatch");
     }
 
     if (!payload.nonce || !constantTimeEquals(payload.nonce, expectedNonce)) {
@@ -880,27 +947,82 @@ export class Authenticator {
   }
 
   private isRateLimited(clientAddress: string, now: number): boolean {
-    const attempt = this.attempts.get(clientAddress);
+    return Authenticator.checkAttemptMap(this.attempts, clientAddress, now);
+  }
+
+  private recordFailure(clientAddress: string, now: number): void {
+    Authenticator.recordInAttemptMap(
+      this.attempts,
+      clientAddress,
+      now,
+      maxFailures,
+    );
+  }
+
+  private isOidcInitRateLimited(clientAddress: string, now: number): boolean {
+    return Authenticator.checkAttemptMap(
+      this.oidcInitAttempts,
+      clientAddress,
+      now,
+    );
+  }
+
+  private recordOidcInitAttempt(clientAddress: string, now: number): void {
+    Authenticator.recordInAttemptMap(
+      this.oidcInitAttempts,
+      clientAddress,
+      now,
+      maxOidcInitPerWindow,
+    );
+  }
+
+  private static checkAttemptMap(
+    map: Map<string, Attempt>,
+    clientAddress: string,
+    now: number,
+  ): boolean {
+    const attempt = map.get(clientAddress);
     if (!attempt) return false;
     if (attempt.blockedUntil > now) return true;
     if (now - attempt.firstFailureAt > attemptWindowMs) {
-      this.attempts.delete(clientAddress);
+      map.delete(clientAddress);
       return false;
     }
     return false;
   }
 
-  private recordFailure(clientAddress: string, now: number): void {
-    if (
-      !this.attempts.has(clientAddress) &&
-      this.attempts.size >= maxAttemptEntries
-    ) {
-      const oldest = this.attempts.keys().next().value;
-      if (oldest) this.attempts.delete(oldest);
+  private static recordInAttemptMap(
+    map: Map<string, Attempt>,
+    clientAddress: string,
+    now: number,
+    threshold: number,
+  ): void {
+    if (!map.has(clientAddress) && map.size >= maxAttemptEntries) {
+      for (const [key, item] of map.entries()) {
+        if (
+          item.blockedUntil <= now &&
+          now - item.firstFailureAt > attemptWindowMs
+        ) {
+          map.delete(key);
+        }
+      }
+      if (map.size >= maxAttemptEntries) {
+        let victimKey: string | undefined;
+        for (const [key, item] of map.entries()) {
+          if (item.blockedUntil <= now) {
+            victimKey = key;
+            break;
+          }
+        }
+        if (!victimKey) {
+          victimKey = map.keys().next().value;
+        }
+        if (victimKey) map.delete(victimKey);
+      }
     }
-    const existing = this.attempts.get(clientAddress);
+    const existing = map.get(clientAddress);
     if (!existing || now - existing.firstFailureAt > attemptWindowMs) {
-      this.attempts.set(clientAddress, {
+      map.set(clientAddress, {
         failures: 1,
         firstFailureAt: now,
         blockedUntil: 0,
@@ -908,10 +1030,71 @@ export class Authenticator {
       return;
     }
     existing.failures += 1;
-    if (existing.failures >= maxFailures) {
+    if (existing.failures >= threshold) {
       existing.blockedUntil = now + blockDurationMs;
     }
   }
+}
+
+function isValidIpLiteral(value: string): boolean {
+  if (!value || value.length > 45) return false;
+  // IPv4 literal
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(value)) {
+    return value.split(".").every((part) => {
+      const num = Number(part);
+      return Number.isInteger(num) && num >= 0 && num <= 255;
+    });
+  }
+  // IPv6 literal
+  if (value.includes(":") && /^[0-9a-fA-F:.]+$/.test(value)) {
+    return true;
+  }
+  return false;
+}
+
+export function isLoopbackOrPrivatePeer(address: string): boolean {
+  const trimmed = address.trim().toLowerCase();
+  if (!trimmed || trimmed === "global" || trimmed === "::1") return true;
+  const ipv4 = trimmed.startsWith("::ffff:") ? trimmed.slice(7) : trimmed;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ipv4)) {
+    const parts = ipv4.split(".").map(Number);
+    const [a = -1, b = -1] = parts;
+    if (a === 127 || a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    return false;
+  }
+  if (
+    trimmed.startsWith("fc") ||
+    trimmed.startsWith("fd") ||
+    trimmed.startsWith("fe80:")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function resolveClientAddress(
+  request: Request,
+  socketAddress = "global",
+  trustProxy = false,
+): string {
+  const peer = socketAddress.trim() || "global";
+  if (!trustProxy || !isLoopbackOrPrivatePeer(peer)) {
+    return peer;
+  }
+  const cfIp = request.headers.get("cf-connecting-ip")?.trim();
+  if (cfIp && isValidIpLiteral(cfIp)) {
+    return cfIp;
+  }
+  const xffFirst = request.headers
+    .get("x-forwarded-for")
+    ?.split(",")[0]
+    ?.trim();
+  if (xffFirst && isValidIpLiteral(xffFirst)) {
+    return xffFirst;
+  }
+  return peer;
 }
 
 export function validMutationOrigin(
@@ -926,17 +1109,23 @@ export function validMutationOrigin(
   } catch {
     return false;
   }
-  if (publicOrigin) {
+  if (publicOrigin?.trim()) {
     try {
-      const expected = new URL(publicOrigin);
-      if (originUrl.origin === expected.origin) return true;
+      const expected = new URL(publicOrigin.trim());
+      return originUrl.origin === expected.origin;
     } catch {
-      // fall through
+      return false;
     }
   }
   const requestUrl = new URL(request.url);
   if (originUrl.origin === requestUrl.origin) return true;
-  const hostHeader = request.headers.get("host");
-  if (hostHeader && originUrl.host === hostHeader) return true;
+  const hostHeader = request.headers.get("host")?.trim();
+  if (
+    hostHeader &&
+    originUrl.protocol === requestUrl.protocol &&
+    originUrl.host === hostHeader
+  ) {
+    return true;
+  }
   return false;
 }

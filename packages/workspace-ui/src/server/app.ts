@@ -14,7 +14,12 @@ import type {
   WorkspaceRenameRequest,
   WorkspaceWriteRequest,
 } from "../shared/api";
-import { Authenticator, type OidcConfig, validMutationOrigin } from "./auth";
+import {
+  Authenticator,
+  type OidcConfig,
+  resolveClientAddress,
+  validMutationOrigin,
+} from "./auth";
 import { WorkspaceError, WorkspaceService } from "./workspace";
 
 export interface WorkspaceHandlerOptions {
@@ -33,9 +38,11 @@ export interface WorkspaceHandlerOptions {
   passwordHashFile?: string | undefined;
   oidcConfig?: OidcConfig | undefined;
   allowedEmails?: string[] | undefined;
+  allowAnyOidcEmail?: boolean | undefined;
   sessionDatabasePath?: string | undefined;
   publicOrigin?: string | undefined;
   secureCookies?: boolean | undefined;
+  trustProxy?: boolean | undefined;
   fetchImpl?: typeof fetch | undefined;
 }
 
@@ -101,15 +108,25 @@ const inlineContentTypes = new Set([
 const maxLoginRequestBytes = 16 * 1024;
 const maxSmallJsonBytes = 32 * 1024;
 
-function securityHeaders(cspNonce?: string): Record<string, string> {
+function securityHeaders(
+  cspNonce?: string,
+  secure = false,
+): Record<string, string> {
   const styleSource = cspNonce
     ? `'self' 'nonce-${cspNonce}'`
     : "'self' 'unsafe-inline'";
   return {
     "Cache-Control": "no-store",
     "Content-Security-Policy": `default-src 'self'; script-src 'self'; style-src ${styleSource}; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'`,
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    ...(secure
+      ? {
+          "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+        }
+      : {}),
   };
 }
 
@@ -117,10 +134,11 @@ function json(
   payload: object,
   status = 200,
   extraHeaders: Record<string, string> = {},
+  secure = false,
 ): Response {
   return new Response(JSON.stringify(payload), {
     headers: {
-      ...securityHeaders(),
+      ...securityHeaders(undefined, secure),
       "Content-Type": "application/json; charset=utf-8",
       ...extraHeaders,
     },
@@ -131,6 +149,7 @@ function json(
 function errorResponse(
   error: unknown,
   extraHeaders: Record<string, string> = {},
+  secure = false,
 ): Response {
   if (error instanceof WorkspaceError) {
     const payload: WorkspaceErrorResponse = {
@@ -142,7 +161,7 @@ function errorResponse(
         ? { current_revision: error.currentRevision }
         : {}),
     };
-    return json(payload, error.status, extraHeaders);
+    return json(payload, error.status, extraHeaders, secure);
   }
   const message =
     error instanceof Error ? error.message : "Internal server error";
@@ -155,6 +174,7 @@ function errorResponse(
     } satisfies WorkspaceErrorResponse,
     500,
     extraHeaders,
+    secure,
   );
 }
 
@@ -233,9 +253,12 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
   }
 
   const authRequired = options.authRequired ?? false;
+  const effectivePublicOrigin =
+    options.publicOrigin?.trim() || options.oidcConfig?.publicUrl?.trim();
   const secureCookies =
     options.secureCookies ??
-    Boolean(options.publicOrigin?.toLowerCase().startsWith("https://"));
+    Boolean(effectivePublicOrigin?.toLowerCase().startsWith("https://"));
+  const trustProxy = options.trustProxy ?? Boolean(effectivePublicOrigin);
 
   const auth = new Authenticator({
     required: authRequired,
@@ -246,6 +269,7 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
     passwordHashFile: options.passwordHashFile,
     oidcConfig: options.oidcConfig,
     allowedEmails: options.allowedEmails,
+    allowAnyOidcEmail: options.allowAnyOidcEmail,
     sessionDatabasePath: options.sessionDatabasePath,
     secureCookies,
     fetchImpl: options.fetchImpl,
@@ -259,18 +283,28 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
     request: Request,
     clientAddress = "global",
   ): Promise<Response> {
+    const effectiveClientAddress = resolveClientAddress(
+      request,
+      clientAddress,
+      trustProxy,
+    );
     const url = new URL(request.url);
     const { pathname } = url;
     const method = request.method.toUpperCase();
 
     if (method === "GET" && pathname === "/health") {
-      return json({
-        schema: 1,
-        ok: true,
-        ...(options.releaseSha256
-          ? { release_sha256: options.releaseSha256 }
-          : {}),
-      });
+      return json(
+        {
+          schema: 1,
+          ok: true,
+          ...(options.releaseSha256
+            ? { release_sha256: options.releaseSha256 }
+            : {}),
+        },
+        200,
+        {},
+        secureCookies,
+      );
     }
 
     if (
@@ -278,20 +312,34 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
       (pathname === "/auth/oidc/login" || pathname === "/api/auth/oidc/login")
     ) {
       try {
-        const { redirectUrl, stateCookie } = await auth.beginOidcLogin(
+        const oidcStart = await auth.beginOidcLogin(
           request,
-          options.publicOrigin,
+          effectivePublicOrigin,
+          effectiveClientAddress,
         );
+        if (oidcStart.kind === "rate_limited") {
+          return json(
+            {
+              schema: 1,
+              ok: false,
+              error: "rate_limited",
+              message: "Too many login attempts. Try again shortly.",
+            },
+            429,
+            {},
+            secureCookies,
+          );
+        }
         return new Response(null, {
           status: 302,
           headers: {
-            ...securityHeaders(),
-            Location: redirectUrl,
-            "Set-Cookie": stateCookie,
+            ...securityHeaders(undefined, secureCookies),
+            Location: oidcStart.redirectUrl,
+            "Set-Cookie": oidcStart.stateCookie,
           },
         });
       } catch (err) {
-        return errorResponse(err);
+        return errorResponse(err, {}, secureCookies);
       }
     }
 
@@ -299,7 +347,10 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
       method === "GET" &&
       (pathname === "/auth/callback" || pathname === "/api/auth/oidc/callback")
     ) {
-      const callbackRes = await auth.completeOidcCallback(request);
+      const callbackRes = await auth.completeOidcCallback(
+        request,
+        effectiveClientAddress,
+      );
       if (callbackRes.kind === "error") {
         return json(
           {
@@ -310,9 +361,10 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
           },
           callbackRes.status,
           { "Set-Cookie": callbackRes.clearStateCookie },
+          secureCookies,
         );
       }
-      const headers = new Headers(securityHeaders());
+      const headers = new Headers(securityHeaders(undefined, secureCookies));
       headers.set("Location", "/");
       headers.append("Set-Cookie", callbackRes.clearStateCookie);
       headers.append("Set-Cookie", callbackRes.cookie);
@@ -328,7 +380,7 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
         method === "PUT" ||
         method === "DELETE" ||
         method === "PATCH";
-      if (isMutating && !validMutationOrigin(request, options.publicOrigin)) {
+      if (isMutating && !validMutationOrigin(request, effectivePublicOrigin)) {
         return json(
           {
             schema: 1,
@@ -337,11 +389,13 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
             message: "Cross-origin state-changing requests are not allowed",
           },
           403,
+          {},
+          secureCookies,
         );
       }
 
       if (method === "GET" && pathname === "/api/auth/session") {
-        return json(auth.sessionResponse(request));
+        return json(auth.sessionResponse(request), 200, {}, secureCookies);
       }
 
       if (method === "POST" && pathname === "/api/auth/login") {
@@ -352,7 +406,7 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
           );
           const result = await auth.login(
             body.password,
-            clientAddress,
+            effectiveClientAddress,
             body.username,
           );
           switch (result.kind) {
@@ -699,6 +753,12 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
         lstatSync(candidate).isFile()
       ) {
         const ext = extname(candidate).toLowerCase();
+        if (ext === ".map") {
+          return new Response("Not Found", {
+            status: 404,
+            headers: securityHeaders(undefined, secureCookies),
+          });
+        }
         if (ext === ".html") {
           const nonce = randomBytes(16).toString("base64");
           const html = readFileSync(candidate, "utf8").replaceAll(
@@ -707,19 +767,26 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
           );
           return new Response(html, {
             headers: {
-              ...securityHeaders(nonce),
+              ...securityHeaders(nonce, secureCookies),
               "Content-Type": "text/html; charset=utf-8",
             },
           });
         }
         return new Response(Bun.file(candidate), {
           headers: {
-            ...securityHeaders(),
+            ...securityHeaders(undefined, secureCookies),
             "Cache-Control": pathname.startsWith("/assets/")
               ? "public, max-age=31536000, immutable"
               : "no-cache",
             "Content-Type": contentTypes[ext] ?? "application/octet-stream",
           },
+        });
+      }
+
+      if (extname(relPath).toLowerCase() === ".map") {
+        return new Response("Not Found", {
+          status: 404,
+          headers: securityHeaders(undefined, secureCookies),
         });
       }
 
@@ -732,7 +799,7 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
         );
         return new Response(html, {
           headers: {
-            ...securityHeaders(nonce),
+            ...securityHeaders(nonce, secureCookies),
             "Content-Type": "text/html; charset=utf-8",
           },
         });
@@ -741,7 +808,7 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
 
     return new Response("Not Found", {
       status: 404,
-      headers: securityHeaders(),
+      headers: securityHeaders(undefined, secureCookies),
     });
   };
 }

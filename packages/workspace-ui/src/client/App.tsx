@@ -816,7 +816,9 @@ export function App({ api }: { api: WorkspaceApi }) {
                     className="label text-xs font-semibold"
                     htmlFor="workspace-username"
                   >
-                    Username (optional)
+                    {session.username_required
+                      ? "Username"
+                      : "Username (optional)"}
                   </label>
                   <input
                     autoComplete="username"
@@ -825,6 +827,7 @@ export function App({ api }: { api: WorkspaceApi }) {
                     id="workspace-username"
                     onChange={(e) => setLoginUsername(e.target.value)}
                     placeholder="admin"
+                    required={Boolean(session.username_required)}
                     type="text"
                     value={loginUsername}
                   />
@@ -854,7 +857,12 @@ export function App({ api }: { api: WorkspaceApi }) {
                 )}
                 <button
                   className="btn btn-primary w-full"
-                  disabled={loggingIn || !loginPassword}
+                  disabled={
+                    loggingIn ||
+                    !loginPassword ||
+                    (Boolean(session.username_required) &&
+                      !loginUsername.trim())
+                  }
                   type="submit"
                 >
                   {loggingIn ? "Signing in..." : "Sign in"}
