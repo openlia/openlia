@@ -244,6 +244,48 @@ describe("Workspace UI App", () => {
     expect(api.login).toHaveBeenCalledWith("secret-pass", undefined);
   });
 
+  it("requires username input when session.username_required is true", async () => {
+    let authenticated = false;
+    const api = createTestApi({
+      loadSession: vi.fn(
+        async (): Promise<AuthSessionResponse> => ({
+          auth_provider: "password",
+          auth_required: true,
+          authenticated,
+          schema: 1,
+          username_required: true,
+        }),
+      ),
+      login: vi.fn(async (): Promise<AuthLoginResponse> => {
+        authenticated = true;
+        return { authenticated: true, ok: true, schema: 1 };
+      }),
+    });
+
+    render(<App api={api} />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Sign in to Workspace" }),
+    ).toBeInTheDocument();
+
+    const submitButton = screen.getByRole("button", { name: "Sign in" });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "secret-pass" },
+    });
+    expect(submitButton).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "admin" },
+    });
+    expect(submitButton).not.toBeDisabled();
+
+    fireEvent.click(submitButton);
+    expect(
+      await screen.findByText("Select a file to view or edit"),
+    ).toBeInTheDocument();
+    expect(api.login).toHaveBeenCalledWith("secret-pass", "admin");
+  });
+
   it("renders OIDC SSO sign-in link when auth_provider is oidc", async () => {
     const api = createTestApi({
       loadSession: vi.fn(

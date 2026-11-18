@@ -1226,6 +1226,21 @@ func configureOIDCAuth(options Options, secretPath string, reader *bufio.Reader,
 				publicURL = defaultPublicURL
 			}
 		}
+		if !clearAllowedEmails && allowedEmails == "" {
+			if defaultAllowedEmails != "" {
+				fmt.Fprintf(os.Stderr, "Allowed OIDC Emails (comma-separated) [%s]: ", defaultAllowedEmails)
+			} else {
+				fmt.Fprint(os.Stderr, "Allowed OIDC Emails (comma-separated, required for Workspace UI): ")
+			}
+			line, err := reader.ReadString('\n')
+			if err != nil && len(line) == 0 && defaultAllowedEmails == "" {
+				return fail(options, ExitFailure, "could not read allowed OIDC emails", nil)
+			}
+			allowedEmails = strings.TrimSpace(line)
+			if allowedEmails == "" {
+				allowedEmails = defaultAllowedEmails
+			}
+		}
 	}
 
 	issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")

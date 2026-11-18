@@ -113,10 +113,15 @@ def test_auth_filter_mock_provider(monkeypatch):
         provider.refresh_session()
     assert exc_info.value.status_code == 403
 
-    # 7. Unverified email -> _session raises 403
+    # 7. Unverified or missing email_verified -> _session raises 403
     with pytest.raises(MockHTTPException) as exc_info:
         provider._session(
             "id", "ref", {"email": "owner@example.com", "email_verified": False}
         )
     assert exc_info.value.status_code == 403
     assert "verified" in exc_info.value.detail
+
+    with pytest.raises(MockHTTPException) as exc_info_missing:
+        provider._session("id", "ref", {"email": "owner@example.com"})
+    assert exc_info_missing.value.status_code == 403
+    assert "verified" in exc_info_missing.value.detail
