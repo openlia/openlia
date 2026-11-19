@@ -84,14 +84,17 @@ All persistent agent state lives under `/opt/data` on the agent machine and is c
 ```text
 /opt/data/
 ├── config.yaml        # Hermes runtime configuration (managed model/secrets block + custom settings)
-├── SOUL.md            # Agent persona, tone, and managed default output language
-├── AGENTS.md          # Global operating instructions and safety boundaries
+├── SOUL.md            # Agent persona, tone, and managed default output language (seeded once)
+├── AGENTS.md          # Global operating instructions and safety boundaries (seeded once)
+├── state.db           # Hermes conversation sessions and runtime SQLite state
+├── kanban.db          # Hermes Kanban boards and multi-agent task state (plus kanban/boards/*)
+├── cron/jobs.json     # Scheduled recurring cron task definitions (cron/output/ logs excluded from backup)
 ├── memories/          # Hermes-managed MEMORY.md and USER.md
-├── skills/            # Hermes skills installed or authored in the runtime
+├── skills/            # All Hermes skills (custom and bundled/edited; venv/node_modules/__pycache__ excluded from backup)
 └── workspace/         # Your plain-text files, projects, notes, and scripts
 ```
 
-- **Persona & Language (`SOUL.md`)**: Seeded on first deployment from `profile/SOUL.md`, with the default response language synchronized from `output_language` in `config.toml`.
+- **Persona & Instructions (`SOUL.md` & `AGENTS.md`)**: Seeded **once** on initial bootstrap from `profile/SOUL.md` and `profile/AGENTS.md` when missing. Subsequent `openlia deploy` runs never overwrite your or the agent's edits (only the bounded `output_language` block in `SOUL.md` and `openlia://` link guidance block in `AGENTS.md` are reconciled). Both files are backed up and restored naturally with `/opt/data`.
 - **Workspace (`/opt/data/workspace`)**: The agent's default working directory. Keep your notes, scripts, and project files here; you can organize subdirectories freely or maintain local Git repositories inside your workspace.
 - **Memories (`/opt/data/memories`)**: Managed through Hermes' native memory tools (`MEMORY.md` and `USER.md`) and editable in the Hermes Web Dashboard.
 

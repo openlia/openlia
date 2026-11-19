@@ -328,7 +328,19 @@ OpenLia uses client-side [Age](https://age-encryption.org/) encryption for durab
 
 - The **Operator Machine** holds the private recovery key (`backup-identity.txt`).
 - The **Agent Machine** receives only the public recipient and can encrypt archives, never decrypt them.
-- Durable archives capture `/opt/data` (workspace files, Hermes SQLite state, memories, `SOUL.md`, `AGENTS.md`, `config.yaml`, and skills)—excluding secrets, Locho capabilities, and caches.
+- **Included in Durable Backups (`/opt/data` $\rightarrow$ `hermes/`)**:
+  - Workspace files (`/opt/data/workspace/**`)
+  - Hermes session and state SQLite databases (`state.db`, `state.db-wal`) and Kanban databases (`kanban.db`, `kanban/boards/*/kanban.db`)
+  - Persistent memories (`memories/MEMORY.md`, `memories/USER.md`)
+  - Persona and operating instructions (`SOUL.md`, `AGENTS.md`), which are seeded **once** when missing on initial deployment, preserved across subsequent `openlia deploy` runs, and backed up/restored naturally
+  - Hermes runtime configuration (`config.yaml`), with OpenLia's managed `model`, `secrets.command`, and `fallback_providers` blocks reconciled to the target host on restore while preserving all user/Hermes settings
+  - All Hermes skills (`/opt/data/skills/**`, including both custom skills and bundled skills edited via Workspace UI)
+  - Scheduled cron job definitions (`cron/jobs.json`) and named agent profiles (`profiles/**`)
+- **Excluded from Durable Backups**:
+  - Secrets (`runtime/secrets/*`, `.env`, `*.secret`, `auth.json`), Locho attachment capabilities (`attachments.toml`), and Workspace UI login sessions (`sessions.sqlite`)
+  - Historical cron execution logs (`cron/output/**`) and service logs (`logs/**`)
+  - Transient SQLite shared-memory/journal files (`*-shm`, `*.db-journal`, `*.tmp`) and runtime sockets/locks (`*.sock`, `*.pid`, `*.lock`)
+  - Rebuildable dependency and cache trees (`node_modules`, `.venv`, `venv`, `__pycache__`, `*.pyc`, `*.pyo`, `.curator_backups`, `.cache`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.DS_Store`, `.bundled_manifest`)
 
 ### Manual & Scheduled Backups
 
