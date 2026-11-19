@@ -321,7 +321,7 @@ func createBackupWithRestart(ctx context.Context, config Config, reason string, 
 		SecretValues: "excluded",
 		Capabilities: "excluded",
 		Components:   []string{"hermes", "meta"},
-		Exclusions:   []string{"secrets", "caches", "bundled-skills", "logs"},
+		Exclusions:   []string{"secrets", "caches", "cron-output", "logs"},
 	}
 	manifestData, err := json.Marshal(manifest)
 	if err != nil {
@@ -333,9 +333,8 @@ func createBackupWithRestart(ctx context.Context, config Config, reason string, 
 	if err := writeTarFile(archive, "manifest.json", manifestData, 0o600); err != nil {
 		return BackupResult{}, err
 	}
-	bundledGroups := bundledSkillGroups(config.DataRoot)
 	if err := appendDurableTree(archive, "hermes", config.DataRoot, func(relative string, entry fs.DirEntry) bool {
-		return durableHermesPath(relative, entry, bundledGroups)
+		return durableHermesPath(relative, entry)
 	}, limits); err != nil {
 		return BackupResult{}, err
 	}
@@ -589,6 +588,10 @@ func restoreDurableBackup(config Config, archivePath, staging string, preRestore
 	if err != nil {
 		return BackupResult{}, fmt.Errorf("stage Hermes restore: %w", err)
 	}
+	if err := reconcileRestoredHermesConfig(config, hermesStage, dataReplacement); err != nil {
+		_ = os.RemoveAll(dataReplacement)
+		return BackupResult{}, fmt.Errorf("reconcile Hermes config on restore: %w", err)
+	}
 	metaReplacement, err := buildDurableReplacement(metaStage, config.MetaRoot, portableMetaGeneratedPath, config.RuntimeUID, config.RuntimeGID)
 	if err != nil {
 		_ = os.RemoveAll(dataReplacement)
@@ -660,6 +663,30 @@ func buildDurableReplacement(source, current string, generated func(string, fs.D
 		return "", err
 	}
 	return replacement, nil
+}
+
+func reconcileRestoredHermesConfig(config Config, hermesStage, dataReplacement string) error {
+	restoredConfigPath := filepath.Join(dataReplacement, "config.yaml")
+	if _, err := os.Stat(filepath.Join(hermesStage, "config.yaml")); errors.Is(err, os.ErrNotExist) {
+		currentConfigPath := filepath.Join(config.DataRoot, "config.yaml")
+		if info, statErr := os.Lstat(currentConfigPath); statErr == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+			if err := AtomicCopyFile(currentConfigPath, restoredConfigPath, info.Mode().Perm()); err != nil {
+				return err
+			}
+		}
+	}
+	existing, err := os.ReadFile(restoredConfigPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	text := string(existing)
+	if strings.Contains(text, runtimeConfigBlockStart) || strings.Contains(text, fallbackBlockStart) || config.Provider != "" || config.Model != "" || len(config.FallbackProviders) > 0 {
+		return NewProfileOperator(config).reconcileHermesRuntimeConfig(restoredConfigPath, 0o600)
+	}
+	return ensureRuntimeOwner(restoredConfigPath, config.RuntimeUID, config.RuntimeGID, 0o600)
 }
 
 func copyGeneratedTree(source, destination string, generated func(string, fs.DirEntry) bool) error {

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"io/fs"
 	"math"
 	"net/url"
 	"os"
@@ -96,17 +95,6 @@ type Config struct {
 	BackupDestinations        []BackupDestinationConfig
 	Services                  []ServiceHostConfig
 	OpenLiaBrowser            OpenLiaBrowserConfig
-}
-
-type CustomInitConfig struct {
-	SoulMD   CustomDocConfig
-	AgentsMD CustomDocConfig
-}
-
-type CustomDocConfig struct {
-	Content string
-	File    string
-	Append  string
 }
 
 type BackupDestinationConfig struct {
@@ -1219,149 +1207,4 @@ func expandTilde(path string) string {
 		}
 	}
 	return path
-}
-
-func loadCustomInitConfig(path string) (CustomInitConfig, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return CustomInitConfig{}, fmt.Errorf("read custom init config: %w", err)
-	}
-	return parseCustomInitConfig(string(data), filepath.Dir(path))
-}
-
-func parseCustomInitConfig(data, baseDir string) (CustomInitConfig, error) {
-	var cfg CustomInitConfig
-	section := ""
-	lines := strings.Split(data, "\n")
-	for i := 0; i < len(lines); i++ {
-		lineNumber := i + 1
-		line := strings.TrimSpace(lines[i])
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			section = strings.TrimSpace(line[1 : len(line)-1])
-			section = strings.Trim(section, "\"'")
-			if section != "soul.md" && section != "agents.md" {
-				return CustomInitConfig{}, fmt.Errorf("line %d: unknown section [%s]; expected [soul.md] or [agents.md]", lineNumber, section)
-			}
-			continue
-		}
-		key, rawValue, ok := strings.Cut(line, "=")
-		if !ok {
-			return CustomInitConfig{}, fmt.Errorf("line %d is not a key/value pair", lineNumber)
-		}
-		key = strings.TrimSpace(key)
-		rawValue = strings.TrimSpace(rawValue)
-		var val string
-		var err error
-		if strings.HasPrefix(rawValue, `"""`) || strings.HasPrefix(rawValue, `'''`) {
-			quote := rawValue[:3]
-			rest := rawValue[3:]
-			if idx := strings.Index(rest, quote); idx >= 0 {
-				val = rest[:idx]
-			} else {
-				var buf strings.Builder
-				buf.WriteString(rest)
-				found := false
-				for i+1 < len(lines) {
-					i++
-					nextLine := lines[i]
-					if idx := strings.Index(nextLine, quote); idx >= 0 {
-						if buf.Len() > 0 {
-							buf.WriteByte('\n')
-						}
-						buf.WriteString(nextLine[:idx])
-						found = true
-						break
-					}
-					if buf.Len() > 0 {
-						buf.WriteByte('\n')
-					}
-					buf.WriteString(nextLine)
-				}
-				if !found {
-					return CustomInitConfig{}, fmt.Errorf("line %d: unterminated multiline string", lineNumber)
-				}
-				val = strings.TrimPrefix(buf.String(), "\n")
-			}
-		} else {
-			rawValue = strings.TrimSpace(strings.SplitN(rawValue, " #", 2)[0])
-			val, err = parseString(rawValue)
-			if err != nil {
-				return CustomInitConfig{}, fmt.Errorf("line %d: %w", lineNumber, err)
-			}
-		}
-		var target *CustomDocConfig
-		switch section {
-		case "soul.md":
-			target = &cfg.SoulMD
-		case "agents.md":
-			target = &cfg.AgentsMD
-		default:
-			return CustomInitConfig{}, fmt.Errorf("line %d: setting %q outside [soul.md] or [agents.md]", lineNumber, key)
-		}
-		switch key {
-		case "content":
-			target.Content = val
-		case "file":
-			resolved := expandTilde(val)
-			if !filepath.IsAbs(resolved) && baseDir != "" {
-				resolved = filepath.Join(baseDir, resolved)
-			}
-			target.File = resolved
-		case "append":
-			target.Append = val
-		default:
-			return CustomInitConfig{}, fmt.Errorf("line %d: unknown setting %q in [%s]; expected content, file, or append", lineNumber, key, section)
-		}
-	}
-	if err := validateCustomDocConfig("soul.md", cfg.SoulMD); err != nil {
-		return CustomInitConfig{}, err
-	}
-	if err := validateCustomDocConfig("agents.md", cfg.AgentsMD); err != nil {
-		return CustomInitConfig{}, err
-	}
-	return cfg, nil
-}
-
-func validateCustomDocConfig(name string, doc CustomDocConfig) error {
-	if doc.Content != "" && doc.File != "" {
-		return fmt.Errorf("[%s] cannot set both content and file", name)
-	}
-	if doc.File != "" {
-		info, err := os.Stat(doc.File)
-		if err != nil || !info.Mode().IsRegular() {
-			return fmt.Errorf("[%s].file %q must be a readable regular file", name, doc.File)
-		}
-	}
-	return nil
-}
-
-func renderCustomDoc(assets fs.FS, assetPath string, doc CustomDocConfig) ([]byte, bool, error) {
-	if doc.Content == "" && doc.File == "" && doc.Append == "" {
-		return nil, false, nil
-	}
-	var base string
-	if doc.Content != "" {
-		base = doc.Content
-	} else if doc.File != "" {
-		raw, err := os.ReadFile(doc.File)
-		if err != nil {
-			return nil, false, fmt.Errorf("read custom doc file %q: %w", doc.File, err)
-		}
-		base = string(raw)
-	} else {
-		raw, err := fs.ReadFile(assets, assetPath)
-		if err != nil {
-			return nil, false, fmt.Errorf("read base profile %q: %w", assetPath, err)
-		}
-		base = string(raw)
-	}
-	if doc.Append != "" {
-		base = strings.TrimRight(base, "\n") + "\n\n" + strings.TrimSpace(doc.Append) + "\n"
-	} else if !strings.HasSuffix(base, "\n") {
-		base += "\n"
-	}
-	return []byte(base), true, nil
 }

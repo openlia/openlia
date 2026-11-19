@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"testing/fstest"
 
 	"filippo.io/age"
 )
@@ -518,46 +517,5 @@ func TestLochoHostStateDirConfigRoundTripAndValidation(t *testing.T) {
 	config.LochoHostStateDir = "relative/path"
 	if err := validateConfig(config); err == nil {
 		t.Fatal("expected error for relative locho-host.state_dir")
-	}
-}
-
-func TestCustomInitConfigParsesAndRendersDocs(t *testing.T) {
-	dir := t.TempDir()
-	agentsFile := filepath.Join(dir, "custom-agents.md")
-	if err := os.WriteFile(agentsFile, []byte("# Custom Agents\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	initTOML := `
-[soul.md]
-append = """
-## Custom Tone
-Always reply concisely.
-"""
-
-[agents.md]
-file = "custom-agents.md"
-append = "Follow repo rules."
-`
-	cfg, err := parseCustomInitConfig(initTOML, dir)
-	if err != nil {
-		t.Fatalf("parseCustomInitConfig failed: %v", err)
-	}
-	assets := fstest.MapFS{
-		"profile/SOUL.md":   &fstest.MapFile{Data: []byte("# Base Soul\n")},
-		"profile/AGENTS.md": &fstest.MapFile{Data: []byte("# Base Agents\n")},
-	}
-	soulBytes, ok, err := renderCustomDoc(assets, "profile/SOUL.md", cfg.SoulMD)
-	if err != nil || !ok {
-		t.Fatalf("renderCustomDoc SOUL.md failed: ok=%v err=%v", ok, err)
-	}
-	if !strings.Contains(string(soulBytes), "# Base Soul") || !strings.Contains(string(soulBytes), "Always reply concisely.") {
-		t.Fatalf("rendered SOUL.md = %q", soulBytes)
-	}
-	agentsBytes, ok, err := renderCustomDoc(assets, "profile/AGENTS.md", cfg.AgentsMD)
-	if err != nil || !ok {
-		t.Fatalf("renderCustomDoc AGENTS.md failed: ok=%v err=%v", ok, err)
-	}
-	if !strings.Contains(string(agentsBytes), "# Custom Agents") || !strings.Contains(string(agentsBytes), "Follow repo rules.") {
-		t.Fatalf("rendered AGENTS.md = %q", agentsBytes)
 	}
 }

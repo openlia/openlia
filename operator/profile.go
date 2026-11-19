@@ -74,20 +74,11 @@ func (p *ProfileOperator) Sync() (ProfileSyncResult, error) {
 
 func (p *ProfileOperator) seedInstructions() error {
 	profileRoot := filepath.Join(p.Config.RepositoryRoot, "profile")
-	customRoot := filepath.Join(p.Config.RuntimeRoot, "custom")
 
 	for _, name := range []string{"SOUL.md", "AGENTS.md"} {
 		destination := filepath.Join(p.Config.DataRoot, name)
-		customFile := filepath.Join(customRoot, name)
-		if info, err := os.Lstat(customFile); err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
-			if err := AtomicCopyFile(customFile, destination, 0o600); err != nil {
-				return fmt.Errorf("apply custom %s: %w", name, err)
-			}
-			_ = os.Remove(customFile)
-		} else {
-			if err := copyOnce(filepath.Join(profileRoot, name), destination, 0o600); err != nil {
-				return err
-			}
+		if err := copyOnce(filepath.Join(profileRoot, name), destination, 0o600); err != nil {
+			return err
 		}
 
 		if name == "SOUL.md" {

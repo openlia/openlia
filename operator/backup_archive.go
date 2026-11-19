@@ -99,38 +99,23 @@ func appendDurableTree(archive *tar.Writer, label, root string, include func(str
 func isGeneratedArtifactPath(relative string) bool {
 	for _, part := range strings.Split(relative, "/") {
 		switch part {
-		case ".curator_backups", "__pycache__", ".venv", "node_modules", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache":
+		case ".curator_backups", "__pycache__", ".venv", "venv", "node_modules", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache":
 			return true
 		}
 	}
-	return false
+	base := filepath.Base(relative)
+	return strings.HasSuffix(base, ".pyc") || strings.HasSuffix(base, ".pyo") || base == ".DS_Store"
 }
 
-func durableHermesPath(relative string, entry fs.DirEntry, bundledGroups map[string]bool) bool {
+func durableHermesPath(relative string, entry fs.DirEntry) bool {
 	if excludedBackupPath(relative) || isGeneratedArtifactPath(relative) {
 		return false
 	}
+	clean := strings.TrimPrefix(filepath.ToSlash(relative), "/")
+	if clean == "cron/output" || strings.HasPrefix(clean, "cron/output/") {
+		return false
+	}
 	parts := strings.Split(relative, "/")
-	if len(parts) > 0 && (parts[0] == "ingestion" || parts[0] == "usage" || parts[0] == "maintainer") {
-		base := parts[len(parts)-1]
-		if strings.HasSuffix(base, "-shm") || strings.HasSuffix(base, ".lock") || strings.HasSuffix(base, ".sock") || strings.HasSuffix(base, ".pid") || strings.HasSuffix(base, ".tmp") {
-			return false
-		}
-		return true
-	}
-	if len(parts) > 0 && parts[0] == ".local" {
-		if len(parts) == 1 {
-			return entry != nil && entry.IsDir()
-		}
-		if parts[1] != "manifests" {
-			return false
-		}
-		base := parts[len(parts)-1]
-		if strings.HasSuffix(base, ".lock") || strings.HasSuffix(base, ".tmp") {
-			return false
-		}
-		return true
-	}
 	base := parts[len(parts)-1]
 	for _, part := range parts {
 		switch part {
@@ -141,10 +126,7 @@ func durableHermesPath(relative string, entry fs.DirEntry, bundledGroups map[str
 	if portableHermesGeneratedPath(relative, entry) || base == ".bundled_manifest" || base == ".openlia-disabled" || base == "auth.json" || strings.HasPrefix(base, "models_dev_cache") {
 		return false
 	}
-	if strings.HasSuffix(base, ".sock") || strings.HasSuffix(base, ".pid") || strings.HasSuffix(base, ".lock") || strings.HasSuffix(base, ".env") {
-		return false
-	}
-	if len(parts) >= 2 && parts[0] == "skills" && bundledGroups[parts[1]] {
+	if strings.HasSuffix(base, "-shm") || strings.HasSuffix(base, ".db-journal") || strings.HasSuffix(base, ".tmp") || strings.HasSuffix(base, ".sock") || strings.HasSuffix(base, ".pid") || strings.HasSuffix(base, ".lock") || strings.HasSuffix(base, ".env") {
 		return false
 	}
 	return true
@@ -174,7 +156,7 @@ func portableHermesGeneratedPath(relative string, entry fs.DirEntry) bool {
 		return true
 	}
 	switch relative {
-	case "config.yaml", "services.json", "gateway_state.json", "channel_directory.json", ".clean_shutdown", "gateway-starts.log", "gateway.lock", "gateway.pid", "gateway.sock":
+	case "services.json", "gateway_state.json", "channel_directory.json", ".clean_shutdown", "gateway-starts.log", "gateway.lock", "gateway.pid", "gateway.sock":
 		return true
 	default:
 		return false
@@ -189,54 +171,11 @@ func portableMetaGeneratedPath(relative string, entry fs.DirEntry) bool {
 		return true
 	}
 	switch relative {
-	case "runtime.json", "last-change.json", "stack-state", "services.json", "backup-schedule-config.json", "backup-schedule-state.json", "backup-destinations.json":
+	case "runtime.json", "last-change.json", "stack-state", "services.json", "backup-schedule-config.json", "backup-schedule-state.json", "backup-destinations.json", "operator-config.json":
 		return true
 	default:
 		return false
 	}
-}
-
-func bundledSkillGroups(dataRoot string) map[string]bool {
-	result := make(map[string]bool)
-	manifestPath := filepath.Join(dataRoot, "skills", ".bundled_manifest")
-	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return result
-	}
-	bundled := make(map[string]bool)
-	for _, line := range strings.Split(string(data), "\n") {
-		name, _, ok := strings.Cut(strings.TrimSpace(line), ":")
-		if ok && name != "" {
-			bundled[name] = true
-		}
-	}
-	entries, err := os.ReadDir(filepath.Join(dataRoot, "skills"))
-	if err != nil {
-		return result
-	}
-	for _, group := range entries {
-		if !group.IsDir() {
-			continue
-		}
-		children, err := os.ReadDir(filepath.Join(dataRoot, "skills", group.Name()))
-		if err != nil || len(children) == 0 {
-			continue
-		}
-		allBundled := true
-		for _, child := range children {
-			if !child.IsDir() && child.Name() == "DESCRIPTION.md" {
-				continue
-			}
-			if !child.IsDir() || !bundled[child.Name()] {
-				allBundled = false
-				break
-			}
-		}
-		if allBundled {
-			result[group.Name()] = true
-		}
-	}
-	return result
 }
 
 func safeRelativeSymlink(name, target string) bool {
@@ -268,9 +207,6 @@ func excludedBackupPath(path string) bool {
 		}
 	}
 	base := filepath.Base(path)
-	if base == "shares.sqlite" || base == "shares.sqlite-wal" || base == "shares.sqlite-shm" {
-		return true
-	}
 	return strings.HasSuffix(base, ".env") || strings.HasSuffix(base, ".sock") || strings.HasSuffix(base, ".secret") || strings.Contains(base, ".secret") || base == "auth.json"
 }
 

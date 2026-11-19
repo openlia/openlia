@@ -312,7 +312,7 @@ func TestBackupExcludesSecretsAndAttachmentCapabilities(t *testing.T) {
 	}
 }
 
-func TestDurableBackupExcludesRebuildableSkillsAndCaches(t *testing.T) {
+func TestDurableBackupExcludesGeneratedArtifactsAndPreservesAllSkillsAndDurableState(t *testing.T) {
 	config := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "runtime"))
 	for _, directory := range []string{config.DataRoot, config.MetaRoot, config.BackupRoot, config.LochoRoot} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
@@ -321,17 +321,36 @@ func TestDurableBackupExcludesRebuildableSkillsAndCaches(t *testing.T) {
 	}
 	files := map[string]string{
 		filepath.Join(config.DataRoot, "workspace", "keep.md"):                                           "workspace",
+		filepath.Join(config.DataRoot, "memories", "MEMORY.md"):                                          "agent memory",
+		filepath.Join(config.DataRoot, "memories", "USER.md"):                                            "user profile",
+		filepath.Join(config.DataRoot, "SOUL.md"):                                                        "# Soul",
+		filepath.Join(config.DataRoot, "AGENTS.md"):                                                      "# Agents",
+		filepath.Join(config.DataRoot, "config.yaml"):                                                    "terminal:\n  backend: local\n",
+		filepath.Join(config.DataRoot, "state.db"):                                                       "sqlite-state",
+		filepath.Join(config.DataRoot, "state.db-wal"):                                                   "sqlite-state-wal",
+		filepath.Join(config.DataRoot, "state.db-shm"):                                                   "sqlite-state-shm",
+		filepath.Join(config.DataRoot, "state.db-journal"):                                               "sqlite-state-journal",
+		filepath.Join(config.DataRoot, "kanban.db"):                                                      "sqlite-kanban",
+		filepath.Join(config.DataRoot, "kanban.db-shm"):                                                  "sqlite-kanban-shm",
+		filepath.Join(config.DataRoot, "kanban", "boards", "default", "kanban.db"):                       "sqlite-board",
+		filepath.Join(config.DataRoot, "kanban", "boards", "default", "kanban.db-shm"):                   "sqlite-board-shm",
+		filepath.Join(config.DataRoot, "cron", "jobs.json"):                                              `{"jobs":[]}`,
+		filepath.Join(config.DataRoot, "cron", "output", "run-1.log"):                                    "cron output log",
 		filepath.Join(config.DataRoot, "cache", "model.bin"):                                             "cache",
 		filepath.Join(config.DataRoot, "home", "package.bin"):                                            "package",
 		filepath.Join(config.DataRoot, "skills", ".curator_backups", "old", "skills.tar.gz"):             "old snapshot",
 		filepath.Join(config.DataRoot, "skills", "weekly-review", "__pycache__", "helper.pyc"):           "bytecode",
-		filepath.Join(config.DataRoot, "skills", "weekly-review", ".venv", "bin", "python"):              "virtualenv",
+		filepath.Join(config.DataRoot, "skills", "weekly-review", "standalone.pyc"):                      "standalone bytecode",
+		filepath.Join(config.DataRoot, "skills", "weekly-review", ".venv", "bin", "python"):              "dot virtualenv",
+		filepath.Join(config.DataRoot, "skills", "weekly-review", "venv", "bin", "python"):               "virtualenv",
 		filepath.Join(config.DataRoot, "skills", "weekly-review", "node_modules", "package", "index.js"): "dependency",
+		filepath.Join(config.DataRoot, "skills", "weekly-review", ".DS_Store"):                           "finder metadata",
 		filepath.Join(config.DataRoot, "skills", "creative", "DESCRIPTION.md"):                           "bundled metadata",
-		filepath.Join(config.DataRoot, "skills", "creative", "ascii-video", "SKILL.md"):                  "bundled",
+		filepath.Join(config.DataRoot, "skills", "creative", "ascii-video", "SKILL.md"):                  "edited bundled skill",
 		filepath.Join(config.DataRoot, "skills", "weekly-review", "SKILL.md"):                            "managed",
 		filepath.Join(config.DataRoot, "skills", ".bundled_manifest"):                                    "ascii-video:hash\n",
 		filepath.Join(config.MetaRoot, ".cache", "generated.json"):                                       "generated",
+		filepath.Join(config.MetaRoot, "operator-config.json"):                                           `{"InstallRoot":"/old"}`,
 	}
 	for path, contents := range files {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -344,7 +363,22 @@ func TestDurableBackupExcludesRebuildableSkillsAndCaches(t *testing.T) {
 	result, identity := createTestEncryptedBackup(t, &config, "durable-scope", time.Now())
 	plainArchive := decryptTestBackup(t, config.BackupRoot, result.Archive, identity)
 	names := archiveNames(t, plainArchive)
-	for _, expected := range []string{"hermes/workspace/keep.md", "hermes/skills/weekly-review/SKILL.md"} {
+	for _, expected := range []string{
+		"hermes/workspace/keep.md",
+		"hermes/memories/MEMORY.md",
+		"hermes/memories/USER.md",
+		"hermes/SOUL.md",
+		"hermes/AGENTS.md",
+		"hermes/config.yaml",
+		"hermes/state.db",
+		"hermes/state.db-wal",
+		"hermes/kanban.db",
+		"hermes/kanban/boards/default/kanban.db",
+		"hermes/cron/jobs.json",
+		"hermes/skills/creative/DESCRIPTION.md",
+		"hermes/skills/creative/ascii-video/SKILL.md",
+		"hermes/skills/weekly-review/SKILL.md",
+	} {
 		if !names[expected] {
 			t.Fatalf("durable member missing %s: %v", expected, names)
 		}
@@ -352,12 +386,22 @@ func TestDurableBackupExcludesRebuildableSkillsAndCaches(t *testing.T) {
 	for _, excluded := range []string{
 		"hermes/cache/model.bin",
 		"hermes/home/package.bin",
-		"hermes/skills/creative/ascii-video/SKILL.md",
+		"hermes/state.db-shm",
+		"hermes/state.db-journal",
+		"hermes/kanban.db-shm",
+		"hermes/kanban/boards/default/kanban.db-shm",
+		"hermes/cron/output",
+		"hermes/cron/output/run-1.log",
+		"hermes/skills/.bundled_manifest",
 		"hermes/skills/.curator_backups/old/skills.tar.gz",
 		"hermes/skills/weekly-review/__pycache__/helper.pyc",
+		"hermes/skills/weekly-review/standalone.pyc",
 		"hermes/skills/weekly-review/.venv/bin/python",
+		"hermes/skills/weekly-review/venv/bin/python",
 		"hermes/skills/weekly-review/node_modules/package/index.js",
+		"hermes/skills/weekly-review/.DS_Store",
 		"meta/.cache/generated.json",
+		"meta/operator-config.json",
 		"locho",
 	} {
 		if names[excluded] {
@@ -433,17 +477,43 @@ func TestRestoreRollbackAppliesOnlyDeclaredPaths(t *testing.T) {
 
 func TestDurableBackupRestoresAcrossRuntimeRoots(t *testing.T) {
 	sourceConfig := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "source-runtime"))
+	sourceConfig.Provider = "copilot"
+	sourceConfig.Model = "old-host-model"
 	for _, directory := range []string{sourceConfig.DataRoot, sourceConfig.MetaRoot, sourceConfig.BackupRoot} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
+	sourceHermesConfig := strings.Join([]string{
+		runtimeConfigBlockStart,
+		"model:",
+		"  provider: \"copilot\"",
+		"  default: \"old-host-model\"",
+		"secrets:",
+		"  command:",
+		"    enabled: true",
+		"    command: \"/usr/local/bin/openlia-secret-source\"",
+		runtimeConfigBlockEnd,
+		"",
+		"terminal:",
+		"  backend: \"local\"",
+		"  timeout: 180",
+		"",
+		fallbackBlockStart,
+		"fallback_providers: []",
+		fallbackBlockEnd,
+	}, "\n") + "\n"
 	for path, contents := range map[string]string{
-		filepath.Join(sourceConfig.DataRoot, "workspace", "note.md"):  "portable",
-		filepath.Join(sourceConfig.DataRoot, "config.yaml"):           "old host config",
-		filepath.Join(sourceConfig.DataRoot, "services.json"):         "old services",
-		filepath.Join(sourceConfig.MetaRoot, "runtime.json"):          `{"install_root":"/old/root"}`,
-		filepath.Join(sourceConfig.MetaRoot, "managed", "state.json"): "managed state",
+		filepath.Join(sourceConfig.DataRoot, "workspace", "note.md"):                   "portable",
+		filepath.Join(sourceConfig.DataRoot, "SOUL.md"):                                "# Restored Soul\n",
+		filepath.Join(sourceConfig.DataRoot, "AGENTS.md"):                              "# Restored Agents\n",
+		filepath.Join(sourceConfig.DataRoot, "memories", "MEMORY.md"):                  "durable memory\n",
+		filepath.Join(sourceConfig.DataRoot, "skills", "creative", "edit", "SKILL.md"): "edited skill\n",
+		filepath.Join(sourceConfig.DataRoot, "cron", "jobs.json"):                      `{"jobs":["daily"]}`,
+		filepath.Join(sourceConfig.DataRoot, "config.yaml"):                            sourceHermesConfig,
+		filepath.Join(sourceConfig.DataRoot, "services.json"):                          "old services",
+		filepath.Join(sourceConfig.MetaRoot, "runtime.json"):                           `{"install_root":"/old/root"}`,
+		filepath.Join(sourceConfig.MetaRoot, "managed", "state.json"):                  "managed state",
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
@@ -459,13 +529,18 @@ func TestDurableBackupRestoresAcrossRuntimeRoots(t *testing.T) {
 		t.Fatalf("backup metadata is not portable: %s", metadataData)
 	}
 	targetConfig := testConfig(t.TempDir(), filepath.Join(t.TempDir(), "new-runtime"))
+	targetConfig.Provider = "openai-api"
+	targetConfig.Model = "new-host-model"
+	targetConfig.FallbackProviders = []FallbackProviderConfig{
+		{Provider: "custom", Model: "gateway-model", BaseURL: "http://locho-laptop:11434/v1"},
+	}
 	for _, directory := range []string{targetConfig.DataRoot, targetConfig.MetaRoot, targetConfig.BackupRoot} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
 	targetConfig.BackupRecipient = sourceConfig.BackupRecipient
-	if err := os.WriteFile(filepath.Join(targetConfig.DataRoot, "config.yaml"), []byte("new host config"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(targetConfig.DataRoot, "config.yaml"), []byte("new host bootstrap config"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := restoreTestEncryptedBackup(t, targetConfig, archive.Archive, identity, time.Now()); err != nil {
@@ -475,9 +550,35 @@ func TestDurableBackupRestoresAcrossRuntimeRoots(t *testing.T) {
 	if err != nil || string(contents) != "portable" {
 		t.Fatalf("portable workspace restore = %q, err=%v", contents, err)
 	}
+	for relative, want := range map[string]string{
+		"SOUL.md":                       "# Restored Soul\n",
+		"AGENTS.md":                     "# Restored Agents\n",
+		"memories/MEMORY.md":            "durable memory\n",
+		"skills/creative/edit/SKILL.md": "edited skill\n",
+		"cron/jobs.json":                `{"jobs":["daily"]}`,
+	} {
+		got, readErr := os.ReadFile(filepath.Join(targetConfig.DataRoot, filepath.FromSlash(relative)))
+		if readErr != nil || string(got) != want {
+			t.Fatalf("restored %s = %q, want %q (err=%v)", relative, got, want, readErr)
+		}
+	}
 	configContents, err := os.ReadFile(filepath.Join(targetConfig.DataRoot, "config.yaml"))
-	if err != nil || string(configContents) != "new host config" {
-		t.Fatalf("host config was restored over destination config: %q, err=%v", configContents, err)
+	if err != nil {
+		t.Fatalf("read restored config.yaml: %v", err)
+	}
+	configText := string(configContents)
+	for _, expected := range []string{
+		"terminal:\n  backend: \"local\"\n  timeout: 180",
+		"provider: \"openai-api\"",
+		"default: \"new-host-model\"",
+		"base_url: \"http://locho-laptop:11434/v1\"",
+	} {
+		if !strings.Contains(configText, expected) {
+			t.Fatalf("restored config.yaml missing %q:\n%s", expected, configText)
+		}
+	}
+	if strings.Contains(configText, "old-host-model") {
+		t.Fatalf("restored config.yaml kept stale source model:\n%s", configText)
 	}
 	var runtime RuntimeMetadata
 	runtimeData, err := os.ReadFile(filepath.Join(targetConfig.MetaRoot, "runtime.json"))
