@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DocumentScope, WorkspaceTreeEntry } from "../../../shared/api";
 import { ResponsiveDrawer } from "../../components/common/ResponsiveDrawer";
+import { ScopeSwitcher } from "../../components/layout/ScopeSwitcher";
 import { buildDocumentLink, copyToClipboard } from "../../openliaLinks";
 
 export interface TreeNode {
@@ -9,6 +10,7 @@ export interface TreeNode {
   name: string;
   kind: WorkspaceTreeEntry["kind"];
   editable?: boolean | undefined;
+  protected?: boolean | undefined;
   children: TreeNode[];
 }
 
@@ -35,8 +37,9 @@ export function buildTree(entries: WorkspaceTreeEntry[]): TreeNode[] {
           name: part,
           path: currentPath,
         };
-        if (isLeaf && entry.kind === "file") {
+        if (isLeaf) {
           createdNode.editable = entry.editable;
+          createdNode.protected = entry.protected;
         }
         node = createdNode;
         parent.children.push(node);
@@ -110,6 +113,7 @@ export function FileNavigator({
   onScopeChange,
   workspaceFileCount,
   skillsFileCount,
+  agentFileCount,
 }: {
   entries: WorkspaceTreeEntry[];
   filter: string;
@@ -134,6 +138,7 @@ export function FileNavigator({
   onScopeChange?: ((scope: DocumentScope) => void) | undefined;
   workspaceFileCount?: number | undefined;
   skillsFileCount?: number | undefined;
+  agentFileCount?: number | undefined;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [highlightedPath, setHighlightedPath] = useState<string | null>(null);
@@ -305,7 +310,7 @@ export function FileNavigator({
                         </svg>
                       </button>
                     )}
-                    {onDeleteFolder && (
+                    {onDeleteFolder && !node.protected && (
                       <div className="dropdown dropdown-end absolute right-1 z-10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                         <button
                           aria-label={`Actions for ${node.name}`}
@@ -392,6 +397,11 @@ export function FileNavigator({
                     type="button"
                   >
                     <span className="min-w-0 truncate">{node.name}</span>
+                    {node.protected && (
+                      <span className="badge badge-ghost badge-xs text-[10px] opacity-70 ml-1">
+                        System
+                      </span>
+                    )}
                     {!node.editable && (
                       <span className="text-[10px]" title="View only">
                         View only ↗
@@ -423,7 +433,7 @@ export function FileNavigator({
                         </svg>
                       </button>
                       <ul className="dropdown-content menu z-30 rounded-box border border-base-content/10 bg-base-100 p-1 shadow-lg text-xs w-36">
-                        {onRenameFile && node.editable && (
+                        {onRenameFile && node.editable && !node.protected && (
                           <li>
                             <button
                               onClick={(e) => {
@@ -438,7 +448,7 @@ export function FileNavigator({
                             </button>
                           </li>
                         )}
-                        {onMoveFile && node.editable && (
+                        {onMoveFile && node.editable && !node.protected && (
                           <li>
                             <button
                               onClick={(e) => {
@@ -490,7 +500,7 @@ export function FileNavigator({
                             Copy Link
                           </button>
                         </li>
-                        {onDeleteFile && (
+                        {onDeleteFile && !node.protected && (
                           <li>
                             <button
                               className="text-error"
@@ -520,136 +530,141 @@ export function FileNavigator({
 
   return (
     <ResponsiveDrawer
-      title={scope === "skills" ? "Skills" : "Files"}
-      label={scope === "skills" ? "Hermes skills" : "Workspace files"}
+      title={
+        scope === "skills" ? "Skills" : scope === "agent" ? "Agent" : "Files"
+      }
+      label={
+        scope === "skills"
+          ? "Hermes skills"
+          : scope === "agent"
+            ? "Agent instructions & memory"
+            : "Workspace files"
+      }
       open={mobileOpen}
       onClose={onClose}
       className="workspace-navigator"
     >
-      <div className="min-h-0 flex-1 overflow-auto p-4">
-        {onScopeChange && (
-          <div className="join mb-4 grid w-full grid-cols-2">
-            <button
-              className={`btn btn-xs join-item ${
-                scope === "workspace" ? "btn-active btn-neutral" : "btn-ghost"
-              }`}
-              onClick={() => onScopeChange("workspace")}
-              type="button"
-            >
-              Workspace
-              {typeof workspaceFileCount === "number" && (
-                <span className="badge badge-xs opacity-70 ml-1">
-                  {workspaceFileCount}
-                </span>
+      <div className="flex h-full min-h-0 flex-1 flex-col">
+        <div className="shrink-0 border-b border-base-content/10 p-4 pb-3 space-y-3">
+          {onScopeChange && (
+            <div className="sm:hidden">
+              <ScopeSwitcher
+                activeScope={scope}
+                agentCount={agentFileCount}
+                className="w-full grid grid-cols-3"
+                onScopeChange={onScopeChange}
+                size="xs"
+                skillsCount={skillsFileCount}
+                workspaceCount={workspaceFileCount}
+              />
+            </div>
+          )}
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">
+                {scope === "skills"
+                  ? "Skills"
+                  : scope === "agent"
+                    ? "Agent"
+                    : "Files"}
+              </h2>
+              <p
+                aria-live="polite"
+                className="mt-0.5 text-xs text-base-content/50"
+              >
+                {query
+                  ? `${visibleFiles} matching files`
+                  : `${totalFiles} files`}
+              </p>
+            </div>
+            <div className="flex items-center gap-1">
+              {query && (
+                <button
+                  className="btn btn-ghost btn-xs"
+                  onClick={() => onFilterChange("")}
+                  type="button"
+                >
+                  Clear
+                </button>
               )}
-            </button>
-            <button
-              className={`btn btn-xs join-item ${
-                scope === "skills" ? "btn-active btn-neutral" : "btn-ghost"
-              }`}
-              onClick={() => onScopeChange("skills")}
-              type="button"
-            >
-              Skills
-              {typeof skillsFileCount === "number" && (
-                <span className="badge badge-xs opacity-70 ml-1">
-                  {skillsFileCount}
-                </span>
+              {onCreateFile && (
+                <button
+                  className="btn btn-ghost btn-xs text-primary font-medium"
+                  onClick={() => {
+                    onCreateFile();
+                    if (mobileOpen) onClose();
+                  }}
+                  title={
+                    scope === "skills"
+                      ? "Create new skill file"
+                      : "Create new file"
+                  }
+                  type="button"
+                >
+                  {scope === "skills" ? "+ New Skill" : "+ New File"}
+                </button>
               )}
-            </button>
+            </div>
           </div>
-        )}
-        <div className="mb-4 flex items-end justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold">
-              {scope === "skills" ? "Skills" : "Files"}
-            </h2>
-            <p aria-live="polite" className="mt-1 text-xs text-base-content/50">
-              {query ? `${visibleFiles} matching files` : `${totalFiles} files`}
-            </p>
-          </div>
-          <div className="flex items-center gap-1">
-            {query && (
-              <button
-                className="btn btn-ghost btn-xs"
-                onClick={() => onFilterChange("")}
-                type="button"
-              >
-                Clear
-              </button>
-            )}
-            {onCreateFile && (
-              <button
-                className="btn btn-ghost btn-xs text-primary font-medium"
-                onClick={() => {
-                  onCreateFile();
-                  if (mobileOpen) onClose();
-                }}
-                title={
-                  scope === "skills"
-                    ? "Create new skill file"
-                    : "Create new file"
-                }
-                type="button"
-              >
-                {scope === "skills" ? "+ New Skill" : "+ New File"}
-              </button>
-            )}
+            <label className="sr-only" htmlFor="workspace-file-filter">
+              Find files
+            </label>
+            <input
+              className="input input-bordered input-sm w-full bg-base-200/50"
+              id="workspace-file-filter"
+              onChange={(event) => onFilterChange(event.target.value)}
+              placeholder="Search paths"
+              type="search"
+              value={filter}
+            />
           </div>
         </div>
-        <label className="sr-only" htmlFor="workspace-file-filter">
-          Find files
-        </label>
-        <input
-          className="input input-bordered input-sm w-full bg-base-200/50"
-          id="workspace-file-filter"
-          onChange={(event) => onFilterChange(event.target.value)}
-          placeholder="Search paths"
-          type="search"
-          value={filter}
-        />
-        {query &&
-          selectedPath &&
-          !selectedPath.toLowerCase().includes(query) && (
-            <p className="mt-2 text-xs text-warning" role="status">
-              Current document is outside this search.
+
+        <div className="min-h-0 flex-1 overflow-auto p-4 pt-3">
+          {query &&
+            selectedPath &&
+            !selectedPath.toLowerCase().includes(query) && (
+              <p className="mb-2 text-xs text-warning" role="status">
+                Current document is outside this search.
+              </p>
+            )}
+          {truncated && (
+            <p className="alert alert-warning mb-3 p-3 text-xs">
+              Showing the first {entries.length} workspace entries.
             </p>
           )}
-        {truncated && (
-          <p className="alert alert-warning mt-3 p-3 text-xs">
-            Showing the first {entries.length} workspace entries.
-          </p>
-        )}
-        {workspaceError ? (
-          <div className="mt-5 rounded-lg border border-error/30 bg-error/10 p-4">
-            <p className="text-sm font-semibold">Workspace unavailable</p>
-            <p className="mt-1 text-xs text-base-content/60">
-              Workspace files could not be loaded.
-            </p>
-            <button
-              className="btn btn-error btn-sm mt-3"
-              onClick={onRetry}
-              type="button"
-            >
-              Retry
-            </button>
-          </div>
-        ) : loading ? (
-          <p className="mt-5 text-sm text-base-content/50">Loading files...</p>
-        ) : visibleFiles === 0 && !showWorkspaceSection ? (
-          <div className="mt-5 rounded-lg border border-base-content/10 bg-base-200/40 p-4">
-            <p className="text-sm font-semibold">
-              {query ? `No files match “${filter}”` : "No documents yet"}
-            </p>
-            <p className="mt-1 text-xs text-base-content/60">
-              {query
-                ? "Try a different path or clear the search."
-                : "Create or upload a file to get started."}
-            </p>
-          </div>
-        ) : (
-          <div className="mt-4">{renderNodes(nodes)}</div>
-        )}
+          {workspaceError ? (
+            <div className="rounded-lg border border-error/30 bg-error/10 p-4">
+              <p className="text-sm font-semibold">Workspace unavailable</p>
+              <p className="mt-1 text-xs text-base-content/60">
+                Workspace files could not be loaded.
+              </p>
+              <button
+                className="btn btn-error btn-sm mt-3"
+                onClick={onRetry}
+                type="button"
+              >
+                Retry
+              </button>
+            </div>
+          ) : loading ? (
+            <p className="text-sm text-base-content/50">Loading files...</p>
+          ) : visibleFiles === 0 && !showWorkspaceSection ? (
+            <div className="rounded-lg border border-base-content/10 bg-base-200/40 p-4">
+              <p className="text-sm font-semibold">
+                {query ? `No files match “${filter}”` : "No documents yet"}
+              </p>
+              <p className="mt-1 text-xs text-base-content/60">
+                {query
+                  ? "Try a different path or clear the search."
+                  : "Create or upload a file to get started."}
+              </p>
+            </div>
+          ) : (
+            <div>{renderNodes(nodes)}</div>
+          )}
+        </div>
       </div>
     </ResponsiveDrawer>
   );

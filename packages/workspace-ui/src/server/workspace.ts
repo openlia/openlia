@@ -31,6 +31,8 @@ export const DEFAULT_MAX_EDITABLE_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
 export const DEFAULT_MAX_TREE_ENTRIES = 10_000;
 
+export const PROTECTED_AGENT_FILENAMES = new Set(["SOUL.md", "AGENTS.md"]);
+
 const editableExtensions = new Set([
   ".md",
   ".markdown",
@@ -203,7 +205,7 @@ export class WorkspaceService {
     this.maxTreeEntries = options.maxTreeEntries ?? DEFAULT_MAX_TREE_ENTRIES;
   }
 
-  private normalizeRelativePath(rawPath: string): string {
+  protected normalizeRelativePath(rawPath: string): string {
     const trimmed = rawPath.trim().replace(/^\/+/, "");
     if (!trimmed) {
       throw new WorkspaceError("Path is required", 400, "invalid_path");
@@ -231,11 +233,12 @@ export class WorkspaceService {
     return parts.join("/");
   }
 
-  private resolveSafePath(
+  protected resolveSafePath(
     rawPath: string,
     options: { allowMissingLeaf?: boolean } = {},
-  ): { relativePath: string; absolutePath: string } {
+  ): { relativePath: string; absolutePath: string; isProtected: boolean } {
     const relativePath = this.normalizeRelativePath(rawPath);
+
     const absolutePath = resolve(this.workspaceRoot, relativePath);
     if (
       absolutePath !== this.workspaceRoot &&
@@ -288,10 +291,10 @@ export class WorkspaceService {
       }
     }
 
-    return { relativePath, absolutePath };
+    return { relativePath, absolutePath, isProtected: false };
   }
 
-  private isFileEditable(
+  protected isFileEditable(
     relativePath: string,
     stat: Stats,
     bytes?: Uint8Array,
@@ -415,7 +418,8 @@ export class WorkspaceService {
   }
 
   readFile(rawPath: string): WorkspaceFile {
-    const { relativePath, absolutePath } = this.resolveSafePath(rawPath);
+    const { relativePath, absolutePath, isProtected } =
+      this.resolveSafePath(rawPath);
     if (!existsSync(absolutePath)) {
       throw new WorkspaceError("File not found", 404, "not_found");
     }
@@ -457,11 +461,13 @@ export class WorkspaceService {
       modified_at: stat.mtime.toISOString(),
       revision,
       editable: true,
+      ...(isProtected ? { protected: true } : {}),
     };
   }
 
   readFileMetadata(rawPath: string): WorkspaceFileMetadata {
-    const { relativePath, absolutePath } = this.resolveSafePath(rawPath);
+    const { relativePath, absolutePath, isProtected } =
+      this.resolveSafePath(rawPath);
     if (!existsSync(absolutePath)) {
       throw new WorkspaceError("File not found", 404, "not_found");
     }
@@ -484,6 +490,7 @@ export class WorkspaceService {
       modified_at: stat.mtime.toISOString(),
       revision,
       editable,
+      ...(isProtected ? { protected: true } : {}),
     };
   }
 
@@ -515,7 +522,8 @@ export class WorkspaceService {
     content: string,
     expectedRevision: string,
   ): WorkspaceWriteResponse {
-    const { relativePath, absolutePath } = this.resolveSafePath(rawPath);
+    const { relativePath, absolutePath, isProtected } =
+      this.resolveSafePath(rawPath);
     if (isKnownBinaryExtension(relativePath)) {
       throw new WorkspaceError(
         "Binary files are view-only and cannot be edited",
@@ -569,6 +577,7 @@ export class WorkspaceService {
       modified_at: updatedStat.mtime.toISOString(),
       revision: newRevision,
       editable: true,
+      ...(isProtected ? { protected: true } : {}),
     };
   }
 
@@ -655,7 +664,15 @@ export class WorkspaceService {
   }
 
   renameFile(rawPath: string, newName: string): WorkspaceRenameResponse {
-    const { relativePath, absolutePath } = this.resolveSafePath(rawPath);
+    const { relativePath, absolutePath, isProtected } =
+      this.resolveSafePath(rawPath);
+    if (isProtected || PROTECTED_AGENT_FILENAMES.has(relativePath)) {
+      throw new WorkspaceError(
+        `"${relativePath}" is a protected file and cannot be renamed`,
+        403,
+        "protected_file",
+      );
+    }
     if (!existsSync(absolutePath)) {
       throw new WorkspaceError("File not found", 404, "not_found");
     }
@@ -684,6 +701,17 @@ export class WorkspaceService {
     const { relativePath: newRelativePath, absolutePath: newAbsolutePath } =
       this.resolveSafePath(targetRelPath, { allowMissingLeaf: true });
 
+    if (
+      PROTECTED_AGENT_FILENAMES.has(newRelativePath) ||
+      newRelativePath === "memories"
+    ) {
+      throw new WorkspaceError(
+        `Cannot rename to protected name "${newRelativePath}"`,
+        403,
+        "protected_file",
+      );
+    }
+
     if (newRelativePath === relativePath) {
       return {
         schema: 1,
@@ -710,7 +738,15 @@ export class WorkspaceService {
   }
 
   moveFile(rawPath: string, destinationDir: string): WorkspaceMoveResponse {
-    const { relativePath, absolutePath } = this.resolveSafePath(rawPath);
+    const { relativePath, absolutePath, isProtected } =
+      this.resolveSafePath(rawPath);
+    if (isProtected || PROTECTED_AGENT_FILENAMES.has(relativePath)) {
+      throw new WorkspaceError(
+        `"${relativePath}" is a protected file and cannot be moved`,
+        403,
+        "protected_file",
+      );
+    }
     if (!existsSync(absolutePath)) {
       throw new WorkspaceError("File not found", 404, "not_found");
     }
@@ -726,6 +762,17 @@ export class WorkspaceService {
       : fileName;
     const { relativePath: newRelativePath, absolutePath: newAbsolutePath } =
       this.resolveSafePath(targetRelPath, { allowMissingLeaf: true });
+
+    if (
+      PROTECTED_AGENT_FILENAMES.has(newRelativePath) ||
+      newRelativePath === "memories"
+    ) {
+      throw new WorkspaceError(
+        `Cannot move to protected name "${newRelativePath}"`,
+        403,
+        "protected_file",
+      );
+    }
 
     if (newRelativePath === relativePath) {
       return {
@@ -757,7 +804,15 @@ export class WorkspaceService {
     rawPath: string,
     expectedRevision?: string | undefined,
   ): WorkspaceDeleteResponse {
-    const { relativePath, absolutePath } = this.resolveSafePath(rawPath);
+    const { relativePath, absolutePath, isProtected } =
+      this.resolveSafePath(rawPath);
+    if (isProtected || PROTECTED_AGENT_FILENAMES.has(relativePath)) {
+      throw new WorkspaceError(
+        `"${relativePath}" is a protected file and cannot be deleted`,
+        403,
+        "protected_file",
+      );
+    }
     if (!existsSync(absolutePath)) {
       throw new WorkspaceError("File not found", 404, "not_found");
     }
@@ -787,7 +842,15 @@ export class WorkspaceService {
   }
 
   deleteDirectory(rawPath: string): WorkspaceDeleteResponse {
-    const { relativePath, absolutePath } = this.resolveSafePath(rawPath);
+    const { relativePath, absolutePath, isProtected } =
+      this.resolveSafePath(rawPath);
+    if (isProtected || relativePath === "memories") {
+      throw new WorkspaceError(
+        `"${relativePath}" is a protected system directory and cannot be deleted`,
+        403,
+        "protected_file",
+      );
+    }
     if (!existsSync(absolutePath)) {
       throw new WorkspaceError("Directory not found", 404, "not_found");
     }
@@ -867,5 +930,128 @@ export class WorkspaceService {
     }
     closeSync(fd);
     renameSync(tempPath, destination);
+  }
+}
+
+export interface AgentServiceOptions {
+  dataRoot: string;
+  maxEditableBytes?: number | undefined;
+  maxDownloadBytes?: number | undefined;
+  maxTreeEntries?: number | undefined;
+}
+
+export class AgentService extends WorkspaceService {
+  readonly dataRoot: string;
+
+  constructor(options: AgentServiceOptions) {
+    super({
+      workspaceRoot: options.dataRoot,
+      maxEditableBytes: options.maxEditableBytes,
+      maxDownloadBytes: options.maxDownloadBytes,
+      maxTreeEntries: options.maxTreeEntries,
+    });
+    this.dataRoot = resolve(options.dataRoot);
+  }
+
+  protected override resolveSafePath(
+    rawPath: string,
+    options: { allowMissingLeaf?: boolean } = {},
+  ): { relativePath: string; absolutePath: string; isProtected: boolean } {
+    const relativePath = this.normalizeRelativePath(rawPath);
+    const isProfileFile = PROTECTED_AGENT_FILENAMES.has(relativePath);
+    const isMemoriesDir = relativePath === "memories";
+    const isInsideMemories = relativePath.startsWith("memories/");
+
+    if (!isProfileFile && !isMemoriesDir && !isInsideMemories) {
+      throw new WorkspaceError(
+        `Access to "${relativePath}" is not allowed in Agent scope`,
+        403,
+        "forbidden_path",
+      );
+    }
+
+    const base = super.resolveSafePath(rawPath, options);
+    return {
+      ...base,
+      isProtected: isProfileFile || isMemoriesDir,
+    };
+  }
+
+  override listTree(): WorkspaceTreeResponse {
+    const entries: WorkspaceTreeEntry[] = [];
+    const profileNames = ["AGENTS.md", "SOUL.md"];
+
+    for (const name of profileNames) {
+      const fullPath = join(this.dataRoot, name);
+      if (!existsSync(fullPath)) continue;
+      try {
+        const stat = lstatSync(fullPath);
+        if (stat.isSymbolicLink() || !stat.isFile()) continue;
+        entries.push({
+          path: name,
+          kind: "file",
+          size: stat.size,
+          modified_at: stat.mtime.toISOString(),
+          editable: this.isFileEditable(name, stat),
+          protected: true,
+        });
+      } catch {
+        // ignore
+      }
+    }
+
+    const memoriesDir = join(this.dataRoot, "memories");
+    if (existsSync(memoriesDir)) {
+      try {
+        const memStat = lstatSync(memoriesDir);
+        if (!memStat.isSymbolicLink() && memStat.isDirectory()) {
+          entries.push({
+            path: "memories",
+            kind: "directory",
+            protected: true,
+          });
+
+          const walk = (currentDir: string) => {
+            const dirents = readdirSync(currentDir, { withFileTypes: true });
+            dirents.sort((a, b) => a.name.localeCompare(b.name));
+            for (const dirent of dirents) {
+              const fullPath = join(currentDir, dirent.name);
+              const stat = lstatSync(fullPath);
+              if (stat.isSymbolicLink()) continue;
+              const relPath = relative(this.dataRoot, fullPath)
+                .split(sep)
+                .join("/");
+
+              if (stat.isDirectory()) {
+                entries.push({
+                  path: relPath,
+                  kind: "directory",
+                });
+                walk(fullPath);
+              } else if (stat.isFile()) {
+                entries.push({
+                  path: relPath,
+                  kind: "file",
+                  size: stat.size,
+                  modified_at: stat.mtime.toISOString(),
+                  editable: this.isFileEditable(relPath, stat),
+                });
+              }
+            }
+          };
+
+          walk(memoriesDir);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return {
+      schema: 1,
+      ok: true,
+      entries,
+      truncated: false,
+    };
   }
 }

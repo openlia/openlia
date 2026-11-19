@@ -44,7 +44,11 @@ function parseRouteFromLocation(): RouteState {
 
   const rawScope = params.get("scope");
   const queryScope: DocumentScope =
-    rawScope === "skills" ? "skills" : "workspace";
+    rawScope === "skills"
+      ? "skills"
+      : rawScope === "agent"
+        ? "agent"
+        : "workspace";
 
   if (pathname === "/skills" || pathname.startsWith("/skills/")) {
     const encoded = pathname.slice("/skills".length).replace(/^\/+/, "");
@@ -55,6 +59,20 @@ function parseRouteFromLocation(): RouteState {
       return {
         path: encoded.replace(/^\/+/, "") || undefined,
         scope: "skills",
+        view,
+      };
+    }
+  }
+
+  if (pathname === "/agent" || pathname.startsWith("/agent/")) {
+    const encoded = pathname.slice("/agent".length).replace(/^\/+/, "");
+    try {
+      const decoded = decodeURIComponent(encoded).replace(/^\/+/, "");
+      return { path: decoded || undefined, scope: "agent", view };
+    } catch {
+      return {
+        path: encoded.replace(/^\/+/, "") || undefined,
+        scope: "agent",
         view,
       };
     }
@@ -86,12 +104,15 @@ function pushRouteToHistory(
 ) {
   if (typeof window === "undefined") return;
   const cleanPath = path?.replace(/^\/+/, "");
-  const prefix = scope === "skills" ? "/skills/" : "/files/";
+  const prefix =
+    scope === "skills" ? "/skills/" : scope === "agent" ? "/agent/" : "/files/";
   const nextPathname = cleanPath
     ? `${prefix}${cleanPath}`
     : scope === "skills"
       ? "/skills/"
-      : "/";
+      : scope === "agent"
+        ? "/agent/"
+        : "/";
   const params = new URLSearchParams(window.location.search);
   params.delete("path");
   params.delete("scope");
@@ -128,15 +149,26 @@ export function App({ api }: { api: WorkspaceApi }) {
     WorkspaceTreeEntry[]
   >([]);
   const [skillsEntries, setSkillsEntries] = useState<WorkspaceTreeEntry[]>([]);
+  const [agentEntries, setAgentEntries] = useState<WorkspaceTreeEntry[]>([]);
   const [workspaceTruncated, setWorkspaceTruncated] = useState(false);
   const [skillsTruncated, setSkillsTruncated] = useState(false);
+  const [agentTruncated, setAgentTruncated] = useState(false);
   const [treeLoading, setTreeLoading] = useState(true);
   const [workspaceError, setWorkspaceError] = useState("");
   const [filter, setFilter] = useState("");
 
-  const entries = activeScope === "skills" ? skillsEntries : workspaceEntries;
+  const entries =
+    activeScope === "skills"
+      ? skillsEntries
+      : activeScope === "agent"
+        ? agentEntries
+        : workspaceEntries;
   const truncated =
-    activeScope === "skills" ? skillsTruncated : workspaceTruncated;
+    activeScope === "skills"
+      ? skillsTruncated
+      : activeScope === "agent"
+        ? agentTruncated
+        : workspaceTruncated;
 
   const [selectedPath, setSelectedPath] = useState<string | undefined>(
     initialRoute.path,
@@ -186,6 +218,8 @@ export function App({ api }: { api: WorkspaceApi }) {
   workspaceEntriesRef.current = workspaceEntries;
   const skillsEntriesRef = useRef<WorkspaceTreeEntry[]>([]);
   skillsEntriesRef.current = skillsEntries;
+  const agentEntriesRef = useRef<WorkspaceTreeEntry[]>([]);
+  agentEntriesRef.current = agentEntries;
   const entriesRef = useRef<WorkspaceTreeEntry[]>([]);
   entriesRef.current = entries;
 
@@ -219,9 +253,10 @@ export function App({ api }: { api: WorkspaceApi }) {
     setTreeLoading(true);
     setWorkspaceError("");
     try {
-      const [wsRes, skRes] = await Promise.allSettled([
+      const [wsRes, skRes, agRes] = await Promise.allSettled([
         api.loadTree(),
         api.loadTree("skills"),
+        api.loadTree("agent"),
       ]);
 
       let wsEntries: WorkspaceTreeEntry[] = [];
@@ -260,9 +295,19 @@ export function App({ api }: { api: WorkspaceApi }) {
         setSkillsTruncated(false);
       }
 
+      if (agRes.status === "fulfilled") {
+        setAgentEntries(agRes.value.entries);
+        setAgentTruncated(agRes.value.truncated);
+      } else {
+        setAgentEntries([]);
+        setAgentTruncated(false);
+      }
+
       return activeScopeRef.current === "skills" && skRes.status === "fulfilled"
         ? skRes.value.entries
-        : wsEntries;
+        : activeScopeRef.current === "agent" && agRes.status === "fulfilled"
+          ? agRes.value.entries
+          : wsEntries;
     } finally {
       setTreeLoading(false);
     }
@@ -295,16 +340,18 @@ export function App({ api }: { api: WorkspaceApi }) {
         options?.knownEntries ??
         (targetScope === "skills"
           ? skillsEntriesRef.current
-          : workspaceEntriesRef.current);
+          : targetScope === "agent"
+            ? agentEntriesRef.current
+            : workspaceEntriesRef.current);
       const entry = treeList.find((item) => item.path === cleanPath);
       const isBinaryEntry = entry?.kind === "file" && entry.editable === false;
 
       try {
         if (isBinaryEntry) {
           const meta =
-            targetScope === "skills"
-              ? await api.loadFileMetadata(cleanPath, "skills")
-              : await api.loadFileMetadata(cleanPath);
+            targetScope === "workspace"
+              ? await api.loadFileMetadata(cleanPath)
+              : await api.loadFileMetadata(cleanPath, targetScope);
           setFile(null);
           setArtifact(meta);
           setDraft("");
@@ -319,9 +366,9 @@ export function App({ api }: { api: WorkspaceApi }) {
 
         try {
           const loaded =
-            targetScope === "skills"
-              ? await api.loadFile(cleanPath, "skills")
-              : await api.loadFile(cleanPath);
+            targetScope === "workspace"
+              ? await api.loadFile(cleanPath)
+              : await api.loadFile(cleanPath, targetScope);
           setArtifact(null);
           setFile(loaded);
           setDraft(loaded.content);
@@ -341,9 +388,9 @@ export function App({ api }: { api: WorkspaceApi }) {
             innerError.payload?.error === "binary_file"
           ) {
             const meta =
-              targetScope === "skills"
-                ? await api.loadFileMetadata(cleanPath, "skills")
-                : await api.loadFileMetadata(cleanPath);
+              targetScope === "workspace"
+                ? await api.loadFileMetadata(cleanPath)
+                : await api.loadFileMetadata(cleanPath, targetScope);
             setFile(null);
             setArtifact(meta);
             setDraft("");
@@ -630,6 +677,16 @@ export function App({ api }: { api: WorkspaceApi }) {
 
   async function handleRenameConfirm(newName: string) {
     if (!renameTarget) return;
+    if (
+      activeScope === "agent" &&
+      (renameTarget === "SOUL.md" ||
+        renameTarget === "AGENTS.md" ||
+        renameTarget === "memories")
+    ) {
+      setRenameTarget(null);
+      setRenameError("Protected files cannot be renamed");
+      return;
+    }
     setRenamingFile(true);
     setRenameError("");
     try {
@@ -654,6 +711,16 @@ export function App({ api }: { api: WorkspaceApi }) {
 
   async function handleMoveConfirm(destinationDir: string) {
     if (!moveTarget) return;
+    if (
+      activeScope === "agent" &&
+      (moveTarget === "SOUL.md" ||
+        moveTarget === "AGENTS.md" ||
+        moveTarget === "memories")
+    ) {
+      setMoveTarget(null);
+      setMoveError("Protected files cannot be moved");
+      return;
+    }
     setMovingFile(true);
     setMoveError("");
     try {
@@ -682,6 +749,17 @@ export function App({ api }: { api: WorkspaceApi }) {
 
   async function handleDeleteConfirm() {
     if (!deleteTarget) return;
+    if (
+      (file?.path === deleteTarget && file.protected) ||
+      (activeScope === "agent" &&
+        (deleteTarget === "SOUL.md" ||
+          deleteTarget === "AGENTS.md" ||
+          deleteTarget === "memories"))
+    ) {
+      setDeleteTarget(null);
+      setDocumentError("Protected files cannot be deleted");
+      return;
+    }
     setDeleting(true);
     try {
       const revision =
@@ -713,6 +791,11 @@ export function App({ api }: { api: WorkspaceApi }) {
 
   async function handleDeleteFolderConfirm() {
     if (!deleteFolderTarget) return;
+    if (activeScope === "agent" && deleteFolderTarget === "memories") {
+      setDeleteFolderTarget(null);
+      setWorkspaceError("Protected folders cannot be deleted");
+      return;
+    }
     setDeletingFolder(true);
     try {
       await api.deleteDirectory(deleteFolderTarget, activeScope);
@@ -878,9 +961,11 @@ export function App({ api }: { api: WorkspaceApi }) {
   return (
     <div className="workspace-app" ref={viewportRef}>
       <WorkspaceHeader
+        agentCount={agentEntries.filter((e) => e.kind === "file").length}
         file={file ?? artifact}
         filesOpen={filesOpen}
         onOpenGoTo={() => setGoToOpen(true)}
+        onScopeChange={handleScopeChange}
         onSignOut={
           session.auth_required ? () => void handleLogout() : undefined
         }
@@ -895,6 +980,10 @@ export function App({ api }: { api: WorkspaceApi }) {
           }
         }}
         scope={activeScope}
+        skillsCount={skillsEntries.filter((e) => e.kind === "file").length}
+        workspaceCount={
+          workspaceEntries.filter((e) => e.kind === "file").length
+        }
       />
 
       <main className={`workspace-layout ${filesOpen ? "has-sidebar" : ""}`}>
@@ -934,6 +1023,9 @@ export function App({ api }: { api: WorkspaceApi }) {
             revealToken={revealToken}
             scope={activeScope}
             selectedPath={selectedPath}
+            agentFileCount={
+              agentEntries.filter((e) => e.kind === "file").length
+            }
             skillsFileCount={
               skillsEntries.filter((e) => e.kind === "file").length
             }
@@ -1025,6 +1117,7 @@ export function App({ api }: { api: WorkspaceApi }) {
             void openPath(path, { scope: targetScope ?? activeScope });
           });
         }}
+        agentTree={agentEntries}
         scope={activeScope}
         skillsTree={skillsEntries}
         tree={workspaceEntries}

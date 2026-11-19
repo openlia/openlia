@@ -374,6 +374,11 @@ export function DocumentPane({
                 <p className="workspace-document-name" title={file.path}>
                   {file.path}
                 </p>
+                {file.protected && (
+                  <span className="badge badge-ghost badge-xs text-[10px] opacity-70">
+                    System
+                  </span>
+                )}
               </div>
               {!canEdit && <p className="text-xs text-warning">Read only</p>}
             </div>
@@ -484,14 +489,14 @@ export function DocumentPane({
                       title={`Copy URI (${buildCanonicalDocumentUri(file.path, scope)})`}
                     />
                   </li>
-                  {onRename && file.editable && (
+                  {onRename && file.editable && !file.protected && (
                     <li>
                       <button onClick={onRename} type="button">
                         <span>Rename...</span>
                       </button>
                     </li>
                   )}
-                  {onMove && file.editable && (
+                  {onMove && file.editable && !file.protected && (
                     <li>
                       <button onClick={onMove} type="button">
                         <span>Move...</span>
@@ -503,17 +508,19 @@ export function DocumentPane({
                       <span>Download</span>
                     </button>
                   </li>
-                  <li className="border-t border-base-content/10 pt-1 mt-1">
-                    <button
-                      aria-label="Delete file"
-                      className="text-error hover:bg-error/10 hover:text-error"
-                      disabled={deleting}
-                      onClick={onDelete}
-                      type="button"
-                    >
-                      <span>Delete</span>
-                    </button>
-                  </li>
+                  {onDelete && !file.protected && (
+                    <li className="border-t border-base-content/10 pt-1 mt-1">
+                      <button
+                        aria-label="Delete file"
+                        className="text-error hover:bg-error/10 hover:text-error"
+                        disabled={deleting}
+                        onClick={onDelete}
+                        type="button"
+                      >
+                        <span>Delete</span>
+                      </button>
+                    </li>
+                  )}
                 </ul>
               </ActionMenu>
             </div>

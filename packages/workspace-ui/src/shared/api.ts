@@ -1,5 +1,5 @@
 export type AuthProvider = "password" | "oidc" | "none";
-export type DocumentScope = "workspace" | "skills";
+export type DocumentScope = "workspace" | "skills" | "agent";
 
 export interface AuthSessionResponse {
   schema: 1;
@@ -29,6 +29,7 @@ export interface WorkspaceTreeEntry {
   editable?: boolean | undefined;
   missing?: boolean | undefined;
   scope?: DocumentScope | undefined;
+  protected?: boolean | undefined;
 }
 
 export interface WorkspaceTreeResponse {
@@ -50,6 +51,7 @@ export interface WorkspaceFile {
   editable: boolean;
   missing?: boolean | undefined;
   scope?: DocumentScope | undefined;
+  protected?: boolean | undefined;
 }
 
 export interface WorkspaceFileMetadata {
@@ -61,6 +63,7 @@ export interface WorkspaceFileMetadata {
   revision: string;
   editable: boolean;
   scope?: DocumentScope | undefined;
+  protected?: boolean | undefined;
 }
 
 export interface WorkspaceWriteRequest {
@@ -79,6 +82,7 @@ export interface WorkspaceWriteResponse {
   revision: string;
   editable: boolean;
   scope?: DocumentScope | undefined;
+  protected?: boolean | undefined;
 }
 
 export interface WorkspaceCreateFileRequest {

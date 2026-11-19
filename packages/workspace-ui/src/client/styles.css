@@ -41,6 +41,12 @@ textarea {
   padding: 0.45rem 0.75rem;
 }
 
+.workspace-header .join .btn {
+  min-height: 2rem;
+  height: 2rem;
+  min-width: 0;
+}
+
 .responsive-drawer {
   display: flex;
   min-width: 0;

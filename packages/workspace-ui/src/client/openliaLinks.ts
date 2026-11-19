@@ -1,7 +1,7 @@
 import type { DocumentScope, WorkspaceTreeEntry } from "../shared/api";
 
 export type ResolvedTarget = {
-  kind: "workspace" | "skills";
+  kind: DocumentScope;
   path: string;
   label: string;
   scope?: DocumentScope | undefined;
@@ -9,7 +9,7 @@ export type ResolvedTarget = {
 } | null;
 
 export interface GoToSuggestion {
-  kind: "workspace" | "skills";
+  kind: DocumentScope;
   id: string;
   title: string;
   subtitle?: string | undefined;
@@ -145,6 +145,7 @@ export function resolveLinkTarget(
     currentScope?: DocumentScope | undefined;
     tree?: WorkspaceTreeEntry[] | undefined;
     skillsTree?: WorkspaceTreeEntry[] | undefined;
+    agentTree?: WorkspaceTreeEntry[] | undefined;
   },
 ): ResolvedTarget {
   const trimmed = input.trim();
@@ -152,9 +153,14 @@ export function resolveLinkTarget(
 
   const workspaceTree = options?.tree ?? [];
   const skillsTree = options?.skillsTree ?? [];
+  const agentTree = options?.agentTree ?? [];
   const currentScope = options?.currentScope ?? "workspace";
   const entriesForScope = (scope: DocumentScope) =>
-    scope === "skills" ? skillsTree : workspaceTree;
+    scope === "skills"
+      ? skillsTree
+      : scope === "agent"
+        ? agentTree
+        : workspaceTree;
   const resolvePath = (path: string, scope: DocumentScope) =>
     resolveScopedPath(path, scope, entriesForScope(scope));
 
@@ -178,6 +184,9 @@ export function resolveLinkTarget(
       }
       if (host === "skills" || host === "skill") {
         return path ? resolvePath(path, "skills") : null;
+      }
+      if (host === "agent") {
+        return path ? resolvePath(path, "agent") : null;
       }
     } catch {
       // Continue to fallback parsing
@@ -238,6 +247,15 @@ export function resolveLinkTarget(
     return path ? resolvePath(path, "workspace") : null;
   }
 
+  if (candidate.startsWith("/agent/") || candidate.startsWith("agent/")) {
+    const withoutPrefix = candidate.replace(/^\/?agent\//, "");
+    const path = safeDecode(withoutPrefix.split("?")[0] ?? "").replace(
+      /^\/+|\/+$/g,
+      "",
+    );
+    return path ? resolvePath(path, "agent") : null;
+  }
+
   if (
     candidate.startsWith("/workspace/") ||
     candidate.startsWith("workspace/")
@@ -267,6 +285,7 @@ export function filterGoToSuggestions(
   options?: {
     tree?: WorkspaceTreeEntry[] | undefined;
     skillsTree?: WorkspaceTreeEntry[] | undefined;
+    agentTree?: WorkspaceTreeEntry[] | undefined;
     limit?: number | undefined;
   },
 ): GoToSuggestion[] {
@@ -277,6 +296,8 @@ export function filterGoToSuggestions(
   const wsFiles = options?.tree?.filter((entry) => entry.kind === "file") ?? [];
   const skFiles =
     options?.skillsTree?.filter((entry) => entry.kind === "file") ?? [];
+  const agFiles =
+    options?.agentTree?.filter((entry) => entry.kind === "file") ?? [];
 
   function makeSuggestion(
     file: WorkspaceTreeEntry,
@@ -288,9 +309,11 @@ export function filterGoToSuggestions(
         ? parts[0]
           ? `Skill / ${parts[0]}`
           : "Skill"
-        : parts[0] && parts.length > 1
-          ? parts[0]
-          : "workspace";
+        : scope === "agent"
+          ? "Agent"
+          : parts[0] && parts.length > 1
+            ? parts[0]
+            : "workspace";
     return {
       badge: file.editable ? domain : `${domain} (view only)`,
       id: file.path,
@@ -308,6 +331,10 @@ export function filterGoToSuggestions(
     ...skFiles.map((file) => ({
       file,
       scope: "skills" as DocumentScope,
+    })),
+    ...agFiles.map((file) => ({
+      file,
+      scope: "agent" as DocumentScope,
     })),
   ];
 
@@ -338,6 +365,11 @@ export function buildCanonicalSkillUri(path: string): string {
   return `openlia://skills/${cleanPath}`;
 }
 
+export function buildCanonicalAgentUri(path: string): string {
+  const cleanPath = path.replace(/^\/+/, "");
+  return `openlia://agent/${cleanPath}`;
+}
+
 export function buildWorkspaceLink(path: string, baseOrigin?: string): string {
   const cleanPath = path.replace(/^\/+/, "");
   const origin =
@@ -360,23 +392,34 @@ export function buildSkillLink(path: string, baseOrigin?: string): string {
   return `${origin}/skills/${cleanPath}`;
 }
 
+export function buildAgentLink(path: string, baseOrigin?: string): string {
+  const cleanPath = path.replace(/^\/+/, "");
+  const origin =
+    baseOrigin !== undefined
+      ? baseOrigin.replace(/\/+$/, "")
+      : typeof window !== "undefined" && window.location?.origin
+        ? window.location.origin
+        : "";
+  return `${origin}/agent/${cleanPath}`;
+}
+
 export function buildDocumentLink(
   path: string,
   scope: DocumentScope,
   baseOrigin?: string,
 ): string {
-  return scope === "skills"
-    ? buildSkillLink(path, baseOrigin)
-    : buildWorkspaceLink(path, baseOrigin);
+  if (scope === "skills") return buildSkillLink(path, baseOrigin);
+  if (scope === "agent") return buildAgentLink(path, baseOrigin);
+  return buildWorkspaceLink(path, baseOrigin);
 }
 
 export function buildCanonicalDocumentUri(
   path: string,
   scope: DocumentScope,
 ): string {
-  return scope === "skills"
-    ? buildCanonicalSkillUri(path)
-    : buildCanonicalWorkspaceUri(path);
+  if (scope === "skills") return buildCanonicalSkillUri(path);
+  if (scope === "agent") return buildCanonicalAgentUri(path);
+  return buildCanonicalWorkspaceUri(path);
 }
 
 export async function copyToClipboard(text: string): Promise<boolean> {

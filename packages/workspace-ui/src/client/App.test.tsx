@@ -33,7 +33,83 @@ function createTestApi(overrides?: Partial<WorkspaceApi>): WorkspaceApi {
     { editable: true, kind: "file", path: "weather/SKILL.md", scope: "skills" },
   ];
 
+  const agentEntries: WorkspaceTreeEntry[] = [
+    {
+      editable: true,
+      kind: "file",
+      path: "SOUL.md",
+      protected: true,
+      scope: "agent",
+    },
+    {
+      editable: true,
+      kind: "file",
+      path: "AGENTS.md",
+      protected: true,
+      scope: "agent",
+    },
+    { kind: "directory", path: "memories", protected: true, scope: "agent" },
+    {
+      editable: true,
+      kind: "file",
+      path: "memories/MEMORY.md",
+      scope: "agent",
+    },
+    {
+      editable: true,
+      kind: "file",
+      path: "memories/USER.md",
+      scope: "agent",
+    },
+  ];
+
   const files: Record<string, WorkspaceFile> = {
+    "SOUL.md": {
+      content: "# OpenLia Soul\n\nYou are OpenLia.\n",
+      editable: true,
+      modified_at: "2026-04-15T00:00:00.000Z",
+      ok: true,
+      path: "SOUL.md",
+      protected: true,
+      revision: "rev-soul-1",
+      schema: 1,
+      scope: "agent",
+      size: 32,
+    },
+    "AGENTS.md": {
+      content: "# Agent Instructions\n\nSafe defaults.\n",
+      editable: true,
+      modified_at: "2026-04-15T00:00:00.000Z",
+      ok: true,
+      path: "AGENTS.md",
+      protected: true,
+      revision: "rev-agents-1",
+      schema: 1,
+      scope: "agent",
+      size: 35,
+    },
+    "memories/MEMORY.md": {
+      content: "# Facts\nLearned conventions.\n",
+      editable: true,
+      modified_at: "2026-04-15T00:00:00.000Z",
+      ok: true,
+      path: "memories/MEMORY.md",
+      revision: "rev-mem-1",
+      schema: 1,
+      scope: "agent",
+      size: 28,
+    },
+    "memories/USER.md": {
+      content: "# User Profile\nUser preferences.\n",
+      editable: true,
+      modified_at: "2026-04-15T00:00:00.000Z",
+      ok: true,
+      path: "memories/USER.md",
+      revision: "rev-user-1",
+      schema: 1,
+      scope: "agent",
+      size: 33,
+    },
     "notes/welcome.md": {
       content: "# Welcome\n\nHello **OpenLia** workspace!",
       editable: true,
@@ -131,7 +207,12 @@ function createTestApi(overrides?: Partial<WorkspaceApi>): WorkspaceApi {
     loadSession: vi.fn(async (): Promise<AuthSessionResponse> => session),
     loadTree: vi.fn(
       async (scope): Promise<WorkspaceTreeResponse> => ({
-        entries: scope === "skills" ? skillEntries : entries,
+        entries:
+          scope === "skills"
+            ? skillEntries
+            : scope === "agent"
+              ? agentEntries
+              : entries,
         ok: true,
         schema: 1,
         scope,
@@ -448,18 +529,21 @@ describe("Workspace UI App", () => {
     ).toBeInTheDocument();
   });
 
-  it("switches between Workspace and Skills tabs in FileNavigator", async () => {
+  it("switches between Workspace, Skills, and Agent tabs via ScopeSwitcher", async () => {
     window.history.replaceState(null, "", "/");
     const api = createTestApi();
     render(<App api={api} />);
 
     // Default is Workspace
     expect(await screen.findByText("OPENLIA / WORKSPACE")).toBeInTheDocument();
+    // Verify SOUL.md is NOT in Workspace tab
+    expect(
+      screen.queryByRole("button", { name: "SOUL.md" }),
+    ).not.toBeInTheDocument();
 
-    // Click Skills tab in FileNavigator
-    const skillsTab = screen.getByRole("button", { name: /^skills/i });
+    // Click Skills tab in ScopeSwitcher
+    const skillsTab = screen.getAllByRole("button", { name: /^skills/i })[0]!;
     fireEvent.click(skillsTab);
-    expect(window.location.pathname).toBe("/skills/");
     expect(window.location.pathname).toBe("/skills/");
 
     // Skills navigator is active
@@ -474,6 +558,90 @@ describe("Workspace UI App", () => {
       await screen.findByRole("heading", { name: "Weather Skill" }),
     ).toBeInTheDocument();
     expect(screen.getByText("OPENLIA / SKILLS")).toBeInTheDocument();
+
+    // Click Agent tab in ScopeSwitcher
+    const agentTab = screen.getAllByRole("button", { name: /^agent/i })[0]!;
+    fireEvent.click(agentTab);
+    expect(window.location.pathname).toBe("/agent/");
+    expect(
+      screen.getByLabelText("Agent instructions & memory"),
+    ).toBeInTheDocument();
+
+    // Agent items are visible: SOUL.md, AGENTS.md, memories
+    expect(screen.getByTitle("SOUL.md")).toBeInTheDocument();
+    expect(screen.getByTitle("AGENTS.md")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("workspace-directory-memories"),
+    ).toBeInTheDocument();
+  });
+
+  it("allows switching scope from header even when file sidebar is collapsed on desktop", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: false, // Desktop viewport (> 1279px)
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    try {
+      window.history.replaceState(null, "", "/");
+      const api = createTestApi();
+      render(<App api={api} />);
+
+      expect(
+        await screen.findByText("OPENLIA / WORKSPACE"),
+      ).toBeInTheDocument();
+
+      // Collapse the file sidebar
+      const hideFilesBtn = screen.getByRole("button", { name: "Hide files" });
+      fireEvent.click(hideFilesBtn);
+
+      // Verify file navigator is hidden
+      expect(
+        screen.queryByLabelText("Workspace files"),
+      ).not.toBeInTheDocument();
+
+      // ScopeSwitcher in header is still present and clickable
+      const agentHeaderTab = screen.getAllByTestId("scope-tab-agent")[0]!;
+      expect(agentHeaderTab).toBeInTheDocument();
+      fireEvent.click(agentHeaderTab);
+
+      // Active scope is now Agent
+      expect(window.location.pathname).toBe("/agent/");
+      expect(screen.getByText("OPENLIA / AGENT")).toBeInTheDocument();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it("provides slim single-row header on mobile with quick scope dropdown and no thick sticky bar", async () => {
+    window.history.replaceState(null, "", "/");
+    const api = createTestApi();
+    const { container } = render(<App api={api} />);
+
+    expect(await screen.findByText("OPENLIA / WORKSPACE")).toBeInTheDocument();
+
+    // Verify thick sticky scope bar is NOT present in DOM
+    expect(container.querySelector(".workspace-scope-bar")).toBeNull();
+
+    // Verify mobile scope dropdown trigger is present
+    const scopeBtn = screen.getByRole("button", {
+      name: /current scope: workspace/i,
+    });
+    expect(scopeBtn).toBeInTheDocument();
+
+    // Open mobile dropdown and switch to Agent
+    fireEvent.click(scopeBtn);
+    const agentOption = screen.getByRole("button", { name: /🤖 Agent/i });
+    fireEvent.click(agentOption);
+
+    expect(window.location.pathname).toBe("/agent/");
+    expect(screen.getByText("OPENLIA / AGENT")).toBeInTheDocument();
   });
 
   it("does not enter an infinite re-fetch loop on mount (flicker prevention)", async () => {
@@ -485,14 +653,14 @@ describe("Workspace UI App", () => {
 
     // Verify api.loadSession was only called once
     expect(api.loadSession).toHaveBeenCalledTimes(1);
-    // Tree was called for both workspace and skills once
-    expect(api.loadTree).toHaveBeenCalledTimes(2);
+    // Tree was called for workspace, skills, and agent once
+    expect(api.loadTree).toHaveBeenCalledTimes(3);
 
     // Give any potential microtask / re-render loops time to settle
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(api.loadSession).toHaveBeenCalledTimes(1);
-    expect(api.loadTree).toHaveBeenCalledTimes(2);
+    expect(api.loadTree).toHaveBeenCalledTimes(3);
   });
 
   it("deletes folder in workspace scope and closes opened document inside it", async () => {
@@ -553,5 +721,72 @@ describe("Workspace UI App", () => {
     await waitFor(() => {
       expect(api.deleteDirectory).toHaveBeenCalledWith("weather", "skills");
     });
+  });
+
+  it("views and edits SOUL.md in [ Agent ] scope with protected status", async () => {
+    window.history.replaceState(null, "", "/agent/SOUL.md");
+    const api = createTestApi();
+    render(<App api={api} />);
+
+    // 1. Opens in Preview mode by default, shows persona heading, System badge, and OPENLIA / AGENT eyebrow
+    expect(
+      await screen.findByRole("heading", { name: "OpenLia Soul" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("OPENLIA / AGENT")).toBeInTheDocument();
+    expect(screen.getAllByText("System").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    // 2. Open action menu, verify Rename, Move, and Delete are omitted for protected file
+    fireEvent.click(screen.getByRole("button", { name: "Document actions" }));
+    expect(
+      screen.queryByRole("button", { name: "Rename..." }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Move..." }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Delete" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Details" })).toBeInTheDocument();
+
+    // 3. Switch to Edit mode -> Code editor mounts
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("button", { name: "Edit" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(await screen.findByLabelText("Code editor")).toBeInTheDocument();
+
+    // 4. Switch back to Preview mode
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    expect(
+      await screen.findByRole("heading", { name: "OpenLia Soul" }),
+    ).toBeInTheDocument();
+  });
+
+  it("views memories/MEMORY.md in [ Agent ] scope without protected badge", async () => {
+    window.history.replaceState(null, "", "/agent/memories/MEMORY.md");
+    const api = createTestApi();
+    render(<App api={api} />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Facts" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("OPENLIA / AGENT")).toBeInTheDocument();
+
+    // memories/MEMORY.md is editable and regular (Rename, Move, Delete present in document actions)
+    fireEvent.click(screen.getByRole("button", { name: "Document actions" }));
+    expect(
+      screen.getAllByRole("button", { name: "Rename..." }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole("button", { name: "Move..." }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: "Delete file" }),
+    ).toBeInTheDocument();
   });
 });

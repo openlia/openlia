@@ -13,6 +13,7 @@ export interface GoToModalProps {
   scope?: DocumentScope | undefined;
   tree?: WorkspaceTreeEntry[] | undefined;
   skillsTree?: WorkspaceTreeEntry[] | undefined;
+  agentTree?: WorkspaceTreeEntry[] | undefined;
 }
 
 export function GoToModal({
@@ -22,6 +23,7 @@ export function GoToModal({
   scope = "workspace",
   tree = [],
   skillsTree = [],
+  agentTree = [],
 }: GoToModalProps) {
   const [input, setInput] = useState("");
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
@@ -41,12 +43,22 @@ export function GoToModal({
 
   const target = useMemo(() => {
     if (!input.trim()) return null;
-    return resolveLinkTarget(input, { currentScope: scope, skillsTree, tree });
-  }, [input, scope, skillsTree, tree]);
+    return resolveLinkTarget(input, {
+      agentTree,
+      currentScope: scope,
+      skillsTree,
+      tree,
+    });
+  }, [agentTree, input, scope, skillsTree, tree]);
 
   const suggestions = useMemo(() => {
-    return filterGoToSuggestions(input, { limit: 8, skillsTree, tree });
-  }, [input, tree, skillsTree]);
+    return filterGoToSuggestions(input, {
+      agentTree,
+      limit: 8,
+      skillsTree,
+      tree,
+    });
+  }, [agentTree, input, tree, skillsTree]);
 
   if (!isOpen) return null;
 

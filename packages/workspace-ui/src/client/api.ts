@@ -96,7 +96,9 @@ async function requestJson<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 function apiBase(scope?: DocumentScope): string {
-  return scope === "skills" ? "/api/skills" : "/api/workspace";
+  if (scope === "skills") return "/api/skills";
+  if (scope === "agent") return "/api/agent";
+  return "/api/workspace";
 }
 
 export const httpWorkspaceApi: WorkspaceApi = {
