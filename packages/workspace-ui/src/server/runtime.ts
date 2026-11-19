@@ -18,6 +18,20 @@ export function createConfiguredWorkspaceHandler() {
     process.env.OPENLIA_WORKSPACE_ROOT ?? "/opt/data/workspace",
   );
 
+  const dataRootCandidates = [
+    process.env.OPENLIA_DATA_ROOT,
+    process.env.OPENLIA_PROFILE_ROOT,
+    "/opt/data",
+    resolve(workspaceRoot, ".."),
+    resolve(workspaceRoot, "../profile"),
+  ].filter((item): item is string => Boolean(item));
+  const dataRoot = dataRootCandidates.find(
+    (dir) =>
+      existsSync(join(dir, "SOUL.md")) ||
+      existsSync(join(dir, "AGENTS.md")) ||
+      existsSync(join(dir, "memories")),
+  );
+
   const skillsCandidates = [
     process.env.OPENLIA_WORKSPACE_UI_SKILLS_ROOT,
     process.env.OPENLIA_SKILLS_ROOT,
@@ -114,6 +128,7 @@ export function createConfiguredWorkspaceHandler() {
 
   return createWorkspaceHandler({
     workspaceRoot,
+    ...(dataRoot ? { dataRoot } : {}),
     skillsRoot,
     ...(staticRoot ? { staticRoot } : {}),
     ...(releaseSha256 ? { releaseSha256 } : {}),

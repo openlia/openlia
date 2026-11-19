@@ -20,10 +20,11 @@ import {
   resolveClientAddress,
   validMutationOrigin,
 } from "./auth";
-import { WorkspaceError, WorkspaceService } from "./workspace";
+import { AgentService, WorkspaceError, WorkspaceService } from "./workspace";
 
 export interface WorkspaceHandlerOptions {
   workspaceRoot: string;
+  dataRoot?: string | undefined;
   skillsRoot?: string | undefined;
   staticRoot?: string | undefined;
   maxEditableBytes?: number | undefined;
@@ -219,27 +220,43 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
       })
     : null;
 
+  const agent = options.dataRoot
+    ? new AgentService({
+        dataRoot: options.dataRoot,
+        maxEditableBytes: options.maxEditableBytes,
+        maxDownloadBytes: options.maxDownloadBytes,
+        maxTreeEntries: options.maxTreeEntries,
+      })
+    : null;
+
   function resolveService(
     scope?: string | null,
-    isSkillsRoute?: boolean,
+    routeScope?: DocumentScope,
   ): { service: WorkspaceService; scope: DocumentScope } {
     if (
       scope !== undefined &&
       scope !== null &&
       scope !== "workspace" &&
-      scope !== "skills"
+      scope !== "skills" &&
+      scope !== "agent"
     ) {
       throw new WorkspaceError("Unknown document scope", 400, "invalid_scope");
     }
-    if (isSkillsRoute && scope && scope !== "skills") {
+    if (
+      routeScope &&
+      routeScope !== "workspace" &&
+      scope &&
+      scope !== routeScope
+    ) {
       throw new WorkspaceError(
         "Route and document scope do not match",
         400,
         "scope_mismatch",
       );
     }
-    const isSkills = isSkillsRoute || scope === "skills";
-    if (isSkills) {
+    const effectiveScope: DocumentScope =
+      (scope as DocumentScope) ?? routeScope ?? "workspace";
+    if (effectiveScope === "skills") {
       if (!skills) {
         throw new WorkspaceError(
           "Skills service is not configured",
@@ -248,6 +265,16 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
         );
       }
       return { service: skills, scope: "skills" };
+    }
+    if (effectiveScope === "agent") {
+      if (!agent) {
+        throw new WorkspaceError(
+          "Agent service is not configured",
+          404,
+          "agent_unavailable",
+        );
+      }
+      return { service: agent, scope: "agent" };
     }
     return { service: workspace, scope: "workspace" };
   }
@@ -482,23 +509,31 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
       }
 
       try {
-        const isSkillsPrefix =
-          pathname === "/api/skills" || pathname.startsWith("/api/skills/");
-        const isWorkspacePrefix =
-          pathname === "/api/workspace" ||
-          pathname.startsWith("/api/workspace/");
+        let routeScope: DocumentScope | undefined;
+        let apiSubpath = "";
 
-        if (isSkillsPrefix || isWorkspacePrefix) {
-          const apiSubpath = isSkillsPrefix
-            ? pathname.slice("/api/skills".length)
-            : pathname.slice("/api/workspace".length);
+        if (pathname === "/api/skills" || pathname.startsWith("/api/skills/")) {
+          routeScope = "skills";
+          apiSubpath = pathname.slice("/api/skills".length);
+        } else if (
+          pathname === "/api/agent" ||
+          pathname.startsWith("/api/agent/")
+        ) {
+          routeScope = "agent";
+          apiSubpath = pathname.slice("/api/agent".length);
+        } else if (
+          pathname === "/api/workspace" ||
+          pathname.startsWith("/api/workspace/")
+        ) {
+          routeScope = "workspace";
+          apiSubpath = pathname.slice("/api/workspace".length);
+        }
+
+        if (routeScope) {
           const queryScope = url.searchParams.get("scope");
 
           if (method === "GET" && apiSubpath === "/tree") {
-            const { service, scope } = resolveService(
-              queryScope,
-              isSkillsPrefix,
-            );
+            const { service, scope } = resolveService(queryScope, routeScope);
             const tree = service.listTree();
             return json({
               ...tree,
@@ -508,20 +543,14 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
           }
 
           if (method === "GET" && apiSubpath === "/file") {
-            const { service, scope } = resolveService(
-              queryScope,
-              isSkillsPrefix,
-            );
+            const { service, scope } = resolveService(queryScope, routeScope);
             const path = url.searchParams.get("path") ?? "";
             const file = service.readFile(path);
             return json({ ...file, scope });
           }
 
           if (method === "GET" && apiSubpath === "/file-info") {
-            const { service, scope } = resolveService(
-              queryScope,
-              isSkillsPrefix,
-            );
+            const { service, scope } = resolveService(queryScope, routeScope);
             const path = url.searchParams.get("path") ?? "";
             const meta = service.readFileMetadata(path);
             return json({ ...meta, scope });
@@ -545,7 +574,7 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
             }
             const { service, scope } = resolveService(
               body.scope ?? queryScope,
-              isSkillsPrefix,
+              routeScope,
             );
             const written = service.writeFile(
               body.path,
@@ -569,7 +598,7 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
             }
             const { service, scope } = resolveService(
               body.scope ?? queryScope,
-              isSkillsPrefix,
+              routeScope,
             );
             const created = service.createFile(body.path, body.content ?? "");
             return json({ ...created, scope });
@@ -593,7 +622,7 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
                 : fileEntry.name;
             const { service, scope } = resolveService(
               typeof formScope === "string" ? formScope : queryScope,
-              isSkillsPrefix,
+              routeScope,
             );
             const bytes = new Uint8Array(await fileEntry.arrayBuffer());
             const uploaded = service.uploadFile(targetPath, bytes);
@@ -617,7 +646,7 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
             }
             const { service, scope } = resolveService(
               body.scope ?? queryScope,
-              isSkillsPrefix,
+              routeScope,
             );
             const renamed = service.renameFile(body.path, body.new_name);
             return json({ ...renamed, scope });
@@ -640,7 +669,7 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
             }
             const { service, scope } = resolveService(
               body.scope ?? queryScope,
-              isSkillsPrefix,
+              routeScope,
             );
             const moved = service.moveFile(body.path, body.destination_dir);
             return json({ ...moved, scope });
@@ -660,7 +689,7 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
             }
             const { service, scope } = resolveService(
               body.scope ?? queryScope,
-              isSkillsPrefix,
+              routeScope,
             );
             const deleted = service.deleteFile(
               body.path,
@@ -686,7 +715,7 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
             }
             const { service, scope } = resolveService(
               body.scope ?? queryScope,
-              isSkillsPrefix,
+              routeScope,
             );
             const deleted = service.deleteDirectory(body.path);
             return json({ ...deleted, scope });
@@ -696,7 +725,7 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
             (method === "GET" || method === "HEAD") &&
             (apiSubpath === "/raw" || apiSubpath === "/download")
           ) {
-            const { service } = resolveService(queryScope, isSkillsPrefix);
+            const { service } = resolveService(queryScope, routeScope);
             const path = url.searchParams.get("path") ?? "";
             const resolved = service.resolveDownloadFile(path);
             const ext = extname(resolved.relativePath).toLowerCase();

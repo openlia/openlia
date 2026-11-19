@@ -17,7 +17,7 @@ import type {
   WorkspaceWriteResponse,
 } from "../shared/api";
 import { createWorkspaceHandler } from "./app";
-import { WorkspaceError, WorkspaceService } from "./workspace";
+import { AgentService, WorkspaceError, WorkspaceService } from "./workspace";
 
 describe("WorkspaceService & HTTP API", () => {
   let root: string;
@@ -372,6 +372,210 @@ describe("WorkspaceService & HTTP API", () => {
       expect(unavailData.error).toBe("skills_unavailable");
     } finally {
       rmSync(skillsDir, { recursive: true, force: true });
+    }
+  });
+
+  test("manages SOUL.md, AGENTS.md, and memories/ via AgentService and /api/agent", async () => {
+    const dataRoot = mkdtempSync(join(tmpdir(), "openlia-data-test-"));
+    try {
+      writeFileSync(
+        join(dataRoot, "SOUL.md"),
+        "# OpenLia Soul\nPersona guidance.\n",
+      );
+      writeFileSync(
+        join(dataRoot, "AGENTS.md"),
+        "# OpenLia Agents\nOperating rules.\n",
+      );
+      mkdirSync(join(dataRoot, "memories"), { recursive: true });
+      writeFileSync(
+        join(dataRoot, "memories", "MEMORY.md"),
+        "# Facts\nLearned conventions.\n",
+      );
+      writeFileSync(
+        join(dataRoot, "memories", "USER.md"),
+        "# User\nPreferences.\n",
+      );
+      writeFileSync(
+        join(dataRoot, "config.yaml"),
+        "model: gpt-5.6\nsecrets: {}\n",
+      );
+
+      const agentService = new AgentService({
+        dataRoot,
+      });
+
+      // 1. WorkspaceService does NOT list SOUL.md, AGENTS.md, or memories
+      const wsTree = service.listTree();
+      expect(wsTree.entries.some((e) => e.path === "SOUL.md")).toBe(false);
+      expect(wsTree.entries.some((e) => e.path === "AGENTS.md")).toBe(false);
+      expect(wsTree.entries.some((e) => e.path === "memories")).toBe(false);
+
+      // 2. AgentService lists SOUL.md, AGENTS.md, and memories/** with correct protection
+      const tree = agentService.listTree();
+      const soulEntry = tree.entries.find((e) => e.path === "SOUL.md");
+      const agentsEntry = tree.entries.find((e) => e.path === "AGENTS.md");
+      const memDirEntry = tree.entries.find((e) => e.path === "memories");
+      const memFileEntry = tree.entries.find(
+        (e) => e.path === "memories/MEMORY.md",
+      );
+      const userFileEntry = tree.entries.find(
+        (e) => e.path === "memories/USER.md",
+      );
+
+      expect(soulEntry).toBeDefined();
+      expect(soulEntry?.protected).toBe(true);
+      expect(soulEntry?.editable).toBe(true);
+
+      expect(agentsEntry).toBeDefined();
+      expect(agentsEntry?.protected).toBe(true);
+      expect(agentsEntry?.editable).toBe(true);
+
+      expect(memDirEntry).toBeDefined();
+      expect(memDirEntry?.kind).toBe("directory");
+      expect(memDirEntry?.protected).toBe(true);
+
+      expect(memFileEntry).toBeDefined();
+      expect(memFileEntry?.protected).toBeUndefined();
+      expect(memFileEntry?.editable).toBe(true);
+
+      expect(userFileEntry).toBeDefined();
+      expect(userFileEntry?.protected).toBeUndefined();
+      expect(userFileEntry?.editable).toBe(true);
+
+      // Ensure unallowlisted files like config.yaml are omitted
+      expect(tree.entries.some((e) => e.path === "config.yaml")).toBe(false);
+
+      // 3. readFile loads SOUL.md and memories/MEMORY.md
+      const soulFile = agentService.readFile("SOUL.md");
+      expect(soulFile.protected).toBe(true);
+      expect(soulFile.content).toContain("Persona guidance.");
+
+      const memoryFile = agentService.readFile("memories/MEMORY.md");
+      expect(memoryFile.protected).toBeUndefined();
+      expect(memoryFile.content).toContain("Learned conventions.");
+
+      // 4. Access to unallowlisted files is rejected with 403 forbidden_path
+      expect(() => agentService.readFile("config.yaml")).toThrow(
+        WorkspaceError,
+      );
+      try {
+        agentService.readFile("config.yaml");
+      } catch (err) {
+        expect(err).toBeInstanceOf(WorkspaceError);
+        expect((err as WorkspaceError).status).toBe(403);
+        expect((err as WorkspaceError).code).toBe("forbidden_path");
+      }
+
+      // 5. writeFile edits SOUL.md in dataRoot atomically with revision guard
+      const updatedSoul = agentService.writeFile(
+        "SOUL.md",
+        "# OpenLia Soul\nUpdated persona.\n",
+        soulFile.revision,
+      );
+      expect(updatedSoul.protected).toBe(true);
+      expect(agentService.readFile("SOUL.md").content).toContain(
+        "Updated persona.",
+      );
+
+      // 6. writeFile edits memories/USER.md
+      const userFile = agentService.readFile("memories/USER.md");
+      const updatedUser = agentService.writeFile(
+        "memories/USER.md",
+        "# User\nUpdated preferences.\n",
+        userFile.revision,
+      );
+      expect(updatedUser.protected).toBeUndefined();
+      expect(agentService.readFile("memories/USER.md").content).toContain(
+        "Updated preferences.",
+      );
+
+      // 7. createFile and deleteFile inside memories/ work
+      const createdNote = agentService.createFile(
+        "memories/notes.md",
+        "# Custom memory note\n",
+      );
+      expect(createdNote.path).toBe("memories/notes.md");
+      expect(existsSync(join(dataRoot, "memories", "notes.md"))).toBe(true);
+
+      agentService.deleteFile("memories/notes.md");
+      expect(existsSync(join(dataRoot, "memories", "notes.md"))).toBe(false);
+
+      // 8. deleteFile on protected files is rejected with 403
+      expect(() => agentService.deleteFile("SOUL.md")).toThrow(WorkspaceError);
+      try {
+        agentService.deleteFile("SOUL.md");
+      } catch (err) {
+        expect(err).toBeInstanceOf(WorkspaceError);
+        expect((err as WorkspaceError).status).toBe(403);
+        expect((err as WorkspaceError).code).toBe("protected_file");
+      }
+
+      // 9. deleteDirectory on memories/ root is rejected with 403
+      expect(() => agentService.deleteDirectory("memories")).toThrow(
+        WorkspaceError,
+      );
+      try {
+        agentService.deleteDirectory("memories");
+      } catch (err) {
+        expect(err).toBeInstanceOf(WorkspaceError);
+        expect((err as WorkspaceError).status).toBe(403);
+        expect((err as WorkspaceError).code).toBe("protected_file");
+      }
+
+      // 10. renameFile and moveFile on protected files are rejected
+      expect(() => agentService.renameFile("SOUL.md", "GHOST.md")).toThrow(
+        WorkspaceError,
+      );
+      expect(() => agentService.moveFile("SOUL.md", "memories")).toThrow(
+        WorkspaceError,
+      );
+
+      // 11. HTTP API integration via createWorkspaceHandler
+      const handler = createWorkspaceHandler({
+        workspaceRoot: root,
+        dataRoot,
+        authRequired: false,
+      });
+
+      const httpTree = await handler(
+        new Request("http://127.0.0.1:8089/api/agent/tree"),
+      );
+      expect(httpTree.status).toBe(200);
+      const httpTreeData = (await httpTree.json()) as WorkspaceTreeResponse;
+      expect(httpTreeData.entries.some((e) => e.path === "SOUL.md")).toBe(true);
+      expect(
+        httpTreeData.entries.some((e) => e.path === "memories/MEMORY.md"),
+      ).toBe(true);
+
+      const httpRead = await handler(
+        new Request("http://127.0.0.1:8089/api/agent/file?path=SOUL.md"),
+      );
+      expect(httpRead.status).toBe(200);
+      const httpReadData = (await httpRead.json()) as WorkspaceFile;
+      expect(httpReadData.protected).toBe(true);
+      expect(httpReadData.content).toContain("Updated persona.");
+
+      const httpBlocked = await handler(
+        new Request("http://127.0.0.1:8089/api/agent/file?path=config.yaml"),
+      );
+      expect(httpBlocked.status).toBe(403);
+
+      const httpDelete = await handler(
+        new Request("http://127.0.0.1:8089/api/agent/file", {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "http://127.0.0.1:8089",
+          },
+          body: JSON.stringify({ path: "SOUL.md" }),
+        }),
+      );
+      expect(httpDelete.status).toBe(403);
+      const httpDeleteData =
+        (await httpDelete.json()) as WorkspaceErrorResponse;
+      expect(httpDeleteData.error).toBe("protected_file");
+    } finally {
+      rmSync(dataRoot, { recursive: true, force: true });
     }
   });
 });
