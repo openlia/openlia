@@ -284,7 +284,7 @@ func validateSecretFile(path string) error {
 			return fmt.Errorf("credential source contains a protected environment key")
 		}
 		if value == "" {
-			return fmt.Errorf("credential source contains an empty value")
+			continue
 		}
 		if key == "COPILOT_GITHUB_TOKEN" && !strings.HasPrefix(value, "gho_") && !strings.HasPrefix(value, "github_pat_") && !strings.HasPrefix(value, "ghu_") {
 			return fmt.Errorf("COPILOT_GITHUB_TOKEN must use a supported OAuth, fine-grained, or GitHub App token")

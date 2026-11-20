@@ -20,7 +20,7 @@ When working with OpenLia, there are two complementary roles:
 |  │        AS THE END USER            │  │      AS THE OPERATOR       │  |
 |  │       (Daily Companion)           │  │   (System Administrator)   │  |
 |  ├───────────────────────────────────┤  ├────────────────────────────┤  |
-|  │ • Chat on Telegram                │  │ • Runs `openlia` CLI       │  |
+|  │ • Chat on Telegram / Discord      │  │ • Runs `openlia` CLI       │  |
 |  │ • Use Hermes Web Dashboard        │  │ • Deploys & updates server │  |
 |  │ • Connect clients to Hermes API   │  │ • Configures Auth / OIDC   │  |
 |  │ • Organize `/opt/data/workspace`  │  │ • Manages Locho & backups  │  |
@@ -29,19 +29,19 @@ When working with OpenLia, there are two complementary roles:
 +-------------------------------------------------------------------------+
 ```
 
-- **The End User**: Collaborates with the agent day-to-day over Telegram, the Hermes Web Dashboard, or API clients. **This guide is for this role.**
+- **The End User**: Collaborates with the agent day-to-day over Telegram, Discord, the Hermes Web Dashboard, or API clients. **This guide is for this role.**
 - **The Operator**: Manages servers, Docker containers, authentication (`openlia auth`), Locho tunnels, and encrypted backups using the `openlia` CLI. See the [Operator Guide](operator-guide.md).
 
 ---
 
 ## 2. How You Interact With Your Agent
 
-### A. Telegram (Mobile & Messaging Interface)
+### A. Messaging Channels — Telegram & Discord (Mobile & Desktop Interface)
 
-Telegram is the primary mobile and desktop messaging channel:
+You can connect **Telegram**, **Discord**, or **both simultaneously** as your mobile and desktop messaging channels:
 
-- **Direct Messages (DMs)**: Chat one-on-one with your private bot, share links and files, and run skills or workspace tasks.
-- **Home Channel / Group**: A dedicated Telegram channel (e.g., `"OpenLia Home"`) where the agent posts scheduled cron briefings and notifications.
+- **Direct Messages & Server Channels**: Chat one-on-one with your private bot on Telegram or Discord, or interact in Discord server channels and threads, sharing links and files and running skills or workspace tasks.
+- **Home Channel / Group**: A dedicated Telegram channel (`TELEGRAM_HOME_CHANNEL`) and/or Discord channel (`DISCORD_HOME_CHANNEL`, e.g., `"OpenLia Home"`) where the agent posts scheduled cron briefings and proactive notifications.
 - **Workspace and Skill Links**: The agent uses `openlia://workspace/<path>` for workspace documents and `openlia://skills/<path>` for Hermes skills. When `[workspace-ui].public_origin` is configured, outbound messages rewrite these to `/files/<path>` and `/skills/<path>` at that origin; without a public origin, canonical URIs are preserved.
 - **Interactive Approvals**: When a command or external action requires confirmation (`HERMES_EXEC_ASK=1`), the agent prompts you in chat before executing.
 
@@ -61,7 +61,7 @@ Hermes Agent includes a full-featured Web Dashboard running on `127.0.0.1:9119` 
 
 - **Authentication**: Protected by Basic Auth (`openlia auth`) or Single Sign-On via GCP OAuth / Auth0 (`openlia auth --oidc`).
 - **Capabilities**:
-  - **Status & Sessions**: Inspect active and historical chat sessions across Telegram and API clients.
+  - **Status & Sessions**: Inspect active and historical chat sessions across Telegram, Discord, and API clients.
   - **Analytics & Usage**: View token consumption, model usage, and tool execution metrics.
   - **Logs**: Inspect live agent and gateway logs.
   - **Cron**: View and manage scheduled recurring agent tasks.

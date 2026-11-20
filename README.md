@@ -91,9 +91,11 @@ chmod 700 ~/.config/openlia
 cp examples/profiles/dev/config.toml.example ~/.config/openlia/config.toml
 cat << 'EOF' > ~/.config/openlia/secrets.env
 COPILOT_GITHUB_TOKEN=ghu_xxxxxxxxxxxxxxxxxxxx
-# Optional Telegram integration:
+# Optional messaging integration (set Telegram, Discord, or both):
 # TELEGRAM_BOT_TOKEN=123456789:ABCDEFxxxxxxxxxxxxxxxxxxxx
 # TELEGRAM_ALLOWED_USERS=123456789
+# DISCORD_BOT_TOKEN=your_discord_bot_token_here
+# DISCORD_ALLOWED_USERS=123456789012345678
 EOF
 chmod 600 ~/.config/openlia/secrets.env
 ```
