@@ -577,8 +577,12 @@ func executeDeployPipeline(
 		_ = RecordChange(config, "profile", "ok", backup.Archive, "profile assets synchronized", now)
 	}
 
+	secretChanged := false
 	incomingSecret := filepath.Join(config.MetaRoot, ".incoming", "secrets.env")
 	if info, err := os.Stat(incomingSecret); err == nil && info.Mode().IsRegular() {
+		prevDigest, _ := fileSHA256(config.SecretFile)
+		nextDigest, _ := fileSHA256(incomingSecret)
+		secretChanged = nextDigest != "" && nextDigest != prevDigest
 		updatePhase("auth-rotate")
 		rotErr := RotateAuth(config, incomingSecret, now)
 		_ = os.Remove(incomingSecret)
@@ -586,6 +590,7 @@ func executeDeployPipeline(
 			return nil, fmt.Errorf("stage secret source: %w", rotErr)
 		}
 	}
+	attachmentChanged := false
 	incomingAttachments := filepath.Join(config.MetaRoot, ".incoming", "attachments")
 	if entries, err := os.ReadDir(incomingAttachments); err == nil {
 		for _, entry := range entries {
@@ -594,6 +599,12 @@ func executeDeployPipeline(
 			}
 			host := strings.TrimSuffix(entry.Name(), ".toml")
 			sourcePath := filepath.Join(incomingAttachments, entry.Name())
+			targetPath := filepath.Join(config.LochoRoot, host, "attachments.toml")
+			prevDigest, _ := fileSHA256(targetPath)
+			nextDigest, _ := fileSHA256(sourcePath)
+			if nextDigest != "" && nextDigest != prevDigest {
+				attachmentChanged = true
+			}
 			updatePhase("attachment-rotate-" + host)
 			rotErr := RotateAttachment(config, host, sourcePath, now)
 			_ = os.Remove(sourcePath)
@@ -618,7 +629,7 @@ func executeDeployPipeline(
 	}
 
 	updatePhase("compose-" + action)
-	forceRecreate := config.LochoRelayConfig != "" || config.LochoRelaySecrets != ""
+	forceRecreate := config.LochoRelayConfig != "" || config.LochoRelaySecrets != "" || secretChanged || attachmentChanged
 	deployRes, err := Deploy(ctx, config, compose, DeployOptions{
 		Action:        action,
 		Component:     component,
