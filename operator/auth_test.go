@@ -31,6 +31,66 @@ func TestValidateSecretFileAcceptsGatewayKey(t *testing.T) {
 	}
 }
 
+func TestValidateSecretFileAcceptsTelegramDiscordAndSkipsEmptyOptionalKeys(t *testing.T) {
+	dir := t.TempDir()
+
+	for _, tc := range []struct {
+		name    string
+		content string
+		wantErr bool
+	}{
+		{
+			name: "telegram-only-with-empty-discord",
+			content: "COPILOT_GITHUB_TOKEN=ghu_test\n" +
+				"TELEGRAM_BOT_TOKEN=123456:ABCdef\n" +
+				"TELEGRAM_ALLOWED_USERS=123456\n" +
+				"DISCORD_BOT_TOKEN=\n" +
+				"DISCORD_ALLOWED_USERS=\n",
+		},
+		{
+			name: "discord-only-with-empty-telegram",
+			content: "COPILOT_GITHUB_TOKEN=ghu_test\n" +
+				"TELEGRAM_BOT_TOKEN=\n" +
+				"TELEGRAM_ALLOWED_USERS=\n" +
+				"DISCORD_BOT_TOKEN=discord_test_bot_token\n" +
+				"DISCORD_ALLOWED_USERS=123456789012345678\n" +
+				"DISCORD_HOME_CHANNEL=987654321098765432\n" +
+				"DISCORD_HOME_CHANNEL_NAME=\"openlia-home\"\n",
+		},
+		{
+			name: "both-telegram-and-discord",
+			content: "COPILOT_GITHUB_TOKEN=ghu_test\n" +
+				"TELEGRAM_BOT_TOKEN=123456:ABCdef\n" +
+				"TELEGRAM_ALLOWED_USERS=123456\n" +
+				"TELEGRAM_HOME_CHANNEL=-1001234567890\n" +
+				"TELEGRAM_HOME_CHANNEL_NAME=\"OpenLia Home\"\n" +
+				"DISCORD_BOT_TOKEN=discord_test_bot_token\n" +
+				"DISCORD_ALLOWED_USERS=123456789012345678\n" +
+				"DISCORD_HOME_CHANNEL=987654321098765432\n" +
+				"DISCORD_HOME_CHANNEL_NAME=\"openlia-home\"\n",
+		},
+		{
+			name:    "all-empty-values-rejected",
+			content: "TELEGRAM_BOT_TOKEN=\nDISCORD_BOT_TOKEN=\n",
+			wantErr: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, tc.name+".env")
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			err := validateSecretFile(path)
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected error for %s, got nil", tc.name)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error for %s: %v", tc.name, err)
+			}
+		})
+	}
+}
+
 func TestHasGatewayProvider(t *testing.T) {
 	if !hasGatewayProvider([]FallbackProviderConfig{{Provider: "custom", Model: "gateway", BaseURL: "http://gateway.test/v1"}}) {
 		t.Fatal("custom gateway provider was not detected")

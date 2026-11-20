@@ -10,15 +10,15 @@ Choose a guide below based on your role or what you want to accomplish.
 
 ### 📖 For End Users (Daily Companion)
 
-Use this guide when interacting with your deployed Hermes Agent day-to-day over Telegram, the Hermes Web Dashboard, or the Hermes API Server.
+Use this guide when interacting with your deployed Hermes Agent day-to-day over Telegram, Discord, the Hermes Web Dashboard, or the Hermes API Server.
 
-- **[End User Guide](user-guide.md)**: Interacting via Telegram, the Hermes Web Dashboard (`:9119` via Locho), Workspace UI (`:8089` via Locho) for workspace files and skills, the Hermes API Server (`:8642`), `/opt/data/memories`, and approval boundaries.
+- **[End User Guide](user-guide.md)**: Interacting via Telegram and Discord, the Hermes Web Dashboard (`:9119` via Locho), Workspace UI (`:8089` via Locho) for workspace files and skills, the Hermes API Server (`:8642`), `/opt/data/memories`, and approval boundaries.
 
 ### 🛠️ For Operators (Self-Hosters & System Administrators)
 
 Use these guides when deploying, configuring authentication, tunneling, backing up, or troubleshooting an OpenLia stack on your local workstation or a remote Linux server.
 
-- **[Operator Guide](operator-guide.md)**: Complete administrative handbook—machine roles, `config.toml` & `--config`, `openlia auth` (Basic Auth & OIDC with GCP OAuth / Auth0), Telegram bot setup, Locho private networking (`locho-host` & `attachments`), `openlia-browser` hosts, and Age-encrypted S3/rsync backups.
+- **[Operator Guide](operator-guide.md)**: Complete administrative handbook—machine roles, `config.toml` & `--config`, `openlia auth` (Basic Auth & OIDC with GCP OAuth / Auth0), Telegram & Discord bot setup, Locho private networking (`locho-host` & `attachments`), `openlia-browser` hosts, and Age-encrypted S3/rsync backups.
 - **[End-to-End Verification Drills](e2e-drills.md)**: Repeatable operational runbook and troubleshooting field guide for testing disposable or remote deployments (`openlia_dev`).
 
 ### 💻 For Developers & Contributors

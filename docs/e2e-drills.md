@@ -13,7 +13,7 @@ OpenLia separates its operator control plane from the agent runtime:
 - **Operator Machine**: Your local workstation where you run the `openlia` CLI and manage profile configurations (`~/.config/openlia/<profile>/`).
 - **Target Machine**: The machine where the Hermes Agent stack runs inside Docker containers (`/opt/<project>/`), managed over SSH (or locally with `mode = "local"`).
 - **Secure Communication**:
-  - Outbound commands and chat arrive via messaging platforms (e.g., Telegram).
+  - Outbound commands and chat arrive via messaging platforms (Telegram, Discord, or both).
   - Hermes Web Dashboard (`:9119`), Hermes API Server (`:8642`), and OpenLia Workspace UI (`:8089`) are accessible privately over encrypted tunnels via [Locho](https://github.com/trchopan/locho).
 
 ```text
@@ -76,8 +76,7 @@ Starter templates are provided under [`examples/profiles/dev/`](../examples/prof
 
 4. Edit `~/.config/openlia/dev/openlia_dev.env`:
    - Provide your `COPILOT_GITHUB_TOKEN` (must start with `gho_`, `ghu_`, or `github_pat_`).
-   - Provide your dedicated test bot token in `TELEGRAM_BOT_TOKEN`.
-   - Provide your Telegram numeric user ID in `TELEGRAM_ALLOWED_USERS`.
+   - Configure Telegram (`TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USERS`), Discord (`DISCORD_BOT_TOKEN` and `DISCORD_ALLOWED_USERS`), or both.
 
 5. Configure Hermes Dashboard authentication (`openlia auth`):
 
@@ -208,15 +207,15 @@ When `[locho-host] enabled = true` is configured, `locho-host` exposes `hermes-a
 
 ---
 
-### Drill 4: Telegram Bot Interactive Verification
+### Drill 4: Messaging Bot Interactive Verification (Telegram / Discord)
 
-1. Confirm the Telegram gateway is connected inside the Hermes container:
+1. Confirm your configured messaging gateway(s) (Telegram, Discord, or both) are connected inside the Hermes container:
 
    ```bash
    openlia logs --config ~/.config/openlia/dev/config.toml | tail -n 30
    ```
 
-2. Open Telegram and send test prompts to your bot:
+2. Open Telegram and/or Discord and send test prompts to your bot:
    - **Persona & Language Check**:
      > `Xin chào, bạn là ai?`
      > _Expected_: Agent responds in the configured `output_language` (`vi`).

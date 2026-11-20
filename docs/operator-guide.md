@@ -172,14 +172,21 @@ Example `secrets.env`:
 COPILOT_GITHUB_TOKEN=ghu_xxxxxxxxxxxxxxxxxxxx
 OPENAI_GATEWAY_API_KEY=sk-gateway-xxxxxxxxxxxxxxxxxxxx
 OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxx
+
+# Messaging gateways (configure Telegram, Discord, or both simultaneously):
 TELEGRAM_BOT_TOKEN=123456789:ABCDEFxxxxxxxxxxxxxxxxxxxx
 TELEGRAM_ALLOWED_USERS=987654321
 TELEGRAM_HOME_CHANNEL=-1001234567890
 TELEGRAM_HOME_CHANNEL_NAME="OpenLia Home"
+
+DISCORD_BOT_TOKEN=your_discord_bot_token_here
+DISCORD_ALLOWED_USERS=123456789012345678
+DISCORD_HOME_CHANNEL=987654321098765432
+DISCORD_HOME_CHANNEL_NAME="openlia-home"
 ```
 
 > [!WARNING]
-> `docker/secret-source.sh` strictly validates secret formats. If any variable in `secrets.env` is malformed, the helper exits with code `1` and Hermes drops all secrets. Comment out or remove unused variables.
+> `docker/secret-source.sh` strictly validates secret formats. If any variable in `secrets.env` has an invalid format (such as an unsupported `COPILOT_GITHUB_TOKEN` prefix), the helper exits with code `1` and Hermes drops all secrets. Comment out, remove, or leave empty any unused platform variables.
 
 ### Applying Secret Changes
 
@@ -194,12 +201,31 @@ openlia status --config ~/.config/openlia/prod/config.toml
 
 ---
 
-## 3. Telegram Integration Setup
+## 3. Messaging Integration Setup (Telegram & Discord)
+
+Hermes Agent's gateway (`hermes gateway run`) automatically connects any messaging platform whose bot token is present in `secrets.env`. You can configure **Telegram only**, **Discord only**, or **both platforms simultaneously**.
+
+### 3.1 Telegram Setup
 
 1. Message [@BotFather](https://t.me/BotFather) on Telegram to create a bot and obtain `TELEGRAM_BOT_TOKEN`.
 2. Send `/start` to your new bot on Telegram.
-3. _(Optional)_ Create a dedicated **Home Channel** or group, add your bot as an administrator, and post a test message in the channel.
-4. Add `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS` (comma-separated numeric Telegram user IDs), `TELEGRAM_HOME_CHANNEL`, and `TELEGRAM_HOME_CHANNEL_NAME` to your mode-`0600` `secrets.env` file, then apply:
+3. _(Optional)_ Create a dedicated **Home Channel** or group, add your bot as an administrator, and post a test message in the channel (or run `/sethome` in the chat).
+4. Add `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS` (comma-separated numeric Telegram user IDs), and optionally `TELEGRAM_HOME_CHANNEL` and `TELEGRAM_HOME_CHANNEL_NAME` to your mode-`0600` `secrets.env` file.
+
+### 3.2 Discord Setup
+
+1. Open the [Discord Developer Portal](https://discord.com/developers/applications), click **New Application**, and go to the **Bot** tab to create a bot and copy `DISCORD_BOT_TOKEN`.
+2. Still on the **Bot** tab under **Privileged Gateway Intents**, enable:
+   - **Message Content Intent** _(Required so the bot can read message text)_
+   - **Server Members Intent** _(Recommended for user and role allowlist resolution)_
+3. Invite the bot to your Discord server under **OAuth2 → URL Generator** (or **Installation**):
+   - **Scopes**: `bot`, `applications.commands`
+   - **Bot Permissions**: `View Channels`, `Send Messages`, `Read Message History`, `Embed Links`, `Attach Files`
+4. In the Discord app, enable **User Settings → Advanced → Developer Mode**:
+   - Right-click your profile and select **Copy User ID** for `DISCORD_ALLOWED_USERS` (comma-separated numeric Discord user IDs; Hermes is fail-closed by default and ignores messages if no allowlist is set).
+   - _(Optional)_ Right-click your preferred notification channel and select **Copy Channel ID** for `DISCORD_HOME_CHANNEL` (and optionally set `DISCORD_HOME_CHANNEL_NAME`), or run `/sethome` inside the Discord channel.
+   - _(Optional)_ By default in server channels, the bot responds when `@mentioned` (`DISCORD_REQUIRE_MENTION=true`; DMs never require a mention). You can list channel IDs in `DISCORD_FREE_RESPONSE_CHANNELS` where the bot should reply to every message without requiring a mention.
+5. Add your chosen `TELEGRAM_*` and/or `DISCORD_*` variables to your mode-`0600` `secrets.env` file, then apply:
 
    ```bash
    openlia deploy --config ~/.config/openlia/prod/config.toml

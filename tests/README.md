@@ -4,7 +4,7 @@ The smoke runner (`tests/smoke.py`) has three documented modes:
 
 - `--mode cli` exercises the local CLI, embedded release assets, Compose syntax, and shell syntax with synthetic data.
 - `--mode local` deploys the current checkout locally via Docker Compose, exercises the lifecycle (`deploy`, `status`, `stop`, `start`, `uninstall`), and removes the disposable installation.
-- `--mode live` deploys the current checkout to an explicitly named disposable target and waits for manual Telegram confirmation. Add `--local` to use the local CLI backend. See [`docs/e2e-drills.md`](../docs/e2e-drills.md) for a step-by-step operational runbook using `openlia_dev`.
+- `--mode live` deploys the current checkout to an explicitly named disposable target and waits for manual Telegram / Discord confirmation. Add `--local` to use the local CLI backend. See [`docs/e2e-drills.md`](../docs/e2e-drills.md) for a step-by-step operational runbook using `openlia_dev`.
 
 The runner reports `PASS`, `FAIL`, or `N/A`. `N/A` means a prerequisite or interactive confirmation was unavailable; it is not evidence that the check passed. The process exit code fails only when a case is `FAIL`.
 
@@ -20,7 +20,7 @@ python3 tests/smoke.py --mode cli
 make smoke
 ```
 
-The CLI gate does not contact a provider, Telegram, or Locho.
+The CLI gate does not contact a provider, Telegram, Discord, or Locho.
 
 Run the real local deployment smoke with Docker Engine on Linux or Docker Desktop on macOS:
 
@@ -32,7 +32,7 @@ python3 tests/smoke.py --mode local \
 make smoke-local
 ```
 
-This invokes `openlia deploy`, checks health (`openlia status`), stops and starts the stack, checks the bundled secret helper and runtime environment inside Hermes, and invokes `openlia uninstall --local`. It uses an empty synthetic secret source and does not contact a provider or Telegram.
+This invokes `openlia deploy`, checks health (`openlia status`), stops and starts the stack, checks the bundled secret helper and runtime environment inside Hermes, and invokes `openlia uninstall --local`. It uses an empty synthetic secret source and does not contact a provider, Telegram, or Discord.
 
 The root must not already exist. Local mode always attempts cleanup after the run; if deployment or uninstall fails, the root is left in place for inspection rather than being removed by the Python harness. Docker images and build cache are preserved.
 
@@ -44,7 +44,7 @@ Live mode requires every deployment input. It has no target, project, root, or L
 
 The source files contain credentials and Locho capabilities. The runner changes both source files to mode `0600`, stages protected temporary copies outside the checkout, and never prints their values. The source files must be regular files outside the checkout. Reports are redacted but may still contain operational data; keep them outside the repository.
 
-The current live smoke configuration uses Copilot as its primary provider and requires `COPILOT_GITHUB_TOKEN`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_ALLOWED_USERS`. Do not include `OPENAI_BASE_URL`; gateway URLs belong in the configured `fallback_providers` entries instead.
+The current live smoke configuration uses Copilot as its primary provider and requires `COPILOT_GITHUB_TOKEN` plus either `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USERS`, `DISCORD_BOT_TOKEN` + `DISCORD_ALLOWED_USERS`, or both. Do not include `OPENAI_BASE_URL`; gateway URLs belong in the configured `fallback_providers` entries instead.
 
 Run against a disposable Linux target with external local inputs:
 
