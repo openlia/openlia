@@ -419,3 +419,65 @@ func TestRunReconcilerDaemonSingletonAndAutoExitWhenStopped(t *testing.T) {
 		t.Fatalf("reconciler.pid was not removed on exit: %v", err)
 	}
 }
+
+func TestExecuteDeployPipelineForceRecreatesWhenSecretChanges(t *testing.T) {
+	repo := t.TempDir()
+	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
+	config := testConfig(repo, runtimeRoot)
+	for _, dir := range []string{
+		filepath.Join(repo, "profile"),
+		filepath.Join(repo, "docker"),
+		config.DataRoot,
+		config.BackupRoot,
+		config.MetaRoot,
+		config.LochoRoot,
+		config.SecretDir,
+		filepath.Join(config.MetaRoot, ".incoming"),
+	} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, "profile", "AGENTS.md"), []byte("# Agents\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "profile", "SOUL.md"), []byte("# Soul\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.ComposeFile, []byte("services: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	initialSecrets := "COPILOT_GITHUB_TOKEN=gho_initialtoken\nTELEGRAM_BOT_TOKEN=123456:ABCdef\n"
+	if err := os.WriteFile(config.SecretFile, []byte(initialSecrets), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteState(config, stateRunning); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Deploy with unchanged incoming secret -> should NOT pass --force-recreate.
+	incomingSecret := filepath.Join(config.MetaRoot, ".incoming", "secrets.env")
+	if err := os.WriteFile(incomingSecret, []byte(initialSecrets), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runnerUnchanged := &deployBuildRunner{dataRoot: config.DataRoot, secretDir: config.SecretDir}
+	if _, err := executeDeployPipeline(context.Background(), config, NewCompose(config, runnerUnchanged), "deploy", "all", false, func(string) {}); err != nil {
+		t.Fatalf("executeDeployPipeline (unchanged secrets) failed: %v", err)
+	}
+	if strings.Contains(strings.Join(runnerUnchanged.calls, "\n"), "--force-recreate") {
+		t.Fatalf("unexpected --force-recreate when secrets did not change: %v", runnerUnchanged.calls)
+	}
+
+	// 2. Deploy with updated incoming secret (adding DISCORD_BOT_TOKEN) -> MUST pass --force-recreate.
+	updatedSecrets := initialSecrets + "DISCORD_BOT_TOKEN=discord_test_bot_token\nDISCORD_ALLOWED_USERS=123456789012345678\n"
+	if err := os.WriteFile(incomingSecret, []byte(updatedSecrets), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runnerChanged := &deployBuildRunner{dataRoot: config.DataRoot, secretDir: config.SecretDir}
+	if _, err := executeDeployPipeline(context.Background(), config, NewCompose(config, runnerChanged), "deploy", "all", false, func(string) {}); err != nil {
+		t.Fatalf("executeDeployPipeline (changed secrets) failed: %v", err)
+	}
+	if !strings.Contains(strings.Join(runnerChanged.calls, "\n"), "up -d --force-recreate --remove-orphans") {
+		t.Fatalf("expected up -d --force-recreate --remove-orphans when secrets changed, got calls: %v", runnerChanged.calls)
+	}
+}
