@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -22,6 +23,37 @@ func TestSplitCommonFlagsParsesReleaseAndRejectsItForNonDeployLifecycle(t *testi
 
 	if got := Run([]string{"--release", "start"}, nil); got != ExitUsage {
 		t.Fatalf("start --release exit code = %d, want %d", got, ExitUsage)
+	}
+}
+
+func TestCollectLochoBundleWithOnlyRelayConfig(t *testing.T) {
+	const token = "fixture-relay-bearer"
+	const contents = "[[relays]]\nurl = \"https://relay.example.com\"\ntoken = \"" + token + "\"\n"
+	config := defaultConfig()
+	config.LochoHostEnabled = false
+	config.LochoRelayConfigSource = filepath.Join(t.TempDir(), "relay.toml")
+	if err := os.WriteFile(config.LochoRelayConfigSource, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files, removals, err := collectLochoBundle(context.Background(), nil, &config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].RelativePath != "runtime/locho/relay.toml" || files[0].Mode != 0o600 || string(files[0].Data) != contents {
+		t.Fatal("expected only the unchanged relay TOML to be staged at mode 0600")
+	}
+	if !slices.Contains(removals, "runtime/locho-relay-secrets/relay.env") {
+		t.Fatal("stale relay.env is not scheduled for removal")
+	}
+	if err := os.Chmod(config.LochoRelayConfigSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files, _, err = collectLochoBundle(context.Background(), nil, &config)
+	if err == nil || !strings.Contains(err.Error(), "mode-0600") || len(files) != 0 {
+		t.Fatal("expected a permission error without staging the relay TOML")
+	}
+	if strings.Contains(err.Error(), token) {
+		t.Fatal("permission error exposed the inline token")
 	}
 }
 

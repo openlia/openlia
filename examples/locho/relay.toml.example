@@ -1,9 +1,12 @@
-# Optional Locho 1.3.0 relay transport configuration.
-# Set relay_config in a [locho] section to a protected copy of this file.
+# Optional Locho 1.3.1 relay transport configuration.
+# Set relay_config in a [locho] section to a mode-0600 copy outside the checkout.
 include_n0_relays = false
 
 [[relays]]
 url = "https://relay.example.org"
-# Optional: name an environment variable containing the bearer token.
+# For authenticated relays, choose only one of token and token_env.
+# Inline token: keep the filled-in TOML out of source control.
+# token = "<relay access token>"
+# External token: name the environment variable containing the bearer token.
 # token_env = "LOCHO_RELAY_TOKEN"
 quic_address_discovery = true

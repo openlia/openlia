@@ -15,17 +15,37 @@ validate and replace one host without restarting unrelated sidecars.
 HTTP services may set `http_timeout_secs` per service, from 1 to 300 seconds.
 The default is 60 seconds. TCP services must not set this field.
 
-For private relay infrastructure, configure `relay_config` and, if needed,
-`relay_secrets` in a `[locho]` section of the OpenLia operator config. OpenLia
-bind-mounts the relay TOML into Locho containers and injects dotenv values as
-environment variables. The same relay configuration must be available to the
-client, and `token_env` values must be exported in the client environment:
-See `examples/locho/relay.toml.example` and `examples/locho/relay.env.example` for templates.
+For private relay infrastructure, configure a protected relay TOML in the
+OpenLia operator config:
+
+```toml
+[locho]
+relay_config = "~/.config/openlia/locho/relay.toml"
+```
+
+With Locho 1.3.1 or later, an authenticated relay can use an inline token:
+
+```toml
+[[relays]]
+url = "https://relay.example.com"
+token = "<relay access token>"
+```
+
+Keep the TOML outside the OpenLia checkout and out of source control. On Unix,
+keep both the operator and client copies at mode `0600` and transfer them over a
+trusted channel. OpenLia bind-mounts the TOML read-only into Locho containers.
+With an inline-only config, omit `relay_secrets` and run the standalone client
+without setting a token environment variable:
 
 ```sh
-export LOCHO_RELAY_TOKEN="..."
-locho attach --config openlia-attachments.toml --relay-config relay.toml
+locho attach --config openlia-attachments.toml --relay-config ~/.config/openlia/locho/relay.toml
 ```
+
+To keep the token separate, use `token_env = "LOCHO_RELAY_TOKEN"` instead of
+`token` on that relay entry. Set `relay_secrets` to a mode-`0600` copy of
+[`relay.env.example`](../../relay.env.example) with the variable populated; on
+the standalone client, provide the same variable through its environment.
+See [`relay.toml.example`](../../relay.toml.example) for the full TOML template.
 
 Run `openlia` on the operator machine. For a remote deployment, the
 `--source` path is read from the operator machine and the validated attachment

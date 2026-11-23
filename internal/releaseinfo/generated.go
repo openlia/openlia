@@ -12,9 +12,9 @@ var Default = Manifest{
 		Digest:  "sha256:99641e57ec762c59e54cb44aa6746b7fc68c18b3c5ddb088af54234c613d9294",
 	},
 	Locho: LochoPin{
-		Version:       "1.3.0",
-		LinuxX8664SHA: "24ef0edb7c7203f4e6c0dff0d33132e57a815fc5f0dfbbb49c54915e96d57809",
-		LinuxARM64SHA: "28a125314d193c1cc9d91fe65482716598d7644cfa61d359fd8f6f2801f01890",
+		Version:       "1.3.1",
+		LinuxX8664SHA: "4d7522111a783ef1c89b4369557761efd7a666c3dc4da8ec11d85126719d9f07",
+		LinuxARM64SHA: "e757264e1fc6ece06dcbd77988924087a6ee6f7fe2dbc085d92bc62cd59fe499",
 	},
 	Bun: BunPin{
 		Version:       "1.2.22",
