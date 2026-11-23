@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorkspaceHandler } from "./app";
 import { resolveClientAddress, validMutationOrigin } from "./auth";
+import { createConfiguredWorkspaceHandler } from "./runtime";
 
 function base64UrlEncode(bytes: Uint8Array | Buffer): string {
   return Buffer.from(bytes)
@@ -466,5 +467,52 @@ describe("Workspace UI Auth (Password & OIDC)", () => {
     expect(resolveClientAddress(reqWithCf, "198.51.100.99", true)).toBe(
       "198.51.100.99",
     );
+  });
+
+  test("createConfiguredWorkspaceHandler supports standalone Hermes root on loopback without credentials and enables Agent scope", async () => {
+    const savedEnv = { ...process.env };
+    try {
+      for (const key of Object.keys(process.env)) {
+        if (key.startsWith("OPENLIA_") || key.startsWith("HERMES_DASHBOARD_")) {
+          delete process.env[key];
+        }
+      }
+      process.env.OPENLIA_DATA_ROOT = root;
+      process.env.OPENLIA_WORKSPACE_ROOT = join(root, "workspace");
+      process.env.OPENLIA_WORKSPACE_UI_SKILLS_ROOT = join(root, "skills");
+      process.env.OPENLIA_WORKSPACE_UI_BIND = "127.0.0.1";
+
+      const handler = createConfiguredWorkspaceHandler();
+      const sessionRes = await handler(
+        new Request("http://127.0.0.1:8089/api/auth/session"),
+      );
+      expect(sessionRes.status).toBe(200);
+      const sessionBody = (await sessionRes.json()) as {
+        auth_required: boolean;
+        authenticated: boolean;
+        auth_provider: string;
+      };
+      expect(sessionBody.auth_required).toBe(false);
+      expect(sessionBody.authenticated).toBe(true);
+      expect(sessionBody.auth_provider).toBe("none");
+
+      const agentTreeRes = await handler(
+        new Request("http://127.0.0.1:8089/api/agent/tree"),
+      );
+      expect(agentTreeRes.status).toBe(200);
+
+      // Non-loopback without credentials fails closed
+      process.env.OPENLIA_WORKSPACE_UI_BIND = "0.0.0.0";
+      expect(() => createConfiguredWorkspaceHandler()).toThrow(
+        /password credential is missing/,
+      );
+    } finally {
+      for (const key of Object.keys(process.env)) {
+        if (!(key in savedEnv)) {
+          delete process.env[key];
+        }
+      }
+      Object.assign(process.env, savedEnv);
+    }
   });
 });

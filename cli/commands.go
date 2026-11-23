@@ -74,6 +74,8 @@ func Run(args []string, assets fs.FS) int {
 		return commandLochoHost(options, remaining[1:])
 	case "browser":
 		return commandOpenLiaBrowser(options, remaining[1:], assets)
+	case "workspace-ui":
+		return commandWorkspaceUI(options, remaining[1:], assets)
 	default:
 		return fail(options, ExitUsage, fmt.Sprintf("unknown command %q", remaining[0]), map[string]any{"hint": "run openlia --help"})
 	}

@@ -46,6 +46,13 @@ func TestRunRejectsRetiredCommands(t *testing.T) {
 	}
 }
 
+func TestRunDispatchesWorkspaceUI(t *testing.T) {
+	t.Setenv("OPENLIA_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	if code := Run([]string{"workspace-ui"}, fstest.MapFS{}); code != ExitUsage {
+		t.Fatalf("workspace-ui without subcommand exit code = %d, want %d", code, ExitUsage)
+	}
+}
+
 func TestRunDispatchesBrowser(t *testing.T) {
 	t.Setenv("OPENLIA_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 	if code := Run([]string{"browser", "status"}, fstest.MapFS{}); code != ExitPrereq {
