@@ -1239,10 +1239,10 @@ func TestUninstallAcceptsCanonicalizedTemporaryRootSymlink(t *testing.T) {
 	config.InstallRoot = root
 	config.ProjectName = "test-project"
 	config.NetworkName = "test-project-private"
-	if err := os.MkdirAll(filepath.Join(root, "releases", "0.1.0"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "releases", "0.2.0"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(root, "releases", "0.1.0"), filepath.Join(root, "current")); err != nil {
+	if err := os.Symlink(filepath.Join(root, "releases", "0.2.0"), filepath.Join(root, "current")); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(config.MetaRoot, 0o700); err != nil {

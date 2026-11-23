@@ -458,7 +458,7 @@ func TestConfigServicesRejectsDottedKey(t *testing.T) {
 	data := `
 [openlia]
 schema = 2
-version = "0.1.0"
+version = "0.2.0"
 mode = "local"
 root = ".openlia"
 project = "openlia"

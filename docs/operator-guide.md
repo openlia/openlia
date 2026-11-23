@@ -56,7 +56,7 @@ export OPENLIA_CONFIG="$HOME/.config/openlia/dev/config.toml"
 ```toml
 [openlia]
 schema = 2
-version = "0.1.0"
+version = "0.2.0"
 mode = "ssh" # "ssh" or "local"
 target = "user@my-vps.example.com"
 root = "/srv/openlia"

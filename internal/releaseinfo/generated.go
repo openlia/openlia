@@ -4,7 +4,7 @@ package releaseinfo
 
 var Default = Manifest{
 	Schema:  1,
-	OpenLia: "0.1.0",
+	OpenLia: "0.2.0",
 	Hermes: ImagePin{
 		Image:   "nousresearch/hermes-agent",
 		Channel: "stable",

@@ -32,6 +32,7 @@ REQUIRED_CLI_TOPICS = {
     "attachments",
     "backup",
     "browser",
+    "workspace-ui",
 }
 
 
@@ -431,11 +432,11 @@ def check_hermes_runtime(ctx: SmokeContext, manifest: dict) -> None:
                 "docker",
                 "build",
                 "--build-arg",
-                f"HERMES_BASE_IMAGE={hermes_comp['image']}",
+                f"HERMES_IMAGE={hermes_comp['image']}",
                 "--build-arg",
-                f"HERMES_BASE_TAG={hermes_comp['tag']}",
+                f"HERMES_TAG={hermes_comp['tag']}",
                 "--build-arg",
-                f"HERMES_BASE_DIGEST={hermes_comp['digest']}",
+                f"HERMES_DIGEST={hermes_comp['digest']}",
                 "-f",
                 str(HERMES_DOCKERFILE),
                 "-t",

@@ -22,7 +22,9 @@ replacement for the license files shipped by those projects or images.
 
 Go module pins and transitive dependencies are declared in
 [`go.mod`](go.mod) and [`go.sum`](go.sum). JavaScript/TypeScript dependencies for
-`packages/openlia-browser` are declared in [`package.json`](package.json) and
+`packages/openlia-browser` and `packages/workspace-ui` are declared in
+[`package.json`](package.json), [`packages/openlia-browser/package.json`](packages/openlia-browser/package.json),
+[`packages/workspace-ui/package.json`](packages/workspace-ui/package.json), and
 [`bun.lock`](bun.lock).
 
 ## Container Base Images and Packages
@@ -31,7 +33,7 @@ The derived images use these pinned base images:
 
 - Hermes image base: `nousresearch/hermes-agent:v2026.9.14` at the digest
   listed above.
-- Locho & Backup Scheduler image base: `debian:13.4-slim` at
+- Workspace UI, Locho & Backup Scheduler image base: `debian:13.4-slim` at
   `sha256:109e2c65005bf160609e4ba6acf7783752f8502ad218e298253428690b9eaa4b`.
 
 The Dockerfiles install distribution packages including `ca-certificates`,

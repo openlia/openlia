@@ -1,2 +1,0 @@
--r profile/system-skills/workspace-template-customization/requirements.txt
--r profile/plugins/openlia-ingestion/requirements.txt

@@ -52,7 +52,7 @@ export class McpClient {
           { requestInit: { headers: { Host: this.host } } },
         );
         const client = new Client(
-          { name: "openlia-browser", version: "0.1.0" },
+          { name: "openlia-browser", version: "0.2.0" },
           { capabilities: {} },
         );
         try {

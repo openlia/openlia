@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "openlia": "0.1.0",
+  "openlia": "0.2.0",
   "hermes": {
     "image": "nousresearch/hermes-agent",
     "channel": "stable",

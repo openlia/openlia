@@ -335,7 +335,7 @@ func generateAttachmentsFile(config Config) error {
 		sessionDir, _ := json.Marshal(filepath.Join(config.RuntimeRoot, "workspace-ui"))
 		quotedAPIEnvPath, _ := json.Marshal(apiEnvPath)
 		quotedPublicOrigin, _ := json.Marshal(config.WorkspaceUIPublicOrigin)
-		builder.WriteString("  workspace-ui:\n    image: \"${OPENLIA_WORKSPACE_UI_IMAGE:-openlia-workspace-ui:v0.1.0}\"\n")
+		builder.WriteString("  workspace-ui:\n    image: \"${OPENLIA_WORKSPACE_UI_IMAGE:-openlia-workspace-ui:v0.2.0}\"\n")
 		builder.WriteString("    build:\n      context: ..\n      dockerfile: docker/workspace-ui.Dockerfile\n")
 		if config.OpenLiaReleaseSHA256 != "" {
 			fmt.Fprintf(&builder, "      args:\n        OPENLIA_RELEASE_SHA256: %q\n", config.OpenLiaReleaseSHA256)

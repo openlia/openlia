@@ -542,8 +542,11 @@ describe("Workspace UI App", () => {
     ).not.toBeInTheDocument();
 
     // Click Skills tab in ScopeSwitcher
-    const skillsTab = screen.getAllByRole("button", { name: /^skills/i })[0]!;
-    fireEvent.click(skillsTab);
+    const skillsTab = screen.getAllByRole("button", { name: /^skills/i })[0];
+    expect(skillsTab).toBeDefined();
+    if (skillsTab) {
+      fireEvent.click(skillsTab);
+    }
     expect(window.location.pathname).toBe("/skills/");
 
     // Skills navigator is active
@@ -560,8 +563,11 @@ describe("Workspace UI App", () => {
     expect(screen.getByText("OPENLIA / SKILLS")).toBeInTheDocument();
 
     // Click Agent tab in ScopeSwitcher
-    const agentTab = screen.getAllByRole("button", { name: /^agent/i })[0]!;
-    fireEvent.click(agentTab);
+    const agentTab = screen.getAllByRole("button", { name: /^agent/i })[0];
+    expect(agentTab).toBeDefined();
+    if (agentTab) {
+      fireEvent.click(agentTab);
+    }
     expect(window.location.pathname).toBe("/agent/");
     expect(
       screen.getByLabelText("Agent instructions & memory"),
@@ -607,9 +613,11 @@ describe("Workspace UI App", () => {
       ).not.toBeInTheDocument();
 
       // ScopeSwitcher in header is still present and clickable
-      const agentHeaderTab = screen.getAllByTestId("scope-tab-agent")[0]!;
+      const agentHeaderTab = screen.getAllByTestId("scope-tab-agent")[0];
       expect(agentHeaderTab).toBeInTheDocument();
-      fireEvent.click(agentHeaderTab);
+      if (agentHeaderTab) {
+        fireEvent.click(agentHeaderTab);
+      }
 
       // Active scope is now Agent
       expect(window.location.pathname).toBe("/agent/");

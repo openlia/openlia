@@ -3,7 +3,7 @@
 
 [openlia]
 schema = 2
-version = "0.1.0"
+version = "0.2.0"
 mode = "ssh"              # Use "ssh" for remote deployment; use "local" for local Docker testing
 target = "user@test-host" # SSH user@host (omit when mode = "local")
 root = "/opt/openlia_dev" # Remote installation root
@@ -27,9 +27,9 @@ relay_secrets = "~/.config/openlia/locho/relay.env"
 source = ""
 
 [components]
-hermes_image = "openlia-hermes:v0.22.5"
-hermes_tag = "v0.22.5"
-hermes_digest = "sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d"
+hermes_image = "openlia-hermes:v2026.9.14"
+hermes_tag = "v2026.9.14"
+hermes_digest = "sha256:99641e57ec762c59e54cb44aa6746b7fc68c18b3c5ddb088af54234c613d9294"
 locho_image = "openlia-locho:v1.3.1"
 locho_version = "1.3.1"
 locho_x86_64_sha256 = "4d7522111a783ef1c89b4369557761efd7a666c3dc4da8ec11d85126719d9f07"

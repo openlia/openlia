@@ -8,6 +8,8 @@ import (
 
 func TestEmbeddedReleaseAssetsPresent(t *testing.T) {
 	required := []string{
+		"LICENSE",
+		"THIRD_PARTY_NOTICES.md",
 		"docker/.env.example",
 		"docker/compose.yaml",
 		"docker/Dockerfile",

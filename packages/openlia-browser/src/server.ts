@@ -964,7 +964,7 @@ async function createHttpMcpSession(): Promise<HttpMcpSession> {
     },
   });
   const server = new McpServer(
-    { name: "openlia-browser", version: "0.1.0" },
+    { name: "openlia-browser", version: "0.2.0" },
     { capabilities: { tools: {} } },
   );
   const session: HttpMcpSession = Object.assign(

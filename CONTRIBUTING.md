@@ -22,7 +22,7 @@ We value changes that are **small, reviewable, deterministic to test, and explic
 - **Go**: `1.26` or newer
 - **Bun**: `1.2.22` or newer (for the packages under `packages/`)
 - **Python**: `3.9` or newer (for `tests/smoke.py`)
-- **Docker & Compose v2**: Required for `make compose-config` and local deployment smoke tests
+- **Docker & Compose v2**: Required for Compose validation and local deployment smoke tests
 - **Bash & ShellCheck**: Required for container script linting (`make lint`)
 
 > [!IMPORTANT]
@@ -59,7 +59,7 @@ Note: Clean-checkout builds and Go tests require `make build` (or `bun run verif
 
 ```bash
 go test ./...     # Run all Go unit tests
-make format       # Format TS/JS with Biome and Go files with `gofmt -w`
+make fmt          # Format Markdown, TS/JS with Biome, and Go files with `gofmt -w`
 make lint         # Check formatting, `go vet`, TypeScript, and shell scripts
 ```
 
@@ -130,16 +130,13 @@ make smoke
 # Equivalent to: python3 tests/smoke.py --mode cli
 
 # 2. Validate Docker Compose configuration syntax
-make compose-config
+python3 tests/smoke.py --mode compose
 
-# 3. Full local Docker lifecycle smoke test (deploys & tears down a provider-free stack in /tmp/openlia_smoke)
-make smoke-local
+# 3. Verify Hermes container image runtime wrapper
+python3 tests/smoke.py --mode hermes --build-image
 
-# 4. Live credential-backed smoke test (opt-in; requires external env & attachment files)
-make smoke-local-live \
-  OPENLIA_SMOKE_ENV_FILE="$HOME/.config/openlia/dev/openlia_dev.env" \
-  OPENLIA_SMOKE_ATTACHMENTS_FILE="$HOME/.config/openlia/dev/locho-attachments.toml" \
-  OPENLIA_SMOKE_LOCHO_HOST=genai
+# 4. Verify backup flow against a configured installation
+python3 tests/smoke.py --mode backup --verify-backup-cycle --config-file ~/.config/openlia/dev/config.toml
 ```
 
 See [`tests/README.md`](tests/README.md) and [`docs/e2e-drills.md`](docs/e2e-drills.md) for complete verification procedures.

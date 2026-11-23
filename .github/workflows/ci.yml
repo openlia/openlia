@@ -84,6 +84,11 @@ jobs:
       - name: Build release artifacts
         run: make build
 
+      - name: Run Python unit tests
+        run: |
+          python3 tests/test_link_rewriter.py
+          python3 tests/test_dashboard_auth_whitelist.py
+
       - name: Run CLI smoke harness
         run: python3 tests/smoke.py --mode cli --openlia-bin ./openlia
 
@@ -93,20 +98,20 @@ jobs:
           import json, shlex
           with open("release/manifest.json", "r", encoding="utf-8") as fh:
               data = json.load(fh)
-          hermes = data["components"]["hermes"]
+          hermes = data["hermes"]
           values = {
-              "HERMES_BASE_IMAGE": hermes["image"],
-              "HERMES_BASE_TAG": hermes["tag"],
-              "HERMES_BASE_DIGEST": hermes["digest"],
+              "HERMES_IMAGE": hermes["image"],
+              "HERMES_TAG": hermes["tag"],
+              "HERMES_DIGEST": hermes["digest"],
           }
           for key, value in values.items():
               print(f"export {key}={shlex.quote(str(value))}")
           PY
           )"
           docker build \
-            --build-arg "HERMES_BASE_IMAGE=${HERMES_BASE_IMAGE}" \
-            --build-arg "HERMES_BASE_TAG=${HERMES_BASE_TAG}" \
-            --build-arg "HERMES_BASE_DIGEST=${HERMES_BASE_DIGEST}" \
+            --build-arg "HERMES_IMAGE=${HERMES_IMAGE}" \
+            --build-arg "HERMES_TAG=${HERMES_TAG}" \
+            --build-arg "HERMES_DIGEST=${HERMES_DIGEST}" \
             -f docker/Dockerfile \
             -t openlia-hermes:ci \
             .
