@@ -18,19 +18,25 @@ export function createConfiguredWorkspaceHandler() {
     process.env.OPENLIA_WORKSPACE_ROOT ?? "/opt/data/workspace",
   );
 
-  const dataRootCandidates = [
+  const explicitDataRoots = [
     process.env.OPENLIA_DATA_ROOT,
     process.env.OPENLIA_PROFILE_ROOT,
+  ].filter((item): item is string => Boolean(item?.trim()));
+  const explicitDataRoot = explicitDataRoots.find((dir) => existsSync(dir));
+
+  const dataRootCandidates = [
     "/opt/data",
     resolve(workspaceRoot, ".."),
     resolve(workspaceRoot, "../profile"),
-  ].filter((item): item is string => Boolean(item));
-  const dataRoot = dataRootCandidates.find(
-    (dir) =>
-      existsSync(join(dir, "SOUL.md")) ||
-      existsSync(join(dir, "AGENTS.md")) ||
-      existsSync(join(dir, "memories")),
-  );
+  ];
+  const dataRoot =
+    explicitDataRoot ??
+    dataRootCandidates.find(
+      (dir) =>
+        existsSync(join(dir, "SOUL.md")) ||
+        existsSync(join(dir, "AGENTS.md")) ||
+        existsSync(join(dir, "memories")),
+    );
 
   const skillsCandidates = [
     process.env.OPENLIA_WORKSPACE_UI_SKILLS_ROOT,
@@ -93,9 +99,25 @@ export function createConfiguredWorkspaceHandler() {
   const passwordHashFile = process.env.OPENLIA_WORKSPACE_UI_PASSWORD_HASH_FILE;
 
   const hasOidc = Boolean(oidcIssuer && oidcClientId);
+  const hasPassword = Boolean(password || passwordHash || passwordHashFile);
+  const bind = (process.env.OPENLIA_WORKSPACE_UI_BIND ?? "127.0.0.1")
+    .trim()
+    .toLowerCase();
+  const isLoopbackBind =
+    bind === "" ||
+    bind === "127.0.0.1" ||
+    bind === "localhost" ||
+    bind === "::1" ||
+    bind === "[::1]";
 
-  const explicitAuthRequired = process.env.OPENLIA_WORKSPACE_UI_AUTH_REQUIRED;
-  const authRequired = explicitAuthRequired !== "false";
+  const explicitAuthRequired =
+    process.env.OPENLIA_WORKSPACE_UI_AUTH_REQUIRED?.trim().toLowerCase();
+  const authRequired =
+    explicitAuthRequired === "false"
+      ? false
+      : explicitAuthRequired === "true"
+        ? true
+        : hasOidc || hasPassword || !isLoopbackBind;
 
   const authProvider: AuthProvider = !authRequired
     ? "none"

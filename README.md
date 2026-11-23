@@ -66,6 +66,7 @@ All CLI commands accept `--config <path>` (or the `OPENLIA_CONFIG=<path>` enviro
 - `openlia attachments <list|map>` — Inspect attached Locho hosts or map discovered services to roles (`openlia-browser`, `openai-gateway`) in `config.toml` (run `openlia deploy` to apply).
 - `openlia backup <keygen|create|status|list|push|restore>` — Manage Age-encrypted backups and off-box S3/rsync replication.
 - `openlia browser <configure|install|start|stop|restart|status|logs|uninstall>` — Manage the `openlia-browser` Playwright MCP relay service.
+- `openlia workspace-ui serve [--root ~/.hermes] [--port 8089] [--host 127.0.0.1] [--public-origin <url>] [--env-file <path>] [--no-auth]` — Run Workspace UI standalone in the foreground against an existing Hermes home directory (`~/.hermes`).
 
 ---
 

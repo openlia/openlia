@@ -105,6 +105,7 @@ Usage:
   openlia locho-host share [--output PATH] [--services SERVICES]
   openlia browser configure --local|--target user@host --root PATH --extension-token-file PATH [--ssh-port PORT]
   openlia browser install|start|stop|restart|status|logs|uninstall
+  openlia workspace-ui serve [--root ~/.hermes] [--port 8089] [--host 127.0.0.1] [--public-origin URL] [--env-file PATH] [--no-auth]
   openlia uninstall [--local|--target user@host] [--project NAME] [--root /path]
 
 Global flags: --config PATH, --json, --non-interactive, --version, --help, --release, --wait, --live, --check-providers

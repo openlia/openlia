@@ -276,6 +276,17 @@ With the attachment active, open <http://127.0.0.1:8089> to browse and edit `/op
 
 Configure `relay_config` and optional `relay_secrets` (mode `0600`) under `[locho]` in `config.toml`. See [`examples/locho/hosts/example/README.md`](../examples/locho/hosts/example/README.md) for relay templates and service-role mapping (`openlia attachments map|list`).
 
+### Standalone Workspace UI (`openlia workspace-ui serve`)
+
+To run Workspace UI directly on a host with an existing standalone Hermes installation (such as `~/.hermes` on a remote VM) without Docker Compose or `config.toml`, install `bun` and the `openlia` binary on that host and run:
+
+```bash
+openlia workspace-ui serve --root ~/.hermes [--port 8089] [--host 127.0.0.1] [--public-origin URL] [--env-file PATH] [--no-auth]
+```
+
+- **Scopes**: Maps **Workspace** to `<root>/workspace`, **Skills** to `<root>/skills`, and **Agent** (`SOUL.md`, `AGENTS.md`, `memories/`) to `<root>`, creating missing subdirectories automatically and extracting the embedded UI bundle into `<root>/cache/workspace-ui/`.
+- **Authentication**: Reads `OPENLIA_WORKSPACE_UI_*` and `HERMES_DASHBOARD_*` credentials from the process environment, `--env-file`, or `<root>/.env` if present. When bound to `127.0.0.1` without credentials, unauthenticated local/tunnel access is allowed; binding to a non-loopback address (`0.0.0.0`) requires credentials or `--no-auth`.
+
 ### Browser Host (`openlia-browser`)
 
 OpenLia can attach a supervised Playwright MCP proxy (`openlia-browser`) running on the operator machine, agent machine, or a dedicated browser host:
