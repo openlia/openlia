@@ -266,7 +266,7 @@ openlia locho-host share --services workspace-ui:19119 --output caddy-attachment
 openlia locho-host share --services hermes-api --output api-attachments.toml
 ```
 
-Install [Locho `1.3.0`](https://github.com/trchopan/locho/releases/tag/v1.3.0) on your client machine, copy `openlia-attachments.toml` over a trusted channel, and start the local listener:
+Install [Locho `1.3.1`](https://github.com/trchopan/locho/releases/tag/v1.3.1) on your client machine, copy `openlia-attachments.toml` over a trusted channel, and start the local listener:
 
 ```bash
 locho attach --config openlia-attachments.toml
@@ -274,7 +274,11 @@ locho attach --config openlia-attachments.toml
 
 With the attachment active, open <http://127.0.0.1:8089> to browse and edit `/opt/data/workspace` and Hermes skills in `/opt/data/skills`. Skill edits change instructions and resources used by Hermes. Folder deletion is recursive and confirmed; it is refused if the target contains protected directories or symlinks. The UI service is not published on a host port by default; leave `[workspace-ui].host` empty to keep access on the private Locho tunnel. Set `host = "127.0.0.1"` only if you also want a local host port, or `host = "0.0.0.0"` to publish it on all host interfaces. Configure `public_origin` only when the UI is served through a stable HTTPS reverse-proxy origin (for example, for OIDC callbacks and secure cookies).
 
-Configure `relay_config` and optional `relay_secrets` (mode `0600`) under `[locho]` in `config.toml`. See [`examples/locho/hosts/example/README.md`](../examples/locho/hosts/example/README.md) for relay templates and service-role mapping (`openlia attachments map|list`).
+For authenticated custom relays, set `relay_config` under `[locho]` to a mode-`0600` TOML file outside the OpenLia checkout. Locho 1.3.1 supports placing an inline `token` in the TOML: omit `relay_secrets` for an inline-only setup, and pass `--relay-config /path/to/relay.toml` to `locho attach` in addition to the attachment config. An inline-token TOML is a secret: keep the operator and client copies at mode `0600`, out of source control, and transfer them only over a trusted channel.
+
+If you prefer external secret management, use `token_env` in the TOML and set `relay_secrets` under `[locho]` to a separate mode-`0600` dotenv file. Supply the named variable in the environment of the standalone client. Locho rejects `token` and `token_env` together on the same relay entry. See the [relay setup examples](../examples/locho/hosts/example/README.md).
+
+Before switching to inline tokens, upgrade both the managed Locho image and the standalone client to 1.3.1 or later. If an existing profile pins Locho under `[components]`, update `locho_image`, `locho_version`, `locho_x86_64_sha256`, and `locho_arm64_sha256` together using the [updated profile example](../examples/profiles/dev/config.toml.example), then deploy the updated OpenLia release.
 
 ### Standalone Workspace UI (`openlia workspace-ui serve`)
 

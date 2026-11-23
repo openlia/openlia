@@ -914,6 +914,62 @@ func TestGeneratedLochoHostHasOneRelayEnvFile(t *testing.T) {
 	}
 }
 
+func TestGeneratedLochoServicesWithOnlyRelayConfig(t *testing.T) {
+	const token = "fixture-relay-bearer"
+	repo := t.TempDir()
+	config := testConfig(repo, filepath.Join(t.TempDir(), "runtime"))
+	config.LochoHostEnabled = true
+	config.LochoHostRoot = filepath.Join(config.RuntimeRoot, "locho-host")
+	config.LochoHostConfig = filepath.Join(config.LochoHostRoot, "locho.toml")
+	config.LochoHostStateRoot = filepath.Join(config.LochoHostRoot, "state")
+	config.LochoRelayConfig = filepath.Join(config.LochoRoot, "relay.toml")
+	attachment := filepath.Join(config.LochoRoot, "laptop", "attachments.toml")
+	if err := os.MkdirAll(filepath.Dir(attachment), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(attachment, []byte("host_id = \"laptop\"\n[[services]]\ncapability = \"web:http:capability\"\nlisten_port = 8088\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.LochoRelayConfig, []byte("[[relays]]\nurl = \"https://relay.example.com\"\ntoken = \""+token+"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(config.GeneratedCompose), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateAttachments(config); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(config.GeneratedCompose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, token) {
+		t.Fatal("generated Compose exposed the inline token")
+	}
+	for _, service := range []struct{ name, flag string }{
+		{"locho-host", "--relay-config /etc/locho/relay.toml"},
+		{"locho-laptop", `"--relay-config", "/etc/locho/relay.toml"`},
+	} {
+		_, block, found := strings.Cut(text, "\n  "+service.name+":\n")
+		if !found {
+			t.Fatalf("generated Compose is missing %s", service.name)
+		}
+		end := 0
+		for _, line := range strings.SplitAfter(block, "\n") {
+			if !strings.HasPrefix(line, "    ") {
+				break
+			}
+			end += len(line)
+		}
+		block = block[:end]
+		mount := fmt.Sprintf("        source: %q\n        target: /etc/locho/relay.toml\n        read_only: true\n", config.LochoRelayConfig)
+		if !strings.Contains(block, service.flag) || !strings.Contains(block, mount) || strings.Contains(block, "    env_file:") {
+			t.Fatalf("expected %s to use the read-only relay TOML without an env_file:\n%s", service.name, block)
+		}
+	}
+}
+
 func TestGeneratedAttachmentsContainLochoHostForHermesServices(t *testing.T) {
 	repo := t.TempDir()
 	runtimeRoot := filepath.Join(t.TempDir(), "runtime")

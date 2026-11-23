@@ -157,10 +157,9 @@ When `[locho-host] enabled = true` is configured, `locho-host` exposes `hermes-a
      --config ~/.config/openlia/dev/config.toml
    ```
 
-2. Start the Locho tunnel on your local machine:
+2. Start the Locho tunnel on your local machine. The command below uses a custom relay. If your TOML uses `token_env`, first load the named variable from your protected dotenv file. If it uses inline `token`, keep the TOML at mode `0600`, omit `relay_secrets` in OpenLia, and leave the client token variable unset. For default public relays, omit `--relay-config`.
 
    ```bash
-   set -a && source ~/.config/openlia/locho/relay.env && set +a
    locho attach \
      --config ~/.config/openlia/dev/locho-attachments.toml \
      --relay-config ~/.config/openlia/locho/relay.toml
@@ -204,6 +203,8 @@ When `[locho-host] enabled = true` is configured, `locho-host` exposes `hermes-a
        ```
 
      - Open [http://127.0.0.1:8089](http://127.0.0.1:8089) in your browser and sign in via your configured Password or OIDC provider. Verify both scopes: browse/edit workspace files in `/opt/data/workspace`, then switch to Skills and inspect or author skill files in `/opt/data/skills`.
+
+4. To verify authenticated relay support on staging, confirm that both the managed container and the client report Locho `1.3.1` or later. Run the dashboard check with `token_env` and then with inline `token` against a relay that requires authentication. Disable public relay fallback with `include_n0_relays = false` and test where direct peer-to-peer UDP is unavailable, so a direct connection cannot mask a relay auth failure. For each mode, require the expected HTTP status and body and confirm `locho diagnose --host-id <host-id> --relay-config <relay.toml>` reports a relayed path through the custom relay. With a disposable config containing both auth fields on the same relay, check that Locho rejects the config without printing the token.
 
 ---
 
