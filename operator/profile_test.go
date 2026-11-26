@@ -168,9 +168,10 @@ func TestProfileSyncAddsManagedWorkspaceLinksWhenWorkspaceUIEnabled(t *testing.T
 	repo := t.TempDir()
 	runtime := filepath.Join(t.TempDir(), "runtime")
 	for path, contents := range map[string]string{
-		filepath.Join(repo, "profile", "SOUL.md"):       "# Soul\n",
-		filepath.Join(repo, "profile", "AGENTS.md"):     "# Legacy Agents\n\n- Keep workspace writes safe.\n",
-		filepath.Join(repo, "release", "manifest.json"): `{"openlia":"test"}`,
+		filepath.Join(repo, "profile", "SOUL.md"):                                "# Soul\n",
+		filepath.Join(repo, "profile", "AGENTS.md"):                              "# Legacy Agents\n\n- Keep workspace writes safe.\n",
+		filepath.Join(repo, "profile", "skills", "openui-authoring", "SKILL.md"): "# OpenUI Skill\n",
+		filepath.Join(repo, "release", "manifest.json"):                          `{"openlia":"test"}`,
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -195,5 +196,12 @@ func TestProfileSyncAddsManagedWorkspaceLinksWhenWorkspaceUIEnabled(t *testing.T
 	text := string(data)
 	if !strings.Contains(text, "# Legacy Agents") || !strings.Contains(text, workspaceLinksBlockStart) || !strings.Contains(text, "openlia://workspace/<path>") || !strings.Contains(text, "openlia://skills/<path>") {
 		t.Fatalf("expected managed workspace links block in AGENTS.md:\n%s", text)
+	}
+	if !strings.Contains(text, openuiBlockStart) || !strings.Contains(text, "CalendarMonth(") || !strings.Contains(text, "ChartBar(") {
+		t.Fatalf("expected managed OpenUI block in AGENTS.md:\n%s", text)
+	}
+	skillData, err := os.ReadFile(filepath.Join(config.DataRoot, "skills", "openui-authoring", "SKILL.md"))
+	if err != nil || string(skillData) != "# OpenUI Skill\n" {
+		t.Fatalf("expected bundled openui-authoring skill to be seeded: %q, err=%v", skillData, err)
 	}
 }

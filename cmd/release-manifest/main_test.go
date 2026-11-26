@@ -6,6 +6,11 @@ func TestValidateRequiresStableImmutableImagePins(t *testing.T) {
 	valid := manifest{
 		Schema:  1,
 		OpenLia: "0.2.0",
+		Remind: remind{
+			Version:      "06.03.06",
+			SourceURL:    "https://dianne.skoll.ca/projects/remind/download/remind-06.03.06.tar.gz",
+			SourceSHA256: repeatedHex('b'),
+		},
 		Hermes: image{
 			Image:   "nousresearch/hermes-agent",
 			Channel: "stable",

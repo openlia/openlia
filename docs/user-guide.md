@@ -51,6 +51,7 @@ The **Workspace UI** provides a browser interface for documents and Hermes skill
 
 - **Access**: Served at your configured `[workspace-ui].public_origin` domain (behind an HTTPS reverse proxy attached to `workspace-ui`) or privately at <http://127.0.0.1:8089> via `locho attach`.
 - **Workspace**: Browse, preview, edit, create, upload, move, rename, and delete documents in `/opt/data/workspace`.
+- **Inline OpenUI Views (`openui` blocks)**: Fenced ` ```openui ` blocks inside Markdown documents render interactive **Calendar** (`CalendarMonth`, `CalendarWeek`, `CalendarGantt`/`GanttChart`, `Calendar`) and **Chart** (`ChartBar`, `ChartLine`, `ChartPie`, `ChartSankey`/`SankeyDiagram`) views, as well as `Table`, `Card`, `Stack`, and `Tabs` layouts, backed by inline data or external `.rem` / `.json` workspace files.
 - **Skills**: Browse and author files in `/opt/data/skills`; changes modify the instructions and resources Hermes uses for those skills. Skill and workspace links open in their corresponding UI scopes.
 - **Agent**: Inspect and edit `SOUL.md`, `AGENTS.md`, and files under `/opt/data/memories` directly in the **Agent** scope.
 - **Folder deletion**: Deleting a folder removes its contents after confirmation. Folders containing protected directories or symlinks are rejected to avoid deleting hidden runtime data.

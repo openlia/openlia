@@ -5,6 +5,11 @@ package releaseinfo
 var Default = Manifest{
 	Schema:  1,
 	OpenLia: "0.2.0",
+	Remind: RemindPin{
+		Version:      "06.03.06",
+		SourceURL:    "https://dianne.skoll.ca/projects/remind/download/remind-06.03.06.tar.gz",
+		SourceSHA256: "19518dfa6ab3695749e74b26b664a7134b573ddd03f0a7a6fee3867868d6fd58",
+	},
 	Hermes: ImagePin{
 		Image:   "nousresearch/hermes-agent",
 		Channel: "stable",

@@ -4,6 +4,16 @@ ARG WORKSPACE_UI_BASE_IMAGE=debian
 ARG WORKSPACE_UI_BASE_TAG=13.4-slim
 ARG WORKSPACE_UI_BASE_DIGEST=sha256:109e2c65005bf160609e4ba6acf7783752f8502ad218e298253428690b9eaa4b
 
+FROM ${WORKSPACE_UI_BASE_IMAGE}:${WORKSPACE_UI_BASE_TAG}@${WORKSPACE_UI_BASE_DIGEST} AS remind-builder
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates gcc libc6-dev make python3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY release/manifest.json /build/release/manifest.json
+COPY docker/install-remind.py /build/docker/install-remind.py
+RUN version="$(python3 -c 'import json; print(json.load(open("/build/release/manifest.json"))["remind"]["version"])')" \
+    && python3 /build/docker/install-remind.py --prefix "/usr/local/lib/openlia/remind/${version}" \
+    && ln -s "${version}" /usr/local/lib/openlia/remind/current
+
 FROM ${WORKSPACE_UI_BASE_IMAGE}:${WORKSPACE_UI_BASE_TAG}@${WORKSPACE_UI_BASE_DIGEST}
 
 ARG TARGETARCH
@@ -30,6 +40,8 @@ RUN apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquir
     groupadd --gid 10000 openlia \
     && useradd --system --uid 10000 --gid 10000 --home-dir /nonexistent --shell /usr/sbin/nologin openlia
 
+COPY --from=remind-builder /usr/local/lib/openlia/remind/ /usr/local/lib/openlia/remind/
+RUN ln -sf /usr/local/lib/openlia/remind/current/bin/remind /usr/local/bin/remind
 COPY packages/workspace-ui/dist/ /opt/openlia/workspace-ui/
 COPY release/manifest.json /opt/openlia/runtime-release.json
 ARG OPENLIA_RELEASE_SHA256

@@ -25,6 +25,8 @@ const COMMON_FILE_EXTENSIONS = new Set([
   ".yml",
   ".json",
   ".toml",
+  ".rem",
+  ".remind",
   ".py",
   ".sh",
   ".bash",
