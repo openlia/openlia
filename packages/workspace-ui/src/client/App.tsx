@@ -1038,6 +1038,7 @@ export function App({ api }: { api: WorkspaceApi }) {
         )}
 
         <DocumentPane
+          api={api}
           artifact={artifact}
           conflict={conflict}
           deleting={deleting}

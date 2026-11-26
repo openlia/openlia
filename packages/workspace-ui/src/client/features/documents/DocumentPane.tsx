@@ -4,6 +4,7 @@ import type {
   WorkspaceFile,
   WorkspaceFileMetadata,
 } from "../../../shared/api";
+import type { WorkspaceApi } from "../../api";
 import { CodeEditor, isMarkdownPath } from "../../CodeEditor";
 import { ActionMenu } from "../../components/common/ActionMenu";
 import { CopyLinkButton } from "../../components/common/CopyLinkButton";
@@ -293,6 +294,7 @@ function ArtifactPane({
 }
 
 export function DocumentPane({
+  api,
   artifact,
   conflict,
   diff,
@@ -319,6 +321,7 @@ export function DocumentPane({
   onCreateFile,
   scope = "workspace",
 }: {
+  api?: WorkspaceApi | undefined;
   conflict: string;
   detailsOpen?: boolean;
   diff: string[];
@@ -573,6 +576,7 @@ export function DocumentPane({
             >
               <div className="workspace-pane-label sr-only">Preview</div>
               <MarkdownPreview
+                api={api}
                 content={draft}
                 currentFilePath={file.path}
                 onNavigateLink={onNavigateLink}

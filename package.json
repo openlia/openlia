@@ -9,6 +9,8 @@
     "@codemirror/view": "6.43.15"
   },
   "scripts": {
+    "storybook": "bun run --cwd packages/workspace-ui storybook",
+    "build:storybook": "bun run --cwd packages/workspace-ui build:storybook",
     "build": "bun run build:openlia-browser && bun run build:ui",
     "build:openlia-browser": "bun build packages/openlia-browser/src/server.ts --target=bun --outfile packages/openlia-browser/dist/server.js",
     "build:ui": "bun run --cwd packages/workspace-ui build",

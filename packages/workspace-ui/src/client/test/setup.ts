@@ -23,3 +23,10 @@ if (typeof window !== "undefined" && !window.matchMedia) {
     }),
   });
 }
+
+if (typeof HTMLCanvasElement !== "undefined") {
+  HTMLCanvasElement.prototype.getContext = (() => ({
+    font: "",
+    measureText: (text: string) => ({ width: String(text).length * 7 }),
+  })) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+}

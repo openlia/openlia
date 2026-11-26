@@ -23,6 +23,8 @@ const (
 	outputLanguageBlockEnd   = "<!-- END OPENLIA MANAGED OUTPUT LANGUAGE -->"
 	workspaceLinksBlockStart = "<!-- BEGIN OPENLIA MANAGED WORKSPACE LINKS -->"
 	workspaceLinksBlockEnd   = "<!-- END OPENLIA MANAGED WORKSPACE LINKS -->"
+	openuiBlockStart         = "<!-- BEGIN OPENLIA MANAGED OPENUI -->"
+	openuiBlockEnd           = "<!-- END OPENLIA MANAGED OPENUI -->"
 )
 
 type ProfileOperator struct {
@@ -56,6 +58,9 @@ func (p *ProfileOperator) Sync() (ProfileSyncResult, error) {
 	}
 
 	if err := p.seedInstructions(); err != nil {
+		return ProfileSyncResult{}, err
+	}
+	if err := p.seedBundledSkills(); err != nil {
 		return ProfileSyncResult{}, err
 	}
 	if err := p.reconcileHermesRuntimeConfig(filepath.Join(p.Config.DataRoot, "config.yaml"), 0o600); err != nil {
@@ -98,6 +103,10 @@ func (p *ProfileOperator) seedInstructions() error {
 		if name == "AGENTS.md" && (workspaceUIEnabled(p.Config) || p.Config.WorkspaceUIPublicOrigin != "") {
 			if data, err := os.ReadFile(destination); err == nil {
 				updated, renderErr := renderWorkspaceLinksBlock(data)
+				if renderErr != nil {
+					return renderErr
+				}
+				updated, renderErr = renderOpenUIBlock(updated)
 				if renderErr != nil {
 					return renderErr
 				}
@@ -318,6 +327,92 @@ func renderWorkspaceLinksBlock(data []byte) ([]byte, error) {
 	}
 	lines = append(lines, block...)
 	return []byte(strings.Join(lines, "\n")), nil
+}
+
+func renderOpenUIBlock(data []byte) ([]byte, error) {
+	lines := strings.Split(string(data), "\n")
+	block := []string{
+		openuiBlockStart,
+		"## Inline OpenUI in Markdown (`openui` blocks)",
+		"",
+		"Workspace UI renders fenced ```` ```openui ```` code blocks inside Markdown files as interactive components:",
+		"",
+		"- **Calendar views**: `CalendarMonth(...)`, `CalendarWeek(...)`, `CalendarGantt(...)` (alias `GanttChart(...)`), and `Calendar(children: [...], ...)`.",
+		"  - Support inline `events: [{ id, title, start, end, allDay?, location?, agenda?, attendees?, group? }]` (or `items` on `CalendarGantt`), external Remind files (`source: \"./schedule.rem\"`), or external JSON files (`source: \"./events.json\"`).",
+		"- **Chart views**: `ChartBar(...)`, `ChartLine(...)`, `ChartPie(...)`, `ChartSankey(...)` (alias `SankeyDiagram(...)`), and `ChartPanel(...)`.",
+		"  - Support inline data (`labels` + `series`/`values`, `slices`, or `nodes` + `links`) or external JSON files (`source: \"./data.json\"`).",
+		"- **Layout & Table views**: `Table(title: \"...\", columns: [{ key, label }], rows: [{ ... }])`, `Card`, `CardHeader`, `Stack`, `Tabs`, `TabItem`, `TextContent`, `Callout`, etc.",
+		"- Bare root expressions (e.g., `CalendarMonth(...)`, `ChartBar(...)`) and named arguments (`prop: value`) are supported.",
+		"- Load the `openui-authoring` skill (`openlia://skills/openui-authoring/SKILL.md`) or run `openlia-openui describe [Component]` and `openlia-openui validate --file <path.md>` to inspect component schemas and validate Markdown drafts.",
+		openuiBlockEnd,
+	}
+	start, end := -1, -1
+	for index, line := range lines {
+		switch strings.TrimSpace(line) {
+		case openuiBlockStart:
+			if start >= 0 {
+				return nil, fmt.Errorf("AGENTS.md contains duplicate managed OpenUI blocks")
+			}
+			start = index
+		case openuiBlockEnd:
+			if start < 0 || end >= 0 {
+				return nil, fmt.Errorf("AGENTS.md contains an invalid managed OpenUI block")
+			}
+			end = index
+		}
+	}
+	if start >= 0 && end < 0 {
+		return nil, fmt.Errorf("AGENTS.md contains an incomplete managed OpenUI block")
+	}
+	if start >= 0 {
+		updated := append([]string{}, lines[:start]...)
+		updated = append(updated, block...)
+		updated = append(updated, lines[end+1:]...)
+		return []byte(strings.Join(updated, "\n")), nil
+	}
+	if strings.Contains(string(data), "CalendarMonth(") && strings.Contains(string(data), "ChartBar(") {
+		return data, nil
+	}
+	if len(lines) > 0 && lines[len(lines)-1] != "" {
+		lines = append(lines, "")
+	}
+	lines = append(lines, block...)
+	return []byte(strings.Join(lines, "\n")), nil
+}
+
+func (p *ProfileOperator) seedBundledSkills() error {
+	skillsSource := filepath.Join(p.Config.RepositoryRoot, "profile", "skills")
+	info, err := os.Stat(skillsSource)
+	if errors.Is(err, os.ErrNotExist) || !info.IsDir() {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	skillsDest := filepath.Join(p.Config.DataRoot, "skills")
+	return filepath.WalkDir(skillsSource, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(skillsSource, path)
+		if err != nil || rel == "." {
+			return err
+		}
+		target := filepath.Join(skillsDest, rel)
+		if entry.IsDir() {
+			if err := EnsureDir(target, 0o700); err != nil {
+				return err
+			}
+			return ensureRuntimeOwner(target, p.Config.RuntimeUID, p.Config.RuntimeGID, 0o700)
+		}
+		if err := EnsureDir(filepath.Dir(target), 0o700); err != nil {
+			return err
+		}
+		if err := copyOnce(path, target, 0o600); err != nil {
+			return err
+		}
+		return ensureRuntimeOwner(target, p.Config.RuntimeUID, p.Config.RuntimeGID, 0o600)
+	})
 }
 
 func renderFallbackBlock(data []byte, providers []FallbackProviderConfig) ([]byte, error) {

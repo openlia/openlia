@@ -7,6 +7,16 @@ ARG BUN_VERSION=1.2.22
 ARG BUN_LINUX_X64_SHA256=4c446af1a01d7b40e1e11baebc352f9b2bfd12887e51b97dd3b59879cee2743a
 ARG BUN_LINUX_ARM64_SHA256=a97c687fb5e54de4e2fb0869a7ac9a2d9c3af75ac182e2b68138c1dd8f98131b
 
+FROM ${HERMES_IMAGE}:${HERMES_TAG}@${HERMES_DIGEST} AS remind-builder
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates gcc libc6-dev make python3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY release/manifest.json /build/release/manifest.json
+COPY docker/install-remind.py /build/docker/install-remind.py
+RUN version="$(python3 -c 'import json; print(json.load(open("/build/release/manifest.json"))["remind"]["version"])')" \
+    && python3 /build/docker/install-remind.py --prefix "/usr/local/lib/openlia/remind/${version}" \
+    && ln -s "${version}" /usr/local/lib/openlia/remind/current
+
 FROM ${HERMES_IMAGE}:${HERMES_TAG}@${HERMES_DIGEST}
 
 ARG TARGETARCH
@@ -80,6 +90,11 @@ RUN sed -i \
     install -m 0755 "/tmp/uv/uv-${uv_target}/uvx" /usr/local/bin/uvx; \
     rm -rf /tmp/bun /tmp/uv "${bun_archive}" "${uv_archive}"
 
+COPY --from=remind-builder /usr/local/lib/openlia/remind/ /usr/local/lib/openlia/remind/
+RUN ln -sf /usr/local/lib/openlia/remind/current/bin/remind /usr/local/bin/remind
+COPY --chmod=0644 packages/workspace-ui/dist/openui-authoring.js /usr/local/lib/openlia/openui-authoring.js
+RUN printf '#!/bin/sh\nexec /usr/local/bin/bun /usr/local/lib/openlia/openui-authoring.js "$@"\n' > /usr/local/bin/openlia-openui \
+    && chmod 0755 /usr/local/bin/openlia-openui
 COPY --chmod=0755 docker/secret-source.sh /usr/local/bin/openlia-secret-source
 COPY --chmod=0644 docker/openlia_link_rewriter.py /tmp/openlia_link_rewriter.py
 COPY --chmod=0644 docker/openlia_link_rewriter.pth /tmp/openlia_link_rewriter.pth

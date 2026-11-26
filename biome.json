@@ -4,6 +4,7 @@
     "includes": [
       "packages/**/*.{js,jsx,ts,tsx,json,jsonc}",
       "!packages/**/dist",
+      "!packages/**/.storybook-static",
       "package.json",
       "tsconfig*.json"
     ]

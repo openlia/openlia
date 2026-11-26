@@ -12,9 +12,16 @@ import (
 type manifest struct {
 	Schema  int    `json:"schema"`
 	OpenLia string `json:"openlia"`
+	Remind  remind `json:"remind"`
 	Hermes  image  `json:"hermes"`
 	Locho   locho  `json:"locho"`
 	Bun     bun    `json:"bun"`
+}
+
+type remind struct {
+	Version      string `json:"version"`
+	SourceURL    string `json:"source_url"`
+	SourceSHA256 string `json:"source_sha256"`
 }
 
 type image struct {
@@ -237,6 +244,16 @@ func validate(m manifest) error {
 	if !semverRe.MatchString(m.OpenLia) {
 		return fmt.Errorf("openlia version must be stable X.Y.Z, got %q", m.OpenLia)
 	}
+	if !semverRe.MatchString(m.Remind.Version) {
+		return fmt.Errorf("remind version must be stable X.Y.Z, got %q", m.Remind.Version)
+	}
+	expectedRemindURL := fmt.Sprintf("https://dianne.skoll.ca/projects/remind/download/remind-%s.tar.gz", m.Remind.Version)
+	if m.Remind.SourceURL != expectedRemindURL {
+		return fmt.Errorf("remind source_url must be %q, got %q", expectedRemindURL, m.Remind.SourceURL)
+	}
+	if !hex64Re.MatchString(m.Remind.SourceSHA256) {
+		return errors.New("remind source_sha256 must be 64 lowercase hex characters")
+	}
 	if err := validateImage("hermes", m.Hermes, "nousresearch/hermes-agent", vSemverRe); err != nil {
 		return err
 	}
@@ -279,6 +296,11 @@ package releaseinfo
 var Default = Manifest{
 	Schema:  %d,
 	OpenLia: %q,
+	Remind: RemindPin{
+		Version:      %q,
+		SourceURL:    %q,
+		SourceSHA256: %q,
+	},
 	Hermes: ImagePin{
 		Image:   %q,
 		Channel: %q,
@@ -296,7 +318,7 @@ var Default = Manifest{
 		LinuxARM64SHA: %q,
 	},
 }
-`, m.Schema, m.OpenLia, m.Hermes.Image, m.Hermes.Channel, m.Hermes.Tag, m.Hermes.Digest, m.Locho.Version, m.Locho.LinuxX8664SHA, m.Locho.LinuxARM64SHA, m.Bun.Version, m.Bun.LinuxX64SHA, m.Bun.LinuxARM64SHA)
+`, m.Schema, m.OpenLia, m.Remind.Version, m.Remind.SourceURL, m.Remind.SourceSHA256, m.Hermes.Image, m.Hermes.Channel, m.Hermes.Tag, m.Hermes.Digest, m.Locho.Version, m.Locho.LinuxX8664SHA, m.Locho.LinuxARM64SHA, m.Bun.Version, m.Bun.LinuxX64SHA, m.Bun.LinuxARM64SHA)
 }
 
 func syncGeneratedReleaseInfo(path string, m manifest, write bool) error {

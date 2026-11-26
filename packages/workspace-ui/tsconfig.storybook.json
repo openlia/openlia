@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.client.json",
+  "include": [
+    ".storybook/**/*.ts",
+    ".storybook/**/*.tsx",
+    "src/client/**/*.ts",
+    "src/client/**/*.tsx",
+    "src/shared/**/*.ts"
+  ]
+}

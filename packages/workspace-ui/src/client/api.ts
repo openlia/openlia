@@ -13,6 +13,11 @@ import type {
   WorkspaceUploadFileResponse,
   WorkspaceWriteResponse,
 } from "../shared/api";
+import type {
+  CalendarCreateRequest,
+  CalendarRangeRequest,
+  CalendarResponse,
+} from "../shared/calendar";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -70,6 +75,14 @@ export interface WorkspaceApi {
     path: string,
     scope?: DocumentScope,
   ): Promise<WorkspaceDeleteResponse>;
+  loadCalendar?(
+    request: CalendarRangeRequest,
+    scope?: DocumentScope,
+  ): Promise<CalendarResponse>;
+  createCalendarEvent?(
+    request: CalendarCreateRequest,
+    scope?: DocumentScope,
+  ): Promise<CalendarResponse>;
   rawUrl(path: string, scope?: DocumentScope): string;
   downloadUrl(path: string, scope?: DocumentScope): string;
 }
@@ -211,6 +224,20 @@ export const httpWorkspaceApi: WorkspaceApi = {
         ...(scope ? { scope } : {}),
       }),
       method: "DELETE",
+    });
+  },
+  loadCalendar(request, scope) {
+    const query = new URLSearchParams({
+      source: request.source,
+      from: request.from,
+      to: request.to,
+    });
+    return requestJson<CalendarResponse>(`${apiBase(scope)}/calendar?${query}`);
+  },
+  createCalendarEvent(request, scope) {
+    return requestJson<CalendarResponse>(`${apiBase(scope)}/calendar`, {
+      body: JSON.stringify(request),
+      method: "POST",
     });
   },
   rawUrl(path, scope) {

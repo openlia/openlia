@@ -20,6 +20,7 @@ import {
   resolveClientAddress,
   validMutationOrigin,
 } from "./auth";
+import { CalendarService } from "./calendar";
 import { AgentService, WorkspaceError, WorkspaceService } from "./workspace";
 
 export interface WorkspaceHandlerOptions {
@@ -27,6 +28,7 @@ export interface WorkspaceHandlerOptions {
   dataRoot?: string | undefined;
   skillsRoot?: string | undefined;
   staticRoot?: string | undefined;
+  timezone?: string | undefined;
   maxEditableBytes?: number | undefined;
   maxDownloadBytes?: number | undefined;
   maxTreeEntries?: number | undefined;
@@ -719,6 +721,31 @@ export function createWorkspaceHandler(options: WorkspaceHandlerOptions) {
             );
             const deleted = service.deleteDirectory(body.path);
             return json({ ...deleted, scope });
+          }
+
+          if (method === "GET" && apiSubpath === "/calendar") {
+            const { service } = resolveService(queryScope, routeScope);
+            const calendar = new CalendarService(
+              service,
+              options.timezone ?? process.env.TZ ?? "UTC",
+            );
+            const source = url.searchParams.get("source") ?? "";
+            const from = url.searchParams.get("from") ?? "";
+            const to = url.searchParams.get("to") ?? "";
+            return json(await calendar.load({ source, from, to }));
+          }
+
+          if (method === "POST" && apiSubpath === "/calendar") {
+            const { service } = resolveService(queryScope, routeScope);
+            const calendar = new CalendarService(
+              service,
+              options.timezone ?? process.env.TZ ?? "UTC",
+            );
+            const body = await readJsonBody<unknown>(
+              request,
+              maxSmallJsonBytes,
+            );
+            return json(await calendar.create(body), 201);
           }
 
           if (

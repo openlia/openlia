@@ -8,11 +8,18 @@ import (
 )
 
 type Manifest struct {
-	Schema  int      `json:"schema"`
-	OpenLia string   `json:"openlia"`
-	Hermes  ImagePin `json:"hermes"`
-	Locho   LochoPin `json:"locho"`
-	Bun     BunPin   `json:"bun"`
+	Schema  int       `json:"schema"`
+	OpenLia string    `json:"openlia"`
+	Remind  RemindPin `json:"remind"`
+	Hermes  ImagePin  `json:"hermes"`
+	Locho   LochoPin  `json:"locho"`
+	Bun     BunPin    `json:"bun"`
+}
+
+type RemindPin struct {
+	Version      string `json:"version"`
+	SourceURL    string `json:"source_url"`
+	SourceSHA256 string `json:"source_sha256"`
 }
 
 type ImagePin struct {
