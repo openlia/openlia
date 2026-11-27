@@ -46,7 +46,7 @@ export const storyShortAndInstantCalendarEvents: InlineCalendarEvent[] = [
     id: "econ-1",
     title: "Thương mại & Xuất nhập khẩu",
     start: "2026-11-30T01:30:00Z",
-    end: "2026-11-30T01:30:00Z",
+    end: "2026-11-30T01:45:00Z",
     group: "Economics",
   },
   {
@@ -60,7 +60,7 @@ export const storyShortAndInstantCalendarEvents: InlineCalendarEvent[] = [
     id: "econ-3",
     title: "Thống kê tiêu dùng & CPI",
     start: "2026-12-01T01:45:00Z",
-    end: "2026-12-01T01:45:00Z",
+    end: "2026-12-01T02:00:00Z",
     group: "Economics",
   },
   {
@@ -75,7 +75,7 @@ export const storyShortAndInstantCalendarEvents: InlineCalendarEvent[] = [
     id: "econ-5",
     title: "PMI Dịch vụ & Tổng hợp",
     start: "2026-12-03T00:00:00Z",
-    end: "2026-12-03T00:00:00Z",
+    end: "2026-12-03T00:15:00Z",
     group: "Economics",
   },
   {
