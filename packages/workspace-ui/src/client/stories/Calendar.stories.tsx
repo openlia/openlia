@@ -6,7 +6,11 @@ import { CalendarEventEditor } from "../openui/calendar/CalendarEventEditor";
 import { CalendarMonthView } from "../openui/calendar/CalendarMonth";
 import { CalendarWeekView } from "../openui/calendar/CalendarWeek";
 import { GanttChartView } from "../openui/calendar/GanttChart";
-import { primaryCalendarEvent, storyInlineCalendarEvents } from "./fixtures";
+import {
+  primaryCalendarEvent,
+  storyInlineCalendarEvents,
+  storyShortAndInstantCalendarEvents,
+} from "./fixtures";
 
 const meta = {
   title: "OpenUI/Calendar",
@@ -76,6 +80,17 @@ export const WeekViewTimezone: Story = {
       timezone="Asia/Ho_Chi_Minh"
       date="2026-10-27"
       events={storyInlineCalendarEvents}
+    />
+  ),
+};
+
+export const WeekViewShortAndInstantEvents: Story = {
+  render: () => (
+    <CalendarWeekView
+      title="Lịch vĩ mô tuần tới · giờ Việt Nam"
+      timezone="Asia/Ho_Chi_Minh"
+      date="2026-11-30"
+      events={storyShortAndInstantCalendarEvents}
     />
   ),
 };
