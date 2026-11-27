@@ -9,6 +9,26 @@ export default defineConfig({
   build: {
     outDir: resolve(__dirname, "dist/client"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (
+            id.includes("node_modules/@codemirror") ||
+            id.includes("node_modules/@lezer")
+          ) {
+            return "codemirror";
+          }
+          if (
+            id.includes("node_modules/@openuidev") ||
+            id.includes("node_modules/lucide-react") ||
+            id.includes("node_modules/refractor") ||
+            id.includes("node_modules/react-syntax-highlighter")
+          ) {
+            return "openui";
+          }
+        },
+      },
+    },
   },
   server: {
     port: 5173,

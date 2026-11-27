@@ -9,14 +9,16 @@
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.ts",
     "test:server": "bun test src/server",
-    "typecheck": "bun run typecheck:server && bun run typecheck:client && bun run typecheck:storybook",
+    "sync:schema": "bun scripts/sync-openui-schema.ts --write",
+    "check:schema": "bun scripts/sync-openui-schema.ts",
+    "typecheck": "bun run check:schema && bun run typecheck:server && bun run typecheck:client && bun run typecheck:storybook",
     "typecheck:client": "tsc -p tsconfig.client.json --noEmit",
     "typecheck:server": "tsc -p tsconfig.server.json --noEmit",
     "typecheck:storybook": "tsc -p tsconfig.storybook.json --noEmit",
     "build": "bun run build:client && bun run bundle:server",
     "build:client": "vite build",
     "bundle:server": "bun build src/server/main.ts --target=bun --format=esm --outfile=dist/server.js && bun run bundle:openui",
-    "bundle:openui": "bun build scripts/openui-authoring.ts --target=bun --format=esm --outfile=dist/openui-authoring.js"
+    "bundle:openui": "bun build scripts/openui-authoring.ts --target=bun --format=esm --minify --outfile=dist/openui-authoring.js"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
