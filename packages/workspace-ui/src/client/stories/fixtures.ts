@@ -41,6 +41,52 @@ export const storyInlineCalendarEvents: InlineCalendarEvent[] = [
   },
 ];
 
+export const storyShortAndInstantCalendarEvents: InlineCalendarEvent[] = [
+  {
+    id: "econ-1",
+    title: "Thương mại & Xuất nhập khẩu",
+    start: "2026-11-30T01:30:00Z",
+    end: "2026-11-30T01:30:00Z",
+    group: "Economics",
+  },
+  {
+    id: "econ-2",
+    title: "PMI sản xuất Việt Nam (S&P Global)",
+    start: "2026-12-01T00:00:00Z",
+    end: "2026-12-01T00:15:00Z",
+    group: "Economics",
+  },
+  {
+    id: "econ-3",
+    title: "Thống kê tiêu dùng & CPI",
+    start: "2026-12-01T01:45:00Z",
+    end: "2026-12-01T01:45:00Z",
+    group: "Economics",
+  },
+  {
+    id: "econ-4",
+    title: "Việt Nam · NS (Kỳ họp)",
+    allDay: true,
+    start: "2026-12-03",
+    end: "2026-12-04",
+    group: "Government",
+  },
+  {
+    id: "econ-5",
+    title: "PMI Dịch vụ & Tổng hợp",
+    start: "2026-12-03T00:00:00Z",
+    end: "2026-12-03T00:00:00Z",
+    group: "Economics",
+  },
+  {
+    id: "econ-6",
+    title: "Tuyên bố định hướng chính sách tiền tệ",
+    start: "2026-12-03T01:45:00Z",
+    end: "2026-12-03T02:00:00Z",
+    group: "Economics",
+  },
+];
+
 export const primaryCalendarEvent: CalendarEvent = {
   id: "openlia-ui-story-1",
   occurrenceId: "openlia-ui-story-1:2026-10-27T09:00:00Z",

@@ -77,7 +77,7 @@ export function weekBlocks(
       return {
         event,
         top,
-        bottom: Math.max(top + 15, end),
+        bottom: Math.max(top + 24, end),
         column: 0,
         columns: 1,
       };

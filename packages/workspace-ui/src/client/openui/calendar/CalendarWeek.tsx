@@ -34,31 +34,39 @@ export function CalendarWeekGrid({
         daylight-saving transitions.
       </p>
       <div className="overflow-auto max-h-[650px] border border-base-content/10 rounded-lg">
-        <div className="min-w-[800px]">
+        <div className="min-w-[640px] md:min-w-full">
           <div className="grid grid-cols-[52px_repeat(7,minmax(0,1fr))] sticky top-0 z-10 bg-base-100 border-b border-base-content/10">
             <span className="text-xs p-1">All day</span>
-            {days.map((day) => (
-              <div
-                key={day}
-                className="p-1 border-l border-base-content/10 text-xs"
-              >
-                <p className="font-semibold">{day}</p>
-                {events
-                  .filter(
-                    (event) => event.allDay && onDay(event, day, timezone),
-                  )
-                  .map((event) => (
-                    <button
-                      key={event.occurrenceId}
-                      type="button"
-                      onClick={() => select(event)}
-                      className="block w-full truncate bg-primary/10 rounded p-1 mt-1 text-left"
-                    >
-                      {event.title}
-                    </button>
-                  ))}
-              </div>
-            ))}
+            {days.map((day) => {
+              const weekday = new Intl.DateTimeFormat("en-US", {
+                weekday: "short",
+              }).format(new Date(`${day}T12:00:00Z`));
+              return (
+                <div
+                  key={day}
+                  className="p-1 border-l border-base-content/10 text-xs"
+                >
+                  <p className="font-semibold">
+                    {weekday}{" "}
+                    <span className="font-normal opacity-80">{day}</span>
+                  </p>
+                  {events
+                    .filter(
+                      (event) => event.allDay && onDay(event, day, timezone),
+                    )
+                    .map((event) => (
+                      <button
+                        key={event.occurrenceId}
+                        type="button"
+                        onClick={() => select(event)}
+                        className="block w-full truncate bg-primary/10 rounded p-1 mt-1 text-left"
+                      >
+                        {event.title}
+                      </button>
+                    ))}
+                </div>
+              );
+            })}
           </div>
           <div className="grid grid-cols-[52px_repeat(7,minmax(0,1fr))]">
             <div className="relative h-[1440px]">
@@ -86,26 +94,42 @@ export function CalendarWeekGrid({
                   />
                 ))}
                 {weekBlocks(events, day, timezone).map(
-                  ({ event, top, bottom, column, columns }) => (
-                    <button
-                      key={event.occurrenceId}
-                      type="button"
-                      onClick={() => select(event)}
-                      title={`${event.title} · ${timeInZone(event.start, timezone)}`}
-                      className="absolute overflow-hidden rounded border border-primary/30 bg-primary/15 p-1 text-left text-xs hover:bg-primary/25"
-                      style={{
-                        top,
-                        height: bottom - top,
-                        left: `${(column * 100) / columns}%`,
-                        width: `${100 / columns}%`,
-                      }}
-                    >
-                      <span className="font-medium">
-                        {timeInZone(event.start, timezone)}
-                      </span>{" "}
-                      {event.title}
-                    </button>
-                  ),
+                  ({ event, top, bottom, column, columns }) => {
+                    const height = bottom - top;
+                    return (
+                      <button
+                        key={event.occurrenceId}
+                        type="button"
+                        onClick={() => select(event)}
+                        title={`${event.title} · ${timeInZone(event.start, timezone)}`}
+                        className="absolute overflow-hidden rounded border border-primary/30 bg-primary/15 px-1.5 py-0.5 text-left text-xs leading-tight hover:bg-primary/25 min-h-[24px]"
+                        style={{
+                          top,
+                          height,
+                          left: `${(column * 100) / columns}%`,
+                          width: `${100 / columns}%`,
+                        }}
+                      >
+                        {height < 40 ? (
+                          <div className="flex items-center gap-1 min-w-0 w-full truncate">
+                            <span className="font-semibold shrink-0">
+                              {timeInZone(event.start, timezone)}
+                            </span>
+                            <span className="truncate">{event.title}</span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col min-w-0 w-full h-full overflow-hidden">
+                            <span className="font-semibold shrink-0 text-[11px]">
+                              {timeInZone(event.start, timezone)}
+                            </span>
+                            <span className="line-clamp-2 break-words text-xs mt-0.5">
+                              {event.title}
+                            </span>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  },
                 )}
               </section>
             ))}
