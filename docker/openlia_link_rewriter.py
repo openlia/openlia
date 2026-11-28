@@ -44,7 +44,7 @@ def rewrite_openlia_links(text: str) -> str:
 
 
 def patch_adapter_methods(adapter_cls: type) -> None:
-    """Patch send, edit_message, and send_draft on an adapter class to rewrite links in content."""
+    """Patch send, send_for_platform, edit_message, and send_draft on an adapter class to rewrite links in content."""
     if hasattr(adapter_cls, "send") and not getattr(adapter_cls.send, "_openlia_patched", False):
         orig_send = adapter_cls.send
 
@@ -56,6 +56,20 @@ def patch_adapter_methods(adapter_cls: type) -> None:
 
         patched_send._openlia_patched = True
         adapter_cls.send = patched_send
+
+    if hasattr(adapter_cls, "send_for_platform") and not getattr(
+        adapter_cls.send_for_platform, "_openlia_patched", False
+    ):
+        orig_send_for_platform = adapter_cls.send_for_platform
+
+        @functools.wraps(orig_send_for_platform)
+        async def patched_send_for_platform(self, platform, chat_id: str, content: str, *args, **kwargs):
+            if isinstance(content, str):
+                content = rewrite_openlia_links(content)
+            return await orig_send_for_platform(self, platform, chat_id, content, *args, **kwargs)
+
+        patched_send_for_platform._openlia_patched = True
+        adapter_cls.send_for_platform = patched_send_for_platform
 
     if hasattr(adapter_cls, "edit_message") and not getattr(adapter_cls.edit_message, "_openlia_patched", False):
         orig_edit = adapter_cls.edit_message
@@ -83,7 +97,7 @@ def patch_adapter_methods(adapter_cls: type) -> None:
 
 
 def install_gateway_rewriter() -> None:
-    """Install transparent rewriting hooks into Hermes gateway components."""
+    """Install transparent rewriting hooks into Hermes gateway, cron, and send_message components."""
     # 1. BasePlatformAdapter and all its subclasses
     try:
         from gateway.platforms.base import BasePlatformAdapter
@@ -104,7 +118,7 @@ def install_gateway_rewriter() -> None:
     except Exception:
         pass
 
-    # 2. Patch DeliveryRouter for cron and background job delivery
+    # 2. Patch DeliveryRouter (both deliver and _deliver_to_platform used by cron live delivery)
     try:
         from gateway.delivery import DeliveryRouter
 
@@ -119,10 +133,71 @@ def install_gateway_rewriter() -> None:
 
             patched_deliver._openlia_patched = True
             DeliveryRouter.deliver = patched_deliver
+
+        if hasattr(DeliveryRouter, "_deliver_to_platform") and not getattr(
+            DeliveryRouter._deliver_to_platform, "_openlia_patched", False
+        ):
+            orig_deliver_to_platform = DeliveryRouter._deliver_to_platform
+
+            @functools.wraps(orig_deliver_to_platform)
+            async def patched_deliver_to_platform(self, target, content: str, *args, **kwargs):
+                if isinstance(content, str):
+                    content = rewrite_openlia_links(content)
+                return await orig_deliver_to_platform(self, target, content, *args, **kwargs)
+
+            patched_deliver_to_platform._openlia_patched = True
+            DeliveryRouter._deliver_to_platform = patched_deliver_to_platform
     except Exception:
         pass
 
-    # 3. Patch api_server._resolve_media_to_data_urls for OpenAI API server responses
+    # 3. Patch cron.scheduler_delivery._deliver_result for cron job delivery (live, standalone, and queued)
+    try:
+        from cron import scheduler_delivery
+
+        if hasattr(scheduler_delivery, "_deliver_result") and not getattr(
+            scheduler_delivery._deliver_result, "_openlia_patched", False
+        ):
+            orig_cron_deliver = scheduler_delivery._deliver_result
+
+            @functools.wraps(orig_cron_deliver)
+            def patched_cron_deliver(job: dict, content: str, *args, **kwargs):
+                if isinstance(content, str):
+                    content = rewrite_openlia_links(content)
+                return orig_cron_deliver(job, content, *args, **kwargs)
+
+            patched_cron_deliver._openlia_patched = True
+            scheduler_delivery._deliver_result = patched_cron_deliver
+
+            import sys
+
+            if "cron.scheduler" in sys.modules:
+                sched_mod = sys.modules["cron.scheduler"]
+                if hasattr(sched_mod, "_deliver_result"):
+                    sched_mod._deliver_result = patched_cron_deliver
+    except Exception:
+        pass
+
+    # 4. Patch tools.send_message_tool._send_to_platform for standalone cron and send_message tool
+    try:
+        from tools import send_message_tool
+
+        if hasattr(send_message_tool, "_send_to_platform") and not getattr(
+            send_message_tool._send_to_platform, "_openlia_patched", False
+        ):
+            orig_send_to_platform = send_message_tool._send_to_platform
+
+            @functools.wraps(orig_send_to_platform)
+            async def patched_send_to_platform(platform, pconfig, chat_id, message, *args, **kwargs):
+                if isinstance(message, str):
+                    message = rewrite_openlia_links(message)
+                return await orig_send_to_platform(platform, pconfig, chat_id, message, *args, **kwargs)
+
+            patched_send_to_platform._openlia_patched = True
+            send_message_tool._send_to_platform = patched_send_to_platform
+    except Exception:
+        pass
+
+    # 5. Patch api_server._resolve_media_to_data_urls for OpenAI API server responses
     try:
         from gateway.platforms import api_server
 

@@ -92,6 +92,12 @@ func (p *ProfileOperator) seedInstructions() error {
 				if renderErr != nil {
 					return renderErr
 				}
+				if workspaceUIEnabled(p.Config) || p.Config.WorkspaceUIPublicOrigin != "" {
+					updated, renderErr = renderWorkspaceLinksBlock(updated)
+					if renderErr != nil {
+						return renderErr
+					}
+				}
 				if string(updated) != string(data) {
 					if err := AtomicWriteFile(destination, updated, 0o600); err != nil {
 						return err
@@ -292,7 +298,7 @@ func renderWorkspaceLinksBlock(data []byte) ([]byte, error) {
 		workspaceLinksBlockStart,
 		"## Workspace and skill links",
 		"",
-		"- Use canonical URIs for document links: `openlia://workspace/<path>` for workspace files and `openlia://skills/<path>` for Hermes skills. Relative Markdown links resolve within the current scope. Never embed environment-specific HTTP origins in workspace or skill files.",
+		"- Use canonical URIs for document links: `openlia://workspace/<path>` for workspace files and `openlia://skills/<path>` for Hermes skills. Relative Markdown links resolve within the current scope. Never embed environment-specific HTTP origins or raw `/opt/data/workspace/...` paths as user-facing links.",
 		workspaceLinksBlockEnd,
 	}
 	start, end := -1, -1
@@ -300,18 +306,18 @@ func renderWorkspaceLinksBlock(data []byte) ([]byte, error) {
 		switch strings.TrimSpace(line) {
 		case workspaceLinksBlockStart:
 			if start >= 0 {
-				return nil, fmt.Errorf("AGENTS.md contains duplicate managed workspace links blocks")
+				return nil, fmt.Errorf("instruction file contains duplicate managed workspace links blocks")
 			}
 			start = index
 		case workspaceLinksBlockEnd:
 			if start < 0 || end >= 0 {
-				return nil, fmt.Errorf("AGENTS.md contains an invalid managed workspace links block")
+				return nil, fmt.Errorf("instruction file contains an invalid managed workspace links block")
 			}
 			end = index
 		}
 	}
 	if start >= 0 && end < 0 {
-		return nil, fmt.Errorf("AGENTS.md contains an incomplete managed workspace links block")
+		return nil, fmt.Errorf("instruction file contains an incomplete managed workspace links block")
 	}
 	if start >= 0 {
 		updated := append([]string{}, lines[:start]...)
