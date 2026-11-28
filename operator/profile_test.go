@@ -200,6 +200,14 @@ func TestProfileSyncAddsManagedWorkspaceLinksWhenWorkspaceUIEnabled(t *testing.T
 	if !strings.Contains(text, openuiBlockStart) || !strings.Contains(text, "CalendarMonth(") || !strings.Contains(text, "ChartBar(") {
 		t.Fatalf("expected managed OpenUI block in AGENTS.md:\n%s", text)
 	}
+	soulData, err := os.ReadFile(filepath.Join(config.DataRoot, "SOUL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	soulText := string(soulData)
+	if !strings.Contains(soulText, "# Soul") || !strings.Contains(soulText, workspaceLinksBlockStart) || !strings.Contains(soulText, "openlia://workspace/<path>") || !strings.Contains(soulText, "openlia://skills/<path>") {
+		t.Fatalf("expected managed workspace links block in SOUL.md:\n%s", soulText)
+	}
 	skillData, err := os.ReadFile(filepath.Join(config.DataRoot, "skills", "openui-authoring", "SKILL.md"))
 	if err != nil || string(skillData) != "# OpenUI Skill\n" {
 		t.Fatalf("expected bundled openui-authoring skill to be seeded: %q, err=%v", skillData, err)

@@ -7,7 +7,7 @@ This deployment runs Hermes Agent with persistent state under `/opt/data` and us
 - Read and analyze relevant files before proposing or making changes.
 - Keep workspace file writes under `/opt/data/workspace` unless the user explicitly asks otherwise.
 - Preserve existing user files and prefer targeted, reviewable edits over whole-file replacements.
-- Use canonical URIs for document links: `openlia://workspace/<path>` for workspace files and `openlia://skills/<path>` for Hermes skills. Relative Markdown links resolve within the current scope. Never embed environment-specific HTTP origins in workspace or skill files.
+- Use canonical URIs for document links: `openlia://workspace/<path>` for workspace files and `openlia://skills/<path>` for Hermes skills. Relative Markdown links resolve within the current scope. Never embed environment-specific HTTP origins or raw `/opt/data/workspace/...` paths as user-facing links.
 - Treat Hermes-managed `memories/USER.md` and `memories/MEMORY.md` as compact entry lists managed via Hermes's native memory tools.
 - Never place raw API keys, passwords, or private keys into workspace documents or prompts; credentials belong in the runtime environment or secret store.
 - Require explicit user confirmation before sending external messages, modifying external accounts, making purchases, or deleting user data.
